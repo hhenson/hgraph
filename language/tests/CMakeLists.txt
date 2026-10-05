@@ -667,7 +667,7 @@ add_test(
     COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/wiring/recursive-structs.hgl
 )
 set_tests_properties(hgraph_language_test_recursive_structs PROPERTIES
-    PASS_REGULAR_EXPRESSION "9 tests, 0 failed"
+    PASS_REGULAR_EXPRESSION "10 tests, 0 failed"
 )
 
 # Every guide example that declares a `test` block runs under `hgl test`
@@ -781,6 +781,7 @@ if(UNIX)
             --part ${HGRAPH_STD}/tests/growing_list_values.hgl
             --part ${HGRAPH_STD}/tests/rolling_values.hgl
             --part ${HGRAPH_STD}/tests/optional_atomic_values.hgl
+            --part ${HGRAPH_STD}/tests/recursive_atomic_values.hgl
             --part ${HGRAPH_STD}/tests/temporal_structural_values.hgl
             --part ${HGRAPH_STD}/tests/temporal_retention_values.hgl
             --part ${HGRAPH_STD}/tests/recursive_eval_values.hgl

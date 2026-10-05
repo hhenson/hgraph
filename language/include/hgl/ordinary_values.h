@@ -34,6 +34,10 @@ namespace hgl::ordinary
             hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta(),
             hgraph::scalar_descriptor<hgraph::ZonedTime>::value_meta()};
         if (schema->is_enum() || std::ranges::find(leaves, schema) != leaves.end()) { return; }
+        if (schema->is_owned()) {
+            if (!visiting.contains(schema->element_type)) { validate_atomic_schema(schema->element_type, visiting); }
+            return;
+        }
         if (!visiting.insert(schema).second) { throw std::invalid_argument("recursive atomic publication payload"); }
         const auto kind = schema->try_value_kind();
         if (kind == hgraph::ValueTypeKind::List && !schema->is_variadic_tuple() && !hgraph::TypeRegistry::is_array(schema)) {
@@ -79,24 +83,39 @@ namespace hgl::ordinary
 
     using OptionalField = std::function<bool(const hgraph::ValueTypeMetaData *, std::size_t)>;
 
-    inline void validate_complete_value(const hgraph::ValueView &value, const OptionalField &optional = {}) {
-        if (!value.valid()) { throw std::invalid_argument("incomplete atomic publication payload"); }
-        const auto kind = value.schema()->try_value_kind();
-        if (kind == hgraph::ValueTypeKind::Map) {
-            for (const auto [key, child] : value.as_map()) { validate_scalar_key(key); validate_complete_value(child, optional); }
-        } else if (kind == hgraph::ValueTypeKind::Set) {
-            for (const auto key : value.as_set()) { validate_scalar_key(key); }
-        } else if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
-            const auto *ops = hgraph::checked_value_ops<hgraph::IndexedValueOps>(value.binding(), "atomic publication value");
-            const auto count = ops->size(ops->context, value.data());
-            for (std::size_t index = 0; index < count; ++index) {
-                const hgraph::ValueView child{ops->element_binding(ops->context, value.data(), index),
-                    ops->element_at(ops->context, value.data(), index)};
-                if (!child.valid() || (ops->element_valid != nullptr && !ops->element_valid(ops->context, value.data(), index))) {
-                    if (kind == hgraph::ValueTypeKind::Bundle && optional && optional(value.schema(), index)) { continue; }
-                    throw std::invalid_argument("incomplete atomic publication payload");
+    inline void validate_complete_value(const hgraph::ValueView &root, const OptionalField &optional = {}) {
+        struct Frame { hgraph::ValueTypeRef binding; const void *data; bool leaving{false}; };
+        std::vector<Frame> pending{{root.binding(), root.data()}};
+        std::unordered_set<const void *> ancestors;
+        while (!pending.empty()) {
+            const auto frame = pending.back();
+            pending.pop_back();
+            if (frame.leaving) { ancestors.erase(frame.data); continue; }
+            const auto value = hgraph::ValueView{frame.binding, frame.data}.concrete();
+            if (!value.valid()) { throw std::invalid_argument("incomplete atomic publication payload"); }
+            // Only indirect edges can form value cycles. Inline children may
+            // share their parent's address, so tracking every field is wrong.
+            if (frame.binding.schema()->is_owned()) {
+                if (!ancestors.insert(value.data()).second) { throw std::invalid_argument("cyclic atomic publication payload"); }
+                pending.push_back({value.binding(), value.data(), true});
+            }
+            const auto kind = value.schema()->try_value_kind();
+            if (kind == hgraph::ValueTypeKind::Map) {
+                for (const auto [key, child] : value.as_map()) { validate_scalar_key(key); pending.push_back({child.binding(), child.data()}); }
+            } else if (kind == hgraph::ValueTypeKind::Set) {
+                for (const auto key : value.as_set()) { validate_scalar_key(key); }
+            } else if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
+                const auto *ops = hgraph::checked_value_ops<hgraph::IndexedValueOps>(value.binding(), "atomic publication value");
+                const auto count = ops->size(ops->context, value.data());
+                for (std::size_t index = 0; index < count; ++index) {
+                    const hgraph::ValueView child{ops->element_binding(ops->context, value.data(), index),
+                        ops->element_at(ops->context, value.data(), index)};
+                    if (!child.valid() || (ops->element_valid != nullptr && !ops->element_valid(ops->context, value.data(), index))) {
+                        if (kind == hgraph::ValueTypeKind::Bundle && optional && optional(value.schema(), index)) { continue; }
+                        throw std::invalid_argument("incomplete atomic publication payload");
+                    }
+                    pending.push_back({child.binding(), child.data()});
                 }
-                validate_complete_value(child, optional);
             }
         }
     }
@@ -244,6 +263,7 @@ namespace hgl::ordinary
     // Called only while preparing a concrete node, never from a hook.
     inline hgraph::ValueTypeRef storage_binding(const hgraph::ValueTypeMetaData *schema) {
         auto &factory = hgraph::ValuePlanFactory::instance();
+        if (schema->is_owned()) { return factory.type_for(schema); }
         const auto kind = schema->try_value_kind();
         if (kind == hgraph::ValueTypeKind::List) {
             const auto element = storage_binding(schema->element_type);
@@ -271,6 +291,7 @@ namespace hgl::ordinary
         PreparedValuePlan() = default;
         explicit PreparedValuePlan(const hgraph::ValueTypeMetaData *schema) : PreparedValuePlan(storage_binding(schema)) {}
         explicit PreparedValuePlan(hgraph::ValueTypeRef binding) : binding_{binding} {
+            if (binding.schema()->is_owned()) { return; }
             const auto kind = binding.schema()->try_value_kind();
             if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) {
                 indexed_ = hgraph::checked_value_ops<hgraph::IndexedValueOps>(binding, "HGL ordinary indexed value");

@@ -242,3 +242,43 @@ TEST_CASE("rolling arrival payloads preserve exact cold origin metadata", "[ordi
     CHECK(list_plan.len(arrival_plan.payload(retained.view())) == 1);
     CHECK(origin_source(origin_schema(shape)) == shape);
 }
+
+TEST_CASE("recursive atomic plans retain finite owned trees and validate descendants", "[ordinary][recursive]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *list = registry.list(integer);
+    const auto *node = registry.recursive_bundle("ordinary.recursive", "Node",
+        {{"value", integer}, {"items", list}, {"next", nullptr}});
+    const PreparedValuePlan plan{node}, list_plan{list};
+    const OptionalField optional = [node](const ValueTypeMetaData *schema, std::size_t index) {
+        return schema == node && index == 2;
+    };
+    CHECK_NOTHROW(validate_delta_shape(registry.ts(node)));
+    auto items = list_plan.empty_list();
+    list_plan.push(items.view(), Value{Int{1}}.view());
+    const Value one{Int{1}}, two{Int{2}};
+    std::array leaf_fields{std::pair<std::size_t, ValueView>{0, one.view()},
+        std::pair<std::size_t, ValueView>{1, items.view()}};
+    auto leaf = plan.bundle(leaf_fields);
+    std::array root_fields{std::pair<std::size_t, ValueView>{0, two.view()},
+        std::pair<std::size_t, ValueView>{1, items.view()},
+        std::pair<std::size_t, ValueView>{2, leaf.view()}};
+    auto root = plan.bundle(root_fields);
+    auto retained = plan.retain(root.view());
+    CHECK_NOTHROW(validate_complete_value(root.view(), optional));
+    CHECK_THROWS_AS(validate_complete_value(root.view()), std::invalid_argument);
+    list_plan.push(items.view(), two.view());
+    plan.replace_index(leaf.view(), 0, two.view());
+    CHECK(root.equals(retained));
+    const auto child = root.as_bundle().field("next").concrete();
+    CHECK(child.as_bundle().field("value").checked_as<Int>() == 1);
+    CHECK(child.as_bundle().field("items").as_list().size() == 1);
+    Value incomplete{storage_binding(node)};
+    std::array bad_fields{std::pair<std::size_t, ValueView>{0, one.view()},
+        std::pair<std::size_t, ValueView>{1, items.view()},
+        std::pair<std::size_t, ValueView>{2, incomplete.view()}};
+    auto bad = plan.bundle(bad_fields);
+    CHECK_THROWS_AS(validate_complete_value(bad.view(), optional), std::invalid_argument);
+}

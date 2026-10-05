@@ -161,3 +161,12 @@ TEST_CASE("the recursive-fields example agrees with hgl test", "[codegen][genera
         CHECK_OUTPUT((eval_node<example::operators::left_value, TS<ExampleTree>>(values<Value>(tree_value))), values<Int>(2));
     }
 }
+
+TEST_CASE("generated generic recursive publications preserve trees and silence", "[codegen][generated][recursive]") {
+    hgl::wiring::ensure_session();
+    recursive::register_operators();
+    auto arrivals = values<Value>(chain({1, 2, 3}), chain({1, 2, 3}), none, chain({9}), none);
+    CHECK_OUTPUT((eval_node<recursive::operators::recursive_publication_forward, TS<RecursiveNode>>(arrivals)), arrivals);
+    CHECK_FALSE(arrivals[0]->equals(chain({1, 2, 4})));
+    CHECK_FALSE(arrivals[0]->equals(chain({1, 2})));
+}

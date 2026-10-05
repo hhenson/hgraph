@@ -3817,7 +3817,7 @@ namespace hgl::ir
                                                  .identity = module_.path + "." + module_.symbol(target).name};
             }
 
-            bool admitted_atomic_value(TypeId id, std::unordered_set<std::uint32_t> &visiting) {
+            bool admitted_atomic_value(TypeId id, std::unordered_set<std::uint32_t> &visiting, bool recursive_edge = false) {
                 id = canonical(id);
                 if (!id.valid()) { return false; }
                 const Type shape = type(id);
@@ -3826,9 +3826,9 @@ namespace hgl::ir
                     (module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter ||
                      module_.symbol(shape.symbol).kind == SymbolKind::Enum)) { return true; }
                 if (shape.kind == TypeKind::Atomic && shape.children.size() == 1U) {
-                    return admitted_atomic_value(shape.children.front(), visiting);
+                    return admitted_atomic_value(shape.children.front(), visiting, recursive_edge);
                 }
-                if (!visiting.insert(id.value).second) { return false; }
+                if (!visiting.insert(id.value).second) { return recursive_edge; }
                 bool admitted = false;
                 if (shape.kind == TypeKind::Tuple || shape.kind == TypeKind::List) {
                     admitted = true;
@@ -3847,8 +3847,8 @@ namespace hgl::ir
                         const auto fields = structure ? structure->fields : imported->fields;
                         for (const auto &field : fields) {
                             const auto field_type = constraint_solver_.field_type({}, id, field.name);
-                            admitted = admitted && !field.recursive && field_type &&
-                                       admitted_atomic_value(*field_type, visiting);
+                            admitted = admitted && field_type &&
+                                       admitted_atomic_value(*field_type, visiting, field.recursive);
                         }
                     }
                 }
