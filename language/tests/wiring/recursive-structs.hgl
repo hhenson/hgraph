@@ -97,12 +97,3 @@ test temporal_shape {
     assert eval(unwrapped_value, x: [2]) == [2]
     assert eval(wrapped_value, x: [1]) == [1]
 }
-
-fn publication_forward<T>(value: T) -> T { when { return delta_value(value) } }
-export fn recursive_publication_forward(value: atomic<Node>) -> atomic<Node> => publication_forward(value)
-
-test recursive_publication_replaces_tree_with_leaf {
-    let deep = Node(value: 1, next: Node(value: 2, next: Node(value: 3)))
-    let leaf = Node(value: 9)
-    assert eval(recursive_publication_forward, [deep, deep, _, leaf, _]) == [deep, deep, _, leaf, _]
-}

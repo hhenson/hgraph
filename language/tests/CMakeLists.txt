@@ -408,7 +408,7 @@ hgl_add_module(hgl_codegen_fixture STATIC SOURCE_PARTS 3 HGL
 hgl_apply_warnings(hgl_codegen_fixture)
 hgl_add_module(hgl_structural_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/structural-types.hgl)
 hgl_apply_warnings(hgl_structural_fixture)
-hgl_add_module(hgl_recursive_fixture STATIC HGL wiring/recursive-structs.hgl ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/recursive-fields.hgl)
+hgl_add_module(hgl_recursive_fixture STATIC HGL wiring/recursive-structs.hgl wiring/recursive-publications.hgl ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/recursive-fields.hgl)
 hgl_apply_warnings(hgl_recursive_fixture)
 hgl_add_module(hgl_generic_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/operators-and-generics.hgl)
 hgl_apply_warnings(hgl_generic_fixture)
@@ -667,8 +667,19 @@ add_test(
     COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/wiring/recursive-structs.hgl
 )
 set_tests_properties(hgraph_language_test_recursive_structs PROPERTIES
-    PASS_REGULAR_EXPRESSION "10 tests, 0 failed"
+    PASS_REGULAR_EXPRESSION "9 tests, 0 failed"
 )
+# Compute-node HGL uses the Unix scripted loader. Its generated C++ is
+# compiled and tested on every platform, including Windows.
+if(UNIX)
+    add_test(
+        NAME hgraph_language_test_recursive_publications
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/wiring/recursive-publications.hgl
+    )
+    set_tests_properties(hgraph_language_test_recursive_publications PROPERTIES
+        PASS_REGULAR_EXPRESSION "1 test, 0 failed"
+    )
+endif()
 
 # Every guide example that declares a `test` block runs under `hgl test`
 # (developer guide, "Documentation examples"; examples/README.md). Discovery
