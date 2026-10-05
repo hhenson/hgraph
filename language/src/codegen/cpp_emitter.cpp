@@ -6800,8 +6800,8 @@ namespace hgl::codegen
             frame.reachable = planned.concise_body.valid() ? gir::binding_uses(graph_, planned.concise_body)
                                                            : reachable_in(planned.block_body);
             out.open("");
-            current_body_ = &out;
-            active_uses_  = &frame.used;
+            Writer *previous_body = std::exchange(current_body_, &out);
+            auto *previous_uses = std::exchange(active_uses_, &frame.used);
             if (planned.concise_body.valid() == planned.block_body.valid()) {
                 backend(planned.range, "hgraph IR callable '" + std::string{callable_name(decl)} +
                                            "' must have exactly one concise or block body");
@@ -6813,8 +6813,8 @@ namespace hgl::codegen
             } else {
                 emit_planned_block(planned.block_body, frame, out, true, planned.range);
             }
-            current_body_ = nullptr;
-            active_uses_  = nullptr;
+            current_body_ = previous_body;
+            active_uses_ = previous_uses;
             out.replace_first(compose_placeholder, signature(decl, &frame.used));
             out.close();
             if (form == Form::InlineStruct) { out.close(";"); }
