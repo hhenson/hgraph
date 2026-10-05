@@ -716,3 +716,38 @@ TEST_CASE("composite provider keys retain one cold initializer across aliases", 
     }
     CHECK(provider->contains_calls == 1);
 }
+
+TEST_CASE("generated family registration includes unused concrete members", "[codegen][runtime][family]") {
+    session();
+    const auto *family = scalar_descriptor<runtime::NativeUnusedFamily::value_type>::value_meta();
+    const auto snapshot = TypeRealizationSnapshot::capture(TypeRegistry::instance());
+    const auto &members = snapshot->alternatives(family);
+    REQUIRE(members.size() == 1);
+    CHECK(members.front()->name() == "hgl.codegen.runtime::NativeUnusedMember");
+}
+
+TEST_CASE("generated family plans capture providers installed after their module", "[codegen][runtime][family]") {
+    session();
+    using Family = runtime::NativeLateFamily::value_type;
+    const auto register_member = [] {
+        return TypeRegistry::instance().bundle("native.late", "Member", {{"label", scalar_descriptor<Str>::value_meta()}},
+            {scalar_descriptor<Family>::value_meta()});
+    };
+    auto provider = OperatorRegistry::instance().register_installer("native.late", [register_member] { (void)register_member(); });
+    const auto *member = register_member();
+    BundleBuilder builder{ValuePlanFactory::instance().type_for(member)};
+    builder.set(0, Value{Str{"late"}}.view());
+    const auto concrete = builder.build();
+    const auto captured = runtime::hgl_values::native_late_capture_hgl_value(concrete.view());
+    CHECK(captured.view().concrete().schema() == member);
+    CHECK_OUTPUT((eval_node<runtime::operators::native_late_forward, TS<Family>>(values<Value>(captured, none, captured))),
+                 values<Value>(captured, none, captured));
+    CHECK(OperatorRegistry::instance().remove_provider(provider));
+}
+
+TEST_CASE("generated ordinary subfamilies retain their live concrete member", "[codegen][runtime][family]") {
+    session();
+    const auto captured = runtime::hgl_values::native_subfamily_capture_hgl_value();
+    CHECK(captured.view().concrete().schema() == scalar_descriptor<runtime::NativePublicationLeaf::value_type>::value_meta());
+    CHECK(captured.view().concrete().as_bundle().field("items").as_list().size() == 1);
+}

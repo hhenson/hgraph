@@ -354,7 +354,10 @@ namespace hgl::ordinary
         [[nodiscard]] const PreparedValuePlan &field_plan(std::size_t index) const { return fields_.at(index); }
         [[nodiscard]] hgraph::ValueTypeRef element_binding() const noexcept { return element_; }
         [[nodiscard]] hgraph::ValueTypeRef key_binding() const noexcept { return key_; }
-        [[nodiscard]] hgraph::Value retain(const hgraph::ValueView &value) const { return hgraph::Value{binding_, value}; }
+        [[nodiscard]] hgraph::Value retain(const hgraph::ValueView &value) const {
+            if (binding_.schema()->is_abstract_bundle()) { return hgraph::Value{binding_, value.concrete()}; }
+            return hgraph::Value{binding_, value};
+        }
         [[nodiscard]] hgraph::Value empty_list() const { return hgraph::Value{binding_}; }
         [[nodiscard]] hgraph::Value bundle(std::span<const std::pair<std::size_t, hgraph::ValueView>> fields) const {
             hgraph::BundleBuilder result{binding_};

@@ -655,3 +655,21 @@ const fn native_zone_key_recipe() -> delta<set<NativeZoneKey>> {
     let alias = key
     return delta<set<NativeZoneKey>>(added: [alias])
 }
+
+abstract struct NativeUnusedFamily { label: str }
+struct NativeUnusedMember: NativeUnusedFamily { number: i64 }
+export fn native_unused_forward(value: atomic<NativeUnusedFamily>) -> atomic<NativeUnusedFamily> => enum_generic_forward(value)
+
+abstract struct NativeLateFamily { label: str }
+const fn native_late_capture(value: NativeLateFamily) -> NativeLateFamily => value
+export fn native_late_forward(value: atomic<NativeLateFamily>) -> atomic<NativeLateFamily> { when { return delta_value(value) } }
+
+abstract struct NativePublicationMiddle: NativePublicationFamily {}
+struct NativePublicationLeaf: NativePublicationMiddle { items: list<i64> }
+const fn native_subfamily_capture() -> NativePublicationFamily {
+    var child = NativePublicationLeaf(label: "nested", items: [1])
+    let middle: NativePublicationMiddle = child
+    let ancestor: NativePublicationFamily = middle
+    push(child.items, 2)
+    return ancestor
+}
