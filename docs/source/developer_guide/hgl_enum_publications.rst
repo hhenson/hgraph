@@ -15,7 +15,9 @@ layout-independent enum contract and typed member constants. The direct backend
 uses the core's existing named enum metadata and ordinary owning Value plans.
 The generated backend publishes a distinct C++ schema marker per declaration
 and binds it to the same named enum contract. Its member values use owning
-``Value`` storage with the core enum plan; no C++ enum object is aliased as an
+``Value`` storage with the core enum plan. Typed native ``In<TS<Enum>>`` and
+``Out<TS<Enum>>`` convert explicitly between the generated ``number`` wrapper
+and the registry's integer payload; no C++ enum object is aliased as an
 integer. Generated hooks use prepared plans without registry lookups. Runtime publications use existing
 value and delta operations, with no conversion to an integer schema.
 

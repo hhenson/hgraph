@@ -510,6 +510,12 @@ export fn ordinary_configured_lengths(trigger: i64, const values: list<i64>) -> 
     }
 }
 
+fn generic_branch_copy<T>(value: T) -> T => value
+export fn generic_then_conditional(condition: bool, value: i64) -> i64 {
+    let retained = generic_branch_copy(value)
+    if condition { retained } else { value }
+}
+
 fn generic_signal_count<T>(value: T) -> i64 => count_ticks(value)
 export fn generic_scalar_signal_count(value: i64) -> i64 => generic_signal_count(value)
 export fn generic_structural_signal_count(value: list<i64, 2>) -> i64 => generic_signal_count(value)
@@ -546,6 +552,12 @@ export fn atomic_map_recipe(key: str, value: i64) -> atomic<map<str, list<i64>>>
 }
 export fn atomic_set_recipe(first: str, second: str) -> atomic<set<str>> {
     when { return set<str>(items: [first, second]) }
+}
+struct DefaultChild { amount: i64 = 7
+    values: list<i64> = [] }
+struct DefaultParent { children: map<str, DefaultChild> = map<str, DefaultChild>(items: ["x": DefaultChild(amount: 42)]) }
+export fn atomic_struct_map_default(trigger: i64) -> atomic<DefaultParent> {
+    when { return DefaultParent() }
 }
 struct RuntimeCollections { values: map<str, list<i64>> = map<str, list<i64>>(items: ["empty": []]) }
 export fn atomic_collection_default(trigger: i64) -> atomic<RuntimeCollections> {
