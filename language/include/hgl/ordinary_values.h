@@ -45,6 +45,12 @@ namespace hgl::ordinary
         visiting.erase(schema);
     }
 
+    inline void validate_scalar_key(const hgraph::ValueView &key) {
+        if (key.schema() == hgraph::scalar_descriptor<hgraph::Float>::value_meta() && std::isnan(key.checked_as<hgraph::Float>())) {
+            throw std::invalid_argument("NaN collection keys are outside the publication profile");
+        }
+    }
+
     // One owning hash set spans every argument in a delta recipe. This catches
     // duplicates and overlap after provider-dependent keys become real values.
     class ScalarKeySet {
@@ -52,9 +58,7 @@ namespace hgl::ordinary
         explicit ScalarKeySet(hgraph::ValueTypeRef binding) : binding_{binding}, seen_{binding} {}
         void insert(const hgraph::ValueView &key) {
             if (key.schema() != binding_.schema()) { throw std::invalid_argument("delta key requires its exact declared type"); }
-            if (key.schema() == hgraph::scalar_descriptor<hgraph::Float>::value_meta() && std::isnan(key.checked_as<hgraph::Float>())) {
-                throw std::invalid_argument("NaN collection keys are outside the publication profile");
-            }
+            validate_scalar_key(key);
             if (!seen_.insert(key)) { throw std::invalid_argument("duplicate or overlapping delta member, key or index"); }
         }
       private:
@@ -65,7 +69,11 @@ namespace hgl::ordinary
     inline void validate_complete_value(const hgraph::ValueView &value) {
         if (!value.valid()) { throw std::invalid_argument("incomplete atomic publication payload"); }
         const auto kind = value.schema()->try_value_kind();
-        if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
+        if (kind == hgraph::ValueTypeKind::Map) {
+            for (const auto [key, child] : value.as_map()) { validate_scalar_key(key); validate_complete_value(child); }
+        } else if (kind == hgraph::ValueTypeKind::Set) {
+            for (const auto key : value.as_set()) { validate_scalar_key(key); }
+        } else if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
             const auto *ops = hgraph::checked_value_ops<hgraph::IndexedValueOps>(value.binding(), "atomic publication value");
             const auto count = ops->size(ops->context, value.data());
             for (std::size_t index = 0; index < count; ++index) {
