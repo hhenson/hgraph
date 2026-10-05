@@ -16,7 +16,16 @@ namespace hgl::wiring {
             using namespace hgraph;
             switch (shape->kind) {
                 case TSTypeKind::TS:
-                case TSTypeKind::TSW: ordinary::validate_complete_value(native, optional); return;
+                case TSTypeKind::TSW: {
+                    if (shape->delta_value_schema->is_abstract_bundle()) {
+                        const auto family = value_type_for_wiring(shape->delta_value_schema);
+                        const auto concrete = native.concrete();
+                        require(concrete.valid() && family.ops_ref().accepts_source(family, concrete.binding()),
+                                "publication is not a concrete member of its declared family");
+                    }
+                    ordinary::validate_complete_value(native, optional);
+                    return;
+                }
                 case TSTypeKind::TSS: {
                     const auto parts = native.as_bundle();
                     const auto added = parts.at(0).as_set();

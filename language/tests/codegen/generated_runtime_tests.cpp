@@ -654,3 +654,22 @@ TEST_CASE("generated complete optional snapshots replace field presence", "[code
     using Payload = runtime::NativeOptionalPublication::value_type;
     CHECK_OUTPUT((eval_node<runtime::operators::optional_publication_forward, TS<Payload>>(recorded)), recorded);
 }
+
+TEST_CASE("generated family publications retain concrete tags and optional fields", "[codegen][runtime][family]") {
+    session();
+    const auto recorded = eval_node<runtime::operators::native_family_source>(values<Int>(1, 2, 2, 1));
+    REQUIRE(recorded.size() == 4);
+    for (const auto &value : recorded) { REQUIRE(value); }
+    const auto first = recorded[0]->view().concrete();
+    const auto second = recorded[1]->view().concrete();
+    CHECK(first.schema() == scalar_descriptor<runtime::NativePublicationFirst::value_type>::value_meta());
+    CHECK(second.schema() == scalar_descriptor<runtime::NativePublicationSecond::value_type>::value_meta());
+    CHECK_FALSE(first.as_bundle().element_valid(2));
+    CHECK(second.as_bundle().field("count").checked_as<Int>() == 0);
+    CHECK_FALSE(recorded[0]->equals(*recorded[1]));
+    CHECK(recorded[1]->equals(*recorded[2]));
+    using Family = runtime::NativePublicationFamily::value_type;
+    CHECK_OUTPUT((eval_node<runtime::operators::native_family_forward, TS<Family>>(recorded)), recorded);
+    const auto cold = runtime::hgl_values::native_family_capture_hgl_value();
+    CHECK(cold.view().concrete().schema() == first.schema());
+}

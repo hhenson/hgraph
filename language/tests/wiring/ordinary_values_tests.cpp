@@ -291,3 +291,24 @@ TEST_CASE("recursive atomic plans retain finite owned trees and validate descend
     const PreparedValuePlan edge_items_plan{edge_items.binding()};
     CHECK_THROWS_WITH(edge_items_plan.push(edge_items, two.view()), "ordinary list storage does not support growth");
 }
+
+TEST_CASE("family preflight rejects unrelated native payloads before publication", "[ordinary][family]") {
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *family = registry.bundle("ordinary.family", "Family", {{"value", integer}}, {}, true);
+    const auto *member = registry.bundle("ordinary.family", "Member", {{"value", integer}}, {family});
+    const auto *other = registry.bundle("ordinary.family", "Other", {{"value", integer}});
+    Value accepted{hgl::ordinary::storage_binding(member)};
+    accepted.as_bundle().begin_mutation().at(0).set(Int{1});
+    Value rejected{hgl::ordinary::storage_binding(other)};
+    rejected.as_bundle().begin_mutation().at(0).set(Int{1});
+    hgl::wiring::DeltaTrace trace;
+    CHECK_NOTHROW(trace.accept(registry.ts(family), accepted.view()));
+    CHECK_THROWS_WITH(trace.accept(registry.ts(family), rejected.view()),
+        "publication is not a concrete member of its declared family");
+    const hgl::ordinary::PreparedValuePlan plan{family};
+    auto retained = plan.retain(accepted.view());
+    CHECK(retained.view().concrete().schema() == member);
+    CHECK(plan.index(retained.view(), 0).checked_as<Int>() == 1);
+}

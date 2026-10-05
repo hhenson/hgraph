@@ -3,6 +3,7 @@
 
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/temporal.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/value/mutable_container_ops.h>
 #include <hgraph/types/value/value_builder.h>
 
@@ -35,12 +36,16 @@ namespace hgl::ordinary
             hgraph::scalar_descriptor<hgraph::ZonedTime>::value_meta()};
         if (schema->is_enum() || std::ranges::find(leaves, schema) != leaves.end()) { return; }
         if (schema->is_owned()) {
+            if (schema->element_type->is_abstract_bundle()) { throw std::invalid_argument("recursive family publication payload"); }
             if (!visiting.contains(schema->element_type)) { validate_atomic_schema(schema->element_type, visiting); }
             return;
         }
         if (!visiting.insert(schema).second) { throw std::invalid_argument("recursive atomic publication payload"); }
         const auto kind = schema->try_value_kind();
-        if (kind == hgraph::ValueTypeKind::List && !schema->is_variadic_tuple() && !hgraph::TypeRegistry::is_array(schema)) {
+        if (schema->is_abstract_bundle()) {
+            const auto snapshot = hgraph::TypeRealizationSnapshot::capture(hgraph::TypeRegistry::instance());
+            for (const auto *member : snapshot->alternatives(schema)) { validate_atomic_schema(member, visiting); }
+        } else if (kind == hgraph::ValueTypeKind::List && !schema->is_variadic_tuple() && !hgraph::TypeRegistry::is_array(schema)) {
             validate_atomic_schema(schema->element_type, visiting);
         } else if (kind == hgraph::ValueTypeKind::Set) {
             if (!schema->element_type->is_enum() && std::ranges::find(leaves, schema->element_type) == leaves.end()) {
@@ -264,6 +269,7 @@ namespace hgl::ordinary
     inline hgraph::ValueTypeRef storage_binding(const hgraph::ValueTypeMetaData *schema) {
         auto &factory = hgraph::ValuePlanFactory::instance();
         if (schema->is_owned()) { return factory.type_for(schema); }
+        if (schema->is_abstract_bundle()) { return hgraph::value_type_for_wiring(schema); }
         const auto kind = schema->try_value_kind();
         if (kind == hgraph::ValueTypeKind::List) {
             const auto element = storage_binding(schema->element_type);
@@ -295,7 +301,7 @@ namespace hgl::ordinary
             if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) {
                 indexed_ = hgraph::checked_value_ops<hgraph::IndexedValueOps>(binding, "HGL ordinary indexed value");
             }
-            if (binding.schema()->is_owned()) { return; }
+            if (binding.schema()->is_owned() || binding.schema()->is_abstract_bundle()) { return; }
             if (binding.ops()->kind == hgraph::ValueOpsKind::MutableList) {
                 list_ = hgraph::checked_value_ops<hgraph::MutableListValueOps>(binding, "HGL ordinary mutable list");
             }

@@ -3976,3 +3976,33 @@ TEST_CASE("complete optional snapshots retain required-field and exact-type chec
         CHECK(unit.diagnostics.has_errors());
     }
 }
+
+TEST_CASE("atomic family admission preserves membership and structural boundaries", "[ir][typed][family]") {
+    for (const std::string body : {
+        "let bad: Event<str> = First<i64>(value: 1)",
+        "let bad: Event<str> = Other(value: \"x\")",
+        "let bad = Event<str>(value: \"x\")",
+        "eval(structural, [])"}) {
+        Lowered unit{"module checks.family\nabstract struct Event<T> { value: T }\n"
+            "struct First<T>: Event<T> {}\nstruct Other { value: str }\n"
+            "fn structural(x: Event<str>) -> Event<str> => x\ntest rejected { " + body + " }\n"};
+        INFO(body);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+    Lowered admitted{R"(
+module checks.family_admitted
+abstract struct Event<T> { value: T }
+abstract struct Middle<T>: Event<list<T>> {}
+struct Leaf<T>: Middle<T> {}
+fn forward(value: atomic<Event<list<str>>>) -> atomic<Event<list<str>>> => value
+test accepted {
+    let member: Event<list<str>> = Leaf<str>(value: ["a"])
+    eval(forward, [member, _, member])
+}
+)"};
+    REQUIRE_FALSE(admitted.diagnostics.has_errors());
+    const bool result = complete(admitted);
+    INFO(admitted.diagnostics.render(admitted.file));
+    CHECK(result);
+}

@@ -1,4 +1,6 @@
 #include "ir/canonical_types.h"
+#include "ir/generic_substitution.h"
+#include <unordered_set>
 
 #include "syntax/temporal.h"
 
@@ -241,13 +243,13 @@ namespace hgl::ir::detail
         return value.kind == TypeKind::Scalar && value.scalar == ScalarType::Bool;
     }
 
-    bool CanonicalTypes::assignable(TypeId expected, TypeId actual) const noexcept {
+    bool CanonicalTypes::assignable(TypeId expected, TypeId actual) {
         expected = canonical(expected);
         actual   = canonical(actual);
         if (same(expected, actual)) { return true; }
         if (!expected.valid() || !actual.valid()) { return false; }
-        const Type &to   = module_.type(expected);
-        const Type &from = module_.type(actual);
+        const Type to   = module_.type(expected);
+        const Type from = module_.type(actual);
         if (to.kind == TypeKind::Signal) {
             switch (from.kind) {
                 case TypeKind::Scalar:
@@ -279,6 +281,53 @@ namespace hgl::ir::detail
         if (from.kind == TypeKind::Atomic && !from.children.empty()) { return assignable(expected, from.children.front()); }
         if (to.kind == TypeKind::Reference && !to.children.empty()) { return assignable(to.children.front(), actual); }
         if (from.kind == TypeKind::Reference && !from.children.empty()) { return assignable(expected, from.children.front()); }
+        if (to.kind == TypeKind::Symbol && from.kind == TypeKind::Symbol) {
+            bool family = false;
+            if (to.symbol.valid()) {
+                const auto &symbol = module_.symbol(to.symbol);
+                if (symbol.kind == SymbolKind::Struct && symbol.owner.valid()) {
+                    family = std::get<StructDecl>(module_.declaration(symbol.owner).node).abstract;
+                } else if (symbol.kind == SymbolKind::ImportedStruct) {
+                    for (const auto &decl : module_.imported_structs) {
+                        if (decl.symbol == to.symbol) { family = decl.abstract; break; }
+                    }
+                }
+            }
+            if (!family) { return false; }
+            std::vector<TypeId> pending{actual};
+            std::unordered_set<std::uint32_t> seen;
+            while (!pending.empty()) {
+                const TypeId current = canonical(pending.back());
+                pending.pop_back();
+                if (same(expected, current)) { return true; }
+                if (!seen.insert(current.value).second) { continue; }
+                const Type applied = module_.type(current);
+                if (!applied.symbol.valid()) { continue; }
+                const auto &symbol = module_.symbol(applied.symbol);
+                std::vector<GenericParameter> generics;
+                std::vector<TypeId> parents;
+                if (symbol.kind == SymbolKind::Struct && symbol.owner.valid()) {
+                    const auto &decl = std::get<StructDecl>(module_.declaration(symbol.owner).node);
+                    generics = decl.generics;
+                    parents = decl.parents;
+                } else if (symbol.kind == SymbolKind::ImportedStruct) {
+                    for (const auto &decl : module_.imported_structs) {
+                        if (decl.symbol == applied.symbol) { generics = decl.generics; parents = decl.parents; break; }
+                    }
+                }
+                GenericSubstitution substitution{module_, *this};
+                for (std::size_t index = 0; index < generics.size() && index < applied.arguments.size(); ++index) {
+                    const auto &generic = generics[index];
+                    const auto &argument = applied.arguments[index];
+                    if (generic.is_const && argument.kind == TypeArgumentKind::Value) {
+                        (void)substitution.bind_value(generic.symbol, argument.value);
+                    } else if (!generic.is_const && argument.kind == TypeArgumentKind::Type) {
+                        (void)substitution.bind_type(generic.symbol, argument.type);
+                    }
+                }
+                for (TypeId parent : parents) { pending.push_back(substitution.apply(parent)); }
+            }
+        }
         const bool sequence_pair = (to.kind == TypeKind::List || to.kind == TypeKind::HarnessSequence) &&
                                    (from.kind == TypeKind::List || from.kind == TypeKind::HarnessSequence);
         if (to.kind == TypeKind::List && from.kind == TypeKind::List && to.size.valid()) {

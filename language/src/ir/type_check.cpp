@@ -345,7 +345,7 @@ namespace hgl::ir
                 id = canonical(id);
                 return id.valid() && (type(id).kind == TypeKind::Schema || type(id).kind == TypeKind::SchemaView);
             }
-            [[nodiscard]] bool assignable(TypeId expected, TypeId actual) const noexcept {
+            [[nodiscard]] bool assignable(TypeId expected, TypeId actual) {
                 return canonical_types_.assignable(expected, actual);
             }
 
@@ -1518,6 +1518,11 @@ namespace hgl::ir
                 }
                 if (expression.type.valid() && assignable(expected, expression.type) && type(expected).kind == TypeKind::Atomic &&
                     type(expression.type).kind != TypeKind::Atomic) {
+                    // An ancestor context must not replace the concrete
+                    // constructor identity: its extra fields and tag survive.
+                    const auto inner = canonical(type(expected).children.front());
+                    if (type(inner).kind == TypeKind::Symbol && type(expression.type).kind == TypeKind::Symbol &&
+                        !same(inner, expression.type)) { return; }
                     expression.type = expected;
                 }
             }
@@ -2400,7 +2405,7 @@ namespace hgl::ir
             }
 
             [[nodiscard]] bool native_parameter_matches(detail::GenericSubstitution &bindings, TypeId parameter,
-                                                        TypeId argument) const {
+                                                        TypeId argument) {
                 // `signal` is the explicit erased-endpoint pattern. It is not
                 // an implicit value conversion: the call passes the live
                 // TSInputView and never exposes the argument payload to HGL.
@@ -3843,11 +3848,13 @@ namespace hgl::ir
                     const auto *structure = symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
                     const auto *imported = imported_struct_decl(shape.symbol);
                     if (structure || imported) {
-                        admitted = !(structure ? structure->abstract : imported->abstract);
+                        admitted = true;
+                        const bool abstract = structure ? structure->abstract : imported->abstract;
+                        admitted = !abstract || !recursive_edge;
                         const auto fields = structure ? structure->fields : imported->fields;
                         for (const auto &field : fields) {
                             const auto field_type = constraint_solver_.field_type({}, id, field.name);
-                            admitted = admitted && field_type &&
+                            admitted = admitted && (!abstract || !field.recursive) && field_type &&
                                        admitted_atomic_value(*field_type, visiting, field.recursive);
                         }
                     }
@@ -3908,7 +3915,7 @@ namespace hgl::ir
                     const auto *structure = symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
                     const auto *imported = imported_struct_decl(shape.symbol);
                     if (structure || imported) {
-                        admitted = true;
+                        admitted = !(structure ? structure->abstract : imported->abstract);
                         const auto fields = structure ? structure->fields : imported->fields;
                         for (const auto &field : fields) {
                             const auto field_type = constraint_solver_.field_type({}, id, field.name);

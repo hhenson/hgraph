@@ -541,7 +541,7 @@ namespace hgl::wiring
             }
             if (actual->try_value_kind() == hgraph::ValueTypeKind::Tuple &&
                 target->try_value_kind() == hgraph::ValueTypeKind::Tuple && actual->field_count == target->field_count) {
-                hgraph::Value result{hgraph::ValuePlanFactory::instance().type_for(target)};
+                hgraph::Value result{ordinary::storage_binding(target)};
                 auto          output = result.as_tuple().begin_mutation();
                 const auto    input  = source.view().as_tuple();
                 for (std::size_t index = 0; index < target->field_count; ++index) {
@@ -549,6 +549,11 @@ namespace hgl::wiring
                         convert(hgraph::Value{input.at(index)}, target->fields[index].type, range, role).view());
                 }
                 return result;
+            }
+            if (target->is_abstract_bundle()) {
+                const auto family = hgraph::value_type_for_wiring(target);
+                const auto input = source.view();
+                if (family.ops_ref().accepts_source(family, input.binding())) { return hgraph::Value{family, input}; }
             }
             if (target->is_owned()) {
                 // A recursive edge (ADR 0012) owns a deep copy of its target value.
@@ -562,7 +567,7 @@ namespace hgl::wiring
             }
             if (actual->try_value_kind() == hgraph::ValueTypeKind::List &&
                 target->try_value_kind() == hgraph::ValueTypeKind::List) {
-                hgraph::ListBuilder output{hgraph::ValuePlanFactory::instance().type_for(target->element_type), *target};
+                hgraph::ListBuilder output{ordinary::storage_binding(target->element_type), *target};
                 const auto          input = source.view().as_list();
                 for (std::size_t index = 0; index < input.size(); ++index) {
                     output.push_back(convert(hgraph::Value{input.at(index)}, target->element_type, range, role).view());
@@ -1288,7 +1293,7 @@ namespace hgl::wiring
                 return wire("combine_cs", {argument_of(fields, "ts")}, range, true, target);
             }
 
-            hgraph::BundleBuilder output{hgraph::ValuePlanFactory::instance().type_for(meta)};
+            hgraph::BundleBuilder output{ordinary::storage_binding(meta)};
             for (std::size_t index = 0; index < contract.fields.size(); ++index) {
                 if (!effective[index] || effective[index]->kind == Slot::Kind::Null) { continue; }
                 if (!effective[index]->is_const() && !(delta && effective[index]->kind == Slot::Kind::Delta)) {

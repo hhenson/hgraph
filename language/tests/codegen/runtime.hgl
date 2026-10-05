@@ -622,3 +622,20 @@ export fn optional_publication_source(trigger: i64) -> atomic<NativeOptionalPubl
     }
 }
 export fn optional_publication_forward(value: atomic<NativeOptionalPublication>) -> atomic<NativeOptionalPublication> => enum_generic_forward(value)
+
+abstract struct NativePublicationFamily { label: str }
+struct NativePublicationFirst: NativePublicationFamily { items: list<i64>
+    count: i64 = null }
+struct NativePublicationSecond: NativePublicationFamily { items: list<i64>
+    count: i64 = null }
+export fn native_family_forward(value: atomic<NativePublicationFamily>) -> atomic<NativePublicationFamily> => enum_generic_forward(value)
+export fn native_family_source(value: i64) -> atomic<NativePublicationFamily> {
+    when {
+        if value == 1 { return NativePublicationFirst(label: "same", items: [1]) }
+        return NativePublicationSecond(label: "same", items: [1], count: 0)
+    }
+}
+const fn native_family_capture() -> NativePublicationFamily {
+    let member: NativePublicationFamily = NativePublicationFirst(label: "cold", items: [])
+    return member
+}

@@ -782,6 +782,7 @@ if(UNIX)
             --part ${HGRAPH_STD}/tests/rolling_values.hgl
             --part ${HGRAPH_STD}/tests/optional_atomic_values.hgl
             --part ${HGRAPH_STD}/tests/recursive_atomic_values.hgl
+            --part ${HGRAPH_STD}/tests/abstract_atomic_values.hgl
             --part ${HGRAPH_STD}/tests/temporal_structural_values.hgl
             --part ${HGRAPH_STD}/tests/temporal_retention_values.hgl
             --part ${HGRAPH_STD}/tests/recursive_eval_values.hgl

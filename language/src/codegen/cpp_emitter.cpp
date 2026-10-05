@@ -2428,6 +2428,8 @@ namespace hgl::codegen
                 (target.kind == HType::Kind::Atomic && same_type(value.type, target.children.front()))) {
                 return value.code;
             }
+            if (value.ordinary_value && value.type.kind == HType::Kind::Struct && target.kind == HType::Kind::Struct &&
+                planned_structure(target.nominal_identity, range).abstract) { return value.code; }
             if (value.type.is(hir::ScalarType::I64) && target.is(hir::ScalarType::F64)) {
                 return "static_cast<hgraph::Float>(" + value.code + ")";
             }
@@ -2443,6 +2445,10 @@ namespace hgl::codegen
                 // HIR proved generic compatibility; native scalar binding
                 // infers the exact concrete aggregate metadata from this value.
                 return argument_code(value);
+            }
+            if (value.ordinary_value && value.type.kind == HType::Kind::Struct && target.kind == HType::Kind::Struct &&
+                planned_structure(target.nominal_identity, range).abstract) {
+                return ordinary_plan(target, range) + ".retain(" + ordinary_view(value) + ")";
             }
             if (value.type.is(hir::ScalarType::I64) && target.is(hir::ScalarType::F64)) {
                 return "static_cast<hgraph::Float>(" + value.code + ")";
@@ -5272,7 +5278,9 @@ namespace hgl::codegen
                 return;
             }
             if (target.kind == HType::Kind::Atomic && target.children.size() == 1U &&
-                value.ordinary_value && same_type(value.type, target.children.front())) {
+                value.ordinary_value && (same_type(value.type, target.children.front()) ||
+                    (value.type.kind == HType::Kind::Struct && target.children.front().kind == HType::Kind::Struct &&
+                     planned_structure(target.children.front().nominal_identity, value.range).abstract))) {
                 out.line("hgraph::apply_delta(" + selector + ", " + ordinary_view(value) + ");");
                 return;
             }
@@ -7271,6 +7279,9 @@ namespace hgl::codegen
             body.open("hgraph::OperatorProviderHandle register_operators()");
             body.line("auto &registry = hgraph::OperatorRegistry::instance();");
             body.open("auto provider = registry.register_installer(" + quote(result.module_name) + ", []");
+            for (const auto &[marker, name] : ordinary_plans_) {
+                body.line("(void)hgraph::scalar_descriptor<" + marker + ">::value_meta();");
+            }
             for (const auto &[marker, name] : ordinary_plans_) {
                 body.line(name + " = hgl::ordinary::PreparedValuePlan{hgraph::scalar_descriptor<" + marker + ">::value_meta()};");
             }
