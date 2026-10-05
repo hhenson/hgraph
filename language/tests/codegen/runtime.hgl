@@ -585,6 +585,23 @@ export fn growing_source() -> list<i64> {
     yield 1us: delta<list<i64>>(items: [0: 3])
 }
 
+export fn rolling_concrete_return(value: rolling<i64, 2, 2>) -> rolling<i64, 2, 2> {
+    when { return delta_value(value) }
+}
+export fn rolling_concrete_assign(value: rolling<i64, 5us, 1us>) -> rolling<i64, 5us, 1us> {
+    inject out
+    when { out = delta_value(value) }
+}
+export fn rolling_concrete_list(value: rolling<list<i64>, 2>) -> rolling<list<i64>, 2> {
+    inject out
+    when { out = delta_value(value) }
+}
+export fn rolling_concrete_source() -> rolling<i64, 2> {
+    yield 0s: 10
+    yield 1us: 10
+    yield 1us: 20
+}
+
 export fn rolling_ticks_forward(value: rolling<i64, 2, 2>) -> rolling<i64, 2, 2> => enum_generic_forward(value)
 export fn rolling_duration_forward(value: rolling<i64, 5us, 1us>) -> rolling<i64, 5us, 1us> => enum_generic_forward(value)
 export fn rolling_ticks_ready(value: rolling<i64, 2, 2>) -> bool {

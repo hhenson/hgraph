@@ -610,6 +610,21 @@ TEST_CASE("generated growing lists publish tail removal and regrowth", "[codegen
     CHECK_OUTPUT(eval_node<runtime::operators::growing_source>(), expected);
 }
 
+TEST_CASE("concrete rolling hooks publish returns assignments and source arrivals", "[codegen][runtime][rolling]") {
+    session();
+    const auto arrivals = values<Value>(Value{Int{10}}, none, Value{Int{10}}, Value{Int{20}});
+    CHECK_OUTPUT((eval_node<runtime::operators::rolling_concrete_return, TSW<Int, 2, 2>>(arrivals)), arrivals);
+    CHECK_OUTPUT((eval_node<runtime::operators::rolling_concrete_assign, TSWDuration<Int, 5, 1>>(arrivals)), arrivals);
+    CHECK_OUTPUT(eval_node<runtime::operators::rolling_concrete_source>(), values<Int>(10, 10, 20));
+    using Payload = hgl::ordinary::List<Int>;
+    const hgl::ordinary::PreparedValuePlan list_plan{scalar_descriptor<Payload>::value_meta()};
+    auto empty = list_plan.empty_list();
+    auto one = list_plan.empty_list();
+    list_plan.push(one.view(), Value{Int{1}}.view());
+    const auto lists = values<Value>(one, empty, none, one);
+    CHECK_OUTPUT((eval_node<runtime::operators::rolling_concrete_list, TSW<Payload, 2>>(lists)), lists);
+}
+
 TEST_CASE("generated rolling publication forwards arrivals before readiness", "[codegen][runtime][rolling]") {
     session();
     const auto arrivals = values<Value>(Value{Int{10}}, none, Value{Int{10}}, Value{Int{20}});

@@ -353,6 +353,11 @@ namespace hgl::ir
                 const TypeId actual_id = canonical(actual.type);
                 if (actual_id.valid() && type(actual_id).kind == TypeKind::Delta && type(actual_id).children.size() == 1U &&
                     same(expected, type(actual_id).children.front())) { return; }
+                const TypeId expected_id = canonical(expected);
+                if (expected_id.valid() && type(expected_id).kind == TypeKind::Rolling && type(expected_id).children.size() == 1U) {
+                    require_assignable(type(expected_id).children.front(), actual, context);
+                    return;
+                }
                 require_assignable(expected, actual, context);
             }
 

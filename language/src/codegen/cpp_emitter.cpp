@@ -5263,6 +5263,10 @@ namespace hgl::codegen
         }
 
         void Emitter::emit_output_value(const Value &value, const HType &target, const std::string &selector, Writer &out) {
+            if (target.kind == HType::Kind::Rolling && target.children.size() == 1U && same_type(value.type, target.children.front())) {
+                out.line(selector + ".apply(" + ordinary_view(value) + ");");
+                return;
+            }
             if (target.kind == HType::Kind::Enum && value.ordinary_value && same_type(value.type, target)) {
                 out.line(selector + ".apply(" + ordinary_view(value) + ");");
                 return;
@@ -5447,22 +5451,22 @@ namespace hgl::codegen
                                                                                      : hir::BinaryOp::Div;
                             value                  = fold_binary(op, current, value, statement.range);
                         }
+                        if (binding.kind == gir::BindingKind::Capability) {
+                            if (current.selector.empty()) { backend(place.range, "this runtime value is not writable"); }
+                            emit_output_value(value, current.type, current.selector, out);
+                            return;
+                        }
                         const std::string converted = value.ordinary_value ? ordinary_retain(value)
                             : as_runtime(value, current.type, value.range, "assignment to '" + binding.name + "'");
-                        if (binding.kind == gir::BindingKind::State || binding.kind == gir::BindingKind::Cache ||
-                            binding.kind == gir::BindingKind::Capability) {
+                        if (binding.kind == gir::BindingKind::State || binding.kind == gir::BindingKind::Cache) {
                             if (current.selector.empty()) { backend(place.range, "this runtime value is not writable"); }
-                            if (binding.kind == gir::BindingKind::Capability) {
-                                emit_output_value(value, current.type, current.selector, out);
+                            if (value.borrowed_value) {
+                                backend(value.range, "a borrowed collection value cannot be retained in state");
+                            }
+                            if (!current.assignment_target.empty()) {
+                                out.line(current.assignment_target + " = " + converted + ";");
                             } else {
-                                if (value.borrowed_value) {
-                                    backend(value.range, "a borrowed collection value cannot be retained in state");
-                                }
-                                if (!current.assignment_target.empty()) {
-                                    out.line(current.assignment_target + " = " + converted + ";");
-                                } else {
-                                    out.line(current.selector + ".set(" + converted + ");");
-                                }
+                                out.line(current.selector + ".set(" + converted + ");");
                             }
                         } else {
                             // A generator's hoisted local writes through its state field.
@@ -5592,14 +5596,16 @@ namespace hgl::codegen
                         // publication path as an explicit structural delta.
                         const bool atomic_payload = result.kind == HType::Kind::Atomic && result.children.size() == 1U &&
                                                     value.ordinary_value && same_type(value.type, result.children.front());
-                        const bool delta = atomic_payload ||
+                        const bool rolling_payload = result.kind == HType::Kind::Rolling && result.children.size() == 1U &&
+                                                     same_type(value.type, result.children.front());
+                        const bool delta = atomic_payload || rolling_payload ||
                             (value.type.kind == HType::Kind::Delta && same_type(value.type.children.front(), result));
                         // Keep an owning ordinary operand alive throughout admission.
                         // Taking its view in the initializer would leave a dangling
                         // observation when the operand is a temporary constructor.
-                        const std::string converted = delta ? (value.raw_delta ? ordinary_retain(value) : value.code)
+                        const std::string converted = delta ? (value.raw_delta || rolling_payload ? ordinary_retain(value) : value.code)
                                                             : as_runtime(value, result, value.range, "yield value");
-                        const std::string payload_view = delta && (!value.borrowed_value || value.raw_delta)
+                        const std::string payload_view = delta && (rolling_payload || !value.borrowed_value || value.raw_delta)
                                                              ? payload + ".view()" : payload;
                         use("alarm");
                         use("hgl_output");
@@ -6019,7 +6025,7 @@ namespace hgl::codegen
             if (include_output && info.out_binding.valid()) {
                 const HType result = planned_type(planned.result, planned.range);
                 Value       value;
-                if (result.kind == HType::Kind::List) {
+                if (result.kind == HType::Kind::List || result.kind == HType::Kind::Rolling) {
                     value.kind     = Value::Kind::Runtime;
                     value.type     = result;
                     value.range    = planned_binding(info.out_binding, planned.range).range;

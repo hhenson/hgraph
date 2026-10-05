@@ -611,9 +611,9 @@ namespace hgl::hgraph_ir
                 const gir::Type result = graph_type(planned.result, planned.range);
                 if (result.kind != hir::TypeKind::Scalar && result.kind != hir::TypeKind::Atomic && result.kind != hir::TypeKind::Symbol &&
                     result.kind != hir::TypeKind::Map && result.kind != hir::TypeKind::Set && result.kind != hir::TypeKind::List &&
-                    result.kind != hir::TypeKind::Reference) {
+                    result.kind != hir::TypeKind::Rolling && result.kind != hir::TypeKind::Reference) {
                     backend(graph_type(planned.result, planned.range).range,
-                            "the runtime-node slice supports scalar, atomic, struct, collection, and ref outputs");
+                            "the runtime-node slice supports scalar, atomic, struct, collection, rolling, and ref outputs");
                 }
             }
 
