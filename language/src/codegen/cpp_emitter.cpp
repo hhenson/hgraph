@@ -3881,6 +3881,40 @@ namespace hgl::codegen
                 result.ordinary_value = true;
                 return result;
             }
+            if (expression.kind == gir::ConstExprKind::Construct && type.kind == HType::Kind::Struct) {
+                const auto &contract = planned_structure(type.nominal_identity, range);
+                PlannedTypeBindings generics = bindings != nullptr ? *bindings : PlannedTypeBindings{};
+                for (auto &&[binding, value] : planned_struct_bindings(contract, type, range)) {
+                    generics.insert_or_assign(binding, std::move(value));
+                }
+                std::unordered_set<std::size_t> supplied;
+                std::vector<std::string> fields;
+                std::string code = "[&]() { ";
+                const auto retain = [&](std::size_t index, gir::ConstExprId value) {
+                    const auto &field = contract.fields[index];
+                    if (!value.valid() || planned_null(value, field.range)) { return; }
+                    const auto field_type = planned_type(field.type, field.range, &generics);
+                    const auto child = planned_collection_child(value, field_type, field.range, &generics);
+                    const std::string local = "hgl_field_" + std::to_string(index);
+                    code += "auto " + local + " = " + ordinary_retain(child) + "; ";
+                    fields.push_back("std::pair<std::size_t, hgraph::ValueView>{" + std::to_string(index) + ", " + local + ".view()}");
+                };
+                for (const auto &argument : expression.arguments) {
+                    const auto field = std::ranges::find(contract.fields, argument.name, &gir::StructField::name);
+                    if (field == contract.fields.end()) { backend(range, "ordinary default has an unresolved field"); }
+                    const auto index = static_cast<std::size_t>(field - contract.fields.begin());
+                    supplied.insert(index);
+                    retain(index, argument.value);
+                }
+                for (std::size_t index = 0; index < contract.fields.size(); ++index) {
+                    if (!supplied.contains(index)) { retain(index, contract.fields[index].default_value); }
+                }
+                code += "std::array<std::pair<std::size_t, hgraph::ValueView>, " + std::to_string(fields.size()) +
+                        "> hgl_fields{" + join(fields, ", ") + "}; return " + ordinary_plan(type, range) + ".bundle(hgl_fields); }()";
+                auto result = make_const(std::move(code), type, range);
+                result.ordinary_value = true;
+                return result;
+            }
             return planned_field_value(id, range, bindings);
         }
 

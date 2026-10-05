@@ -547,6 +547,12 @@ export fn atomic_map_recipe(key: str, value: i64) -> atomic<map<str, list<i64>>>
 export fn atomic_set_recipe(first: str, second: str) -> atomic<set<str>> {
     when { return set<str>(items: [first, second]) }
 }
+struct DefaultChild { amount: i64 = 7
+    values: list<i64> = [] }
+struct DefaultParent { children: map<str, DefaultChild> = map<str, DefaultChild>(items: ["x": DefaultChild(amount: 42)]) }
+export fn atomic_struct_map_default(trigger: i64) -> atomic<DefaultParent> {
+    when { return DefaultParent() }
+}
 struct RuntimeCollections { values: map<str, list<i64>> = map<str, list<i64>>(items: ["empty": []]) }
 export fn atomic_collection_default(trigger: i64) -> atomic<RuntimeCollections> {
     when {

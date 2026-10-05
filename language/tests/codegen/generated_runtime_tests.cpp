@@ -523,6 +523,18 @@ TEST_CASE("generated ordinary collections retain runtime children and reject dup
         Catch::Matchers::ContainsSubstring("duplicate"));
 }
 
+TEST_CASE("generated map defaults retain ordinary struct children", "[codegen][runtime][atomic-collections]") {
+    session();
+    const auto recorded = eval_node<runtime::operators::atomic_struct_map_default>(values<Int>(1));
+    REQUIRE(recorded.size() == 1);
+    REQUIRE(recorded[0]);
+    const auto map = recorded[0]->as_bundle().field("children").as_map();
+    REQUIRE(map.size() == 1);
+    const auto child = map.at(Value{Str{"x"}}.view()).as_bundle();
+    CHECK(child.field("amount").checked_as<Int>() == 42);
+    CHECK(child.field("values").as_list().empty());
+}
+
 TEST_CASE("generated map defaults retain the type of empty nested lists", "[codegen][runtime][atomic-collections]") {
     session();
     const auto recorded = eval_node<runtime::operators::atomic_collection_default>(values<Int>(1));
