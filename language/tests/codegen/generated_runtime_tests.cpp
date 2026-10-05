@@ -441,6 +441,12 @@ TEST_CASE("generated atomic list temporaries publish immediately and survive res
     CHECK(recorded[3]->equals(snapshot({})));
 }
 
+TEST_CASE("generic composition preserves its enclosing conditional body", "[codegen][runtime][signal]") {
+    session();
+    CHECK_OUTPUT(eval_node<runtime::operators::generic_then_conditional>(values<Bool>(true, false, true), values<Int>(1, 2, 3)),
+        values<Int>(1, 2, 3));
+}
+
 TEST_CASE("generated generic compositions preserve scalar and structural signal observations", "[codegen][runtime][signal]") {
     session();
     CHECK_OUTPUT(eval_node<runtime::operators::generic_scalar_signal_count>(values<Int>(none, 0, 0, none, -7)),
@@ -448,6 +454,28 @@ TEST_CASE("generated generic compositions preserve scalar and structural signal 
     CHECK_OUTPUT((eval_node<runtime::operators::generic_structural_signal_count, TSL<TS<Int>, 2>>(
                      values<Value>(list_delta<TS<Int>>({{1, 0}}), none, list_delta<TS<Int>>({{1, 0}})))),
                  values<Int>(1, none, 2));
+}
+
+namespace {
+    struct NativeGeneratedEnumForward {
+        static constexpr auto name = "native_generated_enum_forward";
+        static void eval(In<"value", TS<runtime::RuntimeMode>> value, Out<TS<runtime::RuntimeMode>> out) {
+            const runtime::RuntimeMode member = value.value();
+            out.set(member);
+        }
+    };
+}
+
+TEST_CASE("generated enums support typed native input and output", "[codegen][runtime][enum]") {
+    session();
+    using Mode = runtime::RuntimeMode;
+    const auto low = Mode::member(INT64_MIN);
+    const auto high = Mode::member(INT64_MAX);
+    const auto first = Mode::member(-7);
+    const auto arrivals = values<Value>(low, none, first, first, high);
+    using NativeEnumOperator = Operator<"native_generated_enum_forward", In<"value", TS<Mode>>, Out<TS<Mode>>>;
+    register_overload<NativeEnumOperator, NativeGeneratedEnumForward>();
+    CHECK_OUTPUT((eval_node<NativeEnumOperator, TS<Mode>>(arrivals)), arrivals);
 }
 
 TEST_CASE("generated public enum markers retain nominal schemas and owning values", "[codegen][runtime][enum]") {

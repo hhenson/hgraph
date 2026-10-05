@@ -510,6 +510,12 @@ export fn ordinary_configured_lengths(trigger: i64, const values: list<i64>) -> 
     }
 }
 
+fn generic_branch_copy<T>(value: T) -> T => value
+export fn generic_then_conditional(condition: bool, value: i64) -> i64 {
+    let retained = generic_branch_copy(value)
+    if condition { retained } else { value }
+}
+
 fn generic_signal_count<T>(value: T) -> i64 => count_ticks(value)
 export fn generic_scalar_signal_count(value: i64) -> i64 => generic_signal_count(value)
 export fn generic_structural_signal_count(value: list<i64, 2>) -> i64 => generic_signal_count(value)
