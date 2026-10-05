@@ -303,6 +303,25 @@ fn observe(pulse: signal) -> bool => valid(pulse)
     CHECK(unit.diagnostics.render(unit.file).find("input-only observation marker") != std::string::npos);
 }
 
+TEST_CASE("declared enum types are restored after registry resets", "[wiring][hgraph-ir][enum]") {
+    Unit unit{R"(module checks.enum_reset
+enum Mode { first = -7, second = 42 }
+fn consume(value: Mode) -> Mode => value
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    const auto parameter = unit.parameter("consume", "value");
+    REQUIRE(bridge.schema(parameter) != nullptr);
+    hgraph::reset_all_registries();
+    const auto *shape = bridge.schema(parameter);
+    REQUIRE(shape != nullptr);
+    CHECK(shape->value_schema->is_enum());
+    CHECK(shape->value_schema->fields[0].enum_value == -7);
+    CHECK(shape->value_schema->fields[1].enum_value == 42);
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
 TEST_CASE("hgraph IR type caches follow registry resets", "[wiring][hgraph-ir][types]") {
     Unit unit{R"(
 module checks.type_reset

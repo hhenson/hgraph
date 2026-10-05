@@ -7271,6 +7271,8 @@ namespace hgl::codegen
             for (const auto &enumeration : graph_.enums) {
                 const auto name = cpp_name(local_identity(enumeration.identity));
                 header.open("struct " + name);
+                header.line("hgraph::Int number{" + integer_literal(enumeration.members.front().second) + "};");
+                header.line("friend bool operator==(const " + name + " &, const " + name + " &) = default;");
                 header.line("static const hgraph::ValueTypeMetaData *value_meta() {");
                 header.indent();
                 std::vector<std::string> members;
@@ -7300,6 +7302,27 @@ namespace hgl::codegen
                     header.open("template <> struct scalar_descriptor<" + name + ">");
                     header.line("static constexpr bool is_concrete() noexcept { return true; }");
                     header.line("static const ValueTypeMetaData *value_meta() { return " + name + "::value_meta(); }");
+                    header.close(";");
+                    // The registry's nominal enum storage is Int. The public
+                    // marker is a typed value wrapper, never that storage plan.
+                    header.open("template <fixed_string Name, auto... Policies> class In<Name, TS<" + name + ">, Policies...> : public TSInputView");
+                    header.line("public:");
+                    header.line("using schema = TS<" + name + ">;");
+                    header.line("using value_type = " + name + ";");
+                    header.line("static constexpr auto field_name = Name;");
+                    header.line("static constexpr auto activity = static_node_detail::resolved_input_activity<Policies...>();");
+                    header.line("static constexpr auto validity = static_node_detail::resolved_input_validity<Policies...>();");
+                    header.line("explicit In(TSInputView view) noexcept : TSInputView(std::move(view)) {}");
+                    header.line("value_type value() const { auto view = TSInputView::value(); if (!view.valid()) { throw std::logic_error(\"enum input has no value\"); } return value_type{*static_cast<const Int *>(view.data())}; }");
+                    header.line("const TSInputView &base() const noexcept { return *this; }");
+                    header.close(";");
+                    header.open("template <> class Out<TS<" + name + ">> : public TSOutputView");
+                    header.line("public:");
+                    header.line("using schema = TS<" + name + ">;");
+                    header.line("using value_type = " + name + ";");
+                    header.line("Out(TSOutputView view, DateTime) noexcept : TSOutputView(std::move(view)) {}");
+                    header.line("void set(value_type value) const { auto mutation = begin_mutation(evaluation_time()); const ValueView source{mutation.value().binding(), &value.number}; static_cast<void>(mutation.copy_value_from(source)); }");
+                    header.line("void apply(const ValueView &value) const { auto mutation = begin_mutation(evaluation_time()); static_cast<void>(mutation.copy_value_from(value)); }");
                     header.close(";");
                 }
                 header.close();
