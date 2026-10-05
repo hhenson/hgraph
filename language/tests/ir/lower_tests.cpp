@@ -3551,7 +3551,7 @@ TEST_CASE("ordinary value extensions preserve delta identity and lexical access"
     }
     const std::vector<std::string> rejected{
         "const fn value() -> i64 { let xs = []\nreturn 1 }\n",
-        "const fn value(x: delta<list<i64>>) -> i64 => 1\n",
+        "const fn value(x: delta<list<ref<i64>>>) -> i64 => 1\n",
         "const fn value(x: delta<map<tuple<i64, i64>, i64>>) -> i64 => 1\n",
         "const fn value() -> delta<map<i64, i64>> => delta<map<i64, i64>>(upsert: [1: 2], remove: [1])\n",
         "const fn value() -> delta<list<i64, 2>> => delta<list<i64, 2>>(items: [2: 3])\n",
@@ -3646,7 +3646,7 @@ fn update(value: i64, const left: str, const right: str) {
 }
 
 TEST_CASE("eval checks publication profile boundaries before graph construction", "[ir][typed][harness]") {
-    for (const std::string shape : {"atomic<set<tuple<i64, i64>>>", "ref<i64>", "list<i64>", "map<tuple<i64, i64>, i64>", "Node"}) {
+    for (const std::string shape : {"atomic<set<tuple<i64, i64>>>", "ref<i64>", "list<ref<i64>>", "map<tuple<i64, i64>, i64>", "Node"}) {
         Lowered unit{"module checks.eval_shape\nstruct Node { value: i64\nnext: atomic<Node> = null }\n"
             "fn identity(value: " + shape + ") -> " + shape + " => value\n"
             "test rejected { eval(identity, value: []) }\n"};
@@ -3935,5 +3935,19 @@ TEST_CASE("sparse key aliases exclude mutable and temporal bindings", "[ir][type
         if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
         CHECK(unit.diagnostics.has_errors());
         CHECK(unit.diagnostics.render(unit.file).find("must be constants") != std::string::npos);
+    }
+}
+
+TEST_CASE("growing list deltas reject malformed index recipes", "[ir][typed][growing-list]") {
+    for (const std::string recipe : {
+        "delta<list<i64>>(items: [-1: 1])", "delta<list<i64>>(remove: [-1])",
+        "delta<list<i64>>(remove: [0, 0])", "delta<list<i64>>(items: [0: 1], remove: [0])",
+        "delta<list<i64>>(upsert: [0: 1])", "delta<list<i64, 2>>(remove: [1])"
+    }) {
+        const auto result_type = recipe.substr(0, recipe.find('('));
+        Lowered unit{"module checks.growing_list\nconst fn value() -> " + result_type + " => " + recipe + "\n"};
+        INFO(recipe);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
     }
 }

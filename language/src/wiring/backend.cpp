@@ -1409,25 +1409,26 @@ namespace hgl::wiring
                 return map.build();
             };
             hgraph::Value payload;
-            if (shape->kind == hgraph::TSTypeKind::TSL) {
+            const bool growing = shape->kind == hgraph::TSTypeKind::TSL && shape->is_unbounded_tsl();
+            if (shape->kind == hgraph::TSTypeKind::TSL && !growing) {
                 payload = make_map(arguments.empty() ? gir::ValueId{} : arguments.front().value,
                                    standard_types().int_type, shape->element_ts());
-            } else if (shape->kind == hgraph::TSTypeKind::TSS || shape->kind == hgraph::TSTypeKind::TSD) {
+            } else if (shape->kind == hgraph::TSTypeKind::TSS || shape->kind == hgraph::TSTypeKind::TSD || growing) {
                 hgraph::BundleBuilder result{factory.type_for(payload_schema)};
                 std::vector<bool> supplied(payload_schema->field_count, false);
                 for (const auto &argument : arguments) {
                     const std::size_t field = shape->kind == hgraph::TSTypeKind::TSS
                         ? (argument.name == "added" ? 0 : 1) : (argument.name == "remove" ? 0 : 1);
-                    auto data = shape->kind == hgraph::TSTypeKind::TSD && field == 1
-                        ? make_map(argument.value, shape->key_type(), shape->element_ts())
+                    auto data = (shape->kind == hgraph::TSTypeKind::TSD || growing) && field == 1
+                        ? make_map(argument.value, growing ? standard_types().int_type : shape->key_type(), shape->element_ts())
                         : make_set(argument.value, payload_schema->fields[field].type->element_type);
                     result.set(field, data.view());
                     supplied[field] = true;
                 }
                 for (std::size_t field = 0; field < supplied.size(); ++field) {
                     if (supplied[field]) { continue; }
-                    auto data = shape->kind == hgraph::TSTypeKind::TSD && field == 1
-                        ? make_map({}, shape->key_type(), shape->element_ts())
+                    auto data = (shape->kind == hgraph::TSTypeKind::TSD || growing) && field == 1
+                        ? make_map({}, growing ? standard_types().int_type : shape->key_type(), shape->element_ts())
                         : make_set({}, payload_schema->fields[field].type->element_type);
                     result.set(field, data.view());
                 }

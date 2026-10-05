@@ -560,3 +560,12 @@ TEST_CASE("prepared key aliases never repeat provider construction", "[codegen][
     CHECK(provider->contains_calls == 2);
     CHECK(another.equals(retained));
 }
+
+TEST_CASE("generated growing lists publish tail removal and regrowth", "[codegen][runtime][growing-list]") {
+    session();
+    auto expected = values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}),
+        dynamic_list_delta<TS<Int>>({{0, 1}}, {1}), dynamic_list_delta<TS<Int>>({}, {0}),
+        dynamic_list_delta<TS<Int>>({{0, 3}}));
+    CHECK_OUTPUT((eval_node<runtime::operators::growing_forward, TSL<TS<Int>, unbounded_tsl_size>>(expected)), expected);
+    CHECK_OUTPUT(eval_node<runtime::operators::growing_source>(), expected);
+}

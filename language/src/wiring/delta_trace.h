@@ -30,6 +30,37 @@ namespace hgl::wiring {
                     return;
                 }
                 case TSTypeKind::TSL: {
+                    if (shape->is_unbounded_tsl()) {
+                        const auto parts = native.as_bundle();
+                        const auto removed = parts.at(0).as_set();
+                        const auto modified = parts.at(1).as_map();
+                        require(!removed.empty() || !modified.empty(), "empty growing-list publication");
+                        std::size_t retained = length_;
+                        for (const auto item : removed) {
+                            const auto index = item.checked_as<Int>();
+                            require(index >= 0 && static_cast<std::uint64_t>(index) < length_, "growing-list removal outside its live length");
+                            retained = std::min(retained, static_cast<std::size_t>(index));
+                        }
+                        require(removed.size() == length_ - retained, "growing-list removals must form a complete tail");
+                        std::size_t appended = 0;
+                        for (const auto [key, child] : modified) {
+                            const auto index = key.checked_as<Int>();
+                            require(index >= 0, "negative growing-list index");
+                            if (!removed.empty()) { require(static_cast<std::uint64_t>(index) < retained, "removed and modified growing-list overlap"); }
+                            else if (static_cast<std::uint64_t>(index) >= length_) { ++appended; }
+                        }
+                        const auto next_length = retained + appended;
+                        for (const auto [key, child] : modified) {
+                            require(static_cast<std::uint64_t>(key.checked_as<Int>()) < next_length, "gap in growing-list append");
+                        }
+                        for (auto it = children_.begin(); it != children_.end();) {
+                            if (static_cast<std::uint64_t>(it->first) >= retained) { it = children_.erase(it); }
+                            else { ++it; }
+                        }
+                        for (const auto [key, child] : modified) { children_[key.checked_as<Int>()].accept(shape->element_ts(), child); }
+                        length_ = next_length;
+                        return;
+                    }
                     const auto entries = native.as_map();
                     require(!entries.empty(), "empty fixed-list publication");
                     for (const auto [key, child] : entries) {
@@ -74,6 +105,7 @@ namespace hgl::wiring {
         std::unordered_set<hgraph::Value, hgraph::ValueHash, hgraph::ValueEqual> members_;
         std::unordered_map<hgraph::Value, DeltaTrace, hgraph::ValueHash, hgraph::ValueEqual> keyed_children_;
         std::unordered_map<hgraph::Int, DeltaTrace> children_;
+        std::size_t length_{};
     };
 }
 #endif

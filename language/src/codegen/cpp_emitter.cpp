@@ -3794,8 +3794,9 @@ namespace hgl::codegen
                     }
                 }
             } else if (type.kind == HType::Kind::Map || type.kind == HType::Kind::List || type.kind == HType::Kind::Set) {
-                const bool map = type.kind == HType::Kind::Map;
-                const bool list = type.kind == HType::Kind::List;
+                const bool growing = type.kind == HType::Kind::List && type.size.empty();
+                const bool map = type.kind == HType::Kind::Map || growing;
+                const bool list = type.kind == HType::Kind::List && !growing;
                 const std::string updates = list ? native : native + ".field_plan(" + (map ? "1" : "0") + ")";
                 const std::string removed = native + ".field_plan(" + (map ? "0" : "1") + ")";
                 if (map || list) { code += "hgraph::MapBuilder hgl_updates{" + updates + ".key_binding(), " + updates + ".element_binding()}; "; }
@@ -3836,7 +3837,7 @@ namespace hgl::codegen
                     fields.push_back("std::pair<std::size_t, hgraph::ValueView>{1, " + std::string{map ? "hgl_updates_value" : "hgl_removed_value"} + ".view()}");
                 }
             } else { backend(range, "unsupported ordinary delta construction shape"); }
-            if (type.kind != HType::Kind::List) {
+            if (type.kind != HType::Kind::List || type.size.empty()) {
                 code += "std::array<std::pair<std::size_t, hgraph::ValueView>, " + std::to_string(fields.size()) +
                         "> hgl_fields{" + join(fields, ", ") + "}; auto hgl_native = " + native + ".bundle(hgl_fields); return " +
                         plan + ".capture(hgl_native.view()); }()";

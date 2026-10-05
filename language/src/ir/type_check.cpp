@@ -3888,7 +3888,7 @@ namespace hgl::ir
                 } else if (shape.kind == TypeKind::Set && shape.children.size() == 1U) {
                     admitted = admitted_scalar_key(shape.children[0]);
                 } else if (shape.kind == TypeKind::Tuple || shape.kind == TypeKind::Map || shape.kind == TypeKind::List) {
-                    admitted = shape.kind != TypeKind::List || (shape.size.valid() && !shape.unbounded);
+                    admitted = true;
                     if (shape.kind == TypeKind::Map) {
                         admitted = shape.children.size() == 2U && admitted_scalar_key(shape.children[0]);
                     }
@@ -3912,6 +3912,7 @@ namespace hgl::ir
 
             void check_collection_delta(Expr &expression, const Construct &node, TypeId origin) {
                 const Type shape = type(origin);
+                const bool growing = shape.kind == TypeKind::List && (shape.unbounded || !shape.size.valid());
                 std::unordered_set<std::string> names;
                 std::unordered_set<std::string> members;
                 for (const Argument &argument : node.arguments) {
@@ -3919,7 +3920,7 @@ namespace hgl::ir
                     const bool sparse = argument.name == "items" || argument.name == "upsert";
                     const bool admitted = shape.kind == TypeKind::Set ? argument.name == "added" || argument.name == "removed"
                         : shape.kind == TypeKind::Map ? argument.name == "upsert" || argument.name == "remove"
-                        : argument.name == "items";
+                        : argument.name == "items" || (growing && argument.name == "remove");
                     if (!admitted || argument.name.empty()) { type_error(argument.range, "unknown delta argument"); }
                     Expr &entries = module_.exprs[argument.value.value];
                     const auto *sequence = std::get_if<Sequence>(&entries.node);
@@ -3941,6 +3942,10 @@ namespace hgl::ir
                                 type_error(key.range, "duplicate or overlapping delta member, key or index");
                             }
                         }
+                        if (growing && key.constant) {
+                            const auto *index = std::get_if<std::int64_t>(&*key.constant);
+                            if (!index || *index < 0) { type_error(key.range, "growing-list indices must be nonnegative i64 constants"); }
+                        }
                         if (sparse) {
                             TypeId child;
                             if (shape.kind == TypeKind::Map) { child = shape.children[1]; }
@@ -3952,7 +3957,7 @@ namespace hgl::ir
                                     const auto *n = size.constant ? std::get_if<std::int64_t>(&*size.constant) : nullptr;
                                     if (n) { count = *n; }
                                 }
-                                if (!index || *index < 0 || *index >= count) { type_error(key.range, "delta index is outside its fixed shape"); }
+                                if (!index || *index < 0 || (!growing && *index >= count)) { type_error(key.range, "delta index is outside its declared shape"); }
                                 else { child = shape.children[shape.kind == TypeKind::List ? 0U : static_cast<std::size_t>(*index)]; }
                             }
                             if (child.valid()) {

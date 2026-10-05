@@ -564,3 +564,11 @@ const fn prepared_zone_key_recipe() -> delta<map<timezone, timezone>> {
     return delta<map<timezone, timezone>>(upsert: [alias: retained])
 }
 export fn prepared_zone_key_forward(value: map<timezone, timezone>) -> map<timezone, timezone> => enum_generic_forward(value)
+
+export fn growing_forward(value: list<i64>) -> list<i64> => enum_generic_forward(value)
+export fn growing_source() -> list<i64> {
+    yield 0s: delta<list<i64>>(items: [0: 1, 1: 2])
+    yield 1us: delta<list<i64>>(items: [0: 1], remove: [1])
+    yield 1us: delta<list<i64>>(remove: [0])
+    yield 1us: delta<list<i64>>(items: [0: 3])
+}

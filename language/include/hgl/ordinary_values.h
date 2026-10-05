@@ -118,7 +118,6 @@ namespace hgl::ordinary
                     }
                     break;
                 case hgraph::TSTypeKind::TSL:
-                    if (shape->is_unbounded_tsl()) { throw std::invalid_argument("ordinary deltas require a fixed list shape"); }
                     pending.push_back(shape->element_ts());
                     break;
                 case hgraph::TSTypeKind::TSD:
@@ -176,7 +175,7 @@ namespace hgl::ordinary
         if (value->name().starts_with("hgl.origin::TSS[")) { return registry.tss(held->element_type); }
         if (value->name().starts_with("hgl.origin::TSL[")) {
             const auto *element = value->field_count == 1U ? origin_source(value->fields[0].type) : nullptr;
-            return element ? registry.tsl(element, held->fixed_size) : nullptr;
+            return element ? registry.tsl(element, held->is_fixed_size() ? held->fixed_size : hgraph::unbounded_tsl_size) : nullptr;
         }
         if (value->name().starts_with("hgl.origin::TSD[")) {
             const auto *element = value->field_count == 1U ? origin_source(value->fields[0].type) : nullptr;

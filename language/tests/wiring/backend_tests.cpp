@@ -1563,3 +1563,30 @@ test fail { assert consume(map<timezone, timezone>(items: [@[UTC]: @[UTC], @[UTC
     CHECK(failed.message.find("duplicate") != std::string::npos);
     CHECK(failed.message.find("Missing/Payload") == std::string::npos);
 }
+
+TEST_CASE("growing list traces reject gaps and non-tail removals before evaluation", "[wiring][growing-list]") {
+    for (const std::string trace : {
+        "delta<list<i64>>(items: [1: 1])",
+        "delta<list<i64>>(items: [0: 1]), delta<list<i64>>(items: [2: 2])",
+        "delta<list<i64>>(items: [0: 1, 1: 2, 2: 3]), delta<list<i64>>(remove: [0, 2])",
+        "delta<list<i64>>(items: [0: 1]), delta<list<i64>>(remove: [1])",
+        "delta<list<i64>>(items: [0: 1, 1: 2]), delta<list<i64>>(items: [2: 3], remove: [1])",
+        "delta<list<i64>>()"
+    }) {
+        Unit unit{"module checks.growing_list\nfn forward(value: list<i64>) -> list<i64> => value\n"
+            "test bad { eval(forward, [" + trace + "]) }\n"};
+        const auto result = only(unit.tests());
+        INFO(trace);
+        INFO(result.message);
+        CHECK_FALSE(result.passed);
+        CHECK(unit.diagnostics.render(unit.file).find("input delta outside publication profile") != std::string::npos);
+    }
+    Unit nested{R"(module checks.growing_state
+fn forward(value: list<set<str>>) -> list<set<str>> => value
+test reset {
+    assert eval(forward, [delta<list<set<str>>>(items: [0: delta<set<str>>(added: ["x"])]), delta<list<set<str>>>(remove: [0]), delta<list<set<str>>>(items: [0: delta<set<str>>(added: ["x"])])]) == [delta<list<set<str>>>(items: [0: delta<set<str>>(added: ["x"])]), delta<list<set<str>>>(remove: [0]), delta<list<set<str>>>(items: [0: delta<set<str>>(added: ["x"])])]
+})"};
+    const auto result = only(nested.tests());
+    INFO(result.message);
+    CHECK(result.passed);
+}
