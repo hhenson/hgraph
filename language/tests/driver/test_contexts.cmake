@@ -75,6 +75,17 @@ foreach(_artifact IN ITEMS api.h api.cpp api.hgl-module.json)
     endif()
 endforeach()
 
+# Precompiled test hosts explicitly opt into the same runtime helpers used by
+# scripted test execution. Production emission above must remain unchanged.
+run_hgl(_status _output emit-cpp ${_parts} --include-test-contexts --out-dir "${OUT}/tests")
+if(NOT _status EQUAL 0)
+    message(FATAL_ERROR "test-context emission failed:\n${_output}")
+endif()
+file(READ "${OUT}/tests/api.cpp" _test_source)
+if(NOT _test_source MATCHES "fixture_node")
+    message(FATAL_ERROR "opt-in test emission omitted its runtime helper")
+endif()
+
 run_hgl(_status _output check ${_parts} --part "${SOURCE}/production-leak.hgl")
 if(_status EQUAL 0 OR NOT _output MATCHES "fixture_node")
     message(FATAL_ERROR "production was allowed to reference test code:\n${_output}")

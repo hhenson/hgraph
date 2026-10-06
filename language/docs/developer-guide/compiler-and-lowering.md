@@ -2378,3 +2378,12 @@ The build-only `hgl_bootstrap` executable generates the provider without linking
 it, breaking the otherwise circular dependency between HGL code generation and
 the final CLI. The compiled provider's generated symbols remain private so they
 do not replace a separately loaded HGL module's registration entry point.
+
+A precompiled test host may also pass `TestRuntimeProvider` as the fourth
+`driver::run` argument. The driver establishes the wiring session and invokes
+that registration callback after source checking, before eval preparation,
+instead of compiling and loading the tested module. The host must build the
+same source parts supplied to `test`. Generate its runtime helpers with
+`emit-cpp --include-test-contexts`, or `hgl_add_module(INCLUDE_TEST_CONTEXTS)`;
+the default production artifacts continue to omit test contexts. This path
+runs the usual parsed test harness without requiring a scripted compiler.

@@ -64,7 +64,7 @@ namespace hgl::driver
                          "  hgl emit-cpp <file> [--part <file>]... [--source-parts <1..64>]\n"
                          "               [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]\n"
                          "               [--python <file.py> --python-native <module>] [--print]\n"
-                         "               [--print-namespace] [--module-descriptor <file>]...\n"
+                         "               [--print-namespace] [--include-test-contexts] [--module-descriptor <file>]...\n"
                          "               [--native-provider-header <header> --native-provider <object>]\n"
                          "  hgl emit-native-rust <file> [--part <file>]... --out <file>\n"
                          "  hgl repl [--module-descriptor <file>]...\n"
@@ -605,7 +605,7 @@ namespace hgl::driver
         }
 
         int test(std::span<const std::string_view> arguments, std::string_view language_version,
-                 const semantics::ModuleCatalog &catalog, EvalLibraryProvider eval_provider) {
+                 const semantics::ModuleCatalog &catalog, EvalLibraryProvider eval_provider, TestRuntimeProvider test_provider) {
             std::optional<std::string> path;
             std::vector<std::string>   parts;
             wiring::TestOptions        options;
@@ -731,8 +731,18 @@ namespace hgl::driver
             NativeModule eval_library;
             NativeModule native_module;
             if (has_execution || cases.empty()) {
+                if (test_provider) {
+                    wiring::ensure_session();
+                    try { test_provider(); }
+                    catch (const std::exception &error) {
+                        unit->diagnostics.report(syntax::Category::Module, {},
+                                                 "cannot prepare compiled test runtime: " + std::string{error.what()});
+                        std::cerr << unit->diagnostics.render(unit->file);
+                        return exit_diagnostics;
+                    }
+                }
                 if (!prepare_eval_library(*unit, language_version, catalog, eval_library, eval_provider) ||
-                    !load_native_module(*unit, language_version, native_module, true, binding)) {
+                    (!test_provider && !load_native_module(*unit, language_version, native_module, true, binding))) {
                     std::cerr << unit->diagnostics.render(unit->file);
                     return exit_diagnostics;
                 }
@@ -931,9 +941,10 @@ namespace hgl::driver
             std::string                python_native;
             std::string                native_provider_header;
             std::string                native_provider;
-            std::size_t                source_parts    = 1;
-            bool                       print           = false;
-            bool                       print_namespace = false;
+            std::size_t                source_parts          = 1;
+            bool                       print                 = false;
+            bool                       print_namespace       = false;
+            bool                       include_test_contexts = false;
             for (std::size_t i = 0; i < arguments.size(); ++i) {
                 const std::string_view argument = arguments[i];
                 const auto             value    = [&]() -> std::optional<std::string_view> {
@@ -979,6 +990,8 @@ namespace hgl::driver
                     print = true;
                 } else if (argument == "--print-namespace") {
                     print_namespace = true;
+                } else if (argument == "--include-test-contexts") {
+                    include_test_contexts = true;
                 } else if (argument.starts_with("--")) {
                     return usage_error("unknown option '" + std::string{argument} + "'");
                 } else if (path) {
@@ -1036,6 +1049,7 @@ namespace hgl::driver
             options.tool_version         = std::string{tool_version};
             options.python_native_module = python_native;
             options.source_parts         = source_parts;
+            options.include_test_contexts = include_test_contexts;
             options.native_provider_header = native_provider_header;
             options.native_provider        = native_provider;
             std::optional<codegen::EmittedModule> emitted =
@@ -1325,7 +1339,8 @@ namespace hgl::driver
         }
     }  // namespace
 
-    int run(std::span<const std::string_view> arguments, std::string_view tool_version, EvalLibraryProvider eval_provider) {
+    int run(std::span<const std::string_view> arguments, std::string_view tool_version, EvalLibraryProvider eval_provider,
+            TestRuntimeProvider test_provider) {
         if (arguments.empty()) {
             print_help();
             return exit_ok;
@@ -1348,7 +1363,7 @@ namespace hgl::driver
         if (const std::optional<int> error = collect_module_descriptors(rest, command_arguments, catalog)) { return *error; }
         const std::span<const std::string_view> filtered{command_arguments};
         if (command == "check") { return check(filtered, catalog); }
-        if (command == "test") { return test(filtered, tool_version, catalog, eval_provider); }
+        if (command == "test") { return test(filtered, tool_version, catalog, eval_provider, test_provider); }
         if (command == "run") { return run_command(filtered, tool_version, catalog); }
         if (command == "repl") { return repl(filtered, tool_version, catalog, eval_provider); }
         if (command == "emit-native-rust") { return emit_native_rust(filtered, catalog); }

@@ -15,8 +15,13 @@ namespace hgl::driver
     /// only when eval needs those operators; custom hosts may omit it and use
     /// scripted preparation where that facility is supported.
     using EvalLibraryProvider = void (*)();
+    /// Optional runtime registration for a precompiled test module. The host
+    /// must compile the same module parts with test contexts included. Invoked
+    /// after checking, before eval preparation; replaces scripted module loading
+    /// for `test` only. The driver establishes the wiring session first.
+    using TestRuntimeProvider = void (*)();
     int run(std::span<const std::string_view> arguments, std::string_view tool_version,
-            EvalLibraryProvider eval_provider = nullptr);
+            EvalLibraryProvider eval_provider = nullptr, TestRuntimeProvider test_provider = nullptr);
 }  // namespace hgl::driver
 
 #endif  // HGL_DRIVER_DRIVER_H
