@@ -245,7 +245,25 @@ namespace hgl::wiring
     }
 
     const hgraph::ValueTypeMetaData *TypeBridge::field_value(const hgraph_ir::StructField &field, const Bindings &applied) {
-        if (!field.recursive) { return value(field.type, applied); }
+        if (!field.recursive) {
+            // A window has held storage without becoming an ordinary source
+            // value. Only temporal field layout may ask for that projection.
+            std::vector<hgraph_ir::TypeId> pending{field.type};
+            while (!pending.empty()) {
+                const auto id = resolved(pending.back(), applied);
+                pending.pop_back();
+                if (!id.valid() || id.value >= module_.types.size()) { continue; }
+                const auto &type = module_.types[id.value];
+                if (type.kind == hir::TypeKind::Rolling) {
+                    const auto *temporal = schema(field.type, applied);
+                    return temporal ? temporal->value_schema : nullptr;
+                }
+                if (type.kind == hir::TypeKind::List || type.kind == hir::TypeKind::Tuple || type.kind == hir::TypeKind::Map) {
+                    pending.insert(pending.end(), type.children.begin(), type.children.end());
+                }
+            }
+            return value(field.type, applied);
+        }
         // A recursive edge holds its target through one owner pointer, so a
         // value is a finite tree and the target's fields are never inlined.
         const hgraph_ir::Type           &boundary = module_.types[field.type.value];
@@ -398,12 +416,14 @@ namespace hgl::wiring
                 }
                 if (structure(type.nominal_identity)) { out.push_back(id); }
                 return;
-            // Exactly the kinds `value()` recurses into with `value()`.
+            // Ordinary children, plus the complete payload needed by a
+            // window-bearing field's temporal held-storage projection.
             case hir::TypeKind::Tuple:
             case hir::TypeKind::List:
             case hir::TypeKind::Set:
             case hir::TypeKind::Map:
             case hir::TypeKind::Atomic:
+            case hir::TypeKind::Rolling:
                 for (hgraph_ir::TypeId child : type.children) { value_edges(child, bindings, out, depth + 1U); }
                 return;
             case hir::TypeKind::Delta:

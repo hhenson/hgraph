@@ -167,6 +167,20 @@ namespace hgraph
         }
     };
 
+    // Delta is a schema projection, not a native C++ scalar object. Keep the
+    // configured payload borrowed and erased just like ordinary list selectors.
+    template <fixed_string Name, typename Shape>
+    class Scalar<Name, hgl::ordinary::Delta<Shape>> {
+      public:
+        using schema = hgl::ordinary::Delta<Shape>;
+        static constexpr auto field_name = Name;
+        explicit Scalar(const ValueView &view) noexcept : binding_{view.binding()}, data_{view.data()} {}
+        [[nodiscard]] ValueView value() const noexcept { return ValueView{binding_, data_}; }
+      private:
+        ValueTypeRef binding_{};
+        const void *data_{};
+    };
+
     template <fixed_string Name, typename Element, std::int64_t Size>
     class Scalar<Name, hgl::ordinary::List<Element, Size>> {
       public:

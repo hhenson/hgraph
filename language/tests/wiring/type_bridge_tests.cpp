@@ -1383,3 +1383,36 @@ fn consume(value: atomic<Record>) -> atomic<Record> => value
     CHECK_FALSE(bridge.optional_field(schema, 0));
     CHECK(bridge.optional_field(schema, 1));
 }
+
+TEST_CASE("hgraph type bridge retains window shapes inside nominal fields", "[language][wiring][types]") {
+    Unit unit{R"(module checks.window_fields
+struct WindowFields {
+    arrivals: rolling<i64, 2>
+    nested: list<rolling<i64, 5us, 1us>, 2>
+    label: str
+}
+fn observe(value: WindowFields) -> WindowFields => value
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    const auto *shape = bridge.schema(unit.parameter("observe", "value"));
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(shape != nullptr);
+    REQUIRE(shape->field_count() == 3);
+    auto &registry = hgraph::TypeRegistry::instance();
+    const auto types = hgraph::stdlib::register_standard_types();
+    const auto *ticks = registry.tsw(types.int_type, 2, 2);
+    const auto *duration = registry.tsw_duration(types.int_type, hgraph::TimeDelta{5}, hgraph::TimeDelta{1});
+    CHECK(shape->fields()[0].type == ticks);
+    CHECK(shape->fields()[1].type == registry.tsl(duration, 2));
+    REQUIRE(shape->value_schema->field_count == 3);
+    CHECK(shape->value_schema->fields[0].type == ticks->value_schema);
+    CHECK(shape->value_schema->fields[1].type == registry.tsl(duration, 2)->value_schema);
+    CHECK(shape->value_schema->fields[2].type == types.str_type);
+    const auto *delta = hgl::ordinary::delta_schema(shape);
+    REQUIRE(delta != nullptr);
+    REQUIRE(delta->bundle_generic_arguments().size() == 1);
+    CHECK(hgl::ordinary::origin_source(delta->bundle_generic_arguments()[0]) == shape);
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}

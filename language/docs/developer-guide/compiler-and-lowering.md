@@ -1651,6 +1651,20 @@ composite payloads never guess an atomic boundary. These paths implement the
 specification's atomic scalar equivalence and finite atomic
 publication contracts without adding a second runtime representation.
 
+Rolling children retain their exact TSW schema inside sparse list, tuple,
+nominal and map shapes. A window-bearing nominal field obtains its held storage
+metadata from that temporal schema in both the direct bridge and generated
+`Held<Shape>` descriptor; this does not admit an ordinary `rolling` value.
+The runtime parameter plan admits `const delta<T>` as ordinary publication data,
+with its exact originating shape and the same prepared ownership rules as other
+ordinary const arguments. Generated scalar selectors retain the delta's schema
+projection pattern instead of introducing an unrelated scalar variable. Their
+selector borrows the configured payload as a `ValueView`, including scalar
+reductions, without attempting a native cast to the schema marker. Growing-list delta construction checks duplicate
+indices within each argument independently: an index present in both `items`
+and `remove` may be retained as data, while publication preflight still rejects
+a noncanonical net update against the endpoint's current length.
+
 `hgl run` under this backend wires the entry function with its `--set`
 constants and parameter defaults as scalar arguments, applies the mode,
 start, and end to the executor builder, and prints each tick through the
@@ -2286,6 +2300,11 @@ sequence. Nonempty constant list literals initialize elements in source order:
 unbounded lists use prepared append, while fixed lists initialize their checked
 positions without changing their extent. An ordinary global-entry local keeps
 its prepared entry borrow so list growth updates the stored entry directly.
+Whole-value assignment through a writable entry borrow uses the prepared entry's
+owning replacement operation, then refreshes that local view; it never assigns
+an owning `Value` to a borrowed `ValueView`. Ordinary-only nominal wrappers
+containing structural delta fields omit the generated temporal alias, and that
+restriction propagates through nested list, tuple, map and nominal fields.
 
 Concrete value plans are initialized by the generated operator installer.
 Configured aggregate constants are independently retained into prepared ordinary
