@@ -7,9 +7,18 @@
 #include <string_view>
 #include <utility>
 
+// Scripted kernels are built with hidden visibility. Their exception RTTI
+// must coalesce with the host on platforms such as Darwin, even when hgraph
+// itself is linked statically. Windows currently uses CMake-built kernels.
+#if defined(__GNUC__) && !defined(_WIN32)
+#define HGL_EXECUTION_ERROR_VISIBLE __attribute__((visibility("default")))
+#else
+#define HGL_EXECUTION_ERROR_VISIBLE
+#endif
+
 namespace hgl {
     // Runtime identity, independent of the human-readable diagnostic text.
-    class ExecutionError : public std::runtime_error {
+    class HGL_EXECUTION_ERROR_VISIBLE ExecutionError : public std::runtime_error {
       public:
         ExecutionError(std::string code, std::string message)
             : std::runtime_error{std::move(message)}, code_{std::move(code)} {}
@@ -29,4 +38,5 @@ namespace hgl {
         return {};
     }
 }
+#undef HGL_EXECUTION_ERROR_VISIBLE
 #endif

@@ -3,25 +3,34 @@ module tests.negative_cleanup
 cpp include <hgl/execution_error.h>
 cpp include <stdexcept>
 
-native const fn cleanup_failure() -> i64 throws {
-    cpp() { throw std::runtime_error("cleanup sentinel"); }
+native const fn cleanup_failure(value: i64) -> i64 throws {
+    cpp(hgraph::Int value) {
+        if (value == 1) { throw std::runtime_error("cleanup sentinel"); }
+        return value;
+    }
 }
-native const fn coded_cleanup_failure() -> i64 throws {
-    cpp() { throw hgl::ExecutionError("yield.negative_duration", "coded cleanup sentinel"); }
+native const fn coded_cleanup_failure(value: i64) -> i64 throws {
+    cpp(hgraph::Int value) {
+        if (value == 1) { throw hgl::ExecutionError("yield.negative_duration", "coded cleanup sentinel"); }
+        return value;
+    }
 }
-native const fn uncoded_failure() -> i64 throws {
-    cpp() { throw std::runtime_error("yield.negative_duration"); }
+native const fn uncoded_failure(value: i64) -> i64 throws {
+    cpp(hgraph::Int value) {
+        if (value == 1) { throw std::runtime_error("yield.negative_duration"); }
+        return value;
+    }
 }
 fn with_cleanup(trigger: i64) -> i64 {
     when { return trigger }
-    stop { cleanup_failure() }
+    stop { cleanup_failure(1) }
 }
 fn with_coded_cleanup(trigger: i64) -> i64 {
     when { return trigger }
-    stop { coded_cleanup_failure() }
+    stop { coded_cleanup_failure(1) }
 }
 fn uncoded(trigger: i64) -> i64 {
-    when { return uncoded_failure() }
+    when { return uncoded_failure(trigger) }
 }
 fn negative_delay() -> i64 {
     yield -1us: 1

@@ -9,6 +9,11 @@ scope and its effects are preserved. The direct test backend executes once,
 catches only a structured HGL execution error and compares the complete code.
 Assertion failures and compiler diagnostics remain separate failure channels.
 
+The error class gives its RTTI default visibility across scripted native
+images even in static runtime builds, so Darwin's dynamic cast and exception
+matching preserve the same identity. Native fixture functions retain a normal
+return path for MSVC's unreachable-code analysis.
+
 Generated generator nodes throw ``hgl::ExecutionError`` at the negative duration
 and non-increasing target checks, after evaluating both operands. Root graph
 annotation preserves the original exception with ``std::nested_exception``;
