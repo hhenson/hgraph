@@ -148,7 +148,7 @@ namespace hgl::syntax
                 found->kind == TokenKind::Newline
                     ? SourceRange{found->range.begin, found->range.begin}
                     : (issue.range.empty() ? SourceRange{found->range.begin, found->range.begin} : issue.range);
-            diagnostics.report(Category::Parse, range, message);
+            diagnostics.report(Category::Parse, range, message, issue.kind == SyntaxIssueKind::Missing ? "syntax.expected_token" : "");
             previous_offset = issue.range.begin;
             emitted         = true;
         }

@@ -29,3 +29,23 @@ publication, state, scheduling, and side effects remain unchanged.
 
 The normative contract is ``language/docs/design/execution-error-assertions.md``
 and ``error-catalogue.md`` in the shared HGL specification.
+
+Compile-rejection fixtures
+--------------------------
+
+``hgl test --reject file.hgl`` accepts exactly one source file. The lexer owns
+comment recognition, so annotation-shaped text in strings and block comments
+has no meaning. Before compilation, the driver validates whole-line
+``# expect-error(category, "code")`` metadata against the source-error
+catalogue. Then the unchanged frontend emits structured ``Diagnostic.code``
+values at their originating checks. Expected errors match the primary source
+file, next physical line, category and complete code one to one; missing,
+additional and uncoded errors fail. Related notes are not primary errors.
+This mode never loads or builds native code. Normal ``hgl test`` continues
+to reject erroneous source even when it carries expectation comments.
+
+The shared ``compile-rejection-fixtures.md`` defines the command and matching
+contract. Initial coded origins cover required grammar tokens, rolling size
+kind and bounds, yield operand type, raises literal code validation, and
+statements forbidden in tests. Other diagnostics retain their ordinary
+uncoded behavior and cannot satisfy an expectation.

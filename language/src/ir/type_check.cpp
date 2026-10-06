@@ -361,8 +361,8 @@ namespace hgl::ir
                 require_assignable(expected, actual, context);
             }
 
-            void type_error(syntax::SourceRange range, std::string message) {
-                diagnostics_.report(syntax::Category::Type, range, std::move(message));
+            void type_error(syntax::SourceRange range, std::string message, std::string code = {}) {
+                diagnostics_.report(syntax::Category::Type, range, std::move(message), std::move(code));
             }
 
             [[nodiscard]] std::string type_name(TypeId id) const { return canonical_types_.name(id); }
@@ -1345,11 +1345,11 @@ namespace hgl::ir
                 const SizeKind min_kind = minimum != nullptr ? size_kind(*minimum) : max_kind;
                 if (max_kind == SizeKind::Other || min_kind == SizeKind::Other) {
                     type_error(max_kind == SizeKind::Other ? maximum.range : minimum->range,
-                               "a rolling size must be an i64 or duration constant");
+                               "a rolling size must be an i64 or duration constant", "rolling.size_kind");
                     return;
                 }
                 if (max_kind != SizeKind::Unknown && min_kind != SizeKind::Unknown && max_kind != min_kind) {
-                    type_error(minimum->range, "rolling sizes must both be i64 or both be duration");
+                    type_error(minimum->range, "rolling sizes must both be i64 or both be duration", "rolling.size_kind");
                     return;
                 }
                 const auto tick = [](const Expr &expression) -> std::optional<std::int64_t> {
@@ -1368,17 +1368,19 @@ namespace hgl::ir
                     const std::optional<std::int64_t> max_value = tick(maximum);
                     const std::optional<std::int64_t> min_value = minimum != nullptr ? tick(*minimum) : max_value;
                     if (max_value && *max_value <= 0) {
-                        type_error(maximum.range, "a rolling tick size must be positive");
+                        type_error(maximum.range, "a rolling tick size must be positive", "rolling.size_bounds");
                     } else if (min_value && (*min_value <= 0 || (max_value && *min_value > *max_value))) {
-                        type_error(minimum_range, "a rolling minimum size must be positive and no larger than the maximum");
+                        type_error(minimum_range, "a rolling minimum size must be positive and no larger than the maximum",
+                                   "rolling.size_bounds");
                     }
                 } else if (max_kind == SizeKind::Duration) {
                     const std::optional<std::int64_t> max_value = micros(maximum);
                     const std::optional<std::int64_t> min_value = minimum != nullptr ? micros(*minimum) : max_value;
                     if (max_value && *max_value <= 0) {
-                        type_error(maximum.range, "a rolling duration must be positive");
+                        type_error(maximum.range, "a rolling duration must be positive", "rolling.size_bounds");
                     } else if (min_value && (*min_value < 0 || (max_value && *min_value > *max_value))) {
-                        type_error(minimum_range, "a rolling minimum duration must be non-negative and no longer than the maximum");
+                        type_error(minimum_range, "a rolling minimum duration must be non-negative and no longer than the maximum",
+                                   "rolling.size_bounds");
                     }
                 }
             }
@@ -4925,7 +4927,7 @@ namespace hgl::ir
                             if (time.type.valid()) {
                                 const TypeId time_type = canonical(time.type);
                                 if (!same(time_type, scalar(ScalarType::Duration)) && !same(time_type, scalar(ScalarType::DateTime))) {
-                                    type_error(time.range, "a yield time is a duration (from now) or a datetime");
+                                    type_error(time.range, "a yield time is a duration (from now) or a datetime", "yield.time_type");
                                 }
                             }
                             const TypeId result = fn != nullptr ? fn->signature.result : TypeId{};

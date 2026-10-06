@@ -36,6 +36,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -56,6 +57,7 @@ namespace hgl::driver
                          "  hgl check <file> [--part <file>]... [--module-descriptor <file>]...\n"
                          "            [--dump-tokens] [--dump-ast] [--dump-hir] [--dump-hgraph-ir] [--dump-docs]\n"
                          "  hgl test <file> [test-name]... [--part <file>]... [--module-descriptor <file>]...\n"
+                         "  hgl test --reject <fixture.hgl>\n"
                          "  hgl run <file> [--part <file>]... [--entry <name>] [--mode sim|realtime]\n"
                          "          [--start <datetime>] [--end <datetime|duration>]\n"
                          "          [--set <name>=<constant expression>]... [--module-descriptor <file>]...\n"
@@ -586,8 +588,97 @@ namespace hgl::driver
             out << results.size() << (results.size() == 1 ? " test" : " tests") << ", " << failed << " failed\n";
         }
 
+        // Expectations are test metadata. Read only actual lexical line comments,
+        // and compare structured primary diagnostics after the ordinary frontend.
+        int reject_fixture(const std::string &path, const semantics::ModuleCatalog &catalog) {
+            const auto text = read_file(path);
+            if (!text) { return usage_error("cannot read '" + path + "'"); }
+            Unit unit{path, *text};
+            syntax::DiagnosticSink lexical_diagnostics;
+            const auto lexed = syntax::lex(unit.file, lexical_diagnostics);
+            struct Expectation { std::uint32_t line; syntax::Category category; std::string code; bool matched{false}; };
+            std::vector<Expectation> expectations;
+            const std::map<std::string, syntax::Category> codes{
+                {"syntax.expected_token", syntax::Category::Parse},
+                {"rolling.size_kind", syntax::Category::Type},
+                {"rolling.size_bounds", syntax::Category::Type},
+                {"yield.time_type", syntax::Category::Type},
+                {"test.raises_code", syntax::Category::Type},
+                {"test.statement_phase", syntax::Category::Phase},
+            };
+            const std::regex annotation{R"re(^#[ \t]*expect-error[ \t]*\([ \t]*([a-z]+(?:-[a-z]+)*)[ \t]*,[ \t]*("(?:[^"\\]|\\.)*")[ \t]*\)[ \t\r]*$)re"};
+            bool invalid = false;
+            for (const auto &fragment : lexed.fragments) {
+                if (fragment.kind != syntax::SourceFragmentKind::LineComment) { continue; }
+                const std::string comment{unit.file.slice(fragment.range)};
+                std::string_view body{comment};
+                body.remove_prefix(1);
+                const auto first = body.find_first_not_of(" \t");
+                if (first == std::string_view::npos || !body.substr(first).starts_with("expect-error")) { continue; }
+                const auto at = unit.file.location(fragment.range.begin);
+                const auto prefix = unit.file.line_text(at.line).substr(0, at.column - 1U);
+                std::smatch match;
+                if (prefix.find_first_not_of(" \t") != std::string_view::npos ||
+                    !std::regex_match(comment, match, annotation) || at.line >= unit.file.line_count()) {
+                    std::cerr << path << ':' << at.line << ": invalid expect-error annotation\n";
+                    invalid = true;
+                    continue;
+                }
+                syntax::SourceFile literal{path, match[2].str()};
+                syntax::DiagnosticSink literal_diagnostics;
+                const auto tokens = syntax::lex(literal, literal_diagnostics);
+                const std::string code = tokens.tokens.front().string_value;
+                const auto known = codes.find(code);
+                if (literal_diagnostics.has_errors() || known == codes.end() ||
+                    syntax::category_name(known->second) != match[1].str()) {
+                    std::cerr << path << ':' << at.line << ": unknown or incompatible expected diagnostic category/code\n";
+                    invalid = true;
+                    continue;
+                }
+                expectations.push_back({at.line + 1U, known->second, code});
+            }
+            if (invalid) { return exit_diagnostics; }
+            if (expectations.empty()) {
+                std::cerr << path << ": rejection fixture requires at least one expect-error annotation\n";
+                return exit_diagnostics;
+            }
+            frontend(unit, catalog);
+            std::map<std::uint32_t, std::size_t> expectation_lines;
+            for (std::size_t index = 0; index < expectations.size(); ++index) {
+                expectation_lines.emplace(expectations[index].line, index);
+            }
+            bool passed = !unit.ok;
+            for (const auto &diagnostic : unit.diagnostics.diagnostics()) {
+                const auto line = unit.file.location(diagnostic.range.begin).line;
+                const auto found = expectation_lines.find(line);
+                Expectation *expected = found != expectation_lines.end() ? &expectations[found->second] : nullptr;
+                if (expected != nullptr && !expected->matched && expected->category == diagnostic.category &&
+                    expected->code == diagnostic.code && unit.file.source_path(diagnostic.range.begin) == path) {
+                    expected->matched = true;
+                } else {
+                    passed = false;
+                    std::cerr << "unexpected diagnostic: " << syntax::render_diagnostic(unit.file, diagnostic);
+                }
+            }
+            for (const auto &expected : expectations) {
+                if (expected.matched) { continue; }
+                passed = false;
+                std::cerr << path << ':' << expected.line << ": missing expected " << syntax::category_name(expected.category)
+                          << " [" << expected.code << "]\n";
+            }
+            if (unit.ok) { std::cerr << path << ": rejection fixture compiled successfully\n"; }
+            if (passed) { std::cout << path << ": rejection expectations passed\n"; }
+            return passed ? exit_ok : exit_diagnostics;
+        }
+
         int test(std::span<const std::string_view> arguments, std::string_view language_version,
                  const semantics::ModuleCatalog &catalog, EvalLibraryProvider eval_provider) {
+            if (std::find(arguments.begin(), arguments.end(), "--reject") != arguments.end()) {
+                if (arguments.size() != 2U) { return usage_error("test --reject expects exactly one fixture path"); }
+                const auto path = arguments[0] == "--reject" ? arguments[1] : arguments[0];
+                if (path.starts_with("--")) { return usage_error("test --reject needs a fixture path"); }
+                return reject_fixture(std::string{path}, catalog);
+            }
             std::optional<std::string> path;
             std::vector<std::string>   parts;
             wiring::TestOptions        options;
