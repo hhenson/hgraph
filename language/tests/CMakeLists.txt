@@ -1038,6 +1038,7 @@ add_test(NAME hgraph_language_negative_mixed
 add_executable(hgl_shared_fixture negative/shared_fixture.cpp)
 target_link_libraries(hgl_shared_fixture PRIVATE hgl::driver)
 hgl_link_runtime_executable(hgl_shared_fixture)
+hgl_stage_runtime_dlls(hgl_shared_fixture)
 hgl_apply_warnings(hgl_shared_fixture)
 set(_delta_source ${HGRAPH_SPEC}/language/examples/reject/delta-errors.hgl)
 set(_delta_positive ${CMAKE_CURRENT_BINARY_DIR}/negative/delta-positive.hgl)
@@ -1101,6 +1102,7 @@ hgl_add_module(hgl_std_matrix_fixture STATIC INCLUDE_TEST_CONTEXTS SOURCE_PARTS 
 add_executable(hgl_std_matrix_tests negative/stdlib_generated_driver.cpp)
 target_link_libraries(hgl_std_matrix_tests PRIVATE hgl_std_matrix_fixture hgl::driver)
 hgl_link_runtime_executable(hgl_std_matrix_tests)
+hgl_stage_runtime_dlls(hgl_std_matrix_tests)
 hgl_apply_warnings(hgl_std_matrix_tests)
 add_test(NAME hgraph_language_generated_standard_matrix
     COMMAND hgl_std_matrix_tests test ${HGRAPH_STD}/standard.hgl ${_std_matrix_args}
