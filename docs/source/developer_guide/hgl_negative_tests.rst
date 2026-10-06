@@ -30,19 +30,38 @@ publication, state, scheduling, and side effects remain unchanged.
 The normative contract is ``language/docs/design/execution-error-assertions.md``
 and ``error-catalogue.md`` in the shared HGL specification.
 
-Compile-rejection fixtures
---------------------------
+Source-rejection tests
+----------------------
 
-``hgl test --reject file.hgl`` accepts exactly one source file. The lexer owns
+``hgl test file.hgl`` runs rejection cases and executable tests together. The lexer owns
 comment recognition, so annotation-shaped text in strings and block comments
 has no meaning. Before compilation, the driver validates whole-line
 ``# expect-error(category, "code")`` metadata against the source-error
-catalogue. Then the unchanged frontend emits structured ``Diagnostic.code``
+catalogue. ``driver/rejection_source`` maps annotations to enclosing named
+tests or declarations using the lossless source tree. Unnamed test contexts
+retain their wrappers while their inner declarations own cases. Delimiters
+must establish reliable boundaries; recovery at a new declaration keyword
+alone cannot justify excluding source. A sole malformed expression-bodied
+declaration may extend to EOF without hiding a neighbouring declaration.
+
+All rejection owners are blanked without moving bytes or line breaks. The
+driver checks this surviving module before admitting any case, then checks
+each selected owner independently restored in the same module scope. Other
+owners remain absent. Original source origins preserve file/line locations
+through module-part assembly. Normal visibility, imports and resolution still
+apply, including dependencies on excluded declarations. The frontend emits structured ``Diagnostic.code``
 values at their originating checks. Expected errors match the primary source
 file, next physical line, category and complete code one to one; missing,
 additional and uncoded errors fail. Related notes are not primary errors.
-This mode never loads or builds native code. Normal ``hgl test`` continues
-to reject erroneous source even when it carries expectation comments.
+Malformed metadata, ambiguous boundaries and invalid surviving source prevent
+execution. A rejection mismatch fails only its case; remaining rejection
+checks and executable tests continue. Named-test selectors also select named
+rejection tests; declaration-owned cases always run. Unselected owners remain
+excluded and still require valid metadata and boundaries. Results distinguish
+executed tests from rejection cases and identify declaration cases by original
+file and start line. Pure rejection runs never load or build native code.
+There is no rejection flag or alias. Other commands continue to check the
+ordinary source, treating annotations as comments.
 
 The shared ``compile-rejection-fixtures.md`` defines the command and matching
 contract. Initial coded origins cover required grammar tokens, rolling size

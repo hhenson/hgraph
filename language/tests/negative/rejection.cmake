@@ -3,11 +3,12 @@ file(MAKE_DIRECTORY "${OUT}")
 function(check_rejection name status content)
     file(WRITE "${OUT}/${name}.hgl" "${content}")
     execute_process(COMMAND "${CMAKE_COMMAND}" -E env "HGL_CXX=${OUT}/missing-compiler"
-        "${HGL}" test --reject "${OUT}/${name}.hgl"
+        "${HGL}" test "${OUT}/${name}.hgl"
         RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE errors)
     if(NOT "${result}" STREQUAL "${status}")
         message(FATAL_ERROR "${name}: expected ${status}, got ${result}\n${output}\n${errors}")
     endif()
+    set(LAST_OUTPUT "${output}" PARENT_SCOPE)
 endfunction()
 set(kind "fn invalid(value: rolling<i64, 3s, 2>) { when {} }\n")
 set(bounds "fn invalid(value: rolling<i64, 3, 4>) { when {} }\n")
@@ -43,11 +44,54 @@ const fn marker() -> str => "# expect-error(type, \"unknown\")"
 # expect-error(type, "rolling.size_kind")
 fn invalid(value: rolling<i64, 3s, 2>) { when {} }
 ]=])
-execute_process(COMMAND "${HGL}" test "${OUT}/kind.hgl" RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE errors)
+execute_process(COMMAND "${HGL}" check "${OUT}/kind.hgl" RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE errors)
 if(NOT result EQUAL 1 OR NOT errors MATCHES "rolling.size_kind")
-    message(FATAL_ERROR "ordinary test accepted intentional source rejection: ${output}\n${errors}")
+    message(FATAL_ERROR "ordinary check accepted intentional source rejection: ${output}\n${errors}")
 endif()
-execute_process(COMMAND "${HGL}" test --reject "${OUT}/kind.hgl" selector RESULT_VARIABLE result)
+execute_process(COMMAND "${HGL}" test --reject "${OUT}/kind.hgl" RESULT_VARIABLE result)
 if(NOT result EQUAL 2)
-    message(FATAL_ERROR "reject accepted a test selector")
+    message(FATAL_ERROR "removed rejection flag was accepted")
 endif()
+
+# Every rejection owner is removed independently, including successful ones.
+check_rejection(independent 1 [=[module rejection
+# expect-error(type, "rolling.size_kind")
+fn excluded(value: rolling<i64, 3s, 2>) { when {} }
+# expect-error(type, "rolling.size_kind")
+fn dependent(value: i64) -> i64 => excluded(value)
+test sentinel { assert true }
+]=])
+check_rejection(multiple_annotations 0 [=[module rejection
+test two_errors {
+# expect-error(phase, "test.statement_phase")
+inject clock
+# expect-error(phase, "test.statement_phase")
+state value = 1
+}
+test sentinel { assert true }
+]=])
+if(NOT LAST_OUTPUT MATCHES "1 rejection cases, 0 failed" OR NOT LAST_OUTPUT MATCHES "sentinel \.\.\. ok")
+    message(FATAL_ERROR "multiple annotations did not form one case with runtime continuation: ${LAST_OUTPUT}")
+endif()
+check_rejection(duplicate_names 1 [=[module rejection
+test same {
+# expect-error(phase, "test.statement_phase")
+inject clock
+}
+test same { assert true }
+]=])
+check_rejection(module_owner 1 [=[# expect-error(parse, "syntax.expected_token")
+module rejection
+test sentinel { assert false }
+]=])
+check_rejection(context_owner 1 [=[module rejection
+# expect-error(parse, "syntax.expected_token")
+test {
+    test sentinel { assert false }
+}
+]=])
+check_rejection(no_native_build 0 [=[module rejection
+native fn unused() -> i64 { cpp() { return 1; } }
+# expect-error(type, "rolling.size_kind")
+fn excluded(value: rolling<i64, 3s, 2>) { when {} }
+]=])

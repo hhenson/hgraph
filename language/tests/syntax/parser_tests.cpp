@@ -352,8 +352,18 @@ test expected {
     assert value == 1
     assert raises("yield.negative_duration") { assert true }
 }
+
 )hgl");
     CHECK(tree.find("Assert") != std::string::npos);
+}
+
+TEST_CASE("missing declaration and import names carry the mandatory-token code", "[parser][rejection]") {
+    for (const std::string declaration : {"fn (value: i64) -> i64 => value", "use example as 1"}) {
+        Parsed parsed{"module checks.missing_name\n" + declaration + "\ntest neighbour { assert true }\n"};
+        REQUIRE(parsed.diagnostics.size() == 1U);
+        CHECK(parsed.diagnostics.diagnostics().front().category == Category::Parse);
+        CHECK(parsed.diagnostics.diagnostics().front().code == "syntax.expected_token");
+    }
 }
 
 TEST_CASE("native functions accept the contextual schema type", "[parser][native][schema]") {

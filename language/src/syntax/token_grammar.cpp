@@ -1100,6 +1100,9 @@ namespace hgl::syntax
                 if constexpr (requires { error.character(); }) {
                     issue.expected = decode_expected(static_cast<std::uint8_t>(error.character()));
                 }
+                // `name` is a choice of identifier/contextual tokens. A failed
+                // choice still means one mandatory grammatical name is absent.
+                if (!issue.expected && issue.context == SyntaxKind::Name) { issue.expected = TokenKind::Identifier; }
                 raw_issues.push_back(issue);
             });
             const auto                            result = lexy::parse_as_tree<grammar::module>(parsed, input, error_callback);

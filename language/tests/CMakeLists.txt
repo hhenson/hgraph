@@ -1021,6 +1021,11 @@ add_test(NAME hgraph_language_negative_rejection
         -DHGL=$<TARGET_FILE:hgl>
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/negative/rejection
         -P ${CMAKE_CURRENT_SOURCE_DIR}/negative/rejection.cmake)
+add_test(NAME hgraph_language_negative_mixed
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL=$<TARGET_FILE:hgl>
+        -DMANIFEST=${HGRAPH_SHARED_ROOT}/hgraph_spec/compiler/negative_testing/cases.json
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/negative/mixed.cmake)
 
 # Build runtime kernels through CMake on every platform, including Windows.
 # The same direct test harness executes the parsed HGL assertions against them.
