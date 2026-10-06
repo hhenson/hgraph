@@ -160,3 +160,18 @@ TEST_CASE("atomic origins survive generic timed values and nested structural chi
     ts_unifier<TsVar<"T">>::unify(schema_descriptor<Atomic>::ts_meta(), known);
     CHECK(scalar_pattern_match(delta, scalar_descriptor<hgl::ordinary::List<Int>>::value_meta(), known));
 }
+
+TEST_CASE("ordinary delta scalar selectors borrow reduced and structural payloads", "[ordinary][patterns]") {
+    using namespace hgraph;
+    using Generic = hgl::ordinary::Delta<TsVar<"T">>;
+    for (const auto *shape : {schema_descriptor<TS<Int>>::ts_meta(), schema_descriptor<TSD<Int, TS<Int>>>::ts_meta()}) {
+        const hgl::ordinary::PreparedValuePlan plan{hgl::ordinary::delta_schema(shape)};
+        const Value payload{plan.binding()};
+        const Scalar<"publication", Generic> selector{payload.view()};
+        CHECK(selector.value().schema() == payload.schema());
+        CHECK(selector.value().data() == payload.view().data());
+        ResolutionMap bindings;
+        CHECK(scalar_pattern_match(to_scalar_pattern<Generic>(), selector.value().schema(), bindings));
+        CHECK(bindings.ts("T") == shape);
+    }
+}

@@ -3581,8 +3581,6 @@ TEST_CASE("eval indexing refines contextual nullable immutable locals", "[ir][ty
         "let item = result[0]\nif !(null == item) { let ordinary: i64 = item\nassert ordinary == 0 }\n",
         "let item = result[0]\nlet alias = item\nif item != null { if alias != null { assert alias == item } }\n",
         "let item = result[0]\nif item != null { let copy = item\nassert copy == 0 }\n",
-        "let item = result[0]\nif item == null { return }\nassert item == 0\n",
-        "let item = result[0]\nif item != null {} else { return }\nassert item == 0\n",
         "let item = result[0]\nif item == null || false {} else { assert item == 0 }\n"
     };
     const std::vector<std::string> rejected{
@@ -3941,7 +3939,7 @@ TEST_CASE("sparse key aliases exclude mutable and temporal bindings", "[ir][type
 TEST_CASE("growing list deltas reject malformed index recipes", "[ir][typed][growing-list]") {
     for (const std::string recipe : {
         "delta<list<i64>>(items: [-1: 1])", "delta<list<i64>>(remove: [-1])",
-        "delta<list<i64>>(remove: [0, 0])", "delta<list<i64>>(items: [0: 1], remove: [0])",
+        "delta<list<i64>>(remove: [0, 0])",
         "delta<list<i64>>(upsert: [0: 1])", "delta<list<i64, 2>>(remove: [1])"
     }) {
         const auto result_type = recipe.substr(0, recipe.find('('));
@@ -4031,4 +4029,108 @@ const fn bad() -> delta<set<Key>> => delta<set<Key>>(added: [Other(value: 1)])
         if (!runtime_key.diagnostics.has_errors()) { CHECK_FALSE(complete(runtime_key)); }
         CHECK(runtime_key.diagnostics.has_errors());
     }
+}
+
+TEST_CASE("named tests reject early return before nullable refinement", "[ir][typed][negative]") {
+    for (const std::string body : {"if item == null { return }", "if item != null {} else { return }"}) {
+        Lowered unit{"module checks.test_return\nfn identity(value:i64)->i64=>value\n"
+                     "test invalid { let result=eval(identity,value:[0])\nlet item=result[0]\n" + body + "\n}\n"};
+        REQUIRE(unit.diagnostics.has_errors());
+        CHECK(unit.diagnostics.diagnostics().front().category == hgl::syntax::Category::Phase);
+        CHECK(unit.diagnostics.diagnostics().front().code == "test.statement_phase");
+    }
+}
+
+TEST_CASE("delta diagnostics preserve reduced annotations and precise source locations", "[ir][typed][delta-errors]") {
+    struct Case { std::string body; std::string code; std::string location; hgl::syntax::Category category; };
+    using hgl::syntax::Category;
+    for (const auto &item : std::vector<Case>{
+        {"const fn bad(v: delta<signal>) -> i64 => 0", "delta.unsupported_shape", "signal", Category::Shape},
+        {"const fn bad(v: delta<list<signal, 2>>) -> i64 => 0", "delta.unsupported_shape", "list<signal, 2>", Category::Shape},
+        {"const fn bad() -> i64 { let value = delta<ref<i64>>()\nreturn 0 }", "delta.unsupported_shape", "ref<i64>", Category::Shape},
+        {"const fn bad() -> delta<i64> => false", "delta.type_mismatch", "false", Category::Type},
+        {"const fn bad() -> delta<set<i64>> => delta<set<i64>>(other: [1])", "delta.argument_name", "other", Category::Name},
+        {"const fn bad() -> delta<set<i64>> => delta<set<i64>>(added: [1, 1])", "delta.duplicate_entry", "1", Category::Type},
+        {"const fn bad() -> delta<set<i64>> => delta<set<i64>>(removed: [1], added: [1])", "delta.overlap", "1", Category::Type}
+    }) {
+        Lowered unit{"module checks.delta_errors\n" + item.body + "\n"};
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE(unit.diagnostics.size() == 1);
+        const auto &diagnostic = unit.diagnostics.diagnostics().front();
+        CHECK(diagnostic.category == item.category);
+        CHECK(diagnostic.code == item.code);
+        CHECK(unit.file.slice(diagnostic.range) == item.location);
+    }
+}
+
+TEST_CASE("reduced delta annotations remain diagnostic contexts for lambdas and replacement", "[ir][typed][delta-errors]") {
+    for (const std::string shape : {"i64", "atomic<i64>", "rolling<i64, 2>"}) {
+        for (const std::string &body : {
+            "let callback = fn(value: i64) -> delta<" + shape + "> => false",
+            "var value: delta<" + shape + "> = 1\nvalue = false"
+        }) {
+            Lowered unit{"module checks.delta_contexts\ntest rejected {\n" + body + "\n}\n"};
+            require_clean(unit);
+            CHECK_FALSE(complete(unit));
+            INFO(unit.diagnostics.render(unit.file));
+            REQUIRE(unit.diagnostics.size() == 1);
+            const auto &diagnostic = unit.diagnostics.diagnostics().front();
+            CHECK(diagnostic.code == "delta.type_mismatch");
+            CHECK(unit.file.slice(diagnostic.range) == "false");
+        }
+    }
+}
+
+TEST_CASE("delta diagnostic provenance follows fields and contextual list children", "[ir][typed][delta-errors]") {
+    for (const std::string source : {
+        "struct Box { value: delta<i64> }\ntest rejected { var box = Box(value: 1)\nbox.value = false }",
+        "struct Publication<T> { value: delta<T> }\ntest rejected { var box = Publication<i64>(value: 1)\nbox.value = false }",
+        "test rejected { let value: delta<atomic<list<i64>>> = [false] }",
+        "test rejected { let value: delta<atomic<list<list<i64>>>> = [[false]] }",
+        "test rejected { let value: delta<rolling<list<i64>, 2>> = [false] }",
+        "struct Box { value: delta<atomic<list<i64>>> }\ntest rejected { let box = Box(value: [false]) }",
+        "struct Publication<T> { value: delta<T> }\ntest rejected { let box = Publication<atomic<list<i64>>>(value: [false]) }",
+        "test rejected { let value: delta<atomic<tuple<list<i64>, i64>>> = ([false], 1) }"
+    }) {
+        Lowered unit{"module checks.delta_provenance\n" + source + "\n"};
+        require_clean(unit);
+        CHECK_FALSE(complete(unit));
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE(unit.diagnostics.size() == 1);
+        const auto &diagnostic = unit.diagnostics.diagnostics().front();
+        CHECK(diagnostic.code == "delta.type_mismatch");
+        CHECK(unit.file.slice(diagnostic.range) == "false");
+    }
+}
+
+TEST_CASE("generic delta formation diagnoses the constraining call", "[ir][typed][delta-errors]") {
+    Lowered unit{R"(module checks.generic_delta
+const fn require_delta<T>(value: T) -> i64 {
+    let storage: list<delta<T>> = []
+    return len(storage)
+}
+test rejected {
+    let source = delta<map<i64, i64>>()
+    require_delta(source)
+}
+)"};
+    require_clean(unit);
+    CHECK_FALSE(complete(unit));
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(unit.diagnostics.size() == 1);
+    const auto &diagnostic = unit.diagnostics.diagnostics().front();
+    CHECK(diagnostic.code == "delta.unsupported_shape");
+    CHECK(unit.file.slice(diagnostic.range) == "require_delta(source)");
+    CHECK(diagnostic.message.find("delta<") != std::string::npos);
+}
+
+TEST_CASE("growing delta formation defers removed modified overlap to publication", "[ir][typed][delta-errors]") {
+    Lowered unit{R"(module checks.delta_data
+const fn stored() -> delta<list<i64>> => delta<list<i64>>(items: [1: 9], remove: [1])
+)"};
+    require_clean(unit);
+    CHECK(complete(unit));
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK_FALSE(unit.diagnostics.has_errors());
 }

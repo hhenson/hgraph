@@ -37,6 +37,7 @@ These pages describe *how the runtime is built*. For how to write programs with 
    hgl_recursive_atomic_publications
    hgl_abstract_atomic_publications
    hgl_composite_collection_keys
+   hgl_negative_tests
    hgl_contextual_bindings
    writing_nodes
    parity_matrix

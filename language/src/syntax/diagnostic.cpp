@@ -45,7 +45,8 @@ namespace hgl::syntax
 
     std::string render_diagnostic(const SourceFile &file, const Diagnostic &diagnostic) {
         std::ostringstream out;
-        render_line(out, file, diagnostic.range, category_name(diagnostic.category), diagnostic.message);
+        render_line(out, file, diagnostic.range, category_name(diagnostic.category),
+                    diagnostic.code.empty() ? diagnostic.message : "[" + diagnostic.code + "] " + diagnostic.message);
         for (const Note &note : diagnostic.notes) { render_line(out, file, note.range, "note", note.message); }
         return out.str();
     }

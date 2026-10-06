@@ -40,6 +40,7 @@ namespace hgl::syntax
         std::string       message;
         SourceRange       range{};
         std::vector<Note> notes{};
+        std::string       code{};
     };
 
     /// Collects diagnostics in source order of emission. Every category is an
@@ -47,9 +48,9 @@ namespace hgl::syntax
     class DiagnosticSink
     {
       public:
-        Diagnostic &report(Category category, SourceRange range, std::string message)
+        Diagnostic &report(Category category, SourceRange range, std::string message, std::string code = {})
         {
-            diagnostics_.push_back(Diagnostic{category, std::move(message), range, {}});
+            diagnostics_.push_back(Diagnostic{category, std::move(message), range, {}, std::move(code)});
             return diagnostics_.back();
         }
 

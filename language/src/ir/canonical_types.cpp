@@ -175,8 +175,13 @@ namespace hgl::ir::detail
     }
 
     void CanonicalTypes::rewrite_signature(Signature &signature) {
-        for (Parameter &parameter : signature.parameters) { parameter.type = canonical(parameter.type); }
-        signature.result = signature.result.valid() ? canonical(signature.result) : void_type_;
+        // Keep explicit delta annotations as source aliases for diagnostics:
+        // their canonical identity still reduces scalar/atomic/rolling deltas.
+        for (Parameter &parameter : signature.parameters) {
+            if (module_.type(parameter.type).kind != TypeKind::Delta) { parameter.type = canonical(parameter.type); }
+        }
+        if (!signature.result.valid()) { signature.result = void_type_; }
+        else if (module_.type(signature.result).kind != TypeKind::Delta) { signature.result = canonical(signature.result); }
     }
 
     void CanonicalTypes::rewrite_type_references() {
@@ -186,14 +191,14 @@ namespace hgl::ir::detail
         for (Expr &expression : module_.exprs) {
             if (expression.type.valid()) { expression.type = canonical(expression.type); }
             if (auto *lambda = std::get_if<Lambda>(&expression.node); lambda && lambda->result.valid()) {
-                lambda->result = canonical(lambda->result);
+                if (module_.type(lambda->result).kind != TypeKind::Delta) { lambda->result = canonical(lambda->result); }
             } else if (auto *construct = std::get_if<Construct>(&expression.node)) {
-                construct->type = canonical(construct->type);
+                if (!construct->delta) { construct->type = canonical(construct->type); }
             }
         }
         for (Stmt &statement : module_.stmts) {
             if (auto *local = std::get_if<LocalDecl>(&statement.node); local && local->type.valid()) {
-                local->type = canonical(local->type);
+                if (module_.type(local->type).kind != TypeKind::Delta) { local->type = canonical(local->type); }
             } else if (auto *state = std::get_if<StateDecl>(&statement.node); state && state->type.valid()) {
                 state->type = canonical(state->type);
             }
@@ -215,7 +220,9 @@ namespace hgl::ir::detail
                             if (generic.type.valid()) { generic.type = canonical(generic.type); }
                         }
                         for (TypeId &parent : node.parents) { parent = canonical(parent); }
-                        for (StructField &field : node.fields) { field.type = canonical(field.type); }
+                        for (StructField &field : node.fields) {
+                            if (module_.type(field.type).kind != TypeKind::Delta) { field.type = canonical(field.type); }
+                        }
                     } else if constexpr (std::is_same_v<T, OperatorDecl> || std::is_same_v<T, FunctionDecl>) {
                         for (GenericParameter &generic : node.generics) {
                             if (generic.type.valid()) { generic.type = canonical(generic.type); }

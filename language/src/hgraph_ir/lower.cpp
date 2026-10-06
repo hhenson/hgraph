@@ -1191,7 +1191,7 @@ namespace hgl::hgraph_ir
                         } else if constexpr (std::is_same_v<T, hir::ReturnStmt>) {
                             return Return{lower_value(node.value)};
                         } else if constexpr (std::is_same_v<T, hir::AssertStmt>) {
-                            return Assert{lower_value(node.condition)};
+                            return Assert{lower_value(node.condition), lower_block(node.raises_block)};
                         } else {
                             return Evaluate{lower_value(node.expr)};
                         }

@@ -182,6 +182,8 @@ namespace hgl::codegen
             bool                  structured_delta{false};
             bool                  ordinary_value{false};
             bool                  global_borrow{false};
+            /// Prepared entry for whole-value replacement through its writable borrow.
+            std::string           global_entry{};
             bool                  ordinary_writable{false};
             bool                  raw_delta{false};
             /// The expression is a borrowed ValueView, not a native container.
@@ -678,6 +680,7 @@ namespace hgl::codegen
             [[nodiscard]] bool struct_shape_parameter(const gir::StructContract &contract, gir::BindingId binding);
             // Binding IDs uniquely identify declaration formals in the module.
             std::optional<std::unordered_set<std::uint32_t>> shape_parameters_{};
+            std::unordered_set<std::string_view> ordinary_only_structures_{};
             [[nodiscard]] std::string ordinary_plan(const HType &type, SourceRange range);
             [[nodiscard]] bool family_plan(const HType &type, SourceRange range);
             std::unordered_set<std::size_t> family_plan_helpers_{};
@@ -716,6 +719,13 @@ namespace hgl::codegen
                 return type.kind == HType::Kind::Enum || type.kind == HType::Kind::List || type.kind == HType::Kind::Struct ||
                        type.kind == HType::Kind::Tuple || type.kind == HType::Kind::Delta ||
                        type.kind == HType::Kind::Set || type.kind == HType::Kind::Map;
+            }
+            [[nodiscard]] static bool contains_window(const HType &type) {
+                if (type.kind == HType::Kind::Rolling) { return true; }
+                if (type.kind != HType::Kind::List && type.kind != HType::Kind::Map && type.kind != HType::Kind::Tuple) {
+                    return false;
+                }
+                return std::ranges::any_of(type.children, contains_window);
             }
             [[nodiscard]] std::string storage_type(const HType &type, SourceRange range) {
                 return ordinary_aggregate(type) ? "hgraph::Value" : value_type(type, range);
@@ -3839,13 +3849,18 @@ namespace hgl::codegen
                 if (map || list) { code += "hgraph::MapBuilder hgl_updates{" + updates + ".key_binding(), " + updates + ".element_binding()}; "; }
                 else { code += "hgraph::SetBuilder hgl_updates{" + updates + ".element_binding()}; "; }
                 if (!list) { code += "hgraph::SetBuilder hgl_removed{" + removed + ".element_binding()}; "; }
-                code += "hgl::ordinary::ScalarKeySet hgl_keys{" + updates + (map || list ? ".key_binding()" : ".element_binding()") + "}; ";
+                const std::string checked_keys = "hgl::ordinary::ScalarKeySet hgl_keys{" + updates +
+                    (map || list ? ".key_binding()" : ".element_binding()") + "}; ";
+                if (!growing) { code += checked_keys; }
                 std::size_t item_index = 0;
                 for (const auto &argument : arguments) {
                     const auto &expression = planned_value(argument.value, argument.range);
                     const auto *sequence = std::get_if<gir::Sequence>(&expression.node);
                     if (sequence == nullptr) { backend(argument.range, "collection delta requires checked sparse entries"); }
                     const bool removing = argument.name == "remove" || argument.name == "removed";
+                    // Growing-list overlap is well-formed stored data; applying
+                    // it still checks the net publication against the held length.
+                    if (growing) { code += "{ " + checked_keys; }
                     for (const auto &entry : sequence->elements) {
                         if (removing || (!map && !list)) {
                             const Value value = eval_planned_expr(entry.value, frame);
@@ -3862,6 +3877,7 @@ namespace hgl::codegen
                             code += "hgl_updates.set_item(" + key_local + ".view(), " + local + ".view()); ";
                         }
                     }
+                    if (growing) { code += "} "; }
                 }
                 code += "auto hgl_updates_storage = hgl_updates.build_storage(); ";
                 code += "hgraph::Value hgl_updates_value{" + updates + ".binding(), &hgl_updates_storage, hgraph::Value::AdoptStorage{}}; ";
@@ -4667,6 +4683,7 @@ namespace hgl::codegen
                     result.ordinary_value = ordinary_aggregate(type);
                     result.borrowed_value = result.ordinary_value;
                     result.global_borrow = result.ordinary_value;
+                    if (result.global_borrow) { result.global_entry = "hgl_cache.ref()." + entry->name; }
                     if (!result.ordinary_value) { result.code = ordinary_scalar(result.code, type, expression.range); }
                 }
                 return result;
@@ -5495,6 +5512,12 @@ namespace hgl::codegen
                             emit_output_value(value, current.type, current.selector, out);
                             return;
                         }
+                        if (current.global_borrow && !current.global_entry.empty()) {
+                            use("hgl_cache");
+                            out.line(current.global_entry + ".set(" + ordinary_view(value) + ");");
+                            out.line(current.code + " = " + current.global_entry + ".get();");
+                            return;
+                        }
                         const std::string converted = value.ordinary_value ? ordinary_retain(value)
                             : as_runtime(value, current.type, value.range, "assignment to '" + binding.name + "'");
                         if (binding.kind == gir::BindingKind::State || binding.kind == gir::BindingKind::Cache) {
@@ -5656,14 +5679,14 @@ namespace hgl::codegen
                         out.line("const auto &" + payload + " = " + converted + ";");
                         if (relative) {
                             out.open("if (" + operand + " < hgraph::TimeDelta::zero())");
-                            out.line("throw std::runtime_error(" + quote("negative duration produced by generator '" +
+                            out.line("throw hgl::ExecutionError(\"yield.negative_duration\", " + quote("negative duration produced by generator '" +
                                      std::string{active_callable_identity(planned)} + "'") + ");");
                             out.close();
                         }
                         out.line("const hgraph::DateTime " + when + " = " +
                                  (relative ? "hgraph::checked_add(alarm.now(), " + operand + ")" : operand) + ";");
                         out.open("if (hgl_cache.ref().hgl_has_previous && " + when + " <= hgl_cache.ref().hgl_previous)");
-                        out.line("throw std::runtime_error(" + quote("non-increasing time produced by generator '" +
+                        out.line("throw hgl::ExecutionError(\"yield.non_increasing_time\", " + quote("non-increasing time produced by generator '" +
                                  std::string{active_callable_identity(planned)} + "'") + ");");
                         out.close();
                         out.line("hgl_cache.modify().hgl_previous = " + when + ";");
@@ -5924,7 +5947,8 @@ namespace hgl::codegen
                 const SourceRange     range = graph_type(param.type, fn.range).range;
                 const std::string     name  = cpp_name(param.name);
                 if (param.is_const) {
-                    const std::string marker = ordinary_aggregate(type) && type.kind != HType::Kind::List
+                    const bool projected = type.kind == HType::Kind::List || type.kind == HType::Kind::Delta;
+                    const std::string marker = ordinary_aggregate(type) && !projected
                         ? "hgraph::ScalarVar<" + quote("hgl_" + param.name) + ", " + value_type(type, range) + ">"
                         : value_type(type, range);
                     params.push_back(named_if("hgraph::Scalar<" + quote(param.name) + ", " + marker + ">", name, uses));
@@ -6622,7 +6646,8 @@ namespace hgl::codegen
                 } else if (param.pack == gir::ParameterPack::Positional) {
                     params.push_back(named_if("hgraph::VarIn<" + quote(param.name) + ", " + schema(type, range) + ">", name, uses));
                 } else if (param.is_const) {
-                    const std::string marker = ordinary_aggregate(type) && type.kind != HType::Kind::List
+                    const bool projected = type.kind == HType::Kind::List || type.kind == HType::Kind::Delta;
+                    const std::string marker = ordinary_aggregate(type) && !projected
                         ? "hgraph::ScalarVar<" + quote("hgl_" + param.name) + ", " + value_type(type, range) + ">"
                         : value_type(type, range);
                     params.push_back(named_if("hgraph::Scalar<" + quote(param.name) + ", " + marker + ">", name, uses));
@@ -6688,6 +6713,39 @@ namespace hgl::codegen
         /// which needs only a declaration, so each edge target is declared
         /// first. A module without either keeps its source order exactly.
         void Emitter::emit_struct_declarations(Writer &out) {
+            // A delta-bearing value wrapper has no temporal alias. Propagate
+            // that restriction through temporal field dependencies, including
+            // imported declarations, before emitting any concrete specialization.
+            std::unordered_map<std::string_view, std::vector<std::string_view>> dependents;
+            std::vector<std::string_view> ordinary_only;
+            for (const auto &structure : graph_.structures) {
+                std::vector<gir::TypeId> pending;
+                for (const auto &field : structure.fields) { if (!field.recursive) { pending.push_back(field.type); } }
+                std::unordered_set<std::uint32_t> seen;
+                while (!pending.empty()) {
+                    const auto id = pending.back();
+                    pending.pop_back();
+                    if (!id.valid() || !seen.insert(id.value).second) { continue; }
+                    const auto &type = graph_.types[id.value];
+                    if (type.kind == hir::TypeKind::Delta) { ordinary_only.push_back(structure.identity); }
+                    else if (type.kind == hir::TypeKind::Symbol && !type.binding.valid()) {
+                        dependents[type.nominal_identity].push_back(structure.identity);
+                    } else if (type.kind == hir::TypeKind::List || type.kind == hir::TypeKind::Tuple) {
+                        pending.insert(pending.end(), type.children.begin(), type.children.end());
+                    } else if (type.kind == hir::TypeKind::Map && type.children.size() == 2U) {
+                        pending.push_back(type.children[1]);
+                    }
+                }
+            }
+            while (!ordinary_only.empty()) {
+                const auto identity = ordinary_only.back();
+                ordinary_only.pop_back();
+                if (!ordinary_only_structures_.insert(identity).second) { continue; }
+                if (const auto found = dependents.find(identity); found != dependents.end()) {
+                    ordinary_only.insert(ordinary_only.end(), found->second.begin(), found->second.end());
+                }
+            }
+
             std::unordered_map<std::string_view, gir::StructId> by_identity;
             for (const gir::StructId id : structure_declarations_) { by_identity.emplace(struct_contract(id).identity, id); }
 
@@ -6799,7 +6857,7 @@ namespace hgl::codegen
 
             std::vector<std::string> value_fields;
             std::vector<std::string> temporal_fields;
-            bool temporal_admitted = true;
+            bool temporal_admitted = !ordinary_only_structures_.contains(item.identity);
             for (const gir::StructField &field : item.fields) {
                 const gir::Type &planned = graph_type(field.type, field.range);
                 const HType      type    = planned_type(field.type, field.range, &generic_types);
@@ -6816,9 +6874,13 @@ namespace hgl::codegen
                     temporal_fields.push_back("hgraph::Field<" + quote(field.name) + ", hgraph::TS<" + edge + ">>");
                     continue;
                 }
-                value_fields.push_back("hgraph::Field<" + quote(field.name) + ", " + value_type(type, planned.range) + ">");
+                // Window-bearing fields have held storage, but no ordinary HGL
+                // value type. Keep their exact endpoint schema in temporal_fields.
+                const std::string held = contains_window(type)
+                    ? "hgl::ordinary::Held<" + schema(type, planned.range) + ">" : value_type(type, planned.range);
+                value_fields.push_back("hgraph::Field<" + quote(field.name) + ", " + held + ">");
                 if (type.kind == HType::Kind::Delta) { temporal_admitted = false; }
-                else { temporal_fields.push_back("hgraph::Field<" + quote(field.name) + ", " + schema(type, planned.range) + ">"); }
+                if (temporal_admitted) { temporal_fields.push_back("hgraph::Field<" + quote(field.name) + ", " + schema(type, planned.range) + ">"); }
             }
 
             std::vector<std::string> bundle_parts{quote(identity_module), quote(identity_name), item.abstract ? "true" : "false",
@@ -7431,6 +7493,7 @@ namespace hgl::codegen
             emit_include("<hgraph/lib/std/operators/operators.h>");
             emit_include("<hgraph/lib/std/lifted_kernels.h>");
             emit_include("<hgl/constant_arithmetic.h>");
+            emit_include("<hgl/execution_error.h>");
             emit_include("<hgl/ordinary_patterns.h>");
             emit_include("<hgl/temporal_literals.h>");
             emit_include("<hgl/global_key_preflight.h>");

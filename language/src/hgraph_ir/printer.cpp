@@ -954,6 +954,7 @@ namespace hgl::hgraph_ir
                     } else if constexpr (std::is_same_v<T, Assert>) {
                         out << "assert ";
                         print_value_id(out, node.condition);
+                        if (node.raises_block.valid()) { out << " raises=b" << node.raises_block.value; }
                     } else {
                         out << "evaluate ";
                         print_value_id(out, node.value);

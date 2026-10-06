@@ -585,6 +585,7 @@ namespace hgl::hgraph_ir
                         if (node.value.valid()) { check_runtime_expr(node.value, decl, valid); }
                     } else if constexpr (std::is_same_v<T, gir::Assert>) {
                         check_runtime_expr(node.condition, decl, valid);
+                        if (node.raises_block.valid()) { check_runtime_block(node.raises_block, decl, valid); }
                     } else if constexpr (std::is_same_v<T, gir::Evaluate>) {
                         check_runtime_expr(node.value, decl, valid);
                     }
@@ -628,7 +629,8 @@ namespace hgl::hgraph_ir
                 const bool declared_enum = type.kind == hir::TypeKind::Symbol && std::ranges::any_of(graph_.enums, [&](const auto &item) { return item.identity == type.nominal_identity; });
                 if (type.kind != hir::TypeKind::Scalar && type.kind != hir::TypeKind::Atomic && type.kind != hir::TypeKind::Map &&
                     type.kind != hir::TypeKind::Set && type.kind != hir::TypeKind::List && type.kind != hir::TypeKind::Rolling &&
-                    type.kind != hir::TypeKind::Reference && type.kind != hir::TypeKind::Signal && !unresolved_generic && !declared_enum) {
+                    type.kind != hir::TypeKind::Reference && type.kind != hir::TypeKind::Signal &&
+                    !(parameter.is_const && type.kind == hir::TypeKind::Delta) && !unresolved_generic && !declared_enum) {
                     backend(graph_type(parameter.type, planned.range).range,
                             "the runtime-node slice supports scalar, atomic, collection, ref, and signal parameters");
                 }
@@ -876,6 +878,7 @@ namespace hgl::hgraph_ir
                             if (node.value.valid()) { collect_calls(node.value, calls, statement.range); }
                         } else if constexpr (std::is_same_v<T, gir::Assert>) {
                             collect_calls(node.condition, calls, statement.range);
+                            if (node.raises_block.valid()) { collect_calls(node.raises_block, calls, statement.range); }
                         } else if constexpr (std::is_same_v<T, gir::Evaluate>) {
                             collect_calls(node.value, calls, statement.range);
                         }

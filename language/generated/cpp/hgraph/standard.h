@@ -205,6 +205,7 @@
 
 #include <array>
 #include <hgl/constant_arithmetic.h>
+#include <hgl/execution_error.h>
 #include <hgl/global_key_preflight.h>
 #include <hgl/ordinary_patterns.h>
 #include <hgl/temporal_literals.h>

@@ -4,6 +4,7 @@
 #       HGL <file.hgl>...
 #       [PARTS <file.hgl>...]
 #       [SOURCE_PARTS <1..64>]
+#       [INCLUDE_TEST_CONTEXTS]
 #       [SOURCES <file.cpp>...]
 #       [OUT_DIR <dir>] | [INCLUDE_DIR <dir> SRC_DIR <dir>]
 #       [LINK_LIBRARIES <target>...]
@@ -15,6 +16,8 @@
 # `prices.cpp`, `prices.hgl-module.json`) whose namespace is the module name.
 # When `PARTS` is present, `HGL` names exactly one anchor source and every
 # listed file is compiled with it as one logical module and one artifact set.
+# INCLUDE_TEST_CONTEXTS also emits runtime helpers declared in test contexts,
+# for a precompiled test host; production emission excludes them by default.
 # The pair is compiled together with any hand-written SOURCES into one library
 # that links `hgraph::core`, so a
 # package mixes generated and native code freely (developer guide, "C++
@@ -121,7 +124,7 @@ endfunction()
 
 function(hgl_add_module target)
     cmake_parse_arguments(PARSE_ARGV 1 _hgl
-        "STATIC;SHARED"
+        "STATIC;SHARED;INCLUDE_TEST_CONTEXTS"
         "OUT_DIR;INCLUDE_DIR;SRC_DIR;PYTHON_MODULE;PYTHON_PACKAGE_DIR;SOURCE_PARTS;NATIVE_PROVIDER_HEADER;NATIVE_PROVIDER"
         "HGL;PARTS;SOURCES;LINK_LIBRARIES")
     if(_hgl_UNPARSED_ARGUMENTS)
@@ -209,6 +212,10 @@ function(hgl_add_module target)
     set(_generated_stems)
     set(_module_descriptor_options)
     set(_module_descriptor_dependencies)
+    set(_test_context_options)
+    if(_hgl_INCLUDE_TEST_CONTEXTS)
+        list(APPEND _test_context_options --include-test-contexts)
+    endif()
     set(_module_part_options)
     set(_module_part_dependencies)
     foreach(_hgl_part IN LISTS _hgl_PARTS)
@@ -267,7 +274,7 @@ function(hgl_add_module target)
             OUTPUT ${_outputs}
             COMMAND "${_hgl_compiler}" emit-cpp "${_hgl_abs}" ${_module_part_options}
                     ${_emit_placement} ${_native_provider_options} --source-parts ${_hgl_SOURCE_PARTS} ${_python_options}
-                    ${_module_descriptor_options}
+                    ${_module_descriptor_options} ${_test_context_options}
             DEPENDS "${_hgl_abs}" ${_module_part_dependencies}
                     ${_hgl_compiler_dependency} ${_module_descriptor_dependencies}
             COMMENT "hgl emit-cpp ${_stem}.hgl"

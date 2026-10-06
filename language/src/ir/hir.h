@@ -452,7 +452,7 @@ namespace hgl::ir::hir
     struct ReturnStmt
     { ExprId value{}; };
     struct AssertStmt
-    { ExprId condition{}; };
+    { ExprId condition{}; BlockId raises_block{}; };
     struct ExprStmt
     { ExprId expr{}; };
 

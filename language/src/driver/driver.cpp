@@ -7,6 +7,7 @@
 #include "driver/cpp_formatter.h"
 #include "driver/line_reader.h"
 #include "driver/native_module.h"
+#include "driver/rejection_source.h"
 #include "hgraph_ir/lower.h"
 #include "hgraph_ir/printer.h"
 #include "ir/hir_printer.h"
@@ -37,6 +38,7 @@
 #include <map>
 #include <optional>
 #include <sstream>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -62,7 +64,7 @@ namespace hgl::driver
                          "  hgl emit-cpp <file> [--part <file>]... [--source-parts <1..64>]\n"
                          "               [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]\n"
                          "               [--python <file.py> --python-native <module>] [--print]\n"
-                         "               [--print-namespace] [--module-descriptor <file>]...\n"
+                         "               [--print-namespace] [--include-test-contexts] [--module-descriptor <file>]...\n"
                          "               [--native-provider-header <header> --native-provider <object>]\n"
                          "  hgl emit-native-rust <file> [--part <file>]... --out <file>\n"
                          "  hgl repl [--module-descriptor <file>]...\n"
@@ -275,7 +277,11 @@ namespace hgl::driver
             syntax::SourceRange                clause_range{};
             std::uint32_t                      assembled_begin{0};
             std::vector<syntax::Documentation> documentation{};
+            std::string original{};
         };
+
+        struct SourceText { std::string text{}, original{}; };
+        using SourceTexts = std::map<std::string, SourceText>;
 
         void blank(std::string &text, syntax::SourceRange range) {
             const std::size_t end = std::min<std::size_t>(range.end, text.size());
@@ -292,15 +298,26 @@ namespace hgl::driver
         /// arena. Each file is parsed first, so its module header and import
         /// ordering remain file-local contracts. Part labels provide a stable
         /// assembly order but never enter the module's nominal identity.
-        std::optional<Unit> load(const std::vector<std::string> &paths, const semantics::ModuleCatalog &catalog) {
+        std::optional<Unit> load(const std::vector<std::string> &paths, const semantics::ModuleCatalog &catalog,
+                                 const SourceTexts *sources = nullptr) {
             if (paths.empty()) { return std::nullopt; }
+            const auto read = [&](const std::string &path) -> std::optional<std::string> {
+                if (sources) { return sources->at(path).text; }
+                return read_file(path);
+            };
+            const auto source = [&](const std::string &path, std::string text) {
+                if (!sources) { return syntax::SourceFile{path, std::move(text)}; }
+                std::vector<syntax::SourceOrigin> origins{
+                    {{0, static_cast<std::uint32_t>(text.size())}, path, sources->at(path).original}};
+                return syntax::SourceFile{path, std::move(text), std::move(origins)};
+            };
             if (paths.size() == 1U) {
-                std::optional<std::string> text = read_file(paths.front());
+                std::optional<std::string> text = read(paths.front());
                 if (!text) {
                     std::cerr << "hgl: cannot read '" << paths.front() << "'\n";
                     return std::nullopt;
                 }
-                Unit unit{paths.front(), std::move(*text)};
+                Unit unit{source(paths.front(), std::move(*text)), false};
                 frontend(unit, catalog);
                 return unit;
             }
@@ -308,16 +325,16 @@ namespace hgl::driver
             std::vector<ModulePart> parts;
             parts.reserve(paths.size());
             for (const std::string &path : paths) {
-                std::optional<std::string> text = read_file(path);
+                std::optional<std::string> text = read(path);
                 if (!text) {
                     std::cerr << "hgl: cannot read '" << path << "'\n";
                     return std::nullopt;
                 }
-                syntax::SourceFile     file{path, *text};
+                syntax::SourceFile     file = source(path, *text);
                 syntax::DiagnosticSink diagnostics;
                 syntax::ast::Module    parsed = syntax::parse(file, diagnostics);
                 if (diagnostics.has_errors()) {
-                    Unit unit{path, std::move(*text)};
+                    Unit unit{source(path, std::move(*text)), false};
                     frontend(unit, catalog);
                     return unit;
                 }
@@ -331,13 +348,13 @@ namespace hgl::driver
                     }
                 }
                 if (header == nullptr) {
-                    Unit unit{path, std::move(*text)};
+                    Unit unit{source(path, std::move(*text)), false};
                     frontend(unit, catalog);
                     return unit;
                 }
                 parts.push_back(ModulePart{path, std::move(*text), module_path(*header), std::string{header->part.text},
                                            header_range, header->part.range, header->part_clause, 0,
-                                           std::move(parsed.documentation)});
+                                           std::move(parsed.documentation), sources ? sources->at(path).original : std::string{file.text()}});
             }
 
             std::ranges::sort(parts, [](const ModulePart &left, const ModulePart &right) {
@@ -364,7 +381,7 @@ namespace hgl::driver
                 blank(normalized, index == 0U ? part.clause_range : part.module_range);
                 text += normalized;
                 const std::uint32_t end = static_cast<std::uint32_t>(text.size());
-                origins.push_back(syntax::SourceOrigin{{part.assembled_begin, end}, part.path, part.text});
+                origins.push_back(syntax::SourceOrigin{{part.assembled_begin, end}, part.path, part.original});
                 if (text.empty() || text.back() != '\n') { text += '\n'; }
             }
 
@@ -573,21 +590,22 @@ namespace hgl::driver
             return exit_ok;
         }
 
-        void print_test_results(const std::vector<wiring::TestResult> &results, std::ostream &out) {
+        void print_test_results(const std::vector<wiring::TestResult> &results, std::ostream &out, bool execution_kind = false) {
             std::size_t failed = 0;
             for (const wiring::TestResult &result : results) {
-                out << result.name << " ... " << (result.passed ? "ok" : "FAILED") << '\n';
+                out << result.name << " ... " << (result.passed ? "ok" : "FAILED") << (execution_kind ? " [executed]" : "") << '\n';
                 if (!result.passed) { ++failed; }
                 if (!result.message.empty()) {
                     std::istringstream lines{result.message};
                     for (std::string line; std::getline(lines, line);) { out << "    " << line << '\n'; }
                 }
             }
+            if (execution_kind) { out << "Executed: "; }
             out << results.size() << (results.size() == 1 ? " test" : " tests") << ", " << failed << " failed\n";
         }
 
         int test(std::span<const std::string_view> arguments, std::string_view language_version,
-                 const semantics::ModuleCatalog &catalog, EvalLibraryProvider eval_provider) {
+                 const semantics::ModuleCatalog &catalog, EvalLibraryProvider eval_provider, TestRuntimeProvider test_provider) {
             std::optional<std::string> path;
             std::vector<std::string>   parts;
             wiring::TestOptions        options;
@@ -614,31 +632,125 @@ namespace hgl::driver
             if (!path) { return usage_error("test needs a file"); }
             std::vector<std::string> paths{*path};
             paths.insert(paths.end(), parts.begin(), parts.end());
-            std::optional<Unit> unit = load(paths, catalog);
+            struct CaseInput { std::string path; RejectionCase owner; };
+            SourceTexts sources;
+            std::vector<CaseInput> cases;
+            bool admitted = true;
+            for (const auto &input : paths) {
+                auto text = read_file(input);
+                if (!text) { std::cerr << "hgl: cannot read '" << input << "'\n"; return exit_usage; }
+                const syntax::SourceFile file{input, *text};
+                auto inspected = inspect_rejection_source(file, std::cerr);
+                admitted = admitted && inspected.valid;
+                SourceText source{*text, *text};
+                for (auto &owner : inspected.cases) {
+                    blank(source.text, owner.range);
+                    cases.push_back({input, std::move(owner)});
+                }
+                if (!sources.emplace(input, std::move(source)).second) {
+                    std::cerr << input << ": source part supplied twice\n";
+                    admitted = false;
+                }
+            }
+            if (!admitted) { return exit_diagnostics; }
+            std::optional<Unit> unit = load(paths, catalog, &sources);
             if (!unit) { return exit_usage; }
             if (!unit->ok) {
                 std::cerr << unit->diagnostics.render(unit->file);
                 return exit_diagnostics;
             }
-            for (const std::string &name : options.names) {
-                const bool known =
-                    std::any_of(unit->resolved.tests.begin(), unit->resolved.tests.end(), [&](syntax::ast::DeclId id) {
-                        return std::get<syntax::ast::TestDecl>(unit->module.decl(id).node).name.text == name;
-                    });
-                if (!known) { return usage_error("no test named '" + name + "'"); }
+            std::set<std::string> known_names;
+            for (const auto id : unit->resolved.tests) {
+                known_names.insert(std::string{std::get<syntax::ast::TestDecl>(unit->module.decl(id).node).name.text});
             }
+            for (const auto &item : cases) {
+                if (!item.owner.named_test || item.owner.name.empty()) { continue; }
+                if (!known_names.insert(item.owner.name).second) {
+                    std::cerr << "hgl: duplicate test name '" << item.owner.name << "'\n";
+                    admitted = false;
+                }
+            }
+            const std::set<std::string> selected{options.names.begin(), options.names.end()};
+            for (const auto &name : selected) {
+                if (!known_names.contains(name)) {
+                    std::cerr << "hgl: no test named '" << name << "'\n";
+                    admitted = false;
+                }
+            }
+            if (!admitted) { return exit_diagnostics; }
+            std::size_t rejected = 0, rejection_failures = 0;
+            for (const auto &item : cases) {
+                const auto &owner = item.owner;
+                if (owner.named_test && !selected.empty() && !selected.contains(owner.name)) { continue; }
+                ++rejected;
+                auto &source = sources.at(item.path);
+                source.text.replace(owner.range.begin, owner.range.end - owner.range.begin,
+                                    source.original, owner.range.begin, owner.range.end - owner.range.begin);
+                auto probe = load(paths, catalog, &sources);
+                blank(source.text, owner.range);
+                if (!probe) { std::cerr << "hgl: infrastructure failure preparing rejection case\n"; return exit_usage; }
+                std::map<std::uint32_t, const RejectionExpectation *> expectations;
+                for (const auto &expected : owner.expectations) { expectations.emplace(expected.line, &expected); }
+                std::set<std::uint32_t> matched;
+                bool passed = !probe->ok;
+                std::ostringstream detail;
+                for (const auto &diagnostic : probe->diagnostics.diagnostics()) {
+                    const auto line = probe->file.location(diagnostic.range.begin).line;
+                    const auto found = expectations.find(line);
+                    if (found != expectations.end() && found->second->category == diagnostic.category &&
+                        found->second->code == diagnostic.code &&
+                        probe->file.source_path(diagnostic.range.begin) == item.path && matched.insert(line).second) {
+                        continue;
+                    }
+                    passed = false;
+                    detail << "unexpected diagnostic: " << syntax::render_diagnostic(probe->file, diagnostic);
+                }
+                for (const auto &expected : owner.expectations) {
+                    if (matched.contains(expected.line)) { continue; }
+                    passed = false;
+                    detail << item.path << ':' << expected.line << ": missing expected "
+                           << syntax::category_name(expected.category) << " [" << expected.code << "]\n";
+                }
+                if (probe->ok) { detail << "source check succeeded; expected rejection\n"; }
+                const syntax::SourceFile original{item.path, source.original};
+                if (owner.named_test) { std::cout << owner.name; }
+                else {
+                    std::cout << item.path << ':' << original.location(owner.range.begin).line;
+                    if (!owner.name.empty()) { std::cout << " (" << owner.name << ')'; }
+                }
+                std::cout << " ... " << (passed ? "ok" : "FAILED") << " [rejection]\n";
+                std::cerr << detail.str();
+                if (!passed) { ++rejection_failures; }
+            }
+            if (!cases.empty()) { std::cout << rejected << " rejection cases, " << rejection_failures << " failed\n"; }
+            const bool has_execution = std::ranges::any_of(unit->resolved.tests, [&](auto id) {
+                const std::string name{std::get<syntax::ast::TestDecl>(unit->module.decl(id).node).name.text};
+                return selected.empty() || selected.contains(name);
+            });
+            std::vector<wiring::TestResult> results;
             NativeModule eval_library;
             NativeModule native_module;
-            if (!prepare_eval_library(*unit, language_version, catalog, eval_library, eval_provider) ||
-                !load_native_module(*unit, language_version, native_module, true, binding)) {
-                std::cerr << unit->diagnostics.render(unit->file);
-                return exit_diagnostics;
+            if (has_execution || cases.empty()) {
+                if (test_provider) {
+                    wiring::ensure_session();
+                    try { test_provider(); }
+                    catch (const std::exception &error) {
+                        unit->diagnostics.report(syntax::Category::Module, {},
+                                                 "cannot prepare compiled test runtime: " + std::string{error.what()});
+                        std::cerr << unit->diagnostics.render(unit->file);
+                        return exit_diagnostics;
+                    }
+                }
+                if (!prepare_eval_library(*unit, language_version, catalog, eval_library, eval_provider) ||
+                    (!test_provider && !load_native_module(*unit, language_version, native_module, true, binding))) {
+                    std::cerr << unit->diagnostics.render(unit->file);
+                    return exit_diagnostics;
+                }
+                results = wiring::run_tests(unit->file, *unit->hgraph, options, unit->diagnostics);
             }
-            const std::vector<wiring::TestResult> results =
-                wiring::run_tests(unit->file, *unit->hgraph, options, unit->diagnostics);
-            print_test_results(results, std::cout);
+            print_test_results(results, std::cout, true);
             if (unit->diagnostics.has_errors()) { std::cerr << unit->diagnostics.render(unit->file); }
-            const bool failed = unit->diagnostics.has_errors() ||
+            const bool failed = rejection_failures != 0 || unit->diagnostics.has_errors() ||
                                 std::any_of(results.begin(), results.end(), [](const wiring::TestResult &r) { return !r.passed; });
             return failed ? exit_diagnostics : exit_ok;
         }
@@ -829,9 +941,10 @@ namespace hgl::driver
             std::string                python_native;
             std::string                native_provider_header;
             std::string                native_provider;
-            std::size_t                source_parts    = 1;
-            bool                       print           = false;
-            bool                       print_namespace = false;
+            std::size_t                source_parts          = 1;
+            bool                       print                 = false;
+            bool                       print_namespace       = false;
+            bool                       include_test_contexts = false;
             for (std::size_t i = 0; i < arguments.size(); ++i) {
                 const std::string_view argument = arguments[i];
                 const auto             value    = [&]() -> std::optional<std::string_view> {
@@ -877,6 +990,8 @@ namespace hgl::driver
                     print = true;
                 } else if (argument == "--print-namespace") {
                     print_namespace = true;
+                } else if (argument == "--include-test-contexts") {
+                    include_test_contexts = true;
                 } else if (argument.starts_with("--")) {
                     return usage_error("unknown option '" + std::string{argument} + "'");
                 } else if (path) {
@@ -934,6 +1049,7 @@ namespace hgl::driver
             options.tool_version         = std::string{tool_version};
             options.python_native_module = python_native;
             options.source_parts         = source_parts;
+            options.include_test_contexts = include_test_contexts;
             options.native_provider_header = native_provider_header;
             options.native_provider        = native_provider;
             std::optional<codegen::EmittedModule> emitted =
@@ -1223,7 +1339,8 @@ namespace hgl::driver
         }
     }  // namespace
 
-    int run(std::span<const std::string_view> arguments, std::string_view tool_version, EvalLibraryProvider eval_provider) {
+    int run(std::span<const std::string_view> arguments, std::string_view tool_version, EvalLibraryProvider eval_provider,
+            TestRuntimeProvider test_provider) {
         if (arguments.empty()) {
             print_help();
             return exit_ok;
@@ -1246,7 +1363,7 @@ namespace hgl::driver
         if (const std::optional<int> error = collect_module_descriptors(rest, command_arguments, catalog)) { return *error; }
         const std::span<const std::string_view> filtered{command_arguments};
         if (command == "check") { return check(filtered, catalog); }
-        if (command == "test") { return test(filtered, tool_version, catalog, eval_provider); }
+        if (command == "test") { return test(filtered, tool_version, catalog, eval_provider, test_provider); }
         if (command == "run") { return run_command(filtered, tool_version, catalog); }
         if (command == "repl") { return repl(filtered, tool_version, catalog, eval_provider); }
         if (command == "emit-native-rust") { return emit_native_rust(filtered, catalog); }

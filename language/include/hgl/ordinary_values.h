@@ -13,11 +13,19 @@
 #include <limits>
 #include <functional>
 #include <span>
+#include <stdexcept>
 #include <utility>
 #include <unordered_set>
 
 namespace hgl::ordinary
 {
+    // Only explicit publication predicates use this marker. Allocation and
+    // storage failures retain their original exception identity.
+    class PublicationProfileError : public std::invalid_argument {
+      public:
+        using std::invalid_argument::invalid_argument;
+    };
+
     template <typename Element, std::int64_t Size = -1> struct List {};
     template <typename Shape> struct Delta {};
     template <typename Shape> struct Held {};
@@ -92,7 +100,7 @@ namespace hgl::ordinary
 
     inline void validate_scalar_key(const hgraph::ValueView &key) {
         if (key.schema() == hgraph::scalar_descriptor<hgraph::Float>::value_meta() && std::isnan(key.checked_as<hgraph::Float>())) {
-            throw std::invalid_argument("NaN collection keys are outside the publication profile");
+            throw PublicationProfileError("NaN collection keys are outside the publication profile");
         }
         const auto kind = key.schema()->try_value_kind();
         if (kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
@@ -131,11 +139,11 @@ namespace hgl::ordinary
             pending.pop_back();
             if (frame.leaving) { ancestors.erase(frame.data); continue; }
             const auto value = hgraph::ValueView{frame.binding, frame.data}.concrete();
-            if (!value.valid()) { throw std::invalid_argument("incomplete atomic publication payload"); }
+            if (!value.valid()) { throw PublicationProfileError("incomplete atomic publication payload"); }
             // Only indirect edges can form value cycles. Inline children may
             // share their parent's address, so tracking every field is wrong.
             if (frame.binding.schema()->is_owned()) {
-                if (!ancestors.insert(value.data()).second) { throw std::invalid_argument("cyclic atomic publication payload"); }
+                if (!ancestors.insert(value.data()).second) { throw PublicationProfileError("cyclic atomic publication payload"); }
                 pending.push_back({value.binding(), value.data(), true});
             }
             const auto kind = value.schema()->try_value_kind();
@@ -151,7 +159,7 @@ namespace hgl::ordinary
                         ops->element_at(ops->context, value.data(), index)};
                     if (!child.valid() || (ops->element_valid != nullptr && !ops->element_valid(ops->context, value.data(), index))) {
                         if (kind == hgraph::ValueTypeKind::Bundle && optional && optional(value.schema(), index)) { continue; }
-                        throw std::invalid_argument("incomplete atomic publication payload");
+                        throw PublicationProfileError("incomplete atomic publication payload");
                     }
                     pending.push_back({child.binding(), child.data()});
                 }

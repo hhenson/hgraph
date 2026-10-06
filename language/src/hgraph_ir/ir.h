@@ -568,7 +568,7 @@ namespace hgl::hgraph_ir
     struct Return
     { ValueId value{}; };
     struct Assert
-    { ValueId condition{}; };
+    { ValueId condition{}; BlockId raises_block{}; };
     struct Evaluate
     { ValueId value{}; };
     using StatementNode =

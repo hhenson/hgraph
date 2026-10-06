@@ -73,7 +73,7 @@ def assess(stdout, returncode, module, expected):
         problems.append(f'unexpected tests: {sorted(extra)}')
     if duplicates := sorted(name for name, count in identities.items() if count != wanted.get(name, 0)):
         problems.append(f'incorrect result counts: {duplicates}')
-    if any(row['result'] != 'ok' for row in observed):
+    if any(row['result'] not in {'ok', 'ok [executed]'} for row in observed):
         problems.append('one or more test assertions failed')
     return {'module': module, 'passed': not problems, 'tests': observed, 'errors': problems}
 

@@ -66,6 +66,11 @@ namespace hgl::ir
 
                 expr_state_.resize(module_.exprs.size());
                 check_type_expressions();
+                for (const auto &statement : module_.stmts) {
+                    if (const auto *local = std::get_if<LocalDecl>(&statement.node); local && local->type.valid()) {
+                        source_annotations_.emplace(local->symbol.value, local->type);
+                    }
+                }
                 canonical_types_.initialize();
                 void_type_ = canonical_types_.void_type();
                 for (DeclarationId declaration : module_.source_order) {
@@ -361,8 +366,10 @@ namespace hgl::ir
                 require_assignable(expected, actual, context);
             }
 
-            void type_error(syntax::SourceRange range, std::string message) {
-                diagnostics_.report(syntax::Category::Type, range, std::move(message));
+            void type_error(syntax::SourceRange range, std::string message, std::string code = {}) {
+                if (!code.empty() && !emitted_type_codes_.insert(code + ":" + std::to_string(range.begin) + ":" +
+                                                                std::to_string(range.end)).second) { return; }
+                diagnostics_.report(syntax::Category::Type, range, std::move(message), std::move(code));
             }
 
             [[nodiscard]] std::string type_name(TypeId id) const { return canonical_types_.name(id); }
@@ -1155,6 +1162,7 @@ namespace hgl::ir
                     reject_nested_function_level_in(node.value);
                 } else if constexpr (std::is_same_v<Node, AssertStmt>) {
                     reject_nested_function_level_in(node.condition);
+                    if (node.raises_block.valid()) { reject_nested_function_level(node.raises_block); }
                 } else if constexpr (std::is_same_v<Node, ReturnStmt> || std::is_same_v<Node, ExprStmt>) {
                     reject_nested_function_level_in(expression_of(node));
                 }
@@ -1239,11 +1247,49 @@ namespace hgl::ir
                     expression.node);
             }
 
-            void require_assignable(TypeId expected, const Expr &actual, std::string_view what) {
+            TypeId place_annotation(ExprId id) {
+                const auto &place = module_.expr(id);
+                if (const auto *reference = std::get_if<SymbolRef>(&place.node)) {
+                    const auto found = source_annotations_.find(reference->symbol.value);
+                    return found == source_annotations_.end() ? TypeId{} : found->second;
+                }
+                if (const auto *field = std::get_if<Field>(&place.node)) {
+                    const auto base = unwrap_atomic(module_.expr(field->target).type);
+                    if (!base.valid()) { return {}; }
+                    const auto &nominal = type(base);
+                    if (nominal.kind != TypeKind::Symbol || !nominal.symbol.valid()) { return {}; }
+                    const auto &symbol = module_.symbol(nominal.symbol);
+                    const auto *structure = symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
+                    const auto *imported = imported_struct_decl(nominal.symbol);
+                    if (!structure && !imported) { return {}; }
+                    const auto &fields = structure ? structure->fields : imported->fields;
+                    const auto found = std::ranges::find(fields, field->name, &StructField::name);
+                    return found == fields.end() ? TypeId{} : found->type;
+                }
+                if (const auto *index = std::get_if<Index>(&place.node)) {
+                    auto source = place_annotation(index->target);
+                    if (!source.valid()) { return {}; }
+                    if (type(source).kind == TypeKind::Delta) { source = canonical(source); }
+                    const auto &container = type(source);
+                    if (container.kind == TypeKind::List && !container.children.empty()) { return container.children.front(); }
+                    if (container.kind == TypeKind::Map && container.children.size() == 2U) { return container.children[1]; }
+                    const auto &key = module_.expr(index->index);
+                    if (container.kind == TypeKind::Tuple && key.constant) {
+                        if (const auto *position = std::get_if<std::int64_t>(&*key.constant);
+                            position && *position >= 0 && static_cast<std::size_t>(*position) < container.children.size()) {
+                            return container.children[static_cast<std::size_t>(*position)];
+                        }
+                    }
+                }
+                return {};
+            }
+
+            void require_assignable(TypeId expected, const Expr &actual, std::string_view what, bool delta_context = false) {
                 if (!expected.valid() || !actual.type.valid()) { return; }
                 if (!assignable(expected, actual.type)) {
                     type_error(actual.range,
-                               std::string{what} + " has type " + type_name(actual.type) + ", expected " + type_name(expected));
+                               std::string{what} + " has type " + type_name(actual.type) + ", expected " + type_name(expected),
+                               delta_context || type(expected).kind == TypeKind::Delta || structural_delta_operand(actual.type) ? "delta.type_mismatch" : "");
                 } else if (actual.phase == Phase::Wiring && requires_nested_conversion(expected, actual.type)) {
                     type_error(actual.range,
                                std::string{what} + " requires an implicit conversion inside a time-series collection");
@@ -1344,11 +1390,11 @@ namespace hgl::ir
                 const SizeKind min_kind = minimum != nullptr ? size_kind(*minimum) : max_kind;
                 if (max_kind == SizeKind::Other || min_kind == SizeKind::Other) {
                     type_error(max_kind == SizeKind::Other ? maximum.range : minimum->range,
-                               "a rolling size must be an i64 or duration constant");
+                               "a rolling size must be an i64 or duration constant", "rolling.size_kind");
                     return;
                 }
                 if (max_kind != SizeKind::Unknown && min_kind != SizeKind::Unknown && max_kind != min_kind) {
-                    type_error(minimum->range, "rolling sizes must both be i64 or both be duration");
+                    type_error(minimum->range, "rolling sizes must both be i64 or both be duration", "rolling.size_kind");
                     return;
                 }
                 const auto tick = [](const Expr &expression) -> std::optional<std::int64_t> {
@@ -1367,17 +1413,19 @@ namespace hgl::ir
                     const std::optional<std::int64_t> max_value = tick(maximum);
                     const std::optional<std::int64_t> min_value = minimum != nullptr ? tick(*minimum) : max_value;
                     if (max_value && *max_value <= 0) {
-                        type_error(maximum.range, "a rolling tick size must be positive");
+                        type_error(maximum.range, "a rolling tick size must be positive", "rolling.size_bounds");
                     } else if (min_value && (*min_value <= 0 || (max_value && *min_value > *max_value))) {
-                        type_error(minimum_range, "a rolling minimum size must be positive and no larger than the maximum");
+                        type_error(minimum_range, "a rolling minimum size must be positive and no larger than the maximum",
+                                   "rolling.size_bounds");
                     }
                 } else if (max_kind == SizeKind::Duration) {
                     const std::optional<std::int64_t> max_value = micros(maximum);
                     const std::optional<std::int64_t> min_value = minimum != nullptr ? micros(*minimum) : max_value;
                     if (max_value && *max_value <= 0) {
-                        type_error(maximum.range, "a rolling duration must be positive");
+                        type_error(maximum.range, "a rolling duration must be positive", "rolling.size_bounds");
                     } else if (min_value && (*min_value < 0 || (max_value && *min_value > *max_value))) {
-                        type_error(minimum_range, "a rolling minimum duration must be non-negative and no longer than the maximum");
+                        type_error(minimum_range, "a rolling minimum duration must be non-negative and no longer than the maximum",
+                                   "rolling.size_bounds");
                     }
                 }
             }
@@ -1454,7 +1502,7 @@ namespace hgl::ir
                 return false;
             }
 
-            Expr &check_expr(ExprId id, TypeId expected = {}, bool allow_nullable = false) {
+            Expr &check_expr(ExprId id, TypeId expected = {}, bool allow_nullable = false, bool delta_context = false) {
                 if (!id.valid()) { return missing_expression_; }
                 if (id.value >= expr_state_.size()) { expr_state_.resize(module_.exprs.size()); }
                 Expr &expression = module_.exprs[id.value];
@@ -1486,9 +1534,9 @@ namespace hgl::ir
                         } else if constexpr (std::is_same_v<T, Field>) {
                             check_field(expression, node);
                         } else if constexpr (std::is_same_v<T, Sequence>) {
-                            check_sequence(expression, node, expected);
+                            check_sequence(expression, node, expected, delta_context);
                         } else if constexpr (std::is_same_v<T, Tuple>) {
-                            check_tuple(expression, node, expected);
+                            check_tuple(expression, node, expected, delta_context);
                         } else if constexpr (std::is_same_v<T, Lambda>) {
                             check_lambda(expression, node, expected);
                         } else if constexpr (std::is_same_v<T, If>) {
@@ -2332,7 +2380,8 @@ namespace hgl::ir
                         if (!is_type_pack(parameter.type, fn.generics) &&
                             !bindings.infer_from_argument(parameter.type, argument.type)) {
                             type_error(argument.range,
-                                       "argument has type " + type_name(argument.type) + ", expected " + type_name(parameter.type));
+                                       "argument has type " + type_name(argument.type) + ", expected " + type_name(parameter.type),
+                                       type(parameter.type).kind == TypeKind::Delta || structural_delta_operand(argument.type) ? "delta.type_mismatch" : "");
                         }
                     }
                     bind_type_pack(parameter, fn.generics, bound.parameters[index], bound.names[index], bindings);
@@ -2345,7 +2394,7 @@ namespace hgl::ir
                     if (is_type_pack(fn.signature.parameters[index].type, fn.generics)) { continue; }
                     TypeId parameter = bindings.apply(fn.signature.parameters[index].type);
                     for (ExprId argument : bound.parameters[index]) {
-                        require_assignable(parameter, module_.expr(argument), "argument");
+                        require_assignable(parameter, module_.expr(argument), "argument", type(fn.signature.parameters[index].type).kind == TypeKind::Delta);
                     }
                 }
                 expression.type    = bindings.apply(fn.signature.result);
@@ -2837,7 +2886,8 @@ namespace hgl::ir
                         }
                         if (!is_type_pack(parameter.type, op.generics) &&
                             !contract_bindings.infer_from_argument(parameter.type, argument.type)) {
-                            type_error(argument.range, "operator argument does not match its contract");
+                            type_error(argument.range, "operator argument does not match its contract",
+                                       type(parameter.type).kind == TypeKind::Delta || structural_delta_operand(argument.type) ? "delta.type_mismatch" : "");
                         }
                     }
                     bind_type_pack(parameter, op.generics, bound.parameters[index], bound.names[index], contract_bindings);
@@ -3251,7 +3301,8 @@ namespace hgl::ir
                 if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
             }
 
-            void check_sequence(Expr &expression, const Sequence &node, TypeId expected) {
+            void check_sequence(Expr &expression, const Sequence &node, TypeId expected, bool delta_context = false) {
+                delta_context = delta_context || (expected.valid() && type(expected).kind == TypeKind::Delta);
                 expected = unwrap_atomic(expected);
                 TypeId element_expected;
                 bool   use_expected_list = false;
@@ -3268,7 +3319,7 @@ namespace hgl::ir
                                 use_expected_list = *count >= 0 && static_cast<std::size_t>(*count) == node.elements.size();
                                 if (!use_expected_list) {
                                     type_error(expression.range, "list literal has " + std::to_string(node.elements.size()) +
-                                                                     " elements, expected " + std::to_string(*count));
+                                                                     " elements, expected " + std::to_string(*count), delta_context ? "delta.type_mismatch" : "");
                                 }
                             }
                         }
@@ -3289,7 +3340,7 @@ namespace hgl::ir
                     const TypeId item_expected = element_type.valid() &&
                         (type(canonical(element_type)).kind == TypeKind::Atomic || rolling_arrival)
                         ? type(canonical(element_type)).children.front() : element_type;
-                    Expr &value = check_expr(element.value, item_expected);
+                    Expr &value = check_expr(element.value, item_expected, false, delta_context);
                     if (!element_type.valid() && value.type.valid()) {
                         element_type = value.type;
                     } else if (value.type.valid() && !assignable(element_type, value.type)) {
@@ -3297,7 +3348,7 @@ namespace hgl::ir
                         const bool publication = expected.valid() && type(canonical(expected)).kind == TypeKind::HarnessSequence &&
                             payload.kind == TypeKind::Delta && payload.children.size() == 1U && same(element_type, payload.children.front());
                         if (!publication && !(rolling_arrival && assignable(item_expected, value.type))) {
-                            type_error(value.range, "sequence elements have incompatible types");
+                            type_error(value.range, "sequence elements have incompatible types", delta_context || harness || structural_delta_operand(value.type) ? "delta.type_mismatch" : "");
                         }
                     }
                     phase = join_phase(phase, value.phase);
@@ -3315,7 +3366,8 @@ namespace hgl::ir
                 expression.value_kind = kind == TypeKind::HarnessSequence ? ValueKind::Constant : value_kind_for_phase(phase);
             }
 
-            void check_tuple(Expr &expression, const Tuple &node, TypeId expected) {
+            void check_tuple(Expr &expression, const Tuple &node, TypeId expected, bool delta_context = false) {
+                delta_context = delta_context || (expected.valid() && type(expected).kind == TypeKind::Delta);
                 expected = unwrap_atomic(expected);
                 std::vector<TypeId> children;
                 const Type         *expected_tuple = nullptr;
@@ -3326,7 +3378,7 @@ namespace hgl::ir
                 for (std::size_t index = 0; index < node.elements.size(); ++index) {
                     const TypeId item_expected =
                         expected_tuple && index < expected_tuple->children.size() ? expected_tuple->children[index] : TypeId{};
-                    Expr &item = check_expr(node.elements[index], item_expected);
+                    Expr &item = check_expr(node.elements[index], item_expected, false, delta_context);
                     children.push_back(item.type);
                     expression.phase = join_phase(expression.phase, item.phase);
                     expression.effects |= item.effects;
@@ -3503,7 +3555,10 @@ namespace hgl::ir
                     const TypeId expected = input ? make_type(TypeKind::HarnessSequence, {parameter.type}) : parameter.type;
                     if (bound.parameters[index].empty()) { continue; }
                     Expr &value = check_expr(bound.parameters[index].front(), expected);
-                    require_assignable(expected, value, "eval input");
+                    const auto &actual = type(canonical(value.type));
+                    const bool ordinary_trace = input && actual.kind == TypeKind::List && actual.children.size() == 1U &&
+                        same(actual.children.front(), make_type(TypeKind::Delta, {parameter.type}));
+                    if (!ordinary_trace) { require_assignable(expected, value, "eval input"); }
                 }
                 if (!has_temporal_input) {
                     type_error(expression.range, "eval requires at least one temporal sequence input");
@@ -3700,15 +3755,19 @@ namespace hgl::ir
                             }
                         }
                         if (field == nullptr) {
-                            type_error(argument.range,
-                                       "struct '" + imported.identity + "' has no field named '" + argument.name + "'");
+                            diagnostics_.report(delta ? syntax::Category::Name : syntax::Category::Type,
+                                {argument.range.begin, argument.range.begin + static_cast<std::uint32_t>(argument.name.size())},
+                                "struct '" + imported.identity + "' has no field named '" + argument.name + "'",
+                                delta ? "delta.argument_name" : "");
                             continue;
                         }
                     }
                     if (!field) { continue; }
                     if (position < supplied.size()) {
                         if (supplied[position]) {
-                            type_error(argument.range, "field '" + field->name + "' is given twice");
+                            diagnostics_.report(delta ? syntax::Category::Name : syntax::Category::Type,
+                                {argument.range.begin, argument.range.begin + static_cast<std::uint32_t>(argument.name.size())},
+                                "field '" + field->name + "' is given twice", delta ? "delta.duplicate_argument" : "");
                         }
                         supplied[position] = true;
                     }
@@ -3718,13 +3777,13 @@ namespace hgl::ir
                         continue;
                     }
                     const TypeId payload = delta ? make_type(TypeKind::Delta, {*expected}) : *expected;
-                    Expr &value = check_expr(argument.value, payload);
+                    Expr &value = check_expr(argument.value, payload, false, delta || type(field->type).kind == TypeKind::Delta);
                     if (value.constant && std::holds_alternative<NullValue>(*value.constant)) {
                         if (!delta && !field->optional) {
                             type_error(value.range, "null is only valid for an optional field or sparse delta");
                         }
                     } else {
-                        require_assignable(payload, value, "constructor field");
+                        require_assignable(payload, value, "constructor field", delta || type(field->type).kind == TypeKind::Delta);
                     }
                     expression.effects |= value.effects;
                 }
@@ -3789,13 +3848,13 @@ namespace hgl::ir
                         continue;
                     }
                     const TypeId payload = delta ? make_type(TypeKind::Delta, {*expected}) : *expected;
-                    Expr &value = check_expr(argument.value, payload);
+                    Expr &value = check_expr(argument.value, payload, false, delta || type(field->type).kind == TypeKind::Delta);
                     if (value.constant && std::holds_alternative<NullValue>(*value.constant)) {
                         if (!delta && !field->optional) {
                             type_error(value.range, "null is only valid for an optional field or sparse delta");
                         }
                     } else {
-                        require_assignable(payload, value, "constructor field");
+                        require_assignable(payload, value, "constructor field", delta || type(field->type).kind == TypeKind::Delta);
                     }
                     expression.effects |= value.effects;
                 }
@@ -3957,6 +4016,11 @@ namespace hgl::ir
             bool constant_key_recipe(ExprId id, std::unordered_set<std::uint32_t> &visiting) {
                 if (!id.valid() || !visiting.insert(id.value).second) { return false; }
                 const auto &expression = module_.expr(id);
+                const auto root = place_root(id);
+                if (root.valid() && module_.symbol(root).kind == SymbolKind::LocalVar) {
+                    visiting.erase(id.value);
+                    return false;
+                }
                 bool constant = expression.phase == Phase::Constant;
                 if (!constant) {
                     if (const auto *reference = std::get_if<SymbolRef>(&expression.node);
@@ -3990,18 +4054,74 @@ namespace hgl::ir
                 return constant_key_recipe(id, visiting);
             }
 
+            std::optional<std::string> constant_key_identity(ExprId id) {
+                const auto &expression = module_.expr(id);
+                if (expression.constant) { return scalar_key_identity(*expression.constant); }
+                if (const auto *reference = std::get_if<SymbolRef>(&expression.node)) {
+                    const auto found = local_contexts_.find(reference->symbol.value);
+                    if (found != local_contexts_.end()) {
+                        if (const auto *local = std::get_if<LocalDecl>(&module_.stmts[found->second.declaration.value].node)) {
+                            return constant_key_identity(local->init);
+                        }
+                    }
+                }
+                std::string result = std::to_string(canonical(expression.type).value) + ":";
+                const auto append = [&](ExprId child) {
+                    const auto identity = constant_key_identity(child);
+                    if (!identity) { return false; }
+                    result += std::to_string(identity->size()) + ":" + *identity;
+                    return true;
+                };
+                if (const auto *tuple = std::get_if<Tuple>(&expression.node)) {
+                    for (auto child : tuple->elements) { if (!append(child)) { return std::nullopt; } }
+                    return result;
+                }
+                if (expression.operation.kind == OperationKind::Constructor) {
+                    const std::vector<Argument> *arguments = nullptr;
+                    if (const auto *call = std::get_if<Call>(&expression.node)) { arguments = &call->arguments; }
+                    if (const auto *construct = std::get_if<Construct>(&expression.node); construct && !construct->delta) { arguments = &construct->arguments; }
+                    if (arguments) {
+                        const auto &nominal = type(canonical(expression.type));
+                        if (nominal.kind != TypeKind::Symbol || !nominal.symbol.valid()) { return std::nullopt; }
+                        const auto &symbol = module_.symbol(nominal.symbol);
+                        const auto *structure = symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
+                        const auto *imported = imported_struct_decl(nominal.symbol);
+                        if (!structure && !imported) { return std::nullopt; }
+                        const auto &fields = structure ? structure->fields : imported->fields;
+                        std::unordered_map<std::string, ExprId> supplied;
+                        std::size_t positional = 0;
+                        for (const auto &argument : *arguments) {
+                            if (argument.name.empty()) {
+                                if (positional >= fields.size()) { return std::nullopt; }
+                                supplied.emplace(fields[positional++].name, argument.value);
+                            } else { supplied.emplace(argument.name, argument.value); }
+                        }
+                        // Compare the complete declaration-order value, including
+                        // known defaults, independently of argument spelling/order.
+                        for (const auto &field : fields) {
+                            const auto found = supplied.find(field.name);
+                            const auto child = found == supplied.end() ? field.default_value : found->second;
+                            if (!child.valid() || !append(child)) { return std::nullopt; }
+                        }
+                        return result;
+                    }
+                }
+                return std::nullopt;
+            }
+
             void check_collection_delta(Expr &expression, const Construct &node, TypeId origin) {
                 const Type shape = type(origin);
                 const bool growing = shape.kind == TypeKind::List && (shape.unbounded || !shape.size.valid());
                 std::unordered_set<std::string> names;
-                std::unordered_set<std::string> members;
+                std::unordered_map<std::string, std::string> members;
                 for (const Argument &argument : node.arguments) {
-                    if (!names.insert(argument.name).second) { type_error(argument.range, "duplicate delta argument"); }
+                    std::unordered_set<std::string> argument_members;
+                    if (!names.insert(argument.name).second) { diagnostics_.report(syntax::Category::Name, {argument.range.begin, argument.range.begin + static_cast<std::uint32_t>(argument.name.size())}, "duplicate delta argument", "delta.duplicate_argument"); }
                     const bool sparse = argument.name == "items" || argument.name == "upsert";
                     const bool admitted = shape.kind == TypeKind::Set ? argument.name == "added" || argument.name == "removed"
                         : shape.kind == TypeKind::Map ? argument.name == "upsert" || argument.name == "remove"
                         : argument.name == "items" || (growing && argument.name == "remove");
-                    if (!admitted || argument.name.empty()) { type_error(argument.range, "unknown delta argument"); }
+                    if (!admitted || argument.name.empty()) { diagnostics_.report(syntax::Category::Name, {argument.range.begin, argument.range.begin + static_cast<std::uint32_t>(argument.name.size())}, "unknown delta argument", "delta.argument_name"); return; }
                     Expr &entries = module_.exprs[argument.value.value];
                     const auto *sequence = std::get_if<Sequence>(&entries.node);
                     if (!sequence) { type_error(entries.range, "collection delta requires a literal entry list"); continue; }
@@ -4012,19 +4132,22 @@ namespace hgl::ir
                             type_error(entries.range, "delta entry has the wrong sparse form"); continue;
                         }
                         Expr &key = check_expr(key_id);
-                        if (!same(item_type, key.type)) { type_error(key.range, "delta key, member or index requires its exact declared type"); }
+                        if (!same(item_type, key.type)) { type_error(key.range, "delta key, member or index requires its exact declared type", "delta.entry_type"); continue; }
                         if (!constant_key_recipe(key_id) ||
                             ((shape.kind == TypeKind::List || shape.kind == TypeKind::Tuple) && !key.constant)) {
-                            type_error(key.range, "delta members, keys and indices must be constants");
+                            type_error(key.range, "delta members, keys and indices must be constants", "delta.entry_constant"); continue;
                         }
-                        if (key.constant) {
-                            if (const auto identity = scalar_key_identity(*key.constant); identity && !members.insert(*identity).second) {
-                                type_error(key.range, "duplicate or overlapping delta member, key or index");
+                        if (const auto identity = constant_key_identity(key_id)) {
+                            const bool duplicate = !argument_members.insert(*identity).second;
+                            const auto [found, inserted] = members.emplace(*identity, argument.name);
+                            if (duplicate || (!inserted && !growing && found->second != argument.name)) {
+                                type_error(key.range, "duplicate or overlapping delta member, key or index",
+                                           duplicate ? "delta.duplicate_entry" : "delta.overlap");
                             }
                         }
                         if (growing && key.constant) {
                             const auto *index = std::get_if<std::int64_t>(&*key.constant);
-                            if (!index || *index < 0) { type_error(key.range, "growing-list indices must be nonnegative i64 constants"); }
+                            if (!index || *index < 0) { type_error(key.range, "growing-list indices must be nonnegative i64 constants", "delta.index_bounds"); continue; }
                         }
                         if (sparse) {
                             TypeId child;
@@ -4037,13 +4160,13 @@ namespace hgl::ir
                                     const auto *n = size.constant ? std::get_if<std::int64_t>(&*size.constant) : nullptr;
                                     if (n) { count = *n; }
                                 }
-                                if (!index || *index < 0 || (!growing && *index >= count)) { type_error(key.range, "delta index is outside its declared shape"); }
+                                if (!index || *index < 0 || (!growing && *index >= count)) { type_error(key.range, "delta index is outside its declared shape", "delta.index_bounds"); }
                                 else { child = shape.children[shape.kind == TypeKind::List ? 0U : static_cast<std::size_t>(*index)]; }
                             }
                             if (child.valid()) {
                                 const TypeId payload = make_type(TypeKind::Delta, {child});
                                 Expr &value = check_expr(entry.value, payload);
-                                require_assignable(payload, value, "delta child");
+                                require_assignable(payload, value, "delta child", true);
                                 entries.effects |= value.effects;
                                 entries.phase = join_phase(entries.phase, value.phase);
                             }
@@ -4101,6 +4224,14 @@ namespace hgl::ir
 
             void check_construct(Expr &expression, const Construct &node, TypeId expected) {
                 TypeId applied = canonical(node.type);
+                if (node.delta) {
+                    std::unordered_set<std::uint32_t> visiting;
+                    if (!admitted_delta_shape(applied, visiting)) {
+                        diagnostics_.report(syntax::Category::Shape, type(node.type).range,
+                            "delta<T> requires a finite admitted publication shape", "delta.unsupported_shape");
+                        return;
+                    }
+                }
                 if (expected.valid() && assignable(expected, applied) &&
                     (node.delta || (type(applied).kind != TypeKind::Set && type(applied).kind != TypeKind::Map))) {
                     applied = canonical(expected);
@@ -4763,6 +4894,7 @@ namespace hgl::ir
                             if (node.init.valid()) {
                                 const bool inferred_let = !node.type.valid() && symbol.kind == SymbolKind::LocalLet;
                                 Expr &init = check_expr(node.init, node.type, inferred_let);
+                                if (!init.type.valid() && diagnostics_.has_errors()) { return; }
                                 if (nullable(init)) {
                                     if (!inferred_let) { type_error(init.range, "a nullable value requires an inferred immutable let binding"); }
                                     nullable_bindings_.insert(node.symbol.value);
@@ -4924,7 +5056,7 @@ namespace hgl::ir
                             if (time.type.valid()) {
                                 const TypeId time_type = canonical(time.type);
                                 if (!same(time_type, scalar(ScalarType::Duration)) && !same(time_type, scalar(ScalarType::DateTime))) {
-                                    type_error(time.range, "a yield time is a duration (from now) or a datetime");
+                                    type_error(time.range, "a yield time is a duration (from now) or a datetime", "yield.time_type");
                                 }
                             }
                             const TypeId result = fn != nullptr ? fn->signature.result : TypeId{};
@@ -4951,7 +5083,9 @@ namespace hgl::ir
                                 fix_local_phase(root, Phase::Wiring);
                             }
                             Expr &place = check_expr(node.place);
-                            Expr &value = check_expr(node.value, place.type);
+                            const auto annotation = place_annotation(node.place);
+                            const bool delta_destination = annotation.valid() && type(annotation).kind == TypeKind::Delta;
+                            Expr &value = check_expr(node.value, place.type, false, delta_destination);
                             Expr computed;
                             const Expr *result = &value;
                             if (node.op != AssignOp::Assign) {
@@ -4965,7 +5099,7 @@ namespace hgl::ir
                             }
                             if (root.valid() && module_.symbol(root).kind == SymbolKind::InjectedCapability && module_.symbol(root).name == "out") {
                                 require_publication(place.type, *result, "assignment");
-                            } else { require_assignable(place.type, *result, "assignment"); }
+                            } else { require_assignable(place.type, *result, "assignment", delta_destination); }
                             if (local != nullptr) {
                                 if (!symbol_phase_.contains(root.value)) {
                                     fix_local_phase(root, result->phase);
@@ -5028,9 +5162,15 @@ namespace hgl::ir
                             }
                             statement.effects = value.effects;
                         } else if constexpr (std::is_same_v<T, AssertStmt>) {
-                            Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));
-                            require_assignable(scalar(ScalarType::Bool), condition, "assert condition");
-                            statement.effects = condition.effects;
+                            if (node.raises_block.valid()) {
+                                check_expr(node.condition, scalar(ScalarType::Str));
+                                check_block(node.raises_block, void_type_, TypeId{});
+                                statement.effects = module_.block(node.raises_block).effects;
+                            } else {
+                                Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));
+                                require_assignable(scalar(ScalarType::Bool), condition, "assert condition");
+                                statement.effects = condition.effects;
+                            }
                             if (!function(statement.owner)) { statement.effects |= Effect::TestHarness; }
                         } else if constexpr (std::is_same_v<T, ExprStmt>) {
                             TypeId expected = is_tail ? expected_tail : TypeId{};
@@ -5232,7 +5372,9 @@ namespace hgl::ir
                         if (shape.kind == TypeKind::Delta && shape.children.size() == 1U) {
                             std::unordered_set<std::uint32_t> visiting;
                             if (!admitted_delta_shape(bindings.apply(shape.children.front()), visiting)) {
-                                type_error(call.range, "generic application requires a finite admitted publication shape");
+                                diagnostics_.report(syntax::Category::Shape, call.range,
+                                    "cannot form delta<" + type_name(bindings.apply(shape.children.front())) + "> after generic substitution",
+                                    "delta.unsupported_shape");
                             }
                         }
                         for (TypeId child : shape.children) { walk(walk, child); }
@@ -5249,7 +5391,9 @@ namespace hgl::ir
                             if (!arguments.empty()) {
                                 std::unordered_set<std::uint32_t> visiting;
                                 if (!admitted_delta_shape(bindings.apply(module_.expr(arguments.front().value).type), visiting)) {
-                                    type_error(call.range, "generic application requires a finite admitted publication shape");
+                                    diagnostics_.report(syntax::Category::Shape, call.range,
+                                        "delta_value cannot form delta<" + type_name(bindings.apply(module_.expr(arguments.front().value).type)) + "> after generic substitution",
+                                        "delta.unsupported_shape");
                                 }
                             }
                         } else { self(self, *nested, bindings); }
@@ -5277,13 +5421,15 @@ namespace hgl::ir
                         }
                         if (!valid) { type_error(shape.range, "generic struct arguments do not satisfy their value and delta occurrences"); }
                     }
-                    if (shape.kind == TypeKind::Delta && shape.children.size() == 1U) {
+                    if (shape.kind == TypeKind::Delta && shape.children.size() == 1U && shape.range.end > shape.range.begin) {
                         std::unordered_set<std::uint32_t> visiting;
                         if (!admitted_delta_shape(shape.children[0], visiting)) {
-                            type_error(shape.range, "delta<T> requires a finite admitted publication shape");
+                            diagnostics_.report(syntax::Category::Shape, type(shape.children.front()).range, "delta<T> requires a finite admitted publication shape", "delta.unsupported_shape");
                         }
                     }
                 }
+                // Earlier errors may leave dependent expressions unchecked.
+                if (diagnostics_.has_errors()) { return; }
                 for (const Expr &expression : module_.exprs) {
                     if (expression.value_kind == ValueKind::Unknown || expression.phase == Phase::Unknown) {
                         diagnostics_.report(syntax::Category::Type, expression.range,
@@ -5327,6 +5473,8 @@ namespace hgl::ir
             std::unordered_map<std::uint32_t, bool>  checked_blocks_{};
             std::unordered_set<std::uint64_t>        checked_type_applications_{};
             std::unordered_set<std::uint32_t> delta_observations_{};
+            std::unordered_set<std::string> emitted_type_codes_{};
+            std::unordered_map<std::uint32_t, TypeId> source_annotations_{};
             std::unordered_set<const Expr *> nullable_expressions_{};
             PresenceFacts nullable_bindings_{};
             PresenceFacts present_bindings_{};
