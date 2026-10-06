@@ -39,7 +39,10 @@ has no meaning. Before compilation, the driver validates whole-line
 ``# expect-error(category, "code")`` metadata against the source-error
 catalogue. ``driver/rejection_source`` maps annotations to enclosing named
 tests or declarations using the lossless source tree. Unnamed test contexts
-retain their wrappers while their inner declarations own cases. Delimiters
+retain their wrappers while their inner declarations own cases. Annotations
+on a context header cannot donate ownership to a later inner declaration on
+the same physical line: ownership starts at the target line's first source
+token or its existing enclosing declaration. Delimiters
 must establish reliable boundaries; recovery at a new declaration keyword
 alone cannot justify excluding source. A sole malformed expression-bodied
 declaration may extend to EOF without hiding a neighbouring declaration.

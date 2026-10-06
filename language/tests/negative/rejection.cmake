@@ -95,3 +95,11 @@ native fn unused() -> i64 { cpp() { return 1; } }
 # expect-error(type, "rolling.size_kind")
 fn excluded(value: rolling<i64, 3s, 2>) { when {} }
 ]=])
+check_rejection(inline_context_owner 1 [=[module rejection
+# expect-error(type, "rolling.size_kind")
+test { fn broken(value: rolling<f64, 5m, 3>) { when {} } }
+test must_not_run { assert true }
+]=])
+if(LAST_OUTPUT MATCHES "must_not_run" OR LAST_OUTPUT MATCHES "\\[rejection\\]")
+    message(FATAL_ERROR "context header annotation donated ownership to an inner declaration: ${LAST_OUTPUT}")
+endif()

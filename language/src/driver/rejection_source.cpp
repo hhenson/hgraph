@@ -146,9 +146,17 @@ namespace hgl::driver
         }
         std::ranges::sort(owners, {}, [](const auto &owner) { return owner.range.begin; });
         for (const auto &annotation : annotations) {
-            auto found = std::lower_bound(owners.begin(), owners.end(), annotation.end,
-                                          [](const auto &owner, auto offset) { return owner.range.begin < offset; });
-            if (found == owners.begin() || (--found)->range.end <= annotation.begin) {
+            auto target = annotation.begin;
+            while (target < annotation.end &&
+                   (file.text()[target] == ' ' || file.text()[target] == '\t' || file.text()[target] == '\r')) {
+                ++target;
+            }
+            // A declaration must begin the target line, or already enclose it.
+            // Do not donate a context-header annotation to a later inner item
+            // merely because both happen to occupy the same physical line.
+            auto found = std::upper_bound(owners.begin(), owners.end(), target,
+                                          [](auto offset, const auto &owner) { return offset < owner.range.begin; });
+            if (found == owners.begin() || (--found)->range.end <= target) {
                 invalid(annotation.begin, "expect-error annotation has no enclosing declaration or named test");
                 continue;
             }
