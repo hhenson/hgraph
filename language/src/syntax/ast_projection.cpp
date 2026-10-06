@@ -814,7 +814,15 @@ namespace hgl::syntax
                     case SyntaxKind::AssertStmt:
                         {
                             const ast::ExprId condition = project_expression(only_child(statement, SyntaxKind::Expression));
-                            return module_.add(ast::Stmt{range, ast::AssertStmt{condition}});
+                            ast::AssertStmt result{condition};
+                            if (const auto block = find_child(statement, SyntaxKind::Block)) {
+                                result.raises_block = project_block(*block);
+                                const auto argument = only_child(statement, SyntaxKind::Expression);
+                                const auto tokens = descendant_tokens(argument);
+                                result.raises_literal = tokens.size() == 1U && source_token(tokens.front()).kind == TokenKind::StringLiteral;
+                                result.raises_argument_range = node(argument).range;
+                            }
+                            return module_.add(ast::Stmt{range, result});
                         }
                     case SyntaxKind::AssignOrExpressionStmt:
                         {

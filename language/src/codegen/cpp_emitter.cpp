@@ -5656,14 +5656,14 @@ namespace hgl::codegen
                         out.line("const auto &" + payload + " = " + converted + ";");
                         if (relative) {
                             out.open("if (" + operand + " < hgraph::TimeDelta::zero())");
-                            out.line("throw std::runtime_error(" + quote("negative duration produced by generator '" +
+                            out.line("throw hgl::ExecutionError(\"yield.negative_duration\", " + quote("negative duration produced by generator '" +
                                      std::string{active_callable_identity(planned)} + "'") + ");");
                             out.close();
                         }
                         out.line("const hgraph::DateTime " + when + " = " +
                                  (relative ? "hgraph::checked_add(alarm.now(), " + operand + ")" : operand) + ";");
                         out.open("if (hgl_cache.ref().hgl_has_previous && " + when + " <= hgl_cache.ref().hgl_previous)");
-                        out.line("throw std::runtime_error(" + quote("non-increasing time produced by generator '" +
+                        out.line("throw hgl::ExecutionError(\"yield.non_increasing_time\", " + quote("non-increasing time produced by generator '" +
                                  std::string{active_callable_identity(planned)} + "'") + ");");
                         out.close();
                         out.line("hgl_cache.modify().hgl_previous = " + when + ";");
@@ -7431,6 +7431,7 @@ namespace hgl::codegen
             emit_include("<hgraph/lib/std/operators/operators.h>");
             emit_include("<hgraph/lib/std/lifted_kernels.h>");
             emit_include("<hgl/constant_arithmetic.h>");
+            emit_include("<hgl/execution_error.h>");
             emit_include("<hgl/ordinary_patterns.h>");
             emit_include("<hgl/temporal_literals.h>");
             emit_include("<hgl/global_key_preflight.h>");

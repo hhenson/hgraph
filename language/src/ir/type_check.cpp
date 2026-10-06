@@ -1155,6 +1155,7 @@ namespace hgl::ir
                     reject_nested_function_level_in(node.value);
                 } else if constexpr (std::is_same_v<Node, AssertStmt>) {
                     reject_nested_function_level_in(node.condition);
+                    if (node.raises_block.valid()) { reject_nested_function_level(node.raises_block); }
                 } else if constexpr (std::is_same_v<Node, ReturnStmt> || std::is_same_v<Node, ExprStmt>) {
                     reject_nested_function_level_in(expression_of(node));
                 }
@@ -5028,9 +5029,15 @@ namespace hgl::ir
                             }
                             statement.effects = value.effects;
                         } else if constexpr (std::is_same_v<T, AssertStmt>) {
-                            Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));
-                            require_assignable(scalar(ScalarType::Bool), condition, "assert condition");
-                            statement.effects = condition.effects;
+                            if (node.raises_block.valid()) {
+                                check_expr(node.condition, scalar(ScalarType::Str));
+                                check_block(node.raises_block, void_type_, TypeId{});
+                                statement.effects = module_.block(node.raises_block).effects;
+                            } else {
+                                Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));
+                                require_assignable(scalar(ScalarType::Bool), condition, "assert condition");
+                                statement.effects = condition.effects;
+                            }
                             if (!function(statement.owner)) { statement.effects |= Effect::TestHarness; }
                         } else if constexpr (std::is_same_v<T, ExprStmt>) {
                             TypeId expected = is_tail ? expected_tail : TypeId{};

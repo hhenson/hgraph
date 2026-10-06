@@ -1141,12 +1141,20 @@ namespace hgl::semantics
                             resolve_expr(node.place, context);
                             resolve_expr(node.value, context);
                         } else if constexpr (std::is_same_v<T, ast::ReturnStmt>) {
+                            reject_in_test(context, stmt.range, "return");
                             if (node.value != ast::no_node) { resolve_expr(node.value, context); }
                         } else if constexpr (std::is_same_v<T, ast::AssertStmt>) {
                             if (!context.in_test) {
                                 report(Category::Phase, stmt.range, "'assert' is only valid inside a test body");
                             }
-                            resolve_expr(node.condition, context);
+                            if (node.raises_block != ast::no_node) {
+                                const auto *literal = std::get_if<ast::StringLiteral>(&module_.expr(node.condition).node);
+                                if (!node.raises_literal || literal == nullptr || (literal->value != "yield.negative_duration" && literal->value != "yield.non_increasing_time")) {
+                                    diagnostics_.report(Category::Type, node.raises_argument_range,
+                                                        "raises requires a literal execution error code", "test.raises_code");
+                                }
+                                resolve_block(node.raises_block, context);
+                            } else { resolve_expr(node.condition, context); }
                         } else if constexpr (std::is_same_v<T, ast::ExprStmt>) {
                             resolve_expr(node.expr, context);
                         }
@@ -1156,7 +1164,8 @@ namespace hgl::semantics
 
             void reject_in_test(const Context &context, SourceRange range, std::string_view form) {
                 if (context.in_test) {
-                    report(Category::Phase, range, "'" + std::string{form} + "' is not available in a test body");
+                    diagnostics_.report(Category::Phase, range, "'" + std::string{form} + "' is not available in a test body",
+                                        form == "for" || form == "while" ? "" : "test.statement_phase");
                 }
             }
 

@@ -578,6 +578,7 @@ namespace hgl::syntax
             void stmt_node(int depth, SourceRange range, const ast::AssertStmt &s, ast::ExprId) {
                 line(depth, "Assert", range, "");
                 expr(depth + 1, s.condition);
+                if (s.raises_block != ast::no_node) { block(depth + 1, s.raises_block); }
             }
             void stmt_node(int depth, SourceRange range, const ast::ExprStmt &s, ast::ExprId tail) {
                 line(depth, "ExprStmt", range, s.expr == tail ? "tail" : "");

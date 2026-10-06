@@ -89,7 +89,7 @@ constexpr std::size_t invalid_cursor = std::numeric_limits<std::size_t>::max();
       }
       return true;
     }));
-    throw std::runtime_error(message);
+    std::throw_with_nested(std::runtime_error(message));
   } catch (...) {
     throw std::runtime_error(prefix + "unknown error");
   }

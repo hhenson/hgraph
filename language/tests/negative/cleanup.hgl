@@ -1,0 +1,53 @@
+module tests.negative_cleanup
+
+cpp include <hgl/execution_error.h>
+cpp include <stdexcept>
+
+native const fn cleanup_failure() -> i64 throws {
+    cpp() { throw std::runtime_error("cleanup sentinel"); }
+}
+native const fn coded_cleanup_failure() -> i64 throws {
+    cpp() { throw hgl::ExecutionError("yield.negative_duration", "coded cleanup sentinel"); }
+}
+native const fn uncoded_failure() -> i64 throws {
+    cpp() { throw std::runtime_error("yield.negative_duration"); }
+}
+fn with_cleanup(trigger: i64) -> i64 {
+    when { return trigger }
+    stop { cleanup_failure() }
+}
+fn with_coded_cleanup(trigger: i64) -> i64 {
+    when { return trigger }
+    stop { coded_cleanup_failure() }
+}
+fn uncoded(trigger: i64) -> i64 {
+    when { return uncoded_failure() }
+}
+fn negative_delay() -> i64 {
+    yield -1us: 1
+}
+fn combined(trigger: i64) -> i64 {
+    let watching = with_cleanup(trigger)
+    return negative_delay() + watching
+}
+test cleanup_only {
+    assert raises("yield.negative_duration") {
+        eval(with_cleanup, trigger: [1])
+    }
+}
+test coded_cleanup_only {
+    assert raises("yield.negative_duration") {
+        eval(with_coded_cleanup, trigger: [1])
+    }
+}
+test combined_failure {
+    assert raises("yield.negative_duration") {
+        eval(combined, trigger: [1])
+    }
+}
+test uncoded_message {
+    assert raises("yield.negative_duration") {
+        eval(uncoded, trigger: [1])
+    }
+}
+test continuation { assert true }

@@ -2900,7 +2900,8 @@ namespace hgraph_::std_
                             hgl_cache.ref().hgl_plan_0.index(hgl_cache.ref().hgl_argument_0.view(), hgl_cache.ref().field_483), 1);
                         const hgraph::DateTime hgl_when_1 = hgl_time_1;
                         if (hgl_cache.ref().hgl_has_previous && hgl_when_1 <= hgl_cache.ref().hgl_previous) {
-                            throw std::runtime_error(
+                            throw hgl::ExecutionError(
+                                "yield.non_increasing_time",
                                 "non-increasing time produced by generator 'hgraph.std.replay#42@instantiate:33'");
                         }
                         hgl_cache.modify().hgl_previous     = hgl_when_1;

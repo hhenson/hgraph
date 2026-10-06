@@ -3581,8 +3581,6 @@ TEST_CASE("eval indexing refines contextual nullable immutable locals", "[ir][ty
         "let item = result[0]\nif !(null == item) { let ordinary: i64 = item\nassert ordinary == 0 }\n",
         "let item = result[0]\nlet alias = item\nif item != null { if alias != null { assert alias == item } }\n",
         "let item = result[0]\nif item != null { let copy = item\nassert copy == 0 }\n",
-        "let item = result[0]\nif item == null { return }\nassert item == 0\n",
-        "let item = result[0]\nif item != null {} else { return }\nassert item == 0\n",
         "let item = result[0]\nif item == null || false {} else { assert item == 0 }\n"
     };
     const std::vector<std::string> rejected{
@@ -4030,5 +4028,15 @@ const fn bad() -> delta<set<Key>> => delta<set<Key>>(added: [Other(value: 1)])
             "\nreturn delta<set<Key>>(added: [key]) }\n"};
         if (!runtime_key.diagnostics.has_errors()) { CHECK_FALSE(complete(runtime_key)); }
         CHECK(runtime_key.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("named tests reject early return before nullable refinement", "[ir][typed][negative]") {
+    for (const std::string body : {"if item == null { return }", "if item != null {} else { return }"}) {
+        Lowered unit{"module checks.test_return\nfn identity(value:i64)->i64=>value\n"
+                     "test invalid { let result=eval(identity,value:[0])\nlet item=result[0]\n" + body + "\n}\n"};
+        REQUIRE(unit.diagnostics.has_errors());
+        CHECK(unit.diagnostics.diagnostics().front().category == hgl::syntax::Category::Phase);
+        CHECK(unit.diagnostics.diagnostics().front().code == "test.statement_phase");
     }
 }
