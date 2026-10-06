@@ -1007,3 +1007,35 @@ add_test(NAME hgraph_language_eval_without_scripted_compiler
 set_tests_properties(hgraph_language_eval_without_scripted_compiler PROPERTIES
     PASS_REGULAR_EXPRESSION "8 tests?, 0 failed"
     ENVIRONMENT "HGL_CXX=hgl-scripted-compiler-must-not-run;HGL_DISABLE_CACHE=1")
+
+if(UNIX)
+add_test(NAME hgraph_language_negative_execution
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL=$<TARGET_FILE:hgl>
+        -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/negative
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/negative
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/negative/execution.cmake)
+endif()
+add_test(NAME hgraph_language_negative_rejection
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL=$<TARGET_FILE:hgl>
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/negative/rejection
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/negative/rejection.cmake)
+add_test(NAME hgraph_language_negative_mixed
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL=$<TARGET_FILE:hgl>
+        -DMANIFEST=${HGRAPH_SHARED_ROOT}/hgraph_spec/compiler/negative_testing/cases.json
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/negative/mixed.cmake)
+
+# Build runtime kernels through CMake on every platform, including Windows.
+# The same direct test harness executes the parsed HGL assertions against them.
+hgl_add_module(hgl_negative_execution_fixture STATIC HGL negative/execution.hgl)
+hgl_add_module(hgl_negative_cleanup_fixture STATIC HGL negative/cleanup.hgl)
+add_executable(hgl_negative_tests negative/generated_tests.cpp wiring/standard_library_fixture.cpp)
+target_compile_features(hgl_negative_tests PRIVATE cxx_std_23)
+target_compile_definitions(hgl_negative_tests PRIVATE HGL_NEGATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/negative")
+target_link_libraries(hgl_negative_tests PRIVATE hgl_negative_execution_fixture hgl_negative_cleanup_fixture
+    hgl::wiring hgl::standard_library Catch2::Catch2WithMain)
+hgl_link_runtime_executable(hgl_negative_tests)
+hgl_apply_warnings(hgl_negative_tests)
+add_test(NAME hgraph_language_negative_generated COMMAND hgl_negative_tests)

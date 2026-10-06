@@ -475,6 +475,7 @@ namespace hgl::ir
                                 out_ << "return " << ref('e', node.value);
                             } else if constexpr (std::is_same_v<T, hir::AssertStmt>) {
                                 out_ << "assert " << ref('e', node.condition);
+                                if (node.raises_block.valid()) { out_ << " raises=" << ref('b', node.raises_block); }
                             } else if constexpr (std::is_same_v<T, hir::ExprStmt>) {
                                 out_ << "expression " << ref('e', node.expr);
                             }

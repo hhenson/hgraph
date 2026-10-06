@@ -57,6 +57,7 @@ namespace hgl::hgraph_ir
                             value(node.value);
                         } else if constexpr (std::is_same_v<T, Assert>) {
                             value(node.condition);
+                            if (node.raises_block.valid()) { block(node.raises_block); }
                         } else if constexpr (std::is_same_v<T, Evaluate>) {
                             value(node.value);
                         }

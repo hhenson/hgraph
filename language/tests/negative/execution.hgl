@@ -1,0 +1,63 @@
+module tests.negative_execution
+
+fn negative_delay() -> i64 {
+    yield -1us: 1
+}
+fn duplicate_time() -> i64 {
+    yield 0s: 1
+    yield 0s: 2
+}
+fn negative_probe(trigger: i64) -> i64 => negative_delay()
+fn duplicate_probe(trigger: i64) -> i64 => duplicate_time()
+fn identity(value: i64) -> i64 => value
+
+test expected {
+    var count = 0
+    assert raises("yield.negative_duration") {
+        count += 1
+        let local = 3
+        eval(negative_probe, trigger: [local])
+        count += 100
+    }
+    assert count == 1
+    assert eval(identity, value: [1, 2]) == [1, 2]
+    assert raises("yield.non_increasing_time") {
+        eval(duplicate_probe, trigger: [1])
+    }
+    assert true
+}
+test nested {
+    assert raises("yield.non_increasing_time") {
+        assert raises("yield.negative_duration") {
+            eval(negative_probe, trigger: [1])
+        }
+        eval(duplicate_probe, trigger: [1])
+    }
+}
+test normal {
+    assert raises("yield.negative_duration") {
+        eval(identity, value: [1])
+    }
+}
+test empty {
+    assert raises("yield.negative_duration") {}
+}
+test wrong {
+    assert raises("yield.non_increasing_time") {
+        eval(negative_probe, trigger: [1])
+    }
+}
+test assertion {
+    assert raises("yield.negative_duration") {
+        assert false
+        eval(negative_probe, trigger: [1])
+    }
+}
+test inner_failure {
+    assert raises("yield.negative_duration") {
+        assert raises("yield.non_increasing_time") {
+            eval(negative_probe, trigger: [1])
+        }
+    }
+}
+test continuation { assert true }

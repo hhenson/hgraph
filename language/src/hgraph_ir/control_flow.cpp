@@ -139,6 +139,7 @@ namespace hgl::hgraph_ir
                                 collect_value_locals(node.value);
                             } else if constexpr (std::is_same_v<T, Assert>) {
                                 collect_value_locals(node.condition);
+                                if (node.raises_block.valid()) { collect_locals(node.raises_block); }
                             } else if constexpr (std::is_same_v<T, Evaluate>) {
                                 collect_value_locals(node.value);
                             }
@@ -310,7 +311,7 @@ namespace hgl::hgraph_ir
                                 (void)scan_value(node.value);
                                 return false;
                             } else if constexpr (std::is_same_v<T, Assert>) {
-                                return scan_value(node.condition);
+                                return scan_value(node.condition) && (!node.raises_block.valid() || scan_block(node.raises_block));
                             } else if constexpr (std::is_same_v<T, Evaluate>) {
                                 return scan_value(node.value);
                             }
@@ -817,6 +818,7 @@ namespace hgl::hgraph_ir
                             visit_value(node.value);
                         } else if constexpr (std::is_same_v<T, Assert>) {
                             visit_value(node.condition);
+                            if (node.raises_block.valid()) { visit_block(node.raises_block); }
                         } else if constexpr (std::is_same_v<T, Evaluate>) {
                             visit_value(node.value);
                         }

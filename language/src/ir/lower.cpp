@@ -357,6 +357,7 @@ namespace hgl::ir
                             mark_expr(node.value, owner);
                         } else if constexpr (std::is_same_v<T, ast::AssertStmt>) {
                             mark_expr(node.condition, owner);
+                            if (node.raises_block != ast::no_node) { mark_block(node.raises_block, owner); }
                         } else if constexpr (std::is_same_v<T, ast::ExprStmt>) {
                             mark_expr(node.expr, owner);
                         }
@@ -1549,7 +1550,7 @@ namespace hgl::ir
                         } else if constexpr (std::is_same_v<T, ast::ReturnStmt>) {
                             target.node = hir::ReturnStmt{id<hir::ExprId>(node.value)};
                         } else if constexpr (std::is_same_v<T, ast::AssertStmt>) {
-                            target.node = hir::AssertStmt{id<hir::ExprId>(node.condition)};
+                            target.node = hir::AssertStmt{id<hir::ExprId>(node.condition), id<hir::BlockId>(node.raises_block)};
                         } else if constexpr (std::is_same_v<T, ast::ExprStmt>) {
                             target.node = hir::ExprStmt{id<hir::ExprId>(node.expr)};
                         }

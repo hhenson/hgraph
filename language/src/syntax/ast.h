@@ -315,7 +315,7 @@ namespace hgl::syntax::ast
         ExprId value{no_node};  ///< no_node = bare `return`
     };
     struct AssertStmt
-    { ExprId condition{no_node}; };
+    { ExprId condition{no_node}; BlockId raises_block{no_node}; bool raises_literal{true}; SourceRange raises_argument_range{}; };
     struct ExprStmt
     { ExprId expr{no_node}; };
 

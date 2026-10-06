@@ -37,6 +37,7 @@ namespace hgl::syntax
             AppliedConstructor,
             Each,
             Throws,
+            Raises,
         };
 
         template <TokenKind Kind> inline constexpr auto token = dsl::lit_b<static_cast<std::uint8_t>(Kind)>;
@@ -54,7 +55,7 @@ namespace hgl::syntax
             contextual<ContextToken::Ref> / contextual<ContextToken::Signal> / contextual<ContextToken::Schema> /
             contextual<ContextToken::Unbounded> / contextual<ContextToken::Delta> / contextual<ContextToken::Properties> /
             contextual<ContextToken::AppliedConstructor> / contextual<ContextToken::Each> /
-            contextual<ContextToken::Throws>;
+            contextual<ContextToken::Throws> / contextual<ContextToken::Raises>;
         inline constexpr auto reserved_name =
             token_choice<TokenKind::KwModule, TokenKind::KwPart, TokenKind::KwUse, TokenKind::KwAs, TokenKind::KwExport,
                          TokenKind::KwAbstract, TokenKind::KwImpl, TokenKind::KwInstantiate, TokenKind::KwOperator, TokenKind::KwFn,
@@ -488,7 +489,11 @@ namespace hgl::syntax
         };
 
         struct assert_stmt
-        { static constexpr auto rule = token<TokenKind::KwAssert> >> dsl::recurse<expression>; };
+        {
+            static constexpr auto raises = contextual<ContextToken::Raises> >>
+                token<TokenKind::LParen> + dsl::recurse<expression> + token<TokenKind::RParen> + dsl::recurse<block>;
+            static constexpr auto rule = token<TokenKind::KwAssert> >> (raises | dsl::else_ >> dsl::recurse<expression>);
+        };
 
         struct assign_or_expression_stmt
         {
@@ -969,6 +974,7 @@ namespace hgl::syntax
                 if (token.text == "list") { return static_cast<std::uint8_t>(grammar::ContextToken::List); }
                 if (token.text == "set") { return static_cast<std::uint8_t>(grammar::ContextToken::Set); }
                 if (token.text == "map") { return static_cast<std::uint8_t>(grammar::ContextToken::Map); }
+                if (token.text == "raises") { return static_cast<std::uint8_t>(grammar::ContextToken::Raises); }
                 if (token.text == "rolling") { return static_cast<std::uint8_t>(grammar::ContextToken::Rolling); }
                 if (token.text == "ref") { return static_cast<std::uint8_t>(grammar::ContextToken::Ref); }
                 if (token.text == "signal") { return static_cast<std::uint8_t>(grammar::ContextToken::Signal); }
@@ -1094,6 +1100,9 @@ namespace hgl::syntax
                 if constexpr (requires { error.character(); }) {
                     issue.expected = decode_expected(static_cast<std::uint8_t>(error.character()));
                 }
+                // `name` is a choice of identifier/contextual tokens. A failed
+                // choice still means one mandatory grammatical name is absent.
+                if (!issue.expected && issue.context == SyntaxKind::Name) { issue.expected = TokenKind::Identifier; }
                 raw_issues.push_back(issue);
             });
             const auto                            result = lexy::parse_as_tree<grammar::module>(parsed, input, error_callback);

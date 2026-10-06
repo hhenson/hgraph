@@ -170,6 +170,7 @@ namespace hgl::ir
                             flow.reaches = false;
                         } else if constexpr (std::is_same_v<T, AssertStmt>) {
                             expression(node.condition, flow);
+                            if (node.raises_block.valid()) { Flow nested = flow; block(node.raises_block, nested); }
                         } else if constexpr (std::is_same_v<T, ExprStmt>) {
                             expression(node.expr, flow);
                         }

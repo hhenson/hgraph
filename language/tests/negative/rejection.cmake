@@ -1,0 +1,105 @@
+cmake_minimum_required(VERSION 3.25)
+file(MAKE_DIRECTORY "${OUT}")
+function(check_rejection name status content)
+    file(WRITE "${OUT}/${name}.hgl" "${content}")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -E env "HGL_CXX=${OUT}/missing-compiler"
+        "${HGL}" test "${OUT}/${name}.hgl"
+        RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE errors)
+    if(NOT "${result}" STREQUAL "${status}")
+        message(FATAL_ERROR "${name}: expected ${status}, got ${result}\n${output}\n${errors}")
+    endif()
+    set(LAST_OUTPUT "${output}" PARENT_SCOPE)
+endfunction()
+set(kind "fn invalid(value: rolling<i64, 3s, 2>) { when {} }\n")
+set(bounds "fn invalid(value: rolling<i64, 3, 4>) { when {} }\n")
+check_rejection(kind 0 "module rejection\n# expect-error(type, \"rolling.size_kind\")\n${kind}")
+check_rejection(bounds 0 "module rejection\n# expect-error(type, \"rolling.size_bounds\")\n${bounds}")
+check_rejection(yield_type 0 "module rejection\nfn invalid() -> i64 {\n# expect-error(type, \"yield.time_type\")\nyield 1: 1\n}\n")
+check_rejection(parse 0 "module rejection\n# expect-error(parse, \"syntax.expected_token\")\nfn invalid(value: i64 -> i64 => value\n")
+check_rejection(unknown_raises 0 "module rejection\ntest invalid {\n# expect-error(type, \"test.raises_code\")\nassert raises(\"unknown\") {}\n}\n")
+check_rejection(computed_raises 0 "module rejection\ntest invalid {\n# expect-error(type, \"test.raises_code\")\nassert raises(\"yield.\" + \"negative_duration\") {}\n}\n")
+check_rejection(parenthesized_raises 0 "module rejection\ntest invalid {\n# expect-error(type, \"test.raises_code\")\nassert raises((\"yield.negative_duration\")) {}\n}\n")
+foreach(statement IN ITEMS "return" "inject alarm" "state n = 0" "cache n = 0" "start {}" "stop {}" "when {}" "yield 0s: 1")
+    string(MAKE_C_IDENTIFIER "${statement}" name)
+    check_rejection("phase_${name}" 0 "module rejection\ntest invalid {\n# expect-error(phase, \"test.statement_phase\")\n${statement}\n}\n")
+endforeach()
+check_rejection(normal 1 "module rejection\n# expect-error(type, \"rolling.size_kind\")\nfn identity(value: i64) -> i64 => value\n")
+check_rejection(wrong_code 1 "module rejection\n# expect-error(type, \"rolling.size_bounds\")\n${kind}")
+check_rejection(wrong_category 1 "module rejection\n# expect-error(parse, \"rolling.size_kind\")\n${kind}")
+check_rejection(unknown_code 1 "module rejection\n# expect-error(type, \"rolling.future\")\n${kind}")
+check_rejection(unknown_category 1 "module rejection\n# expect-error(future, \"rolling.size_kind\")\n${kind}")
+check_rejection(build 1 "module rejection\n# expect-error(build, \"rolling.size_kind\")\n${kind}")
+check_rejection(malformed 1 "module rejection\n# expect-error(type \"rolling.size_kind\")\n${kind}")
+check_rejection(trailing_comment 1 "module rejection\n# expect-error(type, \"rolling.size_kind\") # more\n${kind}")
+check_rejection(inline 1 "module rejection # expect-error(type, \"rolling.size_kind\")\n${kind}")
+check_rejection(wrong_line 1 "module rejection\n# expect-error(type, \"rolling.size_kind\")\n\n${kind}")
+check_rejection(unexpected 1 "module rejection\n# expect-error(type, \"rolling.size_kind\")\n${kind}fn other(value: rolling<i64, 0>) { when {} }\n")
+check_rejection(uncoded 1 "module rejection\n# expect-error(type, \"rolling.size_kind\")\nfn other(value: unknown) {}\n")
+check_rejection(multiple_on_line 1 "module rejection\n# expect-error(type, \"rolling.size_kind\")\nfn bad(a:rolling<i64,3s,2>, b:rolling<i64,4s,1>) { when {} }\n")
+check_rejection(no_expectation 1 "module rejection\n${kind}")
+check_rejection(no_following_line 1 "module rejection\n# expect-error(type, \"rolling.size_kind\")")
+check_rejection(comments 0 [=[module rejection
+/* # expect-error(type, "unknown") */
+const fn marker() -> str => "# expect-error(type, \"unknown\")"
+# expect-error(type, "rolling.size_kind")
+fn invalid(value: rolling<i64, 3s, 2>) { when {} }
+]=])
+execute_process(COMMAND "${HGL}" check "${OUT}/kind.hgl" RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE errors)
+if(NOT result EQUAL 1 OR NOT errors MATCHES "rolling.size_kind")
+    message(FATAL_ERROR "ordinary check accepted intentional source rejection: ${output}\n${errors}")
+endif()
+execute_process(COMMAND "${HGL}" test --reject "${OUT}/kind.hgl" RESULT_VARIABLE result)
+if(NOT result EQUAL 2)
+    message(FATAL_ERROR "removed rejection flag was accepted")
+endif()
+
+# Every rejection owner is removed independently, including successful ones.
+check_rejection(independent 1 [=[module rejection
+# expect-error(type, "rolling.size_kind")
+fn excluded(value: rolling<i64, 3s, 2>) { when {} }
+# expect-error(type, "rolling.size_kind")
+fn dependent(value: i64) -> i64 => excluded(value)
+test sentinel { assert true }
+]=])
+check_rejection(multiple_annotations 0 [=[module rejection
+test two_errors {
+# expect-error(phase, "test.statement_phase")
+inject clock
+# expect-error(phase, "test.statement_phase")
+state value = 1
+}
+test sentinel { assert true }
+]=])
+if(NOT LAST_OUTPUT MATCHES "1 rejection cases, 0 failed" OR NOT LAST_OUTPUT MATCHES "sentinel \.\.\. ok")
+    message(FATAL_ERROR "multiple annotations did not form one case with runtime continuation: ${LAST_OUTPUT}")
+endif()
+check_rejection(duplicate_names 1 [=[module rejection
+test same {
+# expect-error(phase, "test.statement_phase")
+inject clock
+}
+test same { assert true }
+]=])
+check_rejection(module_owner 1 [=[# expect-error(parse, "syntax.expected_token")
+module rejection
+test sentinel { assert false }
+]=])
+check_rejection(context_owner 1 [=[module rejection
+# expect-error(parse, "syntax.expected_token")
+test {
+    test sentinel { assert false }
+}
+]=])
+check_rejection(no_native_build 0 [=[module rejection
+native fn unused() -> i64 { cpp() { return 1; } }
+# expect-error(type, "rolling.size_kind")
+fn excluded(value: rolling<i64, 3s, 2>) { when {} }
+]=])
+check_rejection(inline_context_owner 1 [=[module rejection
+# expect-error(type, "rolling.size_kind")
+test { fn broken(value: rolling<f64, 5m, 3>) { when {} } }
+test must_not_run { assert true }
+]=])
+if(LAST_OUTPUT MATCHES "must_not_run" OR LAST_OUTPUT MATCHES "\\[rejection\\]")
+    message(FATAL_ERROR "context header annotation donated ownership to an inner declaration: ${LAST_OUTPUT}")
+endif()

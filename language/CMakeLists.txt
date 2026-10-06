@@ -310,6 +310,7 @@ add_library(hgl_driver STATIC
     src/driver/line_reader.cpp
     src/driver/native_module.cpp
     src/driver/process.cpp
+    src/driver/rejection_source.cpp
 )
 add_library(hgl::driver ALIAS hgl_driver)
 target_compile_features(hgl_driver PUBLIC cxx_std_23)

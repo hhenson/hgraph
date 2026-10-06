@@ -1,4 +1,5 @@
 #include "wiring/backend.h"
+#include <hgl/execution_error.h>
 #include "wiring/delta_trace.h"
 #include <hgl/constant_arithmetic.h>
 #include <hgl/ordinary_values.h>
@@ -173,6 +174,7 @@ namespace hgl::wiring
             std::unordered_map<std::uint32_t, Slot> bindings{};
             std::optional<Slot>                     returned{};
             bool                                    in_test{false};
+            std::vector<std::uint32_t>              *scoped_locals{nullptr};
         };
 
         hgraph::WiringArg time_series_arg(hgraph::WiringPortRef port, std::string name = {}) {
@@ -2461,6 +2463,7 @@ namespace hgl::wiring
                 [&](const auto &node) {
                     using T = std::decay_t<decltype(node)>;
                     if constexpr (std::is_same_v<T, gir::LocalBinding>) {
+                        if (frame.scoped_locals != nullptr) { frame.scoped_locals->push_back(node.binding.value); }
                         if (!node.init.valid()) {
                             // A typed declaration reserves the lexical binding;
                             // the first plain assignment supplies its value.
@@ -2554,6 +2557,24 @@ namespace hgl::wiring
                     } else if constexpr (std::is_same_v<T, gir::Return>) {
                         frame.returned = node.value.valid() ? eval_value(node.value, frame) : Slot{};
                     } else if constexpr (std::is_same_v<T, gir::Assert>) {
+                        if (node.raises_block.valid()) {
+                            const std::string expected = eval_value(node.condition, frame).value.view().template checked_as<hgraph::Str>();
+                            try {
+                                std::vector<std::uint32_t> locals;
+                                auto *outer_locals = frame.scoped_locals;
+                                frame.scoped_locals = &locals;
+                                auto cleanup = hgraph::make_scope_exit([&]() noexcept {
+                                    for (const auto local : locals) { frame.bindings.erase(local); }
+                                    frame.scoped_locals = outer_locals;
+                                });
+                                (void)exec_block(node.raises_block, frame);
+                            } catch (const hgl::ExecutionError &error) {
+                                if (error.code() == expected) { return; }
+                                throw TestFailure{"expected execution error '" + expected + "', received '" +
+                                                  std::string{error.code()} + "': " + error.what()};
+                            }
+                            throw TestFailure{"expected execution error '" + expected + "', but block completed normally"};
+                        }
                         Slot condition = eval_value(node.condition, frame);
                         if (!condition.is_const() || condition.meta() != types_.bool_type) {
                             fail(Category::Type, value(node.condition).range, "'assert' takes a bool");
@@ -2965,10 +2986,18 @@ namespace hgl::wiring
             }
 
             std::vector<std::optional<hgraph::Value>> observed;
+            std::exception_ptr cleanup_failure;
             try {
                 hgraph::GraphBuilder graph = std::move(local_wiring).finish();
                 hgraph::GraphExecutorBuilder builder;
                 builder.graph_builder(std::move(graph)).start_time(hgraph::MIN_ST).end_time(hgraph::MAX_ET);
+                builder.phase_runner([&](hgraph::GraphExecutorPhase phase, hgraph::GraphExecutorPhaseAction action) {
+                    try { action(); }
+                    catch (...) {
+                        if (phase == hgraph::GraphExecutorPhase::Stop) { cleanup_failure = std::current_exception(); }
+                        throw;
+                    }
+                });
                 hgraph::GraphExecutorValue executor = builder.make_executor();
                 auto                       view     = executor.view();
                 view.run();
@@ -2989,7 +3018,17 @@ namespace hgl::wiring
                     }
                 }
             } catch (const std::exception &error) {
-                throw TestFailure{"eval of '" + local_name(target.identity) + "' failed: " + error.what()};
+                const std::string message = "eval of '" + local_name(target.identity) + "' failed: " + error.what();
+                if (cleanup_failure) {
+                    std::string cleanup_message;
+                    try { std::rethrow_exception(cleanup_failure); }
+                    catch (const std::exception &cleanup) { cleanup_message = cleanup.what(); }
+                    catch (...) { cleanup_message = "unknown cleanup failure"; }
+                    throw TestFailure{message + "\ncleanup failed: " + cleanup_message};
+                }
+                const std::string code = hgl::execution_error_code(error);
+                if (!code.empty()) { throw hgl::ExecutionError{code, message}; }
+                throw TestFailure{message};
             }
             while (observed.size() < cycles) { observed.emplace_back(std::nullopt); }
             Slot sequence;
