@@ -131,7 +131,7 @@ namespace hgl::syntax
                         }
                         part        = node.part.text;
                         target.name = prefix;
-                    } else if constexpr (std::is_same_v<T, ast::StructDecl> || std::is_same_v<T, ast::OperatorDecl> ||
+                    } else if constexpr (std::is_same_v<T, ast::StructDecl> || std::is_same_v<T, ast::EnumDecl> || std::is_same_v<T, ast::OperatorDecl> ||
                                          std::is_same_v<T, ast::FunctionDecl> || std::is_same_v<T, ast::NativeFunctionDecl> ||
                                          std::is_same_v<T, ast::TestDecl>) {
                         target.name = prefix + "." + std::string{node.name.text};

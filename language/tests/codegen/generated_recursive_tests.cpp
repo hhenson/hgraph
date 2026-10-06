@@ -3,6 +3,7 @@
 // `hgl test` cases run the same programs through direct wiring; each case
 // here asserts the same ticks, so the two backends agree tick for tick.
 #include <recursive-fields.h>
+#include <recursive-publications.h>
 #include <recursive-structs.h>
 
 #include "wiring/backend.h"
@@ -160,4 +161,16 @@ TEST_CASE("the recursive-fields example agrees with hgl test", "[codegen][genera
         fields["right"].as_bundle().begin_mutation()["value"].set(std::int64_t{3});
         CHECK_OUTPUT((eval_node<example::operators::left_value, TS<ExampleTree>>(values<Value>(tree_value))), values<Int>(2));
     }
+}
+
+TEST_CASE("generated generic recursive publications preserve trees and silence", "[codegen][generated][recursive]") {
+    hgl::wiring::ensure_session();
+    namespace publication = tests::recursive_publications;
+    publication::register_operators();
+    using PublicationNode = typename publication::Node::value_type;
+    auto arrivals         = values<Value>(chain<PublicationNode>({1, 2, 3}), chain<PublicationNode>({1, 2, 3}), none,
+                                          chain<PublicationNode>({9}), none);
+    CHECK_OUTPUT((eval_node<publication::operators::recursive_publication_forward, TS<PublicationNode>>(arrivals)), arrivals);
+    CHECK_FALSE(arrivals[0]->equals(chain<PublicationNode>({1, 2, 4})));
+    CHECK_FALSE(arrivals[0]->equals(chain<PublicationNode>({1, 2})));
 }

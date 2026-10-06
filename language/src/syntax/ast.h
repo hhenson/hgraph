@@ -565,13 +565,26 @@ namespace hgl::syntax::ast
         std::vector<StructMember>     members{};
     };
 
+    struct EnumMember
+    {
+        Name name{};
+        ExprId value{no_node};
+    };
+
+    struct EnumDecl
+    {
+        bool exported{false};
+        Name name{};
+        std::vector<EnumMember> members{};
+    };
+
     struct TestDecl
     {
         Name    name{};
         BlockId block{no_node};
     };
 
-    using DeclNode = std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl,
+    using DeclNode = std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, EnumDecl, OperatorDecl, InstantiateDecl, FunctionDecl,
                                   NativeFunctionDecl, TestDecl>;
 
     struct Decl

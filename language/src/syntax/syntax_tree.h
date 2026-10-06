@@ -108,6 +108,8 @@ namespace hgl::syntax
         StructMember,
         StructBodyItem,
         StructDecl,
+        EnumMember,
+        EnumDecl,
         UseDecl,
         TestDecl,
         TestContext,

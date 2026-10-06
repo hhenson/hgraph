@@ -7,6 +7,7 @@
 #include "wiring/type_bridge.h"
 
 #include <hgl/ordinary_values.h>
+#include <hgl/temporal_literals.h>
 #include <hgraph/lib/std/standard_types.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -300,6 +301,25 @@ fn observe(pulse: signal) -> bool => valid(pulse)
     CHECK(bridge.schema(pulse) == hgraph::TypeRegistry::instance().signal());
     CHECK(bridge.value(pulse) == nullptr);
     CHECK(unit.diagnostics.render(unit.file).find("input-only observation marker") != std::string::npos);
+}
+
+TEST_CASE("declared enum types are restored after registry resets", "[wiring][hgraph-ir][enum]") {
+    Unit unit{R"(module checks.enum_reset
+enum Mode { first = -7, second = 42 }
+fn consume(value: Mode) -> Mode => value
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    const auto parameter = unit.parameter("consume", "value");
+    REQUIRE(bridge.schema(parameter) != nullptr);
+    hgraph::reset_all_registries();
+    const auto *shape = bridge.schema(parameter);
+    REQUIRE(shape != nullptr);
+    CHECK(shape->value_schema->is_enum());
+    CHECK(shape->value_schema->fields[0].enum_value == -7);
+    CHECK(shape->value_schema->fields[1].enum_value == 42);
+    CHECK_FALSE(unit.diagnostics.has_errors());
 }
 
 TEST_CASE("hgraph IR type caches follow registry resets", "[wiring][hgraph-ir][types]") {
@@ -1305,4 +1325,61 @@ TEST_CASE("recursive shape roles survive both declaration and query orders", "[w
             }
         }
     }
+}
+
+TEST_CASE("zoned time cold literals validate names without date resolution", "[wiring][temporal]") {
+    class Catalog final : public hgraph::TimeZoneProvider {
+    public:
+        std::string_view version() const noexcept override { return "test"; }
+        bool contains(hgraph::ZoneId zone) const noexcept override {
+            ++contains_calls;
+            return zone.name() == "US/Eastern" || zone.name() == "America/New_York";
+        }
+        hgraph::OffsetInfo at(hgraph::Instant, hgraph::ZoneId) const override {
+            throw std::logic_error("zoned time must not query an offset");
+        }
+        hgraph::LocalResolution resolve(hgraph::CivilDateTime, hgraph::ZoneId) const override {
+            throw std::logic_error("zoned time must not resolve a date");
+        }
+        mutable unsigned contains_calls{};
+    } provider;
+    const auto first = hgl::temporal::zoned_time(34200123456, "US/Eastern", provider);
+    const auto alias = hgl::temporal::zoned_time(34200123456, "America/New_York", provider);
+    CHECK(first != alias);
+    CHECK_THROWS_AS(hgl::temporal::zoned_time(34200123456, "us/eastern", provider), std::invalid_argument);
+    CHECK(provider.contains_calls == 3);
+    const hgraph::Value snapshot{first};
+    const hgraph::Value retained{snapshot};
+    CHECK(retained.view().checked_as<hgraph::ZonedTime>() == first);
+    CHECK(provider.contains_calls == 3);
+}
+
+TEST_CASE("atomic preflight distinguishes optional and required source fields", "[wiring][optional]") {
+    Unit unit{R"(module checks.optional_contract
+struct Record { required: i64
+    absent: i64 = null }
+fn consume(value: atomic<Record>) -> atomic<Record> => value
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    const auto parameter = unit.parameter("consume", "value");
+    const auto *schema = bridge.schema(parameter)->value_schema;
+    CHECK_FALSE(bridge.optional_field(schema, 0));
+    CHECK(bridge.optional_field(schema, 1));
+    {
+        const hgl::ordinary::PreparedValuePlan plan{schema};
+        const auto empty = plan.bundle({});
+        const hgraph::Value one{hgraph::Int{1}};
+        const std::array fields{std::pair<std::size_t, hgraph::ValueView>{0, one.view()}};
+        const auto present = plan.bundle(fields);
+        const auto optional = [&](const hgraph::ValueTypeMetaData *type, std::size_t index) { return bridge.optional_field(type, index); };
+        CHECK_THROWS_AS(hgl::ordinary::validate_complete_value(empty.view(), optional), std::invalid_argument);
+        CHECK_NOTHROW(hgl::ordinary::validate_complete_value(present.view(), optional));
+        CHECK_THROWS_AS(hgl::ordinary::validate_complete_value(present.view()), std::invalid_argument);
+    }
+    hgraph::reset_all_registries();
+    schema = bridge.schema(parameter)->value_schema;
+    CHECK_FALSE(bridge.optional_field(schema, 0));
+    CHECK(bridge.optional_field(schema, 1));
 }

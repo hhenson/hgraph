@@ -92,6 +92,7 @@ namespace hgraph
                 case JsonConverter::AtomicTag::Time:
                 case JsonConverter::AtomicTag::CivilDateTime:
                 case JsonConverter::AtomicTag::ZoneId:
+                case JsonConverter::AtomicTag::ZonedTime:
                 case JsonConverter::AtomicTag::ZonedDateTime:
                 case JsonConverter::AtomicTag::Type:
                     return from_json_string(schema, quote_json_string(encoded));

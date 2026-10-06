@@ -611,9 +611,9 @@ namespace hgl::hgraph_ir
                 const gir::Type result = graph_type(planned.result, planned.range);
                 if (result.kind != hir::TypeKind::Scalar && result.kind != hir::TypeKind::Atomic && result.kind != hir::TypeKind::Symbol &&
                     result.kind != hir::TypeKind::Map && result.kind != hir::TypeKind::Set && result.kind != hir::TypeKind::List &&
-                    result.kind != hir::TypeKind::Reference) {
+                    result.kind != hir::TypeKind::Rolling && result.kind != hir::TypeKind::Reference) {
                     backend(graph_type(planned.result, planned.range).range,
-                            "the runtime-node slice supports scalar, atomic, struct, collection, and ref outputs");
+                            "the runtime-node slice supports scalar, atomic, struct, collection, rolling, and ref outputs");
                 }
             }
 
@@ -625,9 +625,10 @@ namespace hgl::hgraph_ir
                 if (binding.kind != expected) { backend(binding.range, "hgraph IR runtime parameter has the wrong binding kind"); }
                 const gir::Type type               = graph_type(parameter.type, planned.range);
                 const bool      unresolved_generic = type.kind == hir::TypeKind::Symbol && type.binding.valid();
+                const bool declared_enum = type.kind == hir::TypeKind::Symbol && std::ranges::any_of(graph_.enums, [&](const auto &item) { return item.identity == type.nominal_identity; });
                 if (type.kind != hir::TypeKind::Scalar && type.kind != hir::TypeKind::Atomic && type.kind != hir::TypeKind::Map &&
                     type.kind != hir::TypeKind::Set && type.kind != hir::TypeKind::List && type.kind != hir::TypeKind::Rolling &&
-                    type.kind != hir::TypeKind::Reference && type.kind != hir::TypeKind::Signal && !unresolved_generic) {
+                    type.kind != hir::TypeKind::Reference && type.kind != hir::TypeKind::Signal && !unresolved_generic && !declared_enum) {
                     backend(graph_type(parameter.type, planned.range).range,
                             "the runtime-node slice supports scalar, atomic, collection, ref, and signal parameters");
                 }

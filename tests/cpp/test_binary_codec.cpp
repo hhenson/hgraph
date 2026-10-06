@@ -179,6 +179,11 @@ TEST_CASE("binary codec: named time zones use names rather than process handles"
     const auto zoned = ZonedDateTime::from_resolved(Instant{Duration{1234567}}, zone, 3600);
     check_atom(zoned);
     check_atom(ZonedDateTime{});
+    const ZonedTime clock{time_of_day(9, 30, 0, 123456), zone};
+    check_atom(clock);
+    check_atom(ZonedTime{});
+    CHECK(to_binary_string(Value{clock}.view()).find("Europe/London") != std::string::npos);
+    CHECK(to_binary_string(Value{clock}.view()) != to_binary_string(Value{ZonedTime{clock.time(), ZoneId{"UTC"}}}.view()));
     CHECK(to_binary_string(Value{zoned}.view()).find("Europe/London") != std::string::npos);
 }
 

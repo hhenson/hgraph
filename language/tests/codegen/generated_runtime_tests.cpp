@@ -440,3 +440,314 @@ TEST_CASE("generated atomic list temporaries publish immediately and survive res
     CHECK(recorded[2]->equals(snapshot({3, 4})));
     CHECK(recorded[3]->equals(snapshot({})));
 }
+
+TEST_CASE("generic composition preserves its enclosing conditional body", "[codegen][runtime][signal]") {
+    session();
+    CHECK_OUTPUT(eval_node<runtime::operators::generic_then_conditional>(values<Bool>(true, false, true), values<Int>(1, 2, 3)),
+        values<Int>(1, 2, 3));
+}
+
+TEST_CASE("generated generic compositions preserve scalar and structural signal observations", "[codegen][runtime][signal]") {
+    session();
+    CHECK_OUTPUT(eval_node<runtime::operators::generic_scalar_signal_count>(values<Int>(none, 0, 0, none, -7)),
+                 values<Int>(none, 1, 2, none, 3));
+    CHECK_OUTPUT((eval_node<runtime::operators::generic_structural_signal_count, TSL<TS<Int>, 2>>(
+                     values<Value>(list_delta<TS<Int>>({{1, 0}}), none, list_delta<TS<Int>>({{1, 0}})))),
+                 values<Int>(1, none, 2));
+}
+
+namespace {
+    struct NativeGeneratedEnumForward {
+        static constexpr auto name = "native_generated_enum_forward";
+        static void eval(In<"value", TS<runtime::RuntimeMode>> value, Out<TS<runtime::RuntimeMode>> out) {
+            const runtime::RuntimeMode member = value.value();
+            out.set(member);
+        }
+    };
+}
+
+TEST_CASE("generated enums support typed native input and output", "[codegen][runtime][enum]") {
+    session();
+    using Mode = runtime::RuntimeMode;
+    const auto low = Mode::member(INT64_MIN);
+    const auto high = Mode::member(INT64_MAX);
+    const auto first = Mode::member(-7);
+    const auto arrivals = values<Value>(low, none, first, first, high);
+    using NativeEnumOperator = Operator<"native_generated_enum_forward", In<"value", TS<Mode>>, Out<TS<Mode>>>;
+    register_overload<NativeEnumOperator, NativeGeneratedEnumForward>();
+    CHECK_OUTPUT((eval_node<NativeEnumOperator, TS<Mode>>(arrivals)), arrivals);
+}
+
+TEST_CASE("generated public enum markers retain nominal schemas and owning values", "[codegen][runtime][enum]") {
+    session();
+    using Mode = runtime::RuntimeMode;
+    const auto low = Mode::member(INT64_MIN);
+    const auto high = Mode::member(INT64_MAX);
+    const auto first = Mode::member(-7);
+    REQUIRE(low.schema() == scalar_descriptor<Mode>::value_meta());
+    CHECK(low.schema()->is_enum());
+    CHECK(low.schema() != scalar_descriptor<Int>::value_meta());
+    CHECK_THROWS_AS(Mode::member(0), std::invalid_argument);
+    CHECK_OUTPUT((eval_node<runtime::operators::enum_forward, TS<Mode>>(
+        values<Value>(none, low, low, none, first, high, none))),
+        values<Value>(none, low, low, none, first, high, none));
+    CHECK_OUTPUT(eval_node<runtime::operators::enum_default_source>(values<Int>(1, 1)), values<Value>(first, first));
+    CHECK_OUTPUT((eval_node<runtime::operators::enum_value_forward, TS<Mode>>(values<Value>(first, high))),
+                 values<Value>(first, high));
+    const auto sparse = [&](const Value &value) {
+        MapBuilder builder{ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta()), value.binding()};
+        const Int index = 1;
+        builder.set_item_copy(&index, value.view().data());
+        return builder.build();
+    };
+    CHECK_OUTPUT((eval_node<runtime::operators::enum_fixed_forward, TSL<TS<Mode>, 2>>(
+        values<Value>(sparse(first), none, sparse(high)))),
+        values<Value>(sparse(first), none, sparse(high)));
+}
+
+TEST_CASE("generated scalar keys preserve signed zero and both infinities", "[codegen][runtime][scalar-keys]") {
+    session();
+    const Float infinity = std::numeric_limits<Float>::infinity();
+    CHECK_OUTPUT((eval_node<runtime::operators::scalar_float_set, TSS<Float>>(
+        values<Value>(set_delta<Float>({-0.0, infinity, -infinity}, {}), none,
+                      set_delta<Float>({}, {0.0, infinity}), set_delta<Float>({infinity}, {-infinity})))),
+        values<Value>(set_delta<Float>({0.0, -infinity, infinity}, {}), none,
+                      set_delta<Float>({}, {-0.0, infinity}), set_delta<Float>({infinity}, {-infinity})));
+    CHECK_OUTPUT((eval_node<runtime::operators::scalar_float_map, TSD<Float, TS<Int>>>(
+        values<Value>(dict_delta<Float, TS<Int>>({{-0.0, 1}, {infinity, 2}, {-infinity, 3}}),
+                      dict_delta<Float, TS<Int>>({{0.0, 1}}), none,
+                      dict_delta<Float, TS<Int>>({}, {-0.0, infinity})))),
+        values<Value>(dict_delta<Float, TS<Int>>({{0.0, 1}, {-infinity, 3}, {infinity, 2}}),
+                      dict_delta<Float, TS<Int>>({{-0.0, 1}}), none,
+                      dict_delta<Float, TS<Int>>({}, {0.0, infinity})));
+}
+
+TEST_CASE("generated scalar map recipes retain exact keys", "[codegen][runtime][scalar-keys]") {
+    session();
+    CHECK_OUTPUT((eval_node<runtime::operators::scalar_string_recipe>(values<Int>(1, none, 2))),
+        values<Value>(dict_delta<Str, TS<Int>>({{"first", 1}, {"second", 2}}), none,
+                      dict_delta<Str, TS<Int>>({{"second", 2}, {"first", 1}})));
+}
+
+TEST_CASE("generated ordinary collections retain runtime children and reject duplicates", "[codegen][runtime][atomic-collections]") {
+    session();
+    const auto snapshot = [](const Str &key, Int item) {
+        ListBuilder row{ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta()),
+                        *scalar_descriptor<hgl::ordinary::List<Int>>::value_meta()};
+        row.push_back(item);
+        auto child = row.build();
+        MapBuilder map{ValuePlanFactory::instance().type_for(scalar_descriptor<Str>::value_meta()), child.binding()};
+        map.set_item(Value{key}.view(), child.view());
+        return map.build();
+    };
+    CHECK_OUTPUT(eval_node<runtime::operators::atomic_map_recipe>(values<Str>("row", none, "other"), values<Int>(1, none, 2)),
+        values<Value>(snapshot("row", 1), none, snapshot("other", 2)));
+    SetBuilder members{ValuePlanFactory::instance().type_for(scalar_descriptor<Str>::value_meta())};
+    members.insert(Value{Str{"alpha"}}.view());
+    members.insert(Value{Str{"beta"}}.view());
+    CHECK_OUTPUT(eval_node<runtime::operators::atomic_set_recipe>(values<Str>("alpha"), values<Str>("beta")),
+        values<Value>(members.build()));
+    CHECK_THROWS_WITH(eval_node<runtime::operators::atomic_set_recipe>(values<Str>("same"), values<Str>("same")),
+        Catch::Matchers::ContainsSubstring("duplicate"));
+}
+
+TEST_CASE("generated map defaults retain ordinary struct children", "[codegen][runtime][atomic-collections]") {
+    session();
+    const auto recorded = eval_node<runtime::operators::atomic_struct_map_default>(values<Int>(1));
+    REQUIRE(recorded.size() == 1);
+    REQUIRE(recorded[0]);
+    const auto map = recorded[0]->as_bundle().field("children").as_map();
+    REQUIRE(map.size() == 1);
+    const auto child = map.at(Value{Str{"x"}}.view()).as_bundle();
+    CHECK(child.field("amount").checked_as<Int>() == 42);
+    CHECK(child.field("values").as_list().empty());
+}
+
+TEST_CASE("generated map defaults retain the type of empty nested lists", "[codegen][runtime][atomic-collections]") {
+    session();
+    const auto recorded = eval_node<runtime::operators::atomic_collection_default>(values<Int>(1));
+    REQUIRE(recorded.size() == 1);
+    REQUIRE(recorded[0]);
+    const auto map = recorded[0]->as_bundle().field("values").as_map();
+    REQUIRE(map.size() == 1);
+    const auto child = map.at(Value{Str{"empty"}}.view());
+    CHECK(child.as_list().empty());
+    CHECK(child.schema() == scalar_descriptor<hgl::ordinary::List<Int>>::value_meta());
+}
+
+TEST_CASE("prepared key aliases never repeat provider construction", "[codegen][runtime][prepared-keys]") {
+    struct CountingProvider final : TimeZoneProvider {
+        std::shared_ptr<const TimeZoneProvider> underlying{make_time_zone_provider()};
+        mutable std::size_t contains_calls{};
+        std::string_view version() const noexcept override { return underlying->version(); }
+        bool contains(ZoneId zone) const noexcept override { ++contains_calls; return underlying->contains(zone); }
+        OffsetInfo at(Instant instant, ZoneId zone) const override { return underlying->at(instant, zone); }
+        LocalResolution resolve(CivilDateTime local, ZoneId zone) const override { return underlying->resolve(local, zone); }
+    };
+    session();
+    GlobalState state;
+    auto provider = std::make_shared<CountingProvider>();
+    set_time_zone_provider(state.view(), provider);
+    GlobalContext context{state};
+    auto retained = runtime::hgl_values::prepared_zone_key_recipe_hgl_value();
+    REQUIRE(provider->contains_calls == 1);
+    const auto payload = retained.as_bundle().at(0);
+    Value copied{payload};
+    CHECK_OUTPUT((eval_node<runtime::operators::prepared_zone_key_forward, TSD<ZoneId, TS<ZoneId>>>(values<Value>(copied, none, copied))),
+        values<Value>(copied, none, copied));
+    CHECK(provider->contains_calls == 1);
+    auto another = runtime::hgl_values::prepared_zone_key_recipe_hgl_value();
+    CHECK(provider->contains_calls == 2);
+    CHECK(another.equals(retained));
+}
+
+TEST_CASE("generated growing lists publish tail removal and regrowth", "[codegen][runtime][growing-list]") {
+    session();
+    auto expected = values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}),
+        dynamic_list_delta<TS<Int>>({{0, 1}}, {1}), dynamic_list_delta<TS<Int>>({}, {0}),
+        dynamic_list_delta<TS<Int>>({{0, 3}}));
+    CHECK_OUTPUT((eval_node<runtime::operators::growing_forward, TSL<TS<Int>, unbounded_tsl_size>>(expected)), expected);
+    CHECK_OUTPUT(eval_node<runtime::operators::growing_source>(), expected);
+}
+
+TEST_CASE("concrete rolling hooks publish returns assignments and source arrivals", "[codegen][runtime][rolling]") {
+    session();
+    const auto arrivals = values<Value>(Value{Int{10}}, none, Value{Int{10}}, Value{Int{20}});
+    CHECK_OUTPUT((eval_node<runtime::operators::rolling_concrete_return, TSW<Int, 2, 2>>(arrivals)), arrivals);
+    CHECK_OUTPUT((eval_node<runtime::operators::rolling_concrete_assign, TSWDuration<Int, 5, 1>>(arrivals)), arrivals);
+    CHECK_OUTPUT(eval_node<runtime::operators::rolling_concrete_source>(), values<Int>(10, 10, 20));
+    using Payload = hgl::ordinary::List<Int>;
+    const hgl::ordinary::PreparedValuePlan list_plan{scalar_descriptor<Payload>::value_meta()};
+    auto empty = list_plan.empty_list();
+    auto one = list_plan.empty_list();
+    list_plan.push(one.view(), Value{Int{1}}.view());
+    const auto lists = values<Value>(one, empty, none, one);
+    CHECK_OUTPUT((eval_node<runtime::operators::rolling_concrete_list, TSW<Payload, 2>>(lists)), lists);
+}
+
+TEST_CASE("generated rolling publication forwards arrivals before readiness", "[codegen][runtime][rolling]") {
+    session();
+    const auto arrivals = values<Value>(Value{Int{10}}, none, Value{Int{10}}, Value{Int{20}});
+    CHECK_OUTPUT((eval_node<runtime::operators::rolling_ticks_forward, TSW<Int, 2, 2>>(arrivals)), arrivals);
+    CHECK_OUTPUT((eval_node<runtime::operators::rolling_observed_ticks, TSW<Int, 2, 2>>(arrivals)),
+        values<Bool>(false, none, true, true));
+    const auto duration_arrivals = values<Value>(Value{Int{10}}, none, Value{Int{20}}, none, none, none, none, none, Value{Int{30}});
+    CHECK_OUTPUT((eval_node<runtime::operators::rolling_duration_forward, TSWDuration<Int, 5, 1>>(duration_arrivals)), duration_arrivals);
+    CHECK_OUTPUT((eval_node<runtime::operators::rolling_observed_duration, TSWDuration<Int, 5, 1>>(duration_arrivals)),
+        values<Bool>(false, none, true, none, none, none, none, none, false));
+}
+
+TEST_CASE("generated complete optional snapshots replace field presence", "[codegen][runtime][optional]") {
+    session();
+    const auto recorded = eval_node<runtime::operators::optional_publication_source>(values<Int>(1, 2, 2, 1));
+    REQUIRE(recorded.size() == 4);
+    for (const auto &value : recorded) { REQUIRE(value); }
+    const auto present = recorded[0]->as_bundle();
+    CHECK(present.field("count").checked_as<Int>() == 0);
+    CHECK(present.field("items").as_list().empty());
+    for (std::size_t i : {1U, 2U}) {
+        CHECK_FALSE(recorded[i]->as_bundle().element_valid(0));
+        CHECK_FALSE(recorded[i]->as_bundle().element_valid(1));
+    }
+    CHECK(recorded[0]->equals(*recorded[3]));
+    CHECK_FALSE(recorded[0]->equals(*recorded[1]));
+    using Payload = runtime::NativeOptionalPublication::value_type;
+    CHECK_OUTPUT((eval_node<runtime::operators::optional_publication_forward, TS<Payload>>(recorded)), recorded);
+}
+
+TEST_CASE("generated family publications retain concrete tags and optional fields", "[codegen][runtime][family]") {
+    session();
+    const auto recorded = eval_node<runtime::operators::native_family_source>(values<Int>(1, 2, 2, 1));
+    REQUIRE(recorded.size() == 4);
+    for (const auto &value : recorded) { REQUIRE(value); }
+    const auto first = recorded[0]->view().concrete();
+    const auto second = recorded[1]->view().concrete();
+    CHECK(first.schema() == scalar_descriptor<runtime::NativePublicationFirst::value_type>::value_meta());
+    CHECK(second.schema() == scalar_descriptor<runtime::NativePublicationSecond::value_type>::value_meta());
+    CHECK_FALSE(first.as_bundle().element_valid(2));
+    CHECK(second.as_bundle().field("count").checked_as<Int>() == 0);
+    CHECK_FALSE(recorded[0]->equals(*recorded[1]));
+    CHECK(recorded[1]->equals(*recorded[2]));
+    using Family = runtime::NativePublicationFamily::value_type;
+    CHECK_OUTPUT((eval_node<runtime::operators::native_family_forward, TS<Family>>(recorded)), recorded);
+    const auto cold = runtime::hgl_values::native_family_capture_hgl_value();
+    CHECK(cold.view().concrete().schema() == first.schema());
+}
+
+TEST_CASE("generated composite keys preserve optional identity and repeated updates", "[codegen][runtime][composite-keys]") {
+    session();
+    auto recipe = runtime::hgl_values::native_composite_key_recipe_hgl_value();
+    Value payload{recipe.as_bundle().at(0)};
+    using Key = runtime::NativeCompositeKey::value_type;
+    const auto updates = values<Value>(payload, none, payload);
+    const auto actual = eval_node<runtime::operators::native_composite_key_forward, TSD<Key, TS<Int>>>(updates);
+    REQUIRE(actual[0]);
+    const auto a = actual[0]->as_bundle().at(1).as_map();
+    const auto b = payload.as_bundle().at(1).as_map();
+    for (const auto entry : a) {
+        const auto &key = entry.first;
+        INFO("key hash=" << key.hash() << " schema=" << key.schema()->name());
+        CHECK(b.contains(key));
+    }
+    CHECK_OUTPUT(actual, updates);
+    CHECK(payload.as_bundle().at(1).as_map().size() == 2);
+}
+
+TEST_CASE("composite provider keys retain one cold initializer across aliases", "[codegen][runtime][composite-keys]") {
+    struct CountingProvider final : TimeZoneProvider {
+        std::shared_ptr<const TimeZoneProvider> underlying{make_time_zone_provider()};
+        mutable std::size_t contains_calls{};
+        std::string_view version() const noexcept override { return underlying->version(); }
+        bool contains(ZoneId zone) const noexcept override { ++contains_calls; return underlying->contains(zone); }
+        OffsetInfo at(Instant instant, ZoneId zone) const override { return underlying->at(instant, zone); }
+        LocalResolution resolve(CivilDateTime local, ZoneId zone) const override { return underlying->resolve(local, zone); }
+    };
+    session();
+    GlobalState state;
+    auto provider = std::make_shared<CountingProvider>();
+    set_time_zone_provider(state.view(), provider);
+    GlobalContext context{state};
+    const auto recipe = runtime::hgl_values::native_zone_key_recipe_hgl_value();
+    CHECK(provider->contains_calls == 1);
+    const auto members = recipe.as_bundle().at(0).as_bundle().at(0).as_set();
+    REQUIRE(members.size() == 1);
+    for (const auto member : members) {
+        CHECK(member.as_bundle().field("zone").checked_as<ZoneId>() == ZoneId{"US/Eastern"});
+    }
+    CHECK(provider->contains_calls == 1);
+}
+
+TEST_CASE("generated family registration includes unused concrete members", "[codegen][runtime][family]") {
+    session();
+    const auto *family = scalar_descriptor<runtime::NativeUnusedFamily::value_type>::value_meta();
+    const auto snapshot = TypeRealizationSnapshot::capture(TypeRegistry::instance());
+    const auto &members = snapshot->alternatives(family);
+    REQUIRE(members.size() == 1);
+    CHECK(members.front()->name() == "hgl.codegen.runtime::NativeUnusedMember");
+}
+
+TEST_CASE("generated family plans capture providers installed after their module", "[codegen][runtime][family]") {
+    session();
+    using Family = runtime::NativeLateFamily::value_type;
+    const auto register_member = [] {
+        return TypeRegistry::instance().bundle("native.late", "Member", {{"label", scalar_descriptor<Str>::value_meta()}},
+            {scalar_descriptor<Family>::value_meta()});
+    };
+    auto provider = OperatorRegistry::instance().register_installer("native.late", [register_member] { (void)register_member(); });
+    const auto *member = register_member();
+    BundleBuilder builder{ValuePlanFactory::instance().type_for(member)};
+    builder.set(0, Value{Str{"late"}}.view());
+    const auto concrete = builder.build();
+    const auto captured = runtime::hgl_values::native_late_capture_hgl_value(concrete.view());
+    CHECK(captured.view().concrete().schema() == member);
+    CHECK_OUTPUT((eval_node<runtime::operators::native_late_forward, TS<Family>>(values<Value>(captured, none, captured))),
+                 values<Value>(captured, none, captured));
+    CHECK(OperatorRegistry::instance().remove_provider(provider));
+}
+
+TEST_CASE("generated ordinary subfamilies retain their live concrete member", "[codegen][runtime][family]") {
+    session();
+    const auto captured = runtime::hgl_values::native_subfamily_capture_hgl_value();
+    CHECK(captured.view().concrete().schema() == scalar_descriptor<runtime::NativePublicationLeaf::value_type>::value_meta());
+    CHECK(captured.view().concrete().as_bundle().field("items").as_list().size() == 1);
+}

@@ -37,7 +37,7 @@ namespace hgl::wiring
                 case hir::ScalarType::CivilDateTime: return types.civil_datetime_type;
                 case hir::ScalarType::ZonedDateTime: return types.zoned_datetime_type;
                 case hir::ScalarType::TimeZone: return types.zone_id_type;
-                case hir::ScalarType::ZonedTime: return nullptr;
+                case hir::ScalarType::ZonedTime: return types.zoned_time_type;
             }
             std::unreachable();
         }
@@ -53,6 +53,11 @@ namespace hgl::wiring
         : module_{module}, diagnostics_{diagnostics}, registry_{hgraph::TypeRegistry::instance()},
           types_{hgraph::stdlib::register_standard_types(registry_)}, generation_{registry_.reset_generation()} {
         structures_.reserve(module_.structures.size());
+        for (const auto &contract : module_.enums) {
+            std::vector<std::pair<std::string, long long>> members;
+            for (const auto &[name, number] : contract.members) { members.emplace_back(name, number); }
+            hgraph::TypeRegistry::instance().enum_type(contract.identity, members);
+        }
         for (const hgraph_ir::StructContract &contract : module_.structures) { structures_.emplace(contract.identity, &contract); }
     }
 
@@ -61,12 +66,24 @@ namespace hgl::wiring
         if (generation_ == current) { return; }
         values_.clear();
         schemas_.clear();
+        presence_contracts_.clear();
         // The memos hold registry pointers, so a reset invalidates them along
         // with everything else this bridge cached.
         realized_.clear();
         realized_schemas_.clear();
         types_      = hgraph::stdlib::register_standard_types(registry_);
+        for (const auto &contract : module_.enums) {
+            std::vector<std::pair<std::string, long long>> members;
+            for (const auto &[name, number] : contract.members) { members.emplace_back(name, number); }
+            registry_.enum_type(contract.identity, members);
+        }
         generation_ = registry_.reset_generation();
+    }
+
+    bool TypeBridge::optional_field(const hgraph::ValueTypeMetaData *type, std::size_t index) const {
+        const auto found = presence_contracts_.find(type);
+        return found != presence_contracts_.end() && index < found->second->fields.size() &&
+               found->second->fields[index].optional;
     }
 
     void TypeBridge::report(syntax::SourceRange range, std::string message) {
@@ -129,6 +146,11 @@ namespace hgl::wiring
                 if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, std::int64_t> || std::is_same_v<T, double> ||
                               std::is_same_v<T, std::string>) {
                     return hgraph::Value{item};
+                } else if constexpr (std::is_same_v<T, hir::EnumValue>) {
+                    const auto *meta = hgraph::TypeRegistry::instance().named_enum(item.identity);
+                    if (!meta) { report(source.range, "unknown enum constant identity"); return std::nullopt; }
+                    const hgraph::Int number = item.number;
+                    return hgraph::Value{hgraph::ValuePlanFactory::instance().type_for(meta), &number};
                 } else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
                     using syntax::TemporalKind;
                     switch (item.kind) {
@@ -143,8 +165,7 @@ namespace hgl::wiring
                         case TemporalKind::ZonedDateTime:
                             return hgraph::Value{temporal::zoned(item.micros, item.zone, item.offset_seconds)};
                         case TemporalKind::ZonedTime:
-                            report(source.range, "zoned and civil constants are not supported by the direct backend yet");
-                            return std::nullopt;
+                            return hgraph::Value{temporal::zoned_time(item.micros, item.zone)};
                     }
                     std::unreachable();
                 } else {
@@ -319,6 +340,7 @@ namespace hgl::wiring
             if (described == nullptr) { return nullptr; }
             if (described != declared) { return disagrees("field '" + field.name + "'"); }
         }
+        presence_contracts_[existing] = specialization.contract;
         return existing;
     }
 
@@ -340,8 +362,10 @@ namespace hgl::wiring
         }
 
         try {
-            return registry_.bundle(specialization.module_name, specialization.local_name, fields, parents,
+            const auto *meta = registry_.bundle(specialization.module_name, specialization.local_name, fields, parents,
                                     specialization.contract->abstract, "__type__", specialization.generic_types);
+            presence_contracts_[meta] = specialization.contract;
+            return meta;
         } catch (const std::exception &error) {
             report(range, "cannot register struct '" + specialization.local_name + "': " + error.what());
             return nullptr;
@@ -372,7 +396,7 @@ namespace hgl::wiring
                 for (const hgraph_ir::TypeArgument &argument : type.arguments) {
                     if (argument.type) { value_edges(*argument.type, bindings, out, depth + 1U); }
                 }
-                out.push_back(id);
+                if (structure(type.nominal_identity)) { out.push_back(id); }
                 return;
             // Exactly the kinds `value()` recurses into with `value()`.
             case hir::TypeKind::Tuple:
@@ -402,7 +426,7 @@ namespace hgl::wiring
                         return;
                     }
                 }
-                if (!type.nominal_identity.empty()) { out.push_back(id); }
+                if (structure(type.nominal_identity)) { out.push_back(id); }
                 return;
             // Exactly the positions `schema()` recurses into with `schema()`.
             // An `atomic<T>`, a set element, a map KEY and a rolling element
@@ -834,6 +858,7 @@ namespace hgl::wiring
                         return value(generic->second, bindings);
                     }
                 }
+                if (const auto *enumeration = hgraph::TypeRegistry::instance().named_enum(type.nominal_identity)) { return enumeration; }
                 return nominal_value(type, bindings);
             case hir::TypeKind::Tuple:
                 {
@@ -934,6 +959,7 @@ namespace hgl::wiring
                         return schema(generic->second, bindings);
                     }
                 }
+                if (const auto *enumeration = hgraph::TypeRegistry::instance().named_enum(type.nominal_identity)) { return registry_.ts(enumeration); }
                 return nominal_schema(type, bindings);
             case hir::TypeKind::Tuple:
                 {

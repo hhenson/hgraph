@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 import unittest
 
-from hgl_compiler_parity import assess, assertion_counts, discover, snapshot
+from hgl_compiler_parity import assess, discover, snapshot
 
 
 class CompilerParity(unittest.TestCase):
@@ -13,19 +13,18 @@ class CompilerParity(unittest.TestCase):
         self.assertTrue(cpp['passed'])
         self.assertEqual(cpp, rust)
 
-    def test_assertion_reporting_retains_exact_multiplicity(self):
+    def test_conditional_assertions_do_not_change_named_result_inventory(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / 'test.hgl'
-            path.write_text('module hgraph.std\ntest several {\n'
-                            'assert eval(f, x: [1]) == [1]\n'
-                            'assert "test fake { assert }" == "test fake { assert }"\n'
-                            '# assert fake\neval(sink, x: [1])\n}\n')
-            expected = assertion_counts([path])
-            self.assertEqual(dict(expected), {'hgraph.std::several': 3})
-            output = 'hgraph.std::several ... ok\n'
-            self.assertTrue(assess(output * 3, 0, 'shared', expected)['passed'])
-            self.assertFalse(assess(output * 2, 0, 'shared', expected)['passed'])
-            self.assertFalse(assess(output * 4, 0, 'shared', expected)['passed'])
+            root = Path(directory)
+            (root / 'test.hgl').write_text('module hgraph.std\ntest conditional {\n'
+                'let result = eval(f, [1])\nif result[0] != null {\n'
+                'assert result[0] == 1\n} else { assert false }\n}\n')
+            expected = discover(root)[1]['hgraph.std']
+            output = 'hgraph.std::conditional ... ok\n'
+            self.assertTrue(assess(output, 0, 'hgraph.std', expected)['passed'])
+            self.assertFalse(assess(output * 2, 0, 'hgraph.std', expected)['passed'])
+            self.assertFalse(assess('hgraph.std::conditional ... FAILED\n', 0,
+                                   'hgraph.std', expected)['passed'])
 
     def test_success_status_alone_is_not_evidence(self):
         for output in ['', 'first ... ok\n', 'first ... ok\nfirst ... ok\nsecond ... ok\n',

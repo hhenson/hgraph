@@ -27,6 +27,8 @@ namespace hgl::semantics
         Parameter,         ///< `decl` is the function, `index` the parameter
         Generic,           ///< `decl` is the function, `index` the generic parameter
         ConstraintLocal,   ///< type variable introduced by `each` in a requires clause
+        Enum,
+        EnumMember,
         Struct,            ///< `decl` is the nominal struct declaration
         ImportedStruct,    ///< `index` names ResolvedModule::imported_structs (ADR 0013)
         Function,          ///< `decl` is the `fn`

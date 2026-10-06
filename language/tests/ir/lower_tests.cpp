@@ -3551,8 +3551,8 @@ TEST_CASE("ordinary value extensions preserve delta identity and lexical access"
     }
     const std::vector<std::string> rejected{
         "const fn value() -> i64 { let xs = []\nreturn 1 }\n",
-        "const fn value(x: delta<list<i64>>) -> i64 => 1\n",
-        "const fn value(x: delta<map<str, i64>>) -> i64 => 1\n",
+        "const fn value(x: delta<list<ref<i64>>>) -> i64 => 1\n",
+        "const fn value(x: delta<map<list<i64>, i64>>) -> i64 => 1\n",
         "const fn value() -> delta<map<i64, i64>> => delta<map<i64, i64>>(upsert: [1: 2], remove: [1])\n",
         "const fn value() -> delta<list<i64, 2>> => delta<list<i64, 2>>(items: [2: 3])\n",
         "const fn value() -> i64 { let xs: list<i64> = []\npush(xs, 1)\nreturn 1 }\n",
@@ -3646,7 +3646,7 @@ fn update(value: i64, const left: str, const right: str) {
 }
 
 TEST_CASE("eval checks publication profile boundaries before graph construction", "[ir][typed][harness]") {
-    for (const std::string shape : {"atomic<set<i64>>", "ref<i64>", "list<i64>", "map<str, i64>", "Node"}) {
+    for (const std::string shape : {"atomic<set<list<i64>>>", "ref<i64>", "list<ref<i64>>", "map<list<i64>, i64>", "Node"}) {
         Lowered unit{"module checks.eval_shape\nstruct Node { value: i64\nnext: atomic<Node> = null }\n"
             "fn identity(value: " + shape + ") -> " + shape + " => value\n"
             "test rejected { eval(identity, value: []) }\n"};
@@ -3683,6 +3683,7 @@ TEST_CASE("atomic scalar spellings have one canonical identity", "[ir][typed][at
 TEST_CASE("finite atomic publications and generic shape arguments are checked", "[ir][typed][atomic]") {
     const std::vector<std::string> accepted{
         "const fn seed() -> atomic<i64> { return 1 }\n",
+        "struct Optional { value: i64 = null }\nfn value(x: atomic<Optional>) -> atomic<Optional> => x\ntest accepted { eval(value, []) }\n",
         "struct Box<T> { value: T }\nfn value(x: Box<atomic<i64>>) -> Box<i64> => x\n",
         "struct Box<T> { value: atomic<list<T>> }\nconst fn sample() -> Box<i64> { let value = Box(value: [1, 2])\nreturn value }\n",
         "struct Box<T> { value: atomic<list<T>> }\nconst fn sample() -> Box<i64> { Box<i64>(value: []) }\n",
@@ -3710,9 +3711,8 @@ TEST_CASE("finite atomic publications and generic shape arguments are checked", 
         "struct Box<T> { value: T }\nfn value(x: Box<atomic<list<i64>>>) -> i64 => 1\n",
         "struct Mixed<T> { value: T\npublication: delta<T> }\nfn value(x: Mixed<atomic<list<i64>>>) -> i64 => 1\n",
         "struct Unused<T> {}\nfn value(x: Unused<atomic<list<i64>>>) -> i64 => 1\n",
-        "struct Optional { value: i64 = null }\nfn value(x: atomic<Optional>) -> atomic<Optional> => x\ntest bad { eval(value, []) }\n",
-        "const fn value(x: delta<atomic<set<i64>>>) -> i64 => 1\n",
-        "fn pass<T>(x: T) -> T { when { return delta_value(x) } }\nfn bad(x: atomic<set<i64>>) -> atomic<set<i64>> => pass(x)\n",
+        "const fn value(x: delta<atomic<set<list<i64>>>>) -> i64 => 1\n",
+        "fn pass<T>(x: T) -> T { when { return delta_value(x) } }\nfn bad(x: atomic<set<list<i64>>>) -> atomic<set<list<i64>>> => pass(x)\n",
         "struct Publication<T> { value: delta<T> }\nconst fn value() { let x = Publication(value: [1, 2]) }\n"
     };
     for (const auto &source : rejected) {
@@ -3738,8 +3738,8 @@ TEST_CASE("recursive generic occurrence validation does not retain provisional s
     }
 }
 
-TEST_CASE("the temporal publication profile admits three leaves recursively", "[ir][typed][temporal]") {
-    for (const std::string leaf : {"civil_datetime", "timezone", "zoned_datetime"}) {
+TEST_CASE("the temporal publication profile admits four leaves recursively", "[ir][typed][temporal]") {
+    for (const std::string leaf : {"civil_datetime", "timezone", "zoned_datetime", "zoned_time"}) {
         for (const std::string &shape : {leaf, "atomic<" + leaf + ">", "list<" + leaf + ", 2>",
                                         "atomic<list<" + leaf + ">>", "map<i64, " + leaf + ">"}) {
             Lowered unit{"module checks.temporal_profile\nfn identity(value: " + shape + ") -> " + shape +
@@ -3750,10 +3750,7 @@ TEST_CASE("the temporal publication profile admits three leaves recursively", "[
             CHECK(result);
         }
     }
-    Lowered rejected{"module checks.temporal_profile\nfn identity(value: zoned_time) -> zoned_time => value\ntest rejected { eval(identity, []) }\n"};
-    REQUIRE_FALSE(rejected.diagnostics.has_errors());
-    CHECK_FALSE(complete(rejected));
-    CHECK(rejected.diagnostics.render(rejected.file).find("publication profile") != std::string::npos);
+
 }
 
 TEST_CASE("generic delta equality checks its concrete publication origin", "[ir][typed][temporal]") {
@@ -3806,5 +3803,232 @@ TEST_CASE("typed locals fix ordinary and temporal categories", "[ir][typed][loca
         CHECK(complete(lowered));
         INFO(lowered.diagnostics.render(lowered.file));
         CHECK_FALSE(lowered.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("declared enums keep nominal identity and checked signed numbering", "[ir][typed][enum]") {
+    Lowered unit{R"(module checks.enums
+    enum Mode { low = -9223372036854775808, first = -7, next, high = 9223372036854775807, reset = 9 }
+    const fn member() -> Mode => Mode::next
+    fn identity(value: delta<atomic<Mode>>) -> Mode => value
+    test admitted { eval(identity, [_, Mode::low, Mode::next, Mode::high]) }
+    )"};
+    require_clean(unit);
+    const bool valid = complete(unit);
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(valid);
+    const hir::EnumDecl *enumeration = nullptr;
+    for (const auto &declaration : unit.hir.declarations) {
+        if (const auto *item = std::get_if<hir::EnumDecl>(&declaration.node)) { enumeration = item; }
+    }
+    REQUIRE(enumeration);
+    REQUIRE(enumeration->members.size() == 5);
+    CHECK(enumeration->members[0].number == INT64_MIN);
+    CHECK(enumeration->members[2].number == -6);
+    CHECK(enumeration->members[3].number == INT64_MAX);
+    CHECK(enumeration->members[4].number == 9);
+    bool found = false;
+    for (const auto &expression : unit.hir.exprs) {
+        if (!expression.constant) { continue; }
+        if (const auto *value = std::get_if<hir::EnumValue>(&*expression.constant)) {
+            CHECK(value->identity == "checks.enums.Mode");
+            found = true;
+        }
+    }
+    CHECK(found);
+}
+
+TEST_CASE("enum declarations reject invalid numbering and nominal substitutions", "[ir][typed][enum]") {
+    for (const std::string source : {
+        "enum E {}",
+        "export enum E { a }",
+        "use hgraph.std as E\nenum E { a }",
+        "enum E { a }\nenum F { a }\nconst fn f() -> bool => E::a == F::a",
+        "enum E { a }\nconst fn f() -> bool => E::a == 0",
+        "enum E { a, a }",
+        "enum E { a = 0, b = 0 }",
+        "enum E { a = 1, b, c = 2 }",
+        "enum E { a = 9223372036854775808 }",
+        "enum E { a = -9223372036854775809 }",
+        "enum E { a = 9223372036854775807, b }",
+        "enum E { a = 1.0 }",
+        "enum E { a }\nconst fn f() -> E => E::missing",
+        "enum E { a }\nconst fn f() -> E => a",
+        "enum E { a }\nconst fn f() -> E => 0",
+        "enum E { a }\nenum F { a }\nconst fn f() -> E => F::a",
+        "enum E { a }\nconst fn f() -> i64 => E::a",
+        "enum E { a }\nconst fn f() -> E<i64> => E::a"
+    }) {
+        Lowered unit{"module checks.invalid_enum\n" + source + "\n"};
+        INFO(source);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("scalar collection keys require exact types and equality", "[ir][typed][scalar-keys]") {
+    for (const std::string source : {
+        "const fn f() -> delta<set<f64>> => delta<set<f64>>(added: [0.0, -0.0])",
+        "const fn f() -> delta<set<f64>> => delta<set<f64>>(added: [0.0], removed: [-0.0])",
+        "const fn f() -> delta<map<f64, i64>> => delta<map<f64, i64>>(upsert: [0.0: 1, -0.0: 2])",
+        "const fn f() -> delta<map<f64, i64>> => delta<map<f64, i64>>(upsert: [1: 1])",
+        "const fn f() -> delta<set<f64>> => delta<set<f64>>(added: [1])",
+        "const fn f() -> delta<set<str>> => delta<set<str>>(added: [\"same\", \"same\"])",
+        "const fn f() -> delta<set<datetime>> => delta<set<datetime>>(added: [@2026-01-15T12:30Z, @2026-01-15T13:30+01:00])",
+        "enum E { a }\nenum F { a }\nconst fn f() -> delta<map<E, i64>> => delta<map<E, i64>>(upsert: [F::a: 1])",
+        "enum E { a }\nconst fn f() -> delta<set<E>> => delta<set<E>>(added: [0])",
+        "fn f(key: str) { when { let d = delta<map<str, i64>>(upsert: [key: 1]) } }"
+    }) {
+        Lowered unit{"module checks.scalar_keys\n" + source + "\n"};
+        INFO(source);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+    Lowered accepted{R"(module checks.scalar_keys
+    const fn f() -> delta<set<f64>> => delta<set<f64>>(added: [1.000000000000001, 1.000000000000002])
+    const fn zones() -> delta<set<timezone>> => delta<set<timezone>>(added: [@[US/Eastern], @[America/New_York]])
+    )"};
+    require_clean(accepted);
+    const bool valid = complete(accepted);
+    INFO(accepted.diagnostics.render(accepted.file));
+    CHECK(valid);
+}
+
+TEST_CASE("ordinary set and map constructors require exact typed items", "[ir][typed][atomic-collections]") {
+    for (const std::string source : {
+        "const fn f() -> set<str> => set<str>()",
+        "const fn f() -> set<str> => set<str>(other: [])",
+        "const fn f() -> set<str> => set<str>(items: [], items: [])",
+        "const fn f() -> set<f64> => set<f64>(items: [0.0, -0.0])",
+        "const fn f() -> map<f64, i64> => map<f64, i64>(items: [0.0: 1, -0.0: 2])",
+        "const fn f() -> map<f64, i64> => map<f64, i64>(items: [1: 2])",
+        "const fn f() -> map<str, i64> => map<str, i64>(items: [1])",
+        "const fn f() -> set<str> => set<str>(items: [\"key\": 1])",
+        "const fn f() -> set<list<i64>> => set<list<i64>>(items: [])"
+    }) {
+        Lowered unit{"module checks.atomic_collections\n" + source + "\n"};
+        INFO(source);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+    Lowered accepted{R"(module checks.atomic_collections
+const fn dynamic(key: str, value: i64) -> map<str, i64> => map<str, i64>(items: [key: value])
+struct Snapshot { tags: set<str> = set<str>(items: []) }
+fn value(x: atomic<Snapshot>) -> atomic<Snapshot> => x
+test empty { assert eval(value, [Snapshot()]) == [Snapshot(tags: set<str>(items: []))] }
+)"};
+    require_clean(accepted);
+    const bool valid = complete(accepted);
+    INFO(accepted.diagnostics.render(accepted.file));
+    CHECK(valid);
+}
+
+TEST_CASE("sparse key aliases exclude mutable and temporal bindings", "[ir][typed][prepared-keys]") {
+    for (const std::string body : {
+        "var original: timezone = @[UTC]\nreturn delta<set<timezone>>(added: [original])",
+        "var original: timezone = @[UTC]\nlet alias = original\nreturn delta<set<timezone>>(added: [alias])",
+        "var original: i64 = 1\nreturn delta<set<i64>>(added: [original])"
+    }) {
+        const std::string shape = body.find("i64") != std::string::npos ? "i64" : "timezone";
+        Lowered unit{"module checks.prepared_keys\nconst fn recipe() -> delta<set<" + shape + ">> {\n" + body + "\n}\n"};
+        INFO(body);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+        CHECK(unit.diagnostics.render(unit.file).find("must be constants") != std::string::npos);
+    }
+}
+
+TEST_CASE("growing list deltas reject malformed index recipes", "[ir][typed][growing-list]") {
+    for (const std::string recipe : {
+        "delta<list<i64>>(items: [-1: 1])", "delta<list<i64>>(remove: [-1])",
+        "delta<list<i64>>(remove: [0, 0])", "delta<list<i64>>(items: [0: 1], remove: [0])",
+        "delta<list<i64>>(upsert: [0: 1])", "delta<list<i64, 2>>(remove: [1])"
+    }) {
+        const auto result_type = recipe.substr(0, recipe.find('('));
+        Lowered unit{"module checks.growing_list\nconst fn value() -> " + result_type + " => " + recipe + "\n"};
+        INFO(recipe);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("rolling publications retain exact shapes and reject delta constructors", "[ir][typed][rolling]") {
+    for (const std::string source : {
+        "const fn bad() -> delta<rolling<i64, 2>> => delta<rolling<i64, 2>>(items: [0: 1])",
+        "fn bad(value: rolling<i64, 2, 1>) -> rolling<i64, 2, 2> => value",
+        "fn bad(value: rolling<i64, 2us, 1us>) -> rolling<i64, 2, 1> => value",
+        "fn bad(value: atomic<rolling<i64, 2>>) -> atomic<rolling<i64, 2>> { when { return delta_value(value) } }"
+    }) {
+        Lowered unit{"module checks.rolling\n" + source + "\n"};
+        INFO(source);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("complete optional snapshots retain required-field and exact-type checks", "[ir][typed][optional]") {
+    for (const std::string constructor : {"Record()", "Record(required: null)",
+        "Record(required: 1, optional: true)", "Record(required: 1, optional: 1.0)"}) {
+        Lowered unit{"module checks.optional\nstruct Record { required: i64\n optional: i64 = null }\n"
+            "const fn value() -> Record => " + constructor + "\n"};
+        INFO(constructor);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("atomic family admission preserves membership and structural boundaries", "[ir][typed][family]") {
+    for (const std::string body : {
+        "let bad: Event<str> = First<i64>(value: 1)",
+        "let bad: Event<str> = Other(value: \"x\")",
+        "let bad = Event<str>(value: \"x\")",
+        "eval(structural, [])"}) {
+        Lowered unit{"module checks.family\nabstract struct Event<T> { value: T }\n"
+            "struct First<T>: Event<T> {}\nstruct Other { value: str }\n"
+            "fn structural(x: Event<str>) -> Event<str> => x\ntest rejected { " + body + " }\n"};
+        INFO(body);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+    Lowered admitted{R"(
+module checks.family_admitted
+abstract struct Event<T> { value: T }
+abstract struct Middle<T>: Event<list<T>> {}
+struct Leaf<T>: Middle<T> {}
+fn forward(value: atomic<Event<list<str>>>) -> atomic<Event<list<str>>> => value
+test accepted {
+    let member: Event<list<str>> = Leaf<str>(value: ["a"])
+    eval(forward, [member, _, member])
+}
+)"};
+    REQUIRE_FALSE(admitted.diagnostics.has_errors());
+    const bool result = complete(admitted);
+    INFO(admitted.diagnostics.render(admitted.file));
+    CHECK(result);
+}
+
+TEST_CASE("composite keys retain finite complete exact type restrictions", "[ir][typed][composite-keys]") {
+    for (const std::string shape : {"list<i64>", "RecursiveKey", "FamilyKey", "ref<i64>"}) {
+        Lowered unit{"module checks.keys\nstruct RecursiveKey { next: atomic<RecursiveKey> = null }\n"
+            "abstract struct FamilyKey { value: i64 }\nfn forward(x: set<" + shape + ">) -> set<" + shape + "> => x\n"
+            "test rejected { eval(forward, []) }\n"};
+        INFO(shape);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+    Lowered mismatch{R"(
+module checks.nominal_key
+struct Key { value: i64 }
+struct Other { value: i64 }
+const fn bad() -> delta<set<Key>> => delta<set<Key>>(added: [Other(value: 1)])
+)"};
+    CHECK_FALSE(complete(mismatch));
+    CHECK(mismatch.diagnostics.has_errors());
+    for (const std::string binding : {"var key = Key(value: 1)", "let key = input"}) {
+        Lowered runtime_key{"module checks.dynamic_key\nstruct Key { value: i64 }\n"
+            "const fn bad(input: Key) -> delta<set<Key>> { " + binding +
+            "\nreturn delta<set<Key>>(added: [key]) }\n"};
+        if (!runtime_key.diagnostics.has_errors()) { CHECK_FALSE(complete(runtime_key)); }
+        CHECK(runtime_key.diagnostics.has_errors());
     }
 }

@@ -205,6 +205,144 @@ TEST_CASE("atomic publication schemas and values require complete finite payload
     const PreparedValuePlan record_plan{record_schema};
     const auto missing = record_plan.bundle({});
     CHECK_THROWS_AS(validate_complete_value(missing.view()), std::invalid_argument);
-    CHECK_THROWS_AS(delta_schema(registry.ts(registry.set(integer))), std::invalid_argument);
+    CHECK(delta_schema(registry.ts(registry.set(integer))) == registry.set(integer));
+    CHECK(delta_schema(registry.ts(registry.map(integer, integer))) == registry.map(integer, integer));
+    CHECK_THROWS_AS(delta_schema(registry.ts(registry.set(registry.list(integer)))), std::invalid_argument);
     CHECK_THROWS_AS(delta_schema(registry.ts(registry.list(integer, 0, true))), std::invalid_argument);
+}
+
+TEST_CASE("rolling arrival payloads preserve exact cold origin metadata", "[ordinary][rolling]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const std::array shapes{registry.tsw(integer, 2, 2), registry.tsw(integer, 2, 0),
+        registry.tsw(integer, 3, 2), registry.tsw_duration(integer, TimeDelta{5}, TimeDelta{1}),
+        registry.tsw_duration(integer, TimeDelta{5}, TimeDelta{0})};
+    for (const auto *shape : shapes) {
+        CHECK(delta_schema(shape) == integer);
+        CHECK(origin_source(origin_schema(shape)) == shape);
+        const PreparedDeltaPlan plan{shape};
+        const Value arrival{Int{10}};
+        const auto retained = plan.capture(arrival.view());
+        CHECK(retained.schema() == integer);
+        CHECK(plan.payload(retained.view()).checked_as<Int>() == 10);
+        for (const auto *other : shapes) {
+            CHECK((origin_schema(shape) == origin_schema(other)) == (shape == other));
+        }
+    }
+    const auto *list = registry.list(integer);
+    const auto *shape = registry.tsw(list, 2, 1);
+    const PreparedValuePlan list_plan{list};
+    const PreparedDeltaPlan arrival_plan{shape};
+    auto source = list_plan.empty_list();
+    list_plan.push(source.view(), Value{Int{1}}.view());
+    const auto retained = arrival_plan.capture(source.view());
+    list_plan.push(source.view(), Value{Int{2}}.view());
+    CHECK(list_plan.len(arrival_plan.payload(retained.view())) == 1);
+    CHECK(origin_source(origin_schema(shape)) == shape);
+}
+
+TEST_CASE("recursive atomic plans retain finite owned trees and validate descendants", "[ordinary][recursive]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *list = registry.list(integer);
+    const auto *node = registry.recursive_bundle("ordinary.recursive", "Node",
+        {{"value", integer}, {"items", list}, {"next", nullptr}});
+    const PreparedValuePlan plan{node}, list_plan{list};
+    const OptionalField optional = [node](const ValueTypeMetaData *schema, std::size_t index) {
+        return schema == node && index == 2;
+    };
+    CHECK_NOTHROW(validate_delta_shape(registry.ts(node)));
+    auto items = list_plan.empty_list();
+    list_plan.push(items.view(), Value{Int{1}}.view());
+    const Value one{Int{1}}, two{Int{2}};
+    std::array leaf_fields{std::pair<std::size_t, ValueView>{0, one.view()},
+        std::pair<std::size_t, ValueView>{1, items.view()}};
+    auto leaf = plan.bundle(leaf_fields);
+    std::array root_fields{std::pair<std::size_t, ValueView>{0, two.view()},
+        std::pair<std::size_t, ValueView>{1, items.view()},
+        std::pair<std::size_t, ValueView>{2, leaf.view()}};
+    auto root = plan.bundle(root_fields);
+    auto retained = plan.retain(root.view());
+    CHECK_NOTHROW(validate_complete_value(root.view(), optional));
+    CHECK_THROWS_AS(validate_complete_value(root.view()), std::invalid_argument);
+    list_plan.push(items.view(), two.view());
+    plan.replace_index(leaf.view(), 0, two.view());
+    CHECK(root.equals(retained));
+    const auto child = root.as_bundle().field("next").concrete();
+    CHECK(child.as_bundle().field("value").checked_as<Int>() == 1);
+    CHECK(child.as_bundle().field("items").as_list().size() == 1);
+    Value incomplete{storage_binding(node)};
+    std::array bad_fields{std::pair<std::size_t, ValueView>{0, one.view()},
+        std::pair<std::size_t, ValueView>{1, items.view()},
+        std::pair<std::size_t, ValueView>{2, incomplete.view()}};
+    auto bad = plan.bundle(bad_fields);
+    CHECK_THROWS_AS(validate_complete_value(bad.view(), optional), std::invalid_argument);
+    auto edge = plan.index_mutable(root.view(), 2);
+    const PreparedValuePlan edge_plan{edge.binding()};
+    CHECK(edge_plan.len(edge) == 3);
+    edge_plan.replace_index(edge, 0, two.view());
+    CHECK(edge_plan.index(edge, 0).checked_as<Int>() == 2);
+    CHECK(retained.as_bundle().field("next").concrete().as_bundle().field("value").checked_as<Int>() == 1);
+    auto edge_items = edge_plan.index_mutable(edge, 1);
+    const PreparedValuePlan edge_items_plan{edge_items.binding()};
+    CHECK_THROWS_WITH(edge_items_plan.push(edge_items, two.view()), "ordinary list storage does not support growth");
+}
+
+TEST_CASE("family preflight rejects unrelated native payloads before publication", "[ordinary][family]") {
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *family = registry.bundle("ordinary.family", "Family", {{"value", integer}}, {}, true);
+    const auto *member = registry.bundle("ordinary.family", "Member", {{"value", integer}}, {family});
+    const auto *other = registry.bundle("ordinary.family", "Other", {{"value", integer}});
+    Value accepted{hgl::ordinary::storage_binding(member)};
+    accepted.as_bundle().begin_mutation().at(0).set(Int{1});
+    Value rejected{hgl::ordinary::storage_binding(other)};
+    rejected.as_bundle().begin_mutation().at(0).set(Int{1});
+    hgl::wiring::DeltaTrace trace;
+    CHECK_NOTHROW(trace.accept(registry.ts(family), accepted.view()));
+    CHECK_THROWS_WITH(trace.accept(registry.ts(family), rejected.view()),
+        "publication is not a concrete member of its declared family");
+    const hgl::ordinary::PreparedValuePlan plan{family};
+    auto retained = plan.retain(accepted.view());
+    CHECK(retained.view().concrete().schema() == member);
+    CHECK(plan.index(retained.view(), 0).checked_as<Int>() == 1);
+}
+
+TEST_CASE("composite keys reject deep NaN and compare full retained values", "[ordinary][composite-keys]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    auto &registry = TypeRegistry::instance();
+    const auto *floating = scalar_descriptor<Float>::value_meta();
+    const auto *pair = registry.tuple({scalar_descriptor<Int>::value_meta(), floating});
+    const auto *key = registry.bundle("ordinary.keys", "Key", {{"pair", pair}});
+    const PreparedValuePlan pair_plan{pair}, key_plan{key};
+    const auto make_key = [&](Float value) {
+        const Value one{Int{1}}, number{value};
+        std::array parts{std::pair<std::size_t, ValueView>{0, one.view()}, std::pair<std::size_t, ValueView>{1, number.view()}};
+        auto tuple = pair_plan.bundle(parts);
+        std::array fields{std::pair<std::size_t, ValueView>{0, tuple.view()}};
+        return key_plan.bundle(fields);
+    };
+    auto first = make_key(0.0), duplicate = make_key(-0.0), different = make_key(1.0);
+    ScalarKeySet keys{key_plan.binding()};
+    CHECK_NOTHROW(keys.insert(first.view()));
+    CHECK_THROWS_WITH(keys.insert(duplicate.view()), "duplicate or overlapping delta member, key or index");
+    CHECK_NOTHROW(keys.insert(different.view()));
+    auto nan = make_key(std::numeric_limits<Float>::quiet_NaN());
+    CHECK_THROWS_WITH(keys.insert(nan.view()), "NaN collection keys are outside the publication profile");
+    CHECK_THROWS_AS(validate_key_schema(registry.list(floating)), std::invalid_argument);
+    const auto *shape = registry.tss(key);
+    SetBuilder added{key_plan.binding()}, removed{key_plan.binding()};
+    added.insert(first.view());
+    BundleBuilder payload{ValuePlanFactory::instance().type_for(shape->delta_value_schema)};
+    payload.set(0, added.build().view()).set(1, removed.build().view());
+    auto delta = payload.build();
+    hgl::wiring::DeltaTrace trace;
+    CHECK_NOTHROW(trace.accept(shape, delta.view()));
+    CHECK_THROWS_WITH(trace.accept(shape, delta.view()), "addition of a present set member");
 }

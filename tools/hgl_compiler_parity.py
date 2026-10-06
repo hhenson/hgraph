@@ -1,7 +1,7 @@
 """Run every shared HGL library test, independently, on C++ and/or Rust.
 
 Expected behavior remains in the shared HGL assertions. A successful process
-must also report every test (and each assertion for Rust); matching failures are not
+must also report every named test exactly once; matching failures are not
 conformance. Reports identify working files, not only Git HEAD.
 """
 import argparse
@@ -17,7 +17,6 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = re.compile(r'^\s*module\s+([A-Za-z_][\w.]*)\b', re.M)
 TEST = re.compile(r'^\s*test\s+([A-Za-z_]\w*)\s*\{', re.M)
-TOKEN = re.compile(r'#[^\n]*|"(?:\\.|[^"\\])*"|[A-Za-z_]\w*|\S')
 RESULT = re.compile(r'^([\w.:]+) \.\.\. (.+)$', re.M)
 
 
@@ -55,43 +54,6 @@ def discover(library):
     if unknown:
         raise ValueError(f'new shared modules need an adapter: {sorted(unknown)}')
     return dict(groups), dict(expected)
-
-
-def assertion_counts(files):
-    """Count shared test statements for adapters reporting once per assertion.
-
-    This only inventories braces and statement markers, never interprets an
-    assertion. New test statement forms fail closed until explicitly supported.
-    """
-    counts = Counter()
-    for path in files:
-        source = path.read_text()
-        module = MODULE.search(source)[1]
-        tokens = [m[0] for m in TOKEN.finditer(source) if not m[0].startswith('#')]
-        i = 0
-        while i < len(tokens):
-            if tokens[i] != 'test' or i + 2 >= len(tokens) or tokens[i + 1] == '{':
-                i += 1
-                continue
-            name = tokens[i + 1]
-            if tokens[i + 2] != '{':
-                raise ValueError(f'unrecognized test declaration in {path.name}')
-            i += 3
-            depth, previous, count = 1, '', 0
-            while i < len(tokens) and depth:
-                token = tokens[i]
-                if depth == 1 and (token == 'assert' or (token == 'eval' and previous != 'assert')):
-                    count += 1
-                if token in ('{', '(', '['):
-                    depth += 1
-                elif token in ('}', ')', ']'):
-                    depth -= 1
-                previous = token
-                i += 1
-            if depth or not count:
-                raise ValueError(f'cannot inventory statements in {module}::{name}')
-            counts[f'{module}::{name}'] += count
-    return counts
 
 
 def assess(stdout, returncode, module, expected):
@@ -198,7 +160,7 @@ def main():
             identity['descriptor_sha256'] = digest(build / 'language/generated/hgl_core_native/src/native.hgl-module.json')
         runs = sorted(groups.items()) if backend == 'cpp' else [('shared', [p for paths in groups.values() for p in paths])]
         for module, files in runs:
-            wanted = list(expected[module]) if backend == 'cpp' else assertion_counts(files)
+            wanted = list(expected[module]) if backend == 'cpp' else Counter({f'{name}::{case}': 1 for name, cases in expected.items() for case in cases})
             if backend == 'cpp':
                 command, env, native = cpp_command(source, build, module, files)
                 for file in native:

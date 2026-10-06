@@ -439,6 +439,16 @@ namespace hgraph::python_bridge
             return std::hash<ZoneId>{}(self);
         });
 
+    nb::class_<ZonedTime>(m, "ZonedTime", "A wall-clock time and exact zone name, with no date or offset.")
+        .def("__init__", [](nb::pointer_and_handle<ZonedTime> self, nb::handle time, ZoneId zone) {
+            new (self.p) ZonedTime{python_conversion_traits<CivilTime>::from_python(time), zone};
+        }, nb::arg("time"), nb::arg("zone"))
+        .def_prop_ro("time", [](const ZonedTime &self) { return python_conversion_traits<CivilTime>::to_python(self.time()); })
+        .def_prop_ro("zone", &ZonedTime::zone)
+        .def("__eq__", [](const ZonedTime &self, const ZonedTime &other) { return self == other; })
+        .def("__hash__", [](const ZonedTime &self) { return std::hash<ZonedTime>{}(self); })
+        .def("__repr__", [](const ZonedTime &self) { return "ZonedTime('" + format_zoned_time(self) + "')"; });
+
     nb::class_<ZonedDateTime>(
         m, "ZonedDateTime",
         "An instant paired with its time zone, UTC offset, and civil time.\n\n"
@@ -798,6 +808,7 @@ namespace hgraph::python_bridge
     register_temporal_type(
         "ZonedDateTime",
         scalar_descriptor<ZonedDateTime>::value_meta());
+    register_temporal_type("ZonedTime", scalar_descriptor<ZonedTime>::value_meta());
     register_temporal_type(
         "InstantRange",
         scalar_descriptor<InstantRange>::value_meta());

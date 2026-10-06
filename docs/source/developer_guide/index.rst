@@ -28,6 +28,15 @@ These pages describe *how the runtime is built*. For how to write programs with 
    real_time_adaptors
    operators
    hgl_temporal_publications
+   hgl_enum_publications
+   hgl_scalar_collection_keys
+   hgl_atomic_set_map_publications
+   hgl_growing_list_publications
+   hgl_rolling_publications
+   hgl_optional_atomic_publications
+   hgl_recursive_atomic_publications
+   hgl_abstract_atomic_publications
+   hgl_composite_collection_keys
    hgl_contextual_bindings
    writing_nodes
    parity_matrix

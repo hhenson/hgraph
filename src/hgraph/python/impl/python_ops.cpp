@@ -202,6 +202,7 @@ namespace hgraph::python_bridge
             register_python_scalar_conversion<CivilDateTime>();
             register_python_scalar_conversion<ZoneId>();
             register_python_scalar_conversion<ZonedDateTime>();
+            register_python_scalar_conversion<ZonedTime>();
             register_python_scalar_conversion<InstantRange>();
             register_python_scalar_conversion<CivilDateRange>();
             register_python_scalar_conversion<InstantRangeSet>();

@@ -4,6 +4,7 @@
 #include "semantics/resolve.h"
 #include "syntax/parser.h"
 #include "wiring/backend.h"
+#include "wiring/delta_trace.h"
 #include "wiring/operator_types.h"
 
 #include <hgraph/lib/std/operators/collection.h>
@@ -14,6 +15,7 @@
 #include <hgl/global_key_preflight.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -1396,6 +1398,7 @@ module tests.temporal_publications
 fn civil(value: civil_datetime) -> civil_datetime => value
 fn zone(value: timezone) -> timezone => value
 fn zoned(value: zoned_datetime) -> zoned_datetime => value
+fn clock(value: zoned_time) -> zoned_time => value
 
 test identity {
     let local = @2024-02-29T12:30:00.123456
@@ -1404,6 +1407,10 @@ test identity {
     assert eval(zoned, [@2026-01-15T12:30Z[UTC], _, @2026-01-15T13:30+01[Europe/Paris]]) == [@2026-01-15T12:30Z[UTC], _, @2026-01-15T13:30+01[Europe/Paris]]
     assert @2026-01-15T12:30Z[UTC] != @2026-01-15T13:30+01[Europe/Paris]
     assert @[UTC] != @[Etc/UTC]
+    let opening = @09:30:00.123456[US/Eastern]
+    let alias = @09:30:00.123456[America/New_York]
+    assert opening != alias
+    assert eval(clock, [opening, opening, _, alias]) == [opening, opening, _, alias]
 }
 )"};
     const auto result = only(unit.tests());
@@ -1411,7 +1418,8 @@ test identity {
     CHECK(result.passed);
     for (const std::string literal : {"@[utc]", "@[america/new_york]", "@[Etc/Unknown]", "@[Missing/Zone]",
                                       "@2026-01-15T12:30Z[utc]", "@2026-01-15T12:30Z[Missing/Zone]",
-                                      "@2026-01-15T12:30+01[UTC]"}) {
+                                      "@2026-01-15T12:30+01[UTC]", "@09:30[utc]", "@09:30[america/new_york]",
+                                      "@09:30[Etc/Unknown]", "@09:30[Missing/Zone]"}) {
         Unit invalid{"module tests.invalid_zone\ntest invalid { " + literal + "\nassert true }\n"};
         const auto rejected = only(invalid.tests());
         INFO(literal);
@@ -1476,4 +1484,148 @@ test ordered { target(@[Missing/First]) }
     INFO(result.message);
     CHECK_FALSE(result.passed);
     CHECK(result.message.find("Missing/First") != std::string::npos);
+}
+
+TEST_CASE("direct enum publications preserve nominal members and nested deltas", "[wiring][enum]") {
+    Unit unit{R"(
+module tests.enum_publications
+enum Mode { low = -9223372036854775808, first = -7, next, high = 9223372036854775807 }
+struct Snapshot { mode: Mode = Mode::first }
+fn scalar(value: Mode) -> Mode => value
+fn fixed(value: list<Mode, 2>) -> list<Mode, 2> => value
+fn snapshot(value: atomic<Snapshot>) -> atomic<Snapshot> => value
+test identity {
+    assert eval(scalar, [_, Mode::low, Mode::low, _, Mode::first, Mode::next, Mode::high]) == [_, Mode::low, Mode::low, _, Mode::first, Mode::next, Mode::high]
+    assert eval(fixed, [delta<list<Mode, 2>>(items: [1: Mode::first]), _, delta<list<Mode, 2>>(items: [1: Mode::high])]) == [delta<list<Mode, 2>>(items: [1: Mode::first]), _, delta<list<Mode, 2>>(items: [1: Mode::high])]
+    assert eval(snapshot, [Snapshot(), _, Snapshot(mode: Mode::high)]) == [Snapshot(mode: Mode::first), _, Snapshot(mode: Mode::high)]
+}
+)"};
+    const auto result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("native publication admission rejects NaN collection keys", "[wiring][scalar-keys]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    auto &registry = TypeRegistry::instance();
+    auto &factory = ValuePlanFactory::instance();
+    const auto *floating = scalar_descriptor<Float>::value_meta();
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto binding = factory.type_for(floating);
+    const Value nan{std::numeric_limits<Float>::quiet_NaN()};
+    SetBuilder nan_members{binding};
+    nan_members.insert(nan.view());
+    const auto present = nan_members.build();
+    const auto empty = SetBuilder{binding}.build();
+    const auto *set_shape = registry.tss(floating);
+    const PreparedValuePlan set_plan{set_shape->delta_value_schema};
+    for (bool removing : {false, true}) {
+        const std::array fields{std::pair<std::size_t, ValueView>{0, removing ? empty.view() : present.view()},
+            std::pair<std::size_t, ValueView>{1, removing ? present.view() : empty.view()}};
+        const auto payload = set_plan.bundle(fields);
+        hgl::wiring::DeltaTrace trace;
+        CHECK_THROWS_WITH(trace.accept(set_shape, payload.view()), "NaN collection keys are outside the publication profile");
+    }
+    const auto *map_shape = registry.tsd(floating, registry.ts(integer));
+    const PreparedValuePlan map_plan{map_shape->delta_value_schema};
+    MapBuilder entries{binding, factory.type_for(integer)};
+    entries.set_item(nan.view(), Value{Int{1}}.view());
+    const auto modified = entries.build();
+    const auto no_updates = MapBuilder{binding, factory.type_for(integer)}.build();
+    for (bool removing : {false, true}) {
+        const std::array fields{std::pair<std::size_t, ValueView>{0, removing ? present.view() : empty.view()},
+            std::pair<std::size_t, ValueView>{1, removing ? no_updates.view() : modified.view()}};
+        const auto payload = map_plan.bundle(fields);
+        hgl::wiring::DeltaTrace trace;
+        CHECK_THROWS_WITH(trace.accept(map_shape, payload.view()), "NaN collection keys are outside the publication profile");
+    }
+}
+
+TEST_CASE("direct scalar keys compare cold values and preserve failure order", "[wiring][scalar-keys]") {
+    Unit accepted{R"(module checks.scalar_keys
+fn forward(value: map<zoned_time, i64>) -> map<zoned_time, i64> => value
+test keys {
+    let a = @09:30[US/Eastern]
+    let b = @09:30[America/New_York]
+    assert eval(forward, [delta<map<zoned_time, i64>>(upsert: [a: 1, b: 2]), _, delta<map<zoned_time, i64>>(remove: [a])]) == [delta<map<zoned_time, i64>>(upsert: [b: 2, a: 1]), _, delta<map<zoned_time, i64>>(remove: [a])]
+})"};
+    const auto passed = only(accepted.tests());
+    INFO(passed.message);
+    INFO(accepted.diagnostics.render(accepted.file));
+    CHECK(passed.passed);
+    for (const std::string recipe : {
+        "delta<set<timezone>>(added: [@[UTC], @[UTC]])",
+        "delta<set<zoned_time>>(added: [@09:30[UTC]], removed: [@09:30[UTC]])",
+        "delta<map<timezone, i64>>(upsert: [@[UTC]: 1], remove: [@[UTC]])"
+    }) {
+        Unit duplicate{"module checks.duplicate_keys\nconst fn consume<T>(value: T) -> bool => true\ntest duplicate { assert consume(" + recipe + ") }\n"};
+        const auto result = only(duplicate.tests());
+        INFO(result.message);
+        CHECK_FALSE(result.passed);
+        CHECK(result.message.find("duplicate or overlapping") != std::string::npos);
+    }
+    Unit invalid{R"(module checks.key_order
+const fn consume<T>(value: T) -> bool => true
+test order { assert consume(delta<map<timezone, timezone>>(upsert: [@[Missing/Key]: @[Missing/Payload]])) }
+)"};
+    const auto failed = only(invalid.tests());
+    CHECK_FALSE(failed.passed);
+    CHECK(failed.message.find("Missing/Key") != std::string::npos);
+    CHECK(failed.message.find("Missing/Payload") == std::string::npos);
+}
+
+TEST_CASE("ordinary map construction owns values and stops at duplicate keys", "[wiring][atomic-collections]") {
+    Unit accepted{R"(module checks.atomic_collections
+struct Snapshot { values: map<str, list<i64>> = map<str, list<i64>>(items: ["empty": []]) }
+fn forward(value: atomic<Snapshot>) -> atomic<Snapshot> => value
+test ownership {
+    var row: list<i64> = [1]
+    let saved = map<str, list<i64>>(items: ["row": row])
+    push(row, 2)
+    var source = Snapshot(values: saved)
+    let captured = source
+    source.values = map<str, list<i64>>(items: [])
+    assert eval(forward, [captured, Snapshot()]) == [Snapshot(values: map<str, list<i64>>(items: ["row": [1]])), Snapshot(values: map<str, list<i64>>(items: ["empty": []]))]
+})"};
+    const auto passed = only(accepted.tests());
+    INFO(passed.message);
+    CHECK(passed.passed);
+    Unit duplicate{R"(module checks.atomic_duplicate
+const fn consume<T>(value: T) -> bool => true
+test fail { assert consume(map<timezone, timezone>(items: [@[UTC]: @[UTC], @[UTC]: @[Missing/Payload]])) }
+)"};
+    const auto failed = only(duplicate.tests());
+    CHECK_FALSE(failed.passed);
+    INFO(failed.message);
+    CHECK(failed.message.find("duplicate") != std::string::npos);
+    CHECK(failed.message.find("Missing/Payload") == std::string::npos);
+}
+
+TEST_CASE("growing list traces reject gaps and non-tail removals before evaluation", "[wiring][growing-list]") {
+    for (const std::string trace : {
+        "delta<list<i64>>(items: [1: 1])",
+        "delta<list<i64>>(items: [0: 1]), delta<list<i64>>(items: [2: 2])",
+        "delta<list<i64>>(items: [0: 1, 1: 2, 2: 3]), delta<list<i64>>(remove: [0, 2])",
+        "delta<list<i64>>(items: [0: 1]), delta<list<i64>>(remove: [1])",
+        "delta<list<i64>>(items: [0: 1, 1: 2]), delta<list<i64>>(items: [2: 3], remove: [1])",
+        "delta<list<i64>>()"
+    }) {
+        Unit unit{"module checks.growing_list\nfn forward(value: list<i64>) -> list<i64> => value\n"
+            "test bad { eval(forward, [" + trace + "]) }\n"};
+        const auto result = only(unit.tests());
+        INFO(trace);
+        INFO(result.message);
+        CHECK_FALSE(result.passed);
+        CHECK(unit.diagnostics.render(unit.file).find("input delta outside publication profile") != std::string::npos);
+    }
+    Unit nested{R"(module checks.growing_state
+fn forward(value: list<set<str>>) -> list<set<str>> => value
+test reset {
+    assert eval(forward, [delta<list<set<str>>>(items: [0: delta<set<str>>(added: ["x"])]), delta<list<set<str>>>(remove: [0]), delta<list<set<str>>>(items: [0: delta<set<str>>(added: ["x"])])]) == [delta<list<set<str>>>(items: [0: delta<set<str>>(added: ["x"])]), delta<list<set<str>>>(remove: [0]), delta<list<set<str>>>(items: [0: delta<set<str>>(added: ["x"])])]
+})"};
+    const auto result = only(nested.tests());
+    INFO(result.message);
+    CHECK(result.passed);
 }

@@ -229,6 +229,13 @@ namespace hgl::hgraph_ir
 
     /// A nominal value/schema contract with its complete inherited field set.
     /// Concrete specializations can be built without walking HIR declarations.
+    struct EnumContract
+    {
+        std::string identity{};
+        bool exported{false};
+        std::vector<std::pair<std::string, std::int64_t>> members{};
+    };
+
     struct StructContract
     {
         std::string                   identity{};
@@ -735,6 +742,7 @@ namespace hgl::hgraph_ir
         std::vector<Constraint> constraints{};
         /// Local source-native C++ dependencies; never propagated by HGL imports.
         std::vector<std::string>                cpp_includes{};
+        std::vector<EnumContract> enums{};
         std::vector<StructContract>             structures{};
         std::vector<OperatorContract>           operators{};
         std::vector<NativeFunction>             native_functions{};

@@ -214,6 +214,20 @@ namespace hgraph
         ZoneIdPayload payload_{};
     };
 
+    /** Wall-clock time and exact named-zone identity, without a date or offset. */
+    class HGRAPH_CLASS_EXPORT ZonedTime
+    {
+      public:
+        constexpr ZonedTime() noexcept = default;
+        ZonedTime(CivilTime time, ZoneId zone);
+        [[nodiscard]] constexpr CivilTime time() const noexcept { return time_; }
+        [[nodiscard]] constexpr ZoneId zone() const noexcept { return zone_; }
+        friend constexpr bool operator==(const ZonedTime &, const ZonedTime &) noexcept = default;
+      private:
+        CivilTime time_{};
+        ZoneId zone_{};
+    };
+
     enum class AmbiguousTimePolicy : std::uint8_t
     {
         Reject,
@@ -1028,11 +1042,13 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT std::string format_civil_date(CivilDate value);
     [[nodiscard]] HGRAPH_EXPORT std::string format_civil_time(CivilTime value);
     [[nodiscard]] HGRAPH_EXPORT std::string format_civil_datetime(CivilDateTime value);
+    [[nodiscard]] HGRAPH_EXPORT std::string format_zoned_time(const ZonedTime &value);
     [[nodiscard]] HGRAPH_EXPORT std::string format_zoned_datetime(const ZonedDateTime &value);
 
     HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const CivilDateTime &value);
     HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const Period &value);
     HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const ZoneId &value);
+    HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const ZonedTime &value);
     HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const ZonedDateTime &value);
     HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const InstantRange &value);
     HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const CivilDateRange &value);
@@ -1071,6 +1087,17 @@ namespace std
                 (static_cast<std::uint64_t>(payload.generation) << 32U) |
                 (static_cast<std::uint64_t>(payload.name_tag) << 48U);
             return hash<std::uint64_t>{}(packed);
+        }
+    };
+
+    template <>
+    struct hash<hgraph::ZonedTime>
+    {
+        size_t operator()(const hgraph::ZonedTime &value) const noexcept
+        {
+            const size_t seed = hash<hgraph::CivilTime>{}(value.time());
+            return seed ^ (hash<hgraph::ZoneId>{}(value.zone()) + 0x9e3779b9U +
+                           (seed << 6U) + (seed >> 2U));
         }
     };
 
@@ -1134,6 +1161,7 @@ static_assert(sizeof(hgraph::CivilDateTime) == 8);
 static_assert(sizeof(hgraph::Period) == 8);
 static_assert(sizeof(hgraph::ZoneIdPayload) == 8);
 static_assert(sizeof(hgraph::ZoneId) == 8);
+static_assert(sizeof(hgraph::ZonedTime) <= 16);
 static_assert(sizeof(hgraph::ZonedDateTime) <= 24);
 static_assert(sizeof(hgraph::InstantRange) <= 24);
 static_assert(sizeof(hgraph::CivilDateRange) <= 16);
@@ -1150,6 +1178,8 @@ namespace hgraph::static_schema_detail
     { static constexpr std::string_view value{"civil_datetime"}; };
     template <> struct scalar_name<hgraph::ZoneId>
     { static constexpr std::string_view value{"zone_id"}; };
+    template <> struct scalar_name<hgraph::ZonedTime>
+    { static constexpr std::string_view value{"zoned_time"}; };
     template <> struct scalar_name<hgraph::ZonedDateTime>
     { static constexpr std::string_view value{"zoned_datetime"}; };
     template <> struct scalar_name<hgraph::InstantRange>
@@ -1180,6 +1210,7 @@ namespace hgraph
     HGRAPH_DECLARE_TEMPORAL_SCALAR_BINDING(CivilDateTime);
     HGRAPH_DECLARE_TEMPORAL_SCALAR_BINDING(ZoneId);
     HGRAPH_DECLARE_TEMPORAL_SCALAR_BINDING(ZonedDateTime);
+    HGRAPH_DECLARE_TEMPORAL_SCALAR_BINDING(ZonedTime);
     HGRAPH_DECLARE_TEMPORAL_SCALAR_BINDING(InstantRange);
     HGRAPH_DECLARE_TEMPORAL_SCALAR_BINDING(CivilDateRange);
     HGRAPH_DECLARE_TEMPORAL_SCALAR_BINDING(InstantRangeSet);

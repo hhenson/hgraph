@@ -35,6 +35,8 @@ namespace hgl::ir
             using hir::SymbolKind;
             switch (kind) {
                 case SymbolKind::Module: return "module";
+                case SymbolKind::Enum: return "enum";
+                case SymbolKind::EnumMember: return "enum-member";
                 case SymbolKind::Struct: return "struct";
                 case SymbolKind::ImportedStruct: return "imported-struct";
                 case SymbolKind::Operator: return "operator";

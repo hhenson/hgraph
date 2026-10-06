@@ -30,6 +30,15 @@ namespace hgl::temporal
 
     inline hgraph::ZoneId zone(std::string_view name) { return zone(name, provider()); }
 
+    inline hgraph::ZonedTime zoned_time(std::int64_t micros, std::string_view name,
+                                         const hgraph::TimeZoneProvider &provider) {
+        return hgraph::ZonedTime{hgraph::CivilTime{micros}, zone(name, provider)};
+    }
+
+    inline hgraph::ZonedTime zoned_time(std::int64_t micros, std::string_view name) {
+        return zoned_time(micros, name, provider());
+    }
+
     inline hgraph::ZonedDateTime zoned(std::int64_t micros, std::string_view name, std::int32_t offset,
                                       const hgraph::TimeZoneProvider &provider) {
         const auto named = zone(name, provider);

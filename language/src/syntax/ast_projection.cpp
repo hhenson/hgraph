@@ -457,6 +457,11 @@ namespace hgl::syntax
                 require(tokens.size() == 1, "unary expression contains multiple operators");
                 const Token &token = source_token(tokens.front());
                 require(token.kind == TokenKind::Minus || token.kind == TokenKind::Bang, "invalid unary operator");
+                const auto descendants = descendant_tokens(semantic_child(id));
+                if (token.kind == TokenKind::Minus && descendants.size() == 1 &&
+                    source_token(descendants.front()).minimum_magnitude) {
+                    return module_.add(ast::Expr{node(id).range, ast::IntLiteral{INT64_MIN}});
+                }
                 const ast::ExprId  operand = project_expression(semantic_child(id));
                 const ast::UnaryOp op      = token.kind == TokenKind::Minus ? ast::UnaryOp::Negate : ast::UnaryOp::Not;
                 return module_.add(ast::Expr{token.range.join(module_.expr(operand).range), ast::Unary{op, operand}});
@@ -517,7 +522,11 @@ namespace hgl::syntax
             [[nodiscard]] ast::ExprId project_literal(SyntaxTokenId id) {
                 const Token &token = source_token(id);
                 switch (token.kind) {
-                    case TokenKind::IntLiteral: return module_.add(ast::Expr{token.range, ast::IntLiteral{token.int_value}});
+                    case TokenKind::IntLiteral:
+                        if (token.minimum_magnitude) {
+                            diagnostics_.report(Category::Parse, token.range, "integer is out of range for i64");
+                        }
+                        return module_.add(ast::Expr{token.range, ast::IntLiteral{token.int_value}});
                     case TokenKind::FloatLiteral: return module_.add(ast::Expr{token.range, ast::FloatLiteral{token.float_value}});
                     case TokenKind::StringLiteral:
                         return module_.add(ast::Expr{token.range, ast::StringLiteral{token.string_value}});
@@ -655,9 +664,31 @@ namespace hgl::syntax
                         type.arguments = project_generic_arguments(*arguments);
                         type.range     = type.range.join(node(*arguments).range);
                     }
+                    if (names.size() == 1 && (type.name.text == "set" || type.name.text == "map")) {
+                        const std::size_t arity = type.name.text == "set" ? 1U : 2U;
+                        if (type.arguments.size() != arity) {
+                            diagnostics_.report(Category::Parse, type.range, "ordinary collection constructor needs its explicit type arguments");
+                        } else {
+                            type.kind = arity == 1U ? ast::TypeKind::Set : ast::TypeKind::Map;
+                            type.value_position = true;
+                            for (const auto &argument : type.arguments) {
+                                if (argument.type != ast::no_node) { type.children.push_back(argument.type); }
+                                else if (!argument.name.text.empty()) {
+                                    ast::Type child;
+                                    child.kind = ast::TypeKind::Named;
+                                    child.range = argument.range;
+                                    child.name = argument.name;
+                                    child.value_position = true;
+                                    type.children.push_back(module_.add(std::move(child)));
+                                } else { diagnostics_.report(Category::Parse, argument.range, "ordinary collection constructor arguments must be types"); }
+                            }
+                            type.arguments.clear();
+                        }
+                    }
                     result.type = module_.add(std::move(type));
                 }
-                if (!result.delta && module_.type(result.type).kind != ast::TypeKind::Named) {
+                if (!result.delta && module_.type(result.type).kind != ast::TypeKind::Named &&
+                    module_.type(result.type).kind != ast::TypeKind::Set && module_.type(result.type).kind != ast::TypeKind::Map) {
                     diagnostics_.report(Category::Parse, module_.type(result.type).range,
                                         "a struct constructor takes a named struct type");
                 }
@@ -1105,6 +1136,7 @@ namespace hgl::syntax
                     case SyntaxKind::OperatorDecl: return project_operator_decl(declaration);
                     case SyntaxKind::InstantiateDecl: return project_instantiate_decl(declaration);
                     case SyntaxKind::StructDecl: return project_struct_decl(declaration);
+                    case SyntaxKind::EnumDecl: return project_enum_decl(declaration);
                     case SyntaxKind::TestDecl: return project_test_decl(declaration);
                     default: malformed("invalid declaration production");
                 }
@@ -1251,6 +1283,21 @@ namespace hgl::syntax
                         argument.name = {};
                     }
                     result.entries.push_back(std::move(entry));
+                }
+                return ast::Decl{node(id).range, std::move(result)};
+            }
+
+            [[nodiscard]] ast::Decl project_enum_decl(SyntaxNodeId id) {
+                ast::EnumDecl result;
+                result.exported = !child_tokens(id, TokenKind::KwExport).empty();
+                result.name = direct_names(id, "an enum name").front();
+                for (const SyntaxNodeId member : child_nodes(id, SyntaxKind::EnumMember)) {
+                    ast::EnumMember item;
+                    item.name = direct_names(member, "an enum member name").front();
+                    if (const auto value = find_child(member, SyntaxKind::Expression)) {
+                        item.value = project_expression(*value);
+                    }
+                    result.members.push_back(std::move(item));
                 }
                 return ast::Decl{node(id).range, std::move(result)};
             }

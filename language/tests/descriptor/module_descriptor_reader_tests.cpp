@@ -1936,3 +1936,14 @@ TEST_CASE("publication delta descriptors retain their originating shape", "[desc
     CHECK(error->path == "$.schema.types[2].children");
     CHECK(error->message == "type requires exactly 1 child");
 }
+
+TEST_CASE("enum constants round trip with their nominal identity and signed endpoints", "[descriptor][reader][enum]") {
+    auto source = rich_descriptor();
+    source.constant_expressions.push_back({.literal = hgl::ir::hir::Constant{hgl::ir::hir::EnumValue{"checks.Mode", INT64_MIN}}});
+    source.constant_expressions.push_back({.literal = hgl::ir::hir::Constant{hgl::ir::hir::EnumValue{"checks.Mode", INT64_MAX}}});
+    descriptor::seal(source);
+    const auto decoded = descriptor::read_json(descriptor::to_json(source));
+    INFO((decoded.error ? decoded.error->message : ""));
+    REQUIRE(decoded);
+    CHECK(*decoded.value == source);
+}

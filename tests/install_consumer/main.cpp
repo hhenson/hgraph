@@ -436,6 +436,14 @@ int main(int argc, char **argv)
     register_spawn_consumer_recipes();
     if (hgraph::distributed::run_worker_if_requested(argc, argv)) return 0;
     check_spawn_consumer();
+    {
+        const hgraph::ZonedTime time{hgraph::time_of_day(9, 30, 0, 123456), hgraph::ZoneId{"US/Eastern"}};
+        const hgraph::Value value{time};
+        if (value.view().checked_as<hgraph::ZonedTime>() != time ||
+            hgraph::format_zoned_time(time) != "09:30:00.123456[US/Eastern]") {
+            throw std::runtime_error("installed ZonedTime scalar lost identity");
+        }
+    }
     using namespace hgraph;
     {
         GlobalState store;

@@ -408,7 +408,7 @@ hgl_add_module(hgl_codegen_fixture STATIC SOURCE_PARTS 3 HGL
 hgl_apply_warnings(hgl_codegen_fixture)
 hgl_add_module(hgl_structural_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/structural-types.hgl)
 hgl_apply_warnings(hgl_structural_fixture)
-hgl_add_module(hgl_recursive_fixture STATIC HGL wiring/recursive-structs.hgl ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/recursive-fields.hgl)
+hgl_add_module(hgl_recursive_fixture STATIC HGL wiring/recursive-structs.hgl wiring/recursive-publications.hgl ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/recursive-fields.hgl)
 hgl_apply_warnings(hgl_recursive_fixture)
 hgl_add_module(hgl_generic_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/operators-and-generics.hgl)
 hgl_apply_warnings(hgl_generic_fixture)
@@ -669,6 +669,17 @@ add_test(
 set_tests_properties(hgraph_language_test_recursive_structs PROPERTIES
     PASS_REGULAR_EXPRESSION "9 tests, 0 failed"
 )
+# Compute-node HGL uses the Unix scripted loader. Its generated C++ is
+# compiled and tested on every platform, including Windows.
+if(UNIX)
+    add_test(
+        NAME hgraph_language_test_recursive_publications
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/wiring/recursive-publications.hgl
+    )
+    set_tests_properties(hgraph_language_test_recursive_publications PROPERTIES
+        PASS_REGULAR_EXPRESSION "1 test, 0 failed"
+    )
+endif()
 
 # Every guide example that declares a `test` block runs under `hgl test`
 # (developer guide, "Documentation examples"; examples/README.md). Discovery
@@ -769,10 +780,30 @@ if(UNIX)
             --part ${HGRAPH_STD}/replay_record.hgl
             --part ${HGRAPH_STD}/impl/replay_record.hgl
             --part ${HGRAPH_STD}/tests/standard.hgl
+            --part ${HGRAPH_STD}/tests/pass_through_scalars.hgl
+            --part ${HGRAPH_STD}/tests/pass_through_defaults.hgl
+            --part ${HGRAPH_STD}/tests/pass_through_structural.hgl
+            --part ${HGRAPH_STD}/tests/replay_record.hgl
+            --part ${HGRAPH_STD}/tests/atomic_scalar_values.hgl
+            --part ${HGRAPH_STD}/tests/atomic_eval_values.hgl
+            --part ${HGRAPH_STD}/tests/atomic_replay_values.hgl
+            --part ${HGRAPH_STD}/tests/ordinary_replay_values.hgl
             --part ${HGRAPH_STD}/tests/control.hgl
             --part ${HGRAPH_STD}/tests/stream.hgl
             --part ${HGRAPH_STD}/tests/temporal.hgl
             --part ${HGRAPH_STD}/tests/temporal_scalar_values.hgl
+            --part ${HGRAPH_STD}/tests/zoned_time_values.hgl
+            --part ${HGRAPH_STD}/tests/signal_observation_values.hgl
+            --part ${HGRAPH_STD}/tests/enum_values.hgl
+            --part ${HGRAPH_STD}/tests/scalar_key_values.hgl
+            --part ${HGRAPH_STD}/tests/atomic_set_map_values.hgl
+            --part ${HGRAPH_STD}/tests/growing_list_values.hgl
+            --part ${HGRAPH_STD}/tests/rolling_values.hgl
+            --part ${HGRAPH_STD}/tests/optional_atomic_values.hgl
+            --part ${HGRAPH_STD}/tests/recursive_atomic_values.hgl
+            --part ${HGRAPH_STD}/tests/abstract_atomic_values.hgl
+            --part ${HGRAPH_STD}/tests/composite_key_values.hgl
+            --part ${HGRAPH_STD}/tests/prepared_key_alias_values.hgl
             --part ${HGRAPH_STD}/tests/temporal_structural_values.hgl
             --part ${HGRAPH_STD}/tests/temporal_retention_values.hgl
             --part ${HGRAPH_STD}/tests/recursive_eval_values.hgl

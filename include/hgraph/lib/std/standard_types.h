@@ -42,6 +42,7 @@ namespace hgraph::stdlib
         const ValueTypeMetaData *civil_datetime_type{nullptr};
         const ValueTypeMetaData *zone_id_type{nullptr};
         const ValueTypeMetaData *zoned_datetime_type{nullptr};
+        const ValueTypeMetaData *zoned_time_type{nullptr};
         const ValueTypeMetaData *instant_range_type{nullptr};
         const ValueTypeMetaData *civil_date_range_type{nullptr};
         const ValueTypeMetaData *instant_range_set_type{nullptr};
@@ -77,6 +78,7 @@ namespace hgraph::stdlib
         const TSValueTypeMetaData *ts_civil_datetime{nullptr};
         const TSValueTypeMetaData *ts_zone_id{nullptr};
         const TSValueTypeMetaData *ts_zoned_datetime{nullptr};
+        const TSValueTypeMetaData *ts_zoned_time{nullptr};
         const TSValueTypeMetaData *ts_instant_range{nullptr};
         const TSValueTypeMetaData *ts_civil_date_range{nullptr};
         const TSValueTypeMetaData *ts_instant_range_set{nullptr};
@@ -95,6 +97,7 @@ namespace hgraph::stdlib
         const TSValueTypeMetaData *tss_civil_datetime{nullptr};
         const TSValueTypeMetaData *tss_zone_id{nullptr};
         const TSValueTypeMetaData *tss_zoned_datetime{nullptr};
+        const TSValueTypeMetaData *tss_zoned_time{nullptr};
         const TSValueTypeMetaData *tss_instant_range{nullptr};
         const TSValueTypeMetaData *tss_civil_date_range{nullptr};
         const TSValueTypeMetaData *tss_instant_range_set{nullptr};
@@ -187,6 +190,8 @@ namespace hgraph::stdlib
         types.zone_id_type =
             standard_types_detail::register_scalar_aliases<ZoneId>(
                 registry, {"zone_id"});
+        types.zoned_time_type =
+            standard_types_detail::register_scalar_aliases<ZonedTime>(registry, {"zoned_time"});
         types.zoned_datetime_type =
             standard_types_detail::register_scalar_aliases<ZonedDateTime>(
                 registry, {"zoned_datetime"});
@@ -255,6 +260,8 @@ namespace hgraph::stdlib
         standard_types_detail::register_ts_aliases(
             registry, types.zoned_datetime_type, {"zoned_datetime"},
             types.ts_zoned_datetime, types.tss_zoned_datetime);
+        standard_types_detail::register_ts_aliases(
+            registry, types.zoned_time_type, {"zoned_time"}, types.ts_zoned_time, types.tss_zoned_time);
         standard_types_detail::register_ts_aliases(
             registry, types.instant_range_type, {"instant_range"},
             types.ts_instant_range, types.tss_instant_range);

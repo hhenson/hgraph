@@ -1075,7 +1075,17 @@ namespace hgraph::ts_data_plan_factory_detail
             static void window_push(const void *context, void *memory, const ValueView &source,
                                     DateTime modified_time)
             {
-                storage<Storage>(window_mutable_value_memory(context, memory)).push(source, modified_time);
+                auto &window = storage<Storage>(window_mutable_value_memory(context, memory));
+                if (source.has_value() && source.schema() == window.element_binding().schema() &&
+                    source.binding().plan() != window.element_binding().plan())
+                {
+                    // Arrivals may use another owning representation of the
+                    // exact payload schema (for example a mutable HGL list).
+                    // Stage before eviction so a failed conversion is atomic.
+                    const Value retained{window.element_binding(), source};
+                    window.push(retained.view(), modified_time);
+                }
+                else { window.push(source, modified_time); }
             }
 
             static void window_clear(const void *context, void *memory, DateTime modified_time)

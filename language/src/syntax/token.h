@@ -41,6 +41,7 @@ namespace hgl::syntax
         KwFn,
         KwCpp,
         KwStruct,
+        KwEnum,
         KwConst,
         KwRequires,
         KwIs,
@@ -139,6 +140,7 @@ namespace hgl::syntax
 
         // Literal payloads, valid for the matching kind.
         std::int64_t                 int_value{0};
+        bool                         minimum_magnitude{false};
         double                       float_value{0.0};
         std::string                  string_value{};    ///< unescaped contents
         std::optional<TemporalValue> temporal_value{};  ///< empty when the literal was invalid

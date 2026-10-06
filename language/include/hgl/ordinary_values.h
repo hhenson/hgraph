@@ -3,11 +3,15 @@
 
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/temporal.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/value/mutable_container_ops.h>
 #include <hgraph/types/value/value_builder.h>
 
 #include <cstdint>
+#include <charconv>
+#include <cmath>
 #include <limits>
+#include <functional>
 #include <span>
 #include <utility>
 #include <unordered_set>
@@ -19,6 +23,35 @@ namespace hgl::ordinary
     template <typename Shape> struct Held {};
     template <typename Shape> struct Origin {};
 
+    inline void validate_key_schema(const hgraph::ValueTypeMetaData *schema,
+                                    std::unordered_set<const hgraph::ValueTypeMetaData *> &visiting) {
+        if (schema->is_owned() || schema->is_abstract_bundle() || !schema->is_hashable() || !schema->is_equatable()) {
+            throw std::invalid_argument("unsupported collection key type");
+        }
+        const auto kind = schema->try_value_kind();
+        if (kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
+            if (!visiting.insert(schema).second) { throw std::invalid_argument("recursive collection key type"); }
+            for (std::size_t i = 0; i < schema->field_count; ++i) { validate_key_schema(schema->fields[i].type, visiting); }
+            visiting.erase(schema);
+            return;
+        }
+        const std::array leaves{hgraph::scalar_descriptor<hgraph::Bool>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::Int>::value_meta(), hgraph::scalar_descriptor<hgraph::Float>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::Str>::value_meta(), hgraph::scalar_descriptor<hgraph::Date>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::Time>::value_meta(), hgraph::scalar_descriptor<hgraph::DateTime>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta(), hgraph::scalar_descriptor<hgraph::CivilDateTime>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta(), hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::ZonedTime>::value_meta()};
+        if (!schema->is_enum() && std::ranges::find(leaves, schema) == leaves.end()) {
+            throw std::invalid_argument("unsupported collection key type");
+        }
+    }
+
+    inline void validate_key_schema(const hgraph::ValueTypeMetaData *schema) {
+        std::unordered_set<const hgraph::ValueTypeMetaData *> visiting;
+        validate_key_schema(schema, visiting);
+    }
+
     inline void validate_atomic_schema(const hgraph::ValueTypeMetaData *schema,
                                        std::unordered_set<const hgraph::ValueTypeMetaData *> &visiting) {
         const std::array leaves{hgraph::scalar_descriptor<hgraph::Bool>::value_meta(),
@@ -28,11 +61,25 @@ namespace hgl::ordinary
             hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta(),
             hgraph::scalar_descriptor<hgraph::CivilDateTime>::value_meta(),
             hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta()};
-        if (std::ranges::find(leaves, schema) != leaves.end()) { return; }
+            hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::ZonedTime>::value_meta()};
+        if (schema->is_enum() || std::ranges::find(leaves, schema) != leaves.end()) { return; }
+        if (schema->is_owned()) {
+            if (schema->element_type->is_abstract_bundle()) { throw std::invalid_argument("recursive family publication payload"); }
+            if (!visiting.contains(schema->element_type)) { validate_atomic_schema(schema->element_type, visiting); }
+            return;
+        }
         if (!visiting.insert(schema).second) { throw std::invalid_argument("recursive atomic publication payload"); }
         const auto kind = schema->try_value_kind();
-        if (kind == hgraph::ValueTypeKind::List && !schema->is_variadic_tuple() && !hgraph::TypeRegistry::is_array(schema)) {
+        if (schema->is_abstract_bundle()) {
+            const auto snapshot = hgraph::TypeRealizationSnapshot::capture(hgraph::TypeRegistry::instance());
+            for (const auto *member : snapshot->alternatives(schema)) { validate_atomic_schema(member, visiting); }
+        } else if (kind == hgraph::ValueTypeKind::List && !schema->is_variadic_tuple() && !hgraph::TypeRegistry::is_array(schema)) {
+            validate_atomic_schema(schema->element_type, visiting);
+        } else if (kind == hgraph::ValueTypeKind::Set) {
+            validate_key_schema(schema->element_type);
+        } else if (kind == hgraph::ValueTypeKind::Map) {
+            validate_key_schema(schema->key_type);
             validate_atomic_schema(schema->element_type, visiting);
         } else if ((kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) &&
                    !schema->is_abstract_bundle()) {
@@ -43,18 +90,71 @@ namespace hgl::ordinary
         visiting.erase(schema);
     }
 
-    inline void validate_complete_value(const hgraph::ValueView &value) {
-        if (!value.valid()) { throw std::invalid_argument("incomplete atomic publication payload"); }
-        const auto kind = value.schema()->try_value_kind();
-        if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
-            const auto *ops = hgraph::checked_value_ops<hgraph::IndexedValueOps>(value.binding(), "atomic publication value");
-            const auto count = ops->size(ops->context, value.data());
-            for (std::size_t index = 0; index < count; ++index) {
-                if (ops->element_valid != nullptr && !ops->element_valid(ops->context, value.data(), index)) {
-                    throw std::invalid_argument("incomplete atomic publication payload");
+    inline void validate_scalar_key(const hgraph::ValueView &key) {
+        if (key.schema() == hgraph::scalar_descriptor<hgraph::Float>::value_meta() && std::isnan(key.checked_as<hgraph::Float>())) {
+            throw std::invalid_argument("NaN collection keys are outside the publication profile");
+        }
+        const auto kind = key.schema()->try_value_kind();
+        if (kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
+            const auto *ops = hgraph::checked_value_ops<hgraph::IndexedValueOps>(key.binding(), "collection key");
+            for (std::size_t i = 0; i < ops->size(ops->context, key.data()); ++i) {
+                if (ops->element_valid && !ops->element_valid(ops->context, key.data(), i)) { continue; }
+                const hgraph::ValueView child{ops->element_binding(ops->context, key.data(), i), ops->element_at(ops->context, key.data(), i)};
+                if (child.valid()) { validate_scalar_key(child); }
+            }
+        }
+    }
+
+    // One owning hash set spans every argument in a delta recipe. This catches
+    // duplicates and overlap after provider-dependent keys become real values.
+    class ScalarKeySet {
+      public:
+        explicit ScalarKeySet(hgraph::ValueTypeRef binding) : binding_{binding}, seen_{binding} { validate_key_schema(binding.schema()); }
+        void insert(const hgraph::ValueView &key) {
+            if (key.schema() != binding_.schema()) { throw std::invalid_argument("delta key requires its exact declared type"); }
+            validate_scalar_key(key);
+            if (!seen_.insert(key)) { throw std::invalid_argument("duplicate or overlapping delta member, key or index"); }
+        }
+      private:
+        hgraph::ValueTypeRef binding_;
+        hgraph::SetBuilder seen_;
+    };
+
+    using OptionalField = std::function<bool(const hgraph::ValueTypeMetaData *, std::size_t)>;
+
+    inline void validate_complete_value(const hgraph::ValueView &root, const OptionalField &optional = {}) {
+        struct Frame { hgraph::ValueTypeRef binding; const void *data; bool leaving{false}; };
+        std::vector<Frame> pending{{root.binding(), root.data()}};
+        std::unordered_set<const void *> ancestors;
+        while (!pending.empty()) {
+            const auto frame = pending.back();
+            pending.pop_back();
+            if (frame.leaving) { ancestors.erase(frame.data); continue; }
+            const auto value = hgraph::ValueView{frame.binding, frame.data}.concrete();
+            if (!value.valid()) { throw std::invalid_argument("incomplete atomic publication payload"); }
+            // Only indirect edges can form value cycles. Inline children may
+            // share their parent's address, so tracking every field is wrong.
+            if (frame.binding.schema()->is_owned()) {
+                if (!ancestors.insert(value.data()).second) { throw std::invalid_argument("cyclic atomic publication payload"); }
+                pending.push_back({value.binding(), value.data(), true});
+            }
+            const auto kind = value.schema()->try_value_kind();
+            if (kind == hgraph::ValueTypeKind::Map) {
+                for (const auto [key, child] : value.as_map()) { validate_scalar_key(key); pending.push_back({key.binding(), key.data()}); pending.push_back({child.binding(), child.data()}); }
+            } else if (kind == hgraph::ValueTypeKind::Set) {
+                for (const auto key : value.as_set()) { validate_scalar_key(key); pending.push_back({key.binding(), key.data()}); }
+            } else if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
+                const auto *ops = hgraph::checked_value_ops<hgraph::IndexedValueOps>(value.binding(), "atomic publication value");
+                const auto count = ops->size(ops->context, value.data());
+                for (std::size_t index = 0; index < count; ++index) {
+                    const hgraph::ValueView child{ops->element_binding(ops->context, value.data(), index),
+                        ops->element_at(ops->context, value.data(), index)};
+                    if (!child.valid() || (ops->element_valid != nullptr && !ops->element_valid(ops->context, value.data(), index))) {
+                        if (kind == hgraph::ValueTypeKind::Bundle && optional && optional(value.schema(), index)) { continue; }
+                        throw std::invalid_argument("incomplete atomic publication payload");
+                    }
+                    pending.push_back({child.binding(), child.data()});
                 }
-                validate_complete_value(hgraph::ValueView{ops->element_binding(ops->context, value.data(), index),
-                    ops->element_at(ops->context, value.data(), index)});
             }
         }
     }
@@ -68,7 +168,8 @@ namespace hgl::ordinary
             hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta(),
             hgraph::scalar_descriptor<hgraph::CivilDateTime>::value_meta(),
             hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta()};
+            hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::ZonedTime>::value_meta()};
         std::vector<const hgraph::TSValueTypeMetaData *> pending{root};
         while (!pending.empty()) {
             const auto *shape = pending.back();
@@ -80,17 +181,19 @@ namespace hgl::ordinary
                         validate_atomic_schema(shape->value_schema, visiting);
                     }
                     break;
+                case hgraph::TSTypeKind::TSW: {
+                    std::unordered_set<const hgraph::ValueTypeMetaData *> visiting;
+                    validate_atomic_schema(shape->delta_value_schema, visiting);
+                    break;
+                }
                 case hgraph::TSTypeKind::TSS:
-                    if (shape->value_schema->element_type != boolean && shape->value_schema->element_type != integer) {
-                        throw std::invalid_argument("ordinary set deltas require bool or i64 members");
-                    }
+                    validate_key_schema(shape->value_schema->element_type);
                     break;
                 case hgraph::TSTypeKind::TSL:
-                    if (shape->is_unbounded_tsl()) { throw std::invalid_argument("ordinary deltas require a fixed list shape"); }
                     pending.push_back(shape->element_ts());
                     break;
                 case hgraph::TSTypeKind::TSD:
-                    if (shape->key_type() != integer) { throw std::invalid_argument("ordinary map deltas require i64 keys"); }
+                    validate_key_schema(shape->key_type());
                     pending.push_back(shape->element_ts());
                     break;
                 case hgraph::TSTypeKind::TSB:
@@ -111,6 +214,11 @@ namespace hgl::ordinary
         switch (shape->kind) {
             case TSTypeKind::TS: kind = "TS"; break;
             case TSTypeKind::TSS: kind = "TSS"; break;
+            case TSTypeKind::TSW:
+                kind = shape->is_duration_based()
+                    ? "TSWduration:" + std::to_string(shape->time_range().count()) + ":" + std::to_string(shape->min_time_range().count())
+                    : "TSWtick:" + std::to_string(shape->period()) + ":" + std::to_string(shape->min_period());
+                break;
             case TSTypeKind::TSL:
                 kind = "TSL";
                 children.emplace_back("element", origin_schema(shape->element_ts()));
@@ -138,11 +246,27 @@ namespace hgl::ordinary
         if (arguments.size() != 1U) { return nullptr; }
         const auto *held = arguments.front();
         auto &registry = TypeRegistry::instance();
+        // Window parameters are cold nominal metadata, never publication fields.
+        const std::string_view name = value->name();
+        const bool duration_window = name.starts_with("hgl.origin::TSWduration:");
+        if (duration_window || name.starts_with("hgl.origin::TSWtick:")) {
+            const auto parameters = name.substr(duration_window ? 24U : 20U);
+            const auto separator = parameters.find(':');
+            const auto end = parameters.find('[');
+            if (separator == std::string_view::npos || end == std::string_view::npos || separator >= end) { return nullptr; }
+            std::int64_t maximum{}, minimum{};
+            const auto a = std::from_chars(parameters.data(), parameters.data() + separator, maximum);
+            const auto b = std::from_chars(parameters.data() + separator + 1U, parameters.data() + end, minimum);
+            if (a.ec != std::errc{} || b.ec != std::errc{} || a.ptr != parameters.data() + separator ||
+                b.ptr != parameters.data() + end || maximum <= 0 || minimum < 0 || minimum > maximum) { return nullptr; }
+            return duration_window ? registry.tsw_duration(held->element_type, TimeDelta{maximum}, TimeDelta{minimum})
+                                   : registry.tsw(held->element_type, static_cast<std::size_t>(maximum), static_cast<std::size_t>(minimum));
+        }
         if (value->name().starts_with("hgl.origin::TS[")) { return registry.ts(held); }
         if (value->name().starts_with("hgl.origin::TSS[")) { return registry.tss(held->element_type); }
         if (value->name().starts_with("hgl.origin::TSL[")) {
             const auto *element = value->field_count == 1U ? origin_source(value->fields[0].type) : nullptr;
-            return element ? registry.tsl(element, held->fixed_size) : nullptr;
+            return element ? registry.tsl(element, held->is_fixed_size() ? held->fixed_size : hgraph::unbounded_tsl_size) : nullptr;
         }
         if (value->name().starts_with("hgl.origin::TSD[")) {
             const auto *element = value->field_count == 1U ? origin_source(value->fields[0].type) : nullptr;
@@ -164,7 +288,7 @@ namespace hgl::ordinary
     // when two native delta payloads happen to have identical storage schemas.
     inline const hgraph::ValueTypeMetaData *delta_schema(const hgraph::TSValueTypeMetaData *shape) {
         validate_delta_shape(shape);
-        if (shape->kind == hgraph::TSTypeKind::TS) { return shape->delta_value_schema; }
+        if ((shape->kind == hgraph::TSTypeKind::TS || shape->kind == hgraph::TSTypeKind::TSW)) { return shape->delta_value_schema; }
         return hgraph::TypeRegistry::instance().bundle(
             "hgl.delta", std::string{shape->name()}, {{"payload", shape->delta_value_schema}},
             {}, false, "__type__", {origin_schema(shape)});
@@ -173,11 +297,19 @@ namespace hgl::ordinary
     // Called only while preparing a concrete node, never from a hook.
     inline hgraph::ValueTypeRef storage_binding(const hgraph::ValueTypeMetaData *schema) {
         auto &factory = hgraph::ValuePlanFactory::instance();
+        if (schema->is_owned()) { return factory.type_for(schema); }
+        if (schema->is_abstract_bundle()) { return hgraph::value_type_for_wiring(schema); }
         const auto kind = schema->try_value_kind();
         if (kind == hgraph::ValueTypeKind::List) {
             const auto element = storage_binding(schema->element_type);
             if (schema->is_fixed_size()) { return factory.realized_fixed_list_type_for(schema, element); }
             return hgraph::intern_value_type(*schema, hgraph::mutable_list_plan(element), hgraph::mutable_list_ops());
+        }
+        if (kind == hgraph::ValueTypeKind::Map) {
+            return hgraph::compact_map_type(factory.type_for(schema->key_type), storage_binding(schema->element_type));
+        }
+        if (kind == hgraph::ValueTypeKind::Set) {
+            return hgraph::compact_set_type(factory.type_for(schema->element_type));
         }
         if (kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) {
             std::vector<hgraph::ValueTypeRef> fields;
@@ -198,6 +330,7 @@ namespace hgl::ordinary
             if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) {
                 indexed_ = hgraph::checked_value_ops<hgraph::IndexedValueOps>(binding, "HGL ordinary indexed value");
             }
+            if (binding.schema()->is_owned() || binding.schema()->is_abstract_bundle()) { return; }
             if (binding.ops()->kind == hgraph::ValueOpsKind::MutableList) {
                 list_ = hgraph::checked_value_ops<hgraph::MutableListValueOps>(binding, "HGL ordinary mutable list");
             }
@@ -207,15 +340,24 @@ namespace hgl::ordinary
                     fields_.emplace_back(indexed_->element_binding(indexed_->context, nullptr, index));
                 }
             }
-            if (binding.schema()->element_type != nullptr) { element_ = storage_binding(binding.schema()->element_type); }
-            if (binding.schema()->key_type != nullptr) { key_ = storage_binding(binding.schema()->key_type); }
+            if (binding.schema()->element_type != nullptr) {
+                element_ = kind == hgraph::ValueTypeKind::Set
+                    ? hgraph::ValuePlanFactory::instance().type_for(binding.schema()->element_type)
+                    : storage_binding(binding.schema()->element_type);
+            }
+            if (binding.schema()->key_type != nullptr) {
+                key_ = hgraph::ValuePlanFactory::instance().type_for(binding.schema()->key_type);
+            }
         }
         [[nodiscard]] hgraph::ValueTypeRef binding() const noexcept { return binding_; }
         [[nodiscard]] hgraph::ValueTypeRef field_binding(std::size_t index) const { return fields_.at(index).binding(); }
         [[nodiscard]] const PreparedValuePlan &field_plan(std::size_t index) const { return fields_.at(index); }
         [[nodiscard]] hgraph::ValueTypeRef element_binding() const noexcept { return element_; }
         [[nodiscard]] hgraph::ValueTypeRef key_binding() const noexcept { return key_; }
-        [[nodiscard]] hgraph::Value retain(const hgraph::ValueView &value) const { return hgraph::Value{binding_, value}; }
+        [[nodiscard]] hgraph::Value retain(const hgraph::ValueView &value) const {
+            if (binding_.schema()->is_abstract_bundle()) { return hgraph::Value{binding_, value.concrete()}; }
+            return hgraph::Value{binding_, value};
+        }
         [[nodiscard]] hgraph::Value empty_list() const { return hgraph::Value{binding_}; }
         [[nodiscard]] hgraph::Value bundle(std::span<const std::pair<std::size_t, hgraph::ValueView>> fields) const {
             hgraph::BundleBuilder result{binding_};
@@ -223,6 +365,7 @@ namespace hgl::ordinary
             return result.build();
         }
         [[nodiscard]] std::int64_t len(const hgraph::ValueView &value) const {
+            if (indexed_ == nullptr) { throw std::invalid_argument("ordinary value storage is not indexed"); }
             const auto size = indexed_->size(indexed_->context, value.data());
             if (size > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max())) {
                 throw std::overflow_error("ordinary list length is not representable as i64");
@@ -250,7 +393,16 @@ namespace hgl::ordinary
             return hgraph::ValueView{indexed_->element_binding(indexed_->context, value.data(), offset),
                                      element};
         }
+        // Replacing a slot is a mutation of its owning parent, not permission
+        // to mutate the internals of a read-only child container.
+        void replace_index(const hgraph::ValueView &parent, std::int64_t index, const hgraph::ValueView &source) const {
+            const auto child = this->index(parent, index);
+            hgraph::Value retained{child.binding(), source};
+            auto target = index_mutable(parent, index);
+            target.binding().copy_assign_at(const_cast<void *>(target.data()), retained.view().data());
+        }
         void push(const hgraph::ValueView &list, const hgraph::ValueView &element) const {
+            if (list_ == nullptr) { throw std::invalid_argument("ordinary list storage does not support growth"); }
             auto retained = hgraph::Value{element_, element};
             auto writable = list.begin_mutation();
             list_->push_back(list_->context, writable.mutable_data(), retained.view().binding(), retained.view().data());
@@ -270,7 +422,7 @@ namespace hgl::ordinary
         PreparedDeltaPlan() = default;
         explicit PreparedDeltaPlan(const hgraph::TSValueTypeMetaData *shape)
             : value_{delta_schema(shape)}, native_{hgraph::ValuePlanFactory::instance().type_for(shape->delta_value_schema)} {
-            if (shape->kind == hgraph::TSTypeKind::TS) {
+            if ((shape->kind == hgraph::TSTypeKind::TS || shape->kind == hgraph::TSTypeKind::TSW)) {
                 capture_ = [](const PreparedValuePlan &plan, const hgraph::ValueView &delta) { return plan.retain(delta); };
                 payload_ = [](const PreparedValuePlan &, const hgraph::ValueView &delta) { return hgraph::ValueView{delta.binding(), delta.data()}; };
             } else {

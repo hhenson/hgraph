@@ -4256,6 +4256,8 @@ export fn identity(value: timezone, const fallback: timezone = @[Missing/UnusedD
 TEST_CASE("generated hooks reject provider construction instead of resolving names per tick", "[codegen][temporal]") {
     for (const std::string body : {
         "export fn f(tick: bool) -> timezone { when { return @[UTC] } }",
+        "export fn f(tick: bool) -> zoned_time { when { return @09:30[UTC] } }",
+        "const fn helper() -> zoned_time => @09:30[UTC]\nexport fn f(tick: bool) -> zoned_time { when { return helper() } }",
         "struct Box<T> { value: T\nzone: timezone = @[UTC] }\nconst fn make<T>(value: T) -> Box<T> { return Box<T>(value: value) }\nfn node(tick: bool) -> timezone { when { return make(tick).zone } }\nexport fn f(tick: bool) -> timezone => node(tick)",
         "struct Box { zone: timezone = @[UTC] }\nstruct Outer { inner: atomic<Box> = Box() }\nconst fn make() -> Outer { return Outer() }\nfn node(tick: bool) -> timezone { when { return make().inner.zone } }\nexport fn f(tick: bool) -> timezone => node(tick)",
         "struct Box { zone: timezone = @[UTC] }\nconst fn make() -> Box { return Box() }\nfn node(tick: bool) -> timezone { when { return make().zone } }\nexport fn f(tick: bool) -> timezone => node(tick)",
@@ -4397,4 +4399,75 @@ export fn check(trigger: bool, const expected: list<Recursive<timezone>>) -> boo
     const auto emitted = unit.emit();
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE(emitted);
+}
+
+TEST_CASE("generated zoned time uses cold validation and selected contextual defaults", "[codegen][temporal]") {
+    Unit unit{R"(
+module tests.zoned_time_defaults
+export fn identity(value: zoned_time, const fallback: zoned_time = @09:30[Missing/UnusedDefault]) -> zoned_time {
+    when { return value }
+}
+export fn opening() -> zoned_time => @09:30:00.123456[US/Eastern]
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    const auto source = emitted->header + emitted->source;
+    CHECK(contains(source, "hgraph::ZonedTime"));
+    CHECK(contains(source, "hgl::temporal::zoned_time(34200123456"));
+    CHECK_FALSE(contains(source, "Missing/UnusedDefault"));
+}
+
+TEST_CASE("generic compositions materialize before signal observer callers", "[codegen][signal]") {
+    Unit unit{R"(
+module tests.signal_helpers
+fn observed(value: signal) -> bool { when { return modified(value) } }
+fn forward<T>(value: T) -> bool => observed(value)
+export fn scalar(value: i64) -> bool => forward(value)
+export fn structural(value: list<i64, 2>) -> bool => forward(value)
+export fn atomic_value(value: atomic<list<i64>>) -> bool => forward(value)
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct forward__specialization_"));
+    CHECK_FALSE(contains(emitted->source, "hgraph::wire<forward>"));
+}
+
+TEST_CASE("scalar key recipes retain keys before child payloads", "[codegen][scalar-keys]") {
+    Unit unit{R"(
+module tests.scalar_key_order
+const fn recipe() -> delta<map<timezone, timezone>> => delta<map<timezone, timezone>>(upsert: [@[Missing/Key]: @[Missing/Payload]])
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    const auto source = emitted->header + emitted->source;
+    const auto key = source.find("hgl::temporal::zone(\"Missing/Key\")");
+    const auto payload = source.find("hgl::temporal::zone(\"Missing/Payload\")");
+    const auto check = source.find("hgl_keys.insert(", key);
+    REQUIRE(key != std::string::npos);
+    REQUIRE(payload != std::string::npos);
+    REQUIRE(check != std::string::npos);
+    CHECK(key < check);
+    CHECK(check < payload);
+    CHECK(source.find("hgl::temporal::zone(\"Missing/Key\")", key + 1) == std::string::npos);
+}
+
+TEST_CASE("ordinary map recipes validate each retained key before its payload", "[codegen][atomic-collections]") {
+    Unit unit{R"(
+module tests.ordinary_map_order
+const fn recipe() -> map<timezone, timezone> => map<timezone, timezone>(items: [@[UTC]: @[UTC], @[UTC]: @[Missing/Payload]])
+struct Snapshot { values: map<str, list<i64>> = map<str, list<i64>>(items: ["empty": []]) }
+export fn default_value() -> atomic<Snapshot> => Snapshot()
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    const auto source = emitted->header + emitted->source;
+    const auto check = source.find("hgl_keys.insert(hgl_key_1.view())");
+    const auto payload = source.find("hgl::temporal::zone(\"Missing/Payload\")");
+    REQUIRE(check != std::string::npos);
+    REQUIRE(payload != std::string::npos);
+    CHECK(check < payload);
 }

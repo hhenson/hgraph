@@ -1,16 +1,18 @@
 HGL temporal scalar publications
 ================================
 
-The HGL publication profile admits eleven scalar leaves: ``bool``, ``i64``,
+The HGL publication profile admits twelve scalar leaves: ``bool``, ``i64``,
 ``f64``, ``str``, ``date``, ``time``, ``datetime``, ``duration``,
-``civil_datetime``, ``timezone`` and ``zoned_datetime``. ``delta<S>`` and ``atomic<S>`` normalize to ``S`` for each
+``civil_datetime``, ``timezone``, ``zoned_datetime`` and ``zoned_time``. ``delta<S>`` and ``atomic<S>`` normalize to ``S`` for each
 admitted leaf. The same admission is recursive through existing structural
-and finite atomic shapes; it does not admit ``zoned_time`` or relax collection
+and finite atomic shapes; it does not relax collection
 key, set-element, optional-field or recursive-shape restrictions.
 
 The checker, canonical type substitution, native declaration metadata and
 ordinary value plans preserve this single profile. Civil datetime maps to
-``CivilDateTime``, zone to ``ZoneId`` and zoned datetime to ``ZonedDateTime``.
+``CivilDateTime``, zone to ``ZoneId``, zoned datetime to ``ZonedDateTime`` and
+zoned time to ``ZonedTime`` (RFC 0045). Zoned time retains wall-clock time and
+exact zone spelling with no date or offset.
 Existing owning ``Value`` capture and ordinary delta plans retain these values
 without conversion. Generic ``delta<T>`` operator checks defer until the
 origin is concrete: scalar normalization permits ordinary equality, while
@@ -25,7 +27,7 @@ wall-clock fields. Provider-dependent literal comparisons cannot be folded
 away before their operands have been validated.
 
 ``hgl/temporal_literals.h`` is the compiler's literal-materialization boundary.
-It validates exact provider membership and the explicit zoned offset, then
+It validates exact provider membership and, for zoned datetimes, the explicit offset, then
 produces an ordinary runtime scalar. It adds no source injectable or public
 resolution operator. Retaining and replaying an existing scalar never invokes
 this boundary again. Provider-dependent literal construction in generated
@@ -59,3 +61,16 @@ Shared conformance cases live in the three ``temporal_*_values.hgl`` test parts,
 ``recursive_eval_values.hgl`` and ``record_observation_values.hgl`` of
 ``external/hgraph_std``; compiler checks additionally cover unsupported
 shapes, strict literal failure and materialization order.
+
+Signal observation
+------------------
+
+``signal`` remains an input-only view that preserves endpoint validity,
+modification and last-modified metadata while hiding its payload. A generic
+composition forwarding a concrete endpoint to a signal observer is materialized
+using its exact source schema, including structural and atomic boundaries.
+Generated helper definitions precede their callers, and reuse the same prepared
+composition contract as the direct backend. No scalar conversion or payload
+snapshot is needed for signal observation. Shared ``signal_observation_values``
+fixtures cover each admitted scalar, structural and atomic inputs, equal
+publications, silence, and observation from an independent trigger.

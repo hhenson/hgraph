@@ -27,6 +27,9 @@ namespace hgl::wiring
       public:
         TypeBridge(const hgraph_ir::Module &module, syntax::DiagnosticSink &diagnostics);
 
+        /// Presence requirements belong to the source contract, not core bundle layout.
+        [[nodiscard]] bool optional_field(const hgraph::ValueTypeMetaData *type, std::size_t index) const;
+
         [[nodiscard]] const hgraph::ValueTypeMetaData   *value(hgraph_ir::TypeId type);
         [[nodiscard]] const hgraph::TSValueTypeMetaData *schema(hgraph_ir::TypeId type);
         [[nodiscard]] std::optional<hgraph::Value>       literal(hgraph_ir::ConstExprId expression);
@@ -101,6 +104,7 @@ namespace hgl::wiring
         hgraph::TypeRegistry                                                  &registry_;
         hgraph::stdlib::RegisteredStandardTypes                                types_{};
         std::uint64_t                                                          generation_{0};
+        std::unordered_map<const hgraph::ValueTypeMetaData *, const hgraph_ir::StructContract *> presence_contracts_{};
         std::unordered_map<std::uint32_t, const hgraph::ValueTypeMetaData *>   values_{};
         std::unordered_map<std::uint32_t, const hgraph::TSValueTypeMetaData *> schemas_{};
         /// Contracts by identity, so a nominal type finds its contract without a scan.

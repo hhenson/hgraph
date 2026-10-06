@@ -9,6 +9,7 @@
 #include "syntax/temporal.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -67,6 +68,9 @@ namespace hgl::ir
                 check_type_expressions();
                 canonical_types_.initialize();
                 void_type_ = canonical_types_.void_type();
+                for (DeclarationId declaration : module_.source_order) {
+                    if (std::holds_alternative<EnumDecl>(module_.declaration(declaration).node)) { check_enum(declaration); }
+                }
                 select_native_implementations();
                 if (diagnostics_.has_errors()) { return false; }
                 check_instantiations();
@@ -81,6 +85,31 @@ namespace hgl::ir
             }
 
           private:
+            void check_enum(DeclarationId id) {
+                auto &enumeration = std::get<EnumDecl>(module_.declarations[id.value].node);
+                if (enumeration.members.empty()) { type_error(module_.declaration(id).range, "an enum requires at least one member"); }
+                std::unordered_set<std::int64_t> numbers;
+                std::optional<std::int64_t> previous;
+                for (auto &member : enumeration.members) {
+                    if (member.value.valid()) {
+                        const auto &value = check_expr(member.value);
+                        const auto *number = value.constant ? std::get_if<std::int64_t>(&*value.constant) : nullptr;
+                        if (!number) { type_error(value.range, "enum member number must be an i64 constant"); continue; }
+                        member.number = *number;
+                    } else if (previous) {
+                        if (*previous == INT64_MAX) {
+                            type_error(module_.declaration(id).range, "automatic enum member number overflows i64");
+                            continue;
+                        }
+                        member.number = *previous + 1;
+                    }
+                    if (!numbers.insert(member.number).second) {
+                        type_error(module_.declaration(id).range, "duplicate enum member number");
+                    }
+                    previous = member.number;
+                }
+            }
+
             bool same_native_contract(const NativeFunction &contract, const NativeFunction &implementation) {
                 if (contract.identity != implementation.identity || contract.execution_role != implementation.execution_role ||
                     contract.throws != implementation.throws || contract.parameters.size() != implementation.parameters.size() ||
@@ -316,7 +345,7 @@ namespace hgl::ir
                 id = canonical(id);
                 return id.valid() && (type(id).kind == TypeKind::Schema || type(id).kind == TypeKind::SchemaView);
             }
-            [[nodiscard]] bool assignable(TypeId expected, TypeId actual) const noexcept {
+            [[nodiscard]] bool assignable(TypeId expected, TypeId actual) {
                 return canonical_types_.assignable(expected, actual);
             }
 
@@ -324,6 +353,11 @@ namespace hgl::ir
                 const TypeId actual_id = canonical(actual.type);
                 if (actual_id.valid() && type(actual_id).kind == TypeKind::Delta && type(actual_id).children.size() == 1U &&
                     same(expected, type(actual_id).children.front())) { return; }
+                const TypeId expected_id = canonical(expected);
+                if (expected_id.valid() && type(expected_id).kind == TypeKind::Rolling && type(expected_id).children.size() == 1U) {
+                    require_assignable(type(expected_id).children.front(), actual, context);
+                    return;
+                }
                 require_assignable(expected, actual, context);
             }
 
@@ -1484,6 +1518,11 @@ namespace hgl::ir
                 }
                 if (expression.type.valid() && assignable(expected, expression.type) && type(expected).kind == TypeKind::Atomic &&
                     type(expression.type).kind != TypeKind::Atomic) {
+                    // An ancestor context must not replace the concrete
+                    // constructor identity: its extra fields and tag survive.
+                    const auto inner = canonical(type(expected).children.front());
+                    if (type(inner).kind == TypeKind::Symbol && type(expression.type).kind == TypeKind::Symbol &&
+                        !same(inner, expression.type)) { return; }
                     expression.type = expected;
                 }
             }
@@ -1575,6 +1614,17 @@ namespace hgl::ir
                         expression.phase      = Phase::Constant;
                         expression.value_kind = ValueKind::Function;
                         break;
+                    case SymbolKind::EnumMember: {
+                        const auto &declaration = module_.declaration(symbol.owner);
+                        const auto &enumeration = std::get<EnumDecl>(declaration.node);
+                        const auto &member = enumeration.members.at(symbol.index);
+                        expression.type = make_type(TypeKind::Symbol, {}, declaration.symbol);
+                        expression.phase = Phase::Constant;
+                        expression.value_kind = ValueKind::Constant;
+                        expression.constant = Constant{EnumValue{module_.symbol(declaration.symbol).canonical_name, member.number}};
+                        break;
+                    }
+                    case SymbolKind::Enum:
                     case SymbolKind::Struct:
                     // A struct another module exports names a type exactly as a
                     // local one does (ADR 0013); only its declaration lives
@@ -1712,7 +1762,7 @@ namespace hgl::ir
                 const auto provider_dependent = [](const Constant &value) {
                     const auto *temporal = std::get_if<syntax::TemporalValue>(&value);
                     return temporal && (temporal->kind == syntax::TemporalKind::TimeZone ||
-                                        temporal->kind == syntax::TemporalKind::ZonedDateTime);
+                                        temporal->kind == syntax::TemporalKind::ZonedDateTime || temporal->kind == syntax::TemporalKind::ZonedTime);
                 };
                 if (provider_dependent(a) || provider_dependent(b)) { return; }
                 const auto      as_double = [](const Constant &value) -> std::optional<double> {
@@ -2355,7 +2405,7 @@ namespace hgl::ir
             }
 
             [[nodiscard]] bool native_parameter_matches(detail::GenericSubstitution &bindings, TypeId parameter,
-                                                        TypeId argument) const {
+                                                        TypeId argument) {
                 // `signal` is the explicit erased-endpoint pattern. It is not
                 // an implicit value conversion: the call passes the live
                 // TSInputView and never exposes the argument payload to HGL.
@@ -3234,7 +3284,10 @@ namespace hgl::ir
                             type_error(key.range, "sparse entries require a delta constructor; harness keys must be temporal");
                         }
                     }
-                    const TypeId item_expected = element_type.valid() && type(canonical(element_type)).kind == TypeKind::Atomic
+                    const bool harness = expected.valid() && type(canonical(expected)).kind == TypeKind::HarnessSequence;
+                    const bool rolling_arrival = harness && element_type.valid() && type(canonical(element_type)).kind == TypeKind::Rolling;
+                    const TypeId item_expected = element_type.valid() &&
+                        (type(canonical(element_type)).kind == TypeKind::Atomic || rolling_arrival)
                         ? type(canonical(element_type)).children.front() : element_type;
                     Expr &value = check_expr(element.value, item_expected);
                     if (!element_type.valid() && value.type.valid()) {
@@ -3243,7 +3296,9 @@ namespace hgl::ir
                         const Type payload = type(canonical(value.type));
                         const bool publication = expected.valid() && type(canonical(expected)).kind == TypeKind::HarnessSequence &&
                             payload.kind == TypeKind::Delta && payload.children.size() == 1U && same(element_type, payload.children.front());
-                        if (!publication) { type_error(value.range, "sequence elements have incompatible types"); }
+                        if (!publication && !(rolling_arrival && assignable(item_expected, value.type))) {
+                            type_error(value.range, "sequence elements have incompatible types");
+                        }
                     }
                     phase = join_phase(phase, value.phase);
                     expression.effects |= value.effects;
@@ -3767,21 +3822,60 @@ namespace hgl::ir
                                                  .identity = module_.path + "." + module_.symbol(target).name};
             }
 
-            bool admitted_atomic_value(TypeId id, std::unordered_set<std::uint32_t> &visiting) {
+            bool admitted_atomic_value(TypeId id, std::unordered_set<std::uint32_t> &visiting, bool recursive_edge = false) {
                 id = canonical(id);
                 if (!id.valid()) { return false; }
                 const Type shape = type(id);
-                if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedDateTime || shape.scalar == ScalarType::TimeZone); }
+                if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedTime || shape.scalar == ScalarType::TimeZone); }
                 if (shape.kind == TypeKind::Symbol && shape.symbol.valid() &&
-                    module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter) { return true; }
+                    (module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter ||
+                     module_.symbol(shape.symbol).kind == SymbolKind::Enum)) { return true; }
                 if (shape.kind == TypeKind::Atomic && shape.children.size() == 1U) {
-                    return admitted_atomic_value(shape.children.front(), visiting);
+                    return admitted_atomic_value(shape.children.front(), visiting, recursive_edge);
                 }
-                if (!visiting.insert(id.value).second) { return false; }
+                if (!visiting.insert(id.value).second) { return recursive_edge; }
                 bool admitted = false;
                 if (shape.kind == TypeKind::Tuple || shape.kind == TypeKind::List) {
                     admitted = true;
                     for (TypeId child : shape.children) { admitted = admitted && admitted_atomic_value(child, visiting); }
+                } else if (shape.kind == TypeKind::Set || shape.kind == TypeKind::Map) {
+                    admitted = !shape.children.empty() && admitted_scalar_key(shape.children[0]);
+                    if (shape.kind == TypeKind::Map) {
+                        admitted = admitted && shape.children.size() == 2U && admitted_atomic_value(shape.children[1], visiting);
+                    }
+                } else if (shape.kind == TypeKind::Symbol && shape.symbol.valid()) {
+                    const auto &symbol = module_.symbol(shape.symbol);
+                    const auto *structure = symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
+                    const auto *imported = imported_struct_decl(shape.symbol);
+                    if (structure || imported) {
+                        admitted = true;
+                        const bool abstract = structure ? structure->abstract : imported->abstract;
+                        admitted = !abstract || !recursive_edge;
+                        const auto fields = structure ? structure->fields : imported->fields;
+                        for (const auto &field : fields) {
+                            const auto field_type = constraint_solver_.field_type({}, id, field.name);
+                            admitted = admitted && (!abstract || !field.recursive) && field_type &&
+                                       admitted_atomic_value(*field_type, visiting, field.recursive);
+                        }
+                    }
+                }
+                visiting.erase(id.value);
+                return admitted;
+            }
+
+            bool admitted_scalar_key(TypeId id, std::unordered_set<std::uint32_t> &visiting) {
+                id = canonical(id);
+                if (!id.valid()) { return false; }
+                const Type shape = type(id);
+                if (shape.kind == TypeKind::Scalar ||
+                    (shape.kind == TypeKind::Symbol && shape.symbol.valid() && module_.symbol(shape.symbol).kind == SymbolKind::Enum)) {
+                    return true;
+                }
+                if (!visiting.insert(id.value).second) { return false; }
+                bool admitted = false;
+                if (shape.kind == TypeKind::Tuple) {
+                    admitted = true;
+                    for (TypeId child : shape.children) { admitted = admitted && admitted_scalar_key(child, visiting); }
                 } else if (shape.kind == TypeKind::Symbol && shape.symbol.valid()) {
                     const auto &symbol = module_.symbol(shape.symbol);
                     const auto *structure = symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
@@ -3791,8 +3885,7 @@ namespace hgl::ir
                         const auto fields = structure ? structure->fields : imported->fields;
                         for (const auto &field : fields) {
                             const auto field_type = constraint_solver_.field_type({}, id, field.name);
-                            admitted = admitted && !field.optional && !field.recursive && field_type &&
-                                       admitted_atomic_value(*field_type, visiting);
+                            admitted = admitted && !field.recursive && field_type && admitted_scalar_key(*field_type, visiting);
                         }
                     }
                 }
@@ -3800,24 +3893,48 @@ namespace hgl::ir
                 return admitted;
             }
 
+            bool admitted_scalar_key(TypeId id) {
+                std::unordered_set<std::uint32_t> visiting;
+                return admitted_scalar_key(id, visiting);
+            }
+
+            // Provider-dependent values are compared only after cold materialization.
+            static std::optional<std::string> scalar_key_identity(const Constant &constant) {
+                return std::visit([](const auto &value) -> std::optional<std::string> {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, bool>) { return value ? "b:1" : "b:0"; }
+                    else if constexpr (std::is_same_v<T, std::int64_t>) { return "i:" + std::to_string(value); }
+                    else if constexpr (std::is_same_v<T, double>) {
+                        if (std::isnan(value)) { return std::nullopt; }
+                        return "f:" + std::to_string(std::bit_cast<std::uint64_t>(value == 0.0 ? 0.0 : value));
+                    } else if constexpr (std::is_same_v<T, std::string>) { return "s:" + value; }
+                    else if constexpr (std::is_same_v<T, EnumValue>) { return "e:" + value.identity + ":" + std::to_string(value.number); }
+                    else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
+                        if (value.kind == syntax::TemporalKind::TimeZone || value.kind == syntax::TemporalKind::ZonedDateTime ||
+                            value.kind == syntax::TemporalKind::ZonedTime) { return std::nullopt; }
+                        return "t:" + std::to_string(static_cast<unsigned>(value.kind)) + ":" + std::to_string(value.micros);
+                    } else { return std::nullopt; }
+                }, constant);
+            }
+
             bool admitted_delta_shape(TypeId id, std::unordered_set<std::uint32_t> &visiting) {
                 id = canonical(id);
                 if (!id.valid()) { return false; }
                 const Type shape = type(id);
-                if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedDateTime || shape.scalar == ScalarType::TimeZone); }
+                if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedTime || shape.scalar == ScalarType::TimeZone); }
                 if (shape.kind == TypeKind::Symbol && shape.symbol.valid() &&
-                    module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter) { return true; }
+                    (module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter ||
+                     module_.symbol(shape.symbol).kind == SymbolKind::Enum)) { return true; }
                 if (!visiting.insert(id.value).second) { return false; }
                 bool admitted = false;
-                if (shape.kind == TypeKind::Atomic && shape.children.size() == 1U) {
+                if ((shape.kind == TypeKind::Atomic || shape.kind == TypeKind::Rolling) && shape.children.size() == 1U) {
                     admitted = admitted_atomic_value(shape.children.front(), visiting);
                 } else if (shape.kind == TypeKind::Set && shape.children.size() == 1U) {
-                    const Type child = type(canonical(shape.children[0]));
-                    admitted = child.kind == TypeKind::Scalar && (child.scalar == ScalarType::Bool || child.scalar == ScalarType::I64);
+                    admitted = admitted_scalar_key(shape.children[0]);
                 } else if (shape.kind == TypeKind::Tuple || shape.kind == TypeKind::Map || shape.kind == TypeKind::List) {
-                    admitted = shape.kind != TypeKind::List || (shape.size.valid() && !shape.unbounded);
+                    admitted = true;
                     if (shape.kind == TypeKind::Map) {
-                        admitted = shape.children.size() == 2U && same(shape.children[0], scalar(ScalarType::I64));
+                        admitted = shape.children.size() == 2U && admitted_scalar_key(shape.children[0]);
                     }
                     for (TypeId child : shape.children) { admitted = admitted && admitted_delta_shape(child, visiting); }
                 } else if (shape.kind == TypeKind::Symbol && shape.symbol.valid()) {
@@ -3825,7 +3942,7 @@ namespace hgl::ir
                     const auto *structure = symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
                     const auto *imported = imported_struct_decl(shape.symbol);
                     if (structure || imported) {
-                        admitted = true;
+                        admitted = !(structure ? structure->abstract : imported->abstract);
                         const auto fields = structure ? structure->fields : imported->fields;
                         for (const auto &field : fields) {
                             const auto field_type = constraint_solver_.field_type({}, id, field.name);
@@ -3837,8 +3954,45 @@ namespace hgl::ir
                 return admitted;
             }
 
+            bool constant_key_recipe(ExprId id, std::unordered_set<std::uint32_t> &visiting) {
+                if (!id.valid() || !visiting.insert(id.value).second) { return false; }
+                const auto &expression = module_.expr(id);
+                bool constant = expression.phase == Phase::Constant;
+                if (!constant) {
+                    if (const auto *reference = std::get_if<SymbolRef>(&expression.node);
+                        reference && module_.symbol(reference->symbol).kind == SymbolKind::LocalLet) {
+                        const auto found = local_contexts_.find(reference->symbol.value);
+                        if (found != local_contexts_.end()) {
+                            if (const auto *local = std::get_if<LocalDecl>(&module_.stmts[found->second.declaration.value].node)) {
+                                constant = constant_key_recipe(local->init, visiting);
+                            }
+                        }
+                    } else if (const auto *tuple = std::get_if<Tuple>(&expression.node)) {
+                        constant = std::ranges::all_of(tuple->elements, [&](ExprId child) { return constant_key_recipe(child, visiting); });
+                    } else if (expression.operation.kind == OperationKind::Constructor) {
+                        const auto arguments_constant = [&](const auto &arguments) {
+                            return std::ranges::all_of(arguments, [&](const Argument &argument) {
+                                return constant_key_recipe(argument.value, visiting);
+                            });
+                        };
+                        if (const auto *call = std::get_if<Call>(&expression.node)) { constant = arguments_constant(call->arguments); }
+                        else if (const auto *construct = std::get_if<Construct>(&expression.node)) {
+                            constant = !construct->delta && arguments_constant(construct->arguments);
+                        }
+                    }
+                }
+                visiting.erase(id.value);
+                return constant;
+            }
+
+            bool constant_key_recipe(ExprId id) {
+                std::unordered_set<std::uint32_t> visiting;
+                return constant_key_recipe(id, visiting);
+            }
+
             void check_collection_delta(Expr &expression, const Construct &node, TypeId origin) {
                 const Type shape = type(origin);
+                const bool growing = shape.kind == TypeKind::List && (shape.unbounded || !shape.size.valid());
                 std::unordered_set<std::string> names;
                 std::unordered_set<std::string> members;
                 for (const Argument &argument : node.arguments) {
@@ -3846,25 +4000,31 @@ namespace hgl::ir
                     const bool sparse = argument.name == "items" || argument.name == "upsert";
                     const bool admitted = shape.kind == TypeKind::Set ? argument.name == "added" || argument.name == "removed"
                         : shape.kind == TypeKind::Map ? argument.name == "upsert" || argument.name == "remove"
-                        : argument.name == "items";
+                        : argument.name == "items" || (growing && argument.name == "remove");
                     if (!admitted || argument.name.empty()) { type_error(argument.range, "unknown delta argument"); }
                     Expr &entries = module_.exprs[argument.value.value];
                     const auto *sequence = std::get_if<Sequence>(&entries.node);
                     if (!sequence) { type_error(entries.range, "collection delta requires a literal entry list"); continue; }
-                    TypeId item_type = shape.kind == TypeKind::Set ? shape.children[0] : scalar(ScalarType::I64);
+                    TypeId item_type = shape.kind == TypeKind::Set || shape.kind == TypeKind::Map ? shape.children[0] : scalar(ScalarType::I64);
                     for (const auto &entry : sequence->elements) {
                         ExprId key_id = sparse ? entry.key : entry.value;
                         if (!key_id.valid() || (!sparse && entry.key.valid())) {
                             type_error(entries.range, "delta entry has the wrong sparse form"); continue;
                         }
-                        Expr &key = check_expr(key_id, item_type);
-                        require_assignable(item_type, key, "delta member or index");
-                        if (!key.constant) { type_error(key.range, "delta members, keys and indices must be constants"); }
-                        std::string identity;
+                        Expr &key = check_expr(key_id);
+                        if (!same(item_type, key.type)) { type_error(key.range, "delta key, member or index requires its exact declared type"); }
+                        if (!constant_key_recipe(key_id) ||
+                            ((shape.kind == TypeKind::List || shape.kind == TypeKind::Tuple) && !key.constant)) {
+                            type_error(key.range, "delta members, keys and indices must be constants");
+                        }
                         if (key.constant) {
-                            if (const auto *integer = std::get_if<std::int64_t>(&*key.constant)) { identity = std::to_string(*integer); }
-                            if (const auto *boolean = std::get_if<bool>(&*key.constant)) { identity = *boolean ? "true" : "false"; }
-                            if (!members.insert(identity).second) { type_error(key.range, "duplicate or overlapping delta member, key or index"); }
+                            if (const auto identity = scalar_key_identity(*key.constant); identity && !members.insert(*identity).second) {
+                                type_error(key.range, "duplicate or overlapping delta member, key or index");
+                            }
+                        }
+                        if (growing && key.constant) {
+                            const auto *index = std::get_if<std::int64_t>(&*key.constant);
+                            if (!index || *index < 0) { type_error(key.range, "growing-list indices must be nonnegative i64 constants"); }
                         }
                         if (sparse) {
                             TypeId child;
@@ -3877,7 +4037,7 @@ namespace hgl::ir
                                     const auto *n = size.constant ? std::get_if<std::int64_t>(&*size.constant) : nullptr;
                                     if (n) { count = *n; }
                                 }
-                                if (!index || *index < 0 || *index >= count) { type_error(key.range, "delta index is outside its fixed shape"); }
+                                if (!index || *index < 0 || (!growing && *index >= count)) { type_error(key.range, "delta index is outside its declared shape"); }
                                 else { child = shape.children[shape.kind == TypeKind::List ? 0U : static_cast<std::size_t>(*index)]; }
                             }
                             if (child.valid()) {
@@ -3898,14 +4058,60 @@ namespace hgl::ir
                 }
             }
 
+            void check_ordinary_collection(Expr &expression, const Construct &node, TypeId applied) {
+                const Type shape = type(applied);
+                if (!admitted_scalar_key(shape.children[0])) { type_error(expression.range, "ordinary collection keys require admitted scalar or finite composite types"); }
+                if (node.arguments.size() != 1U || node.arguments.front().name != "items") {
+                    type_error(expression.range, "ordinary collection construction requires exactly one named items argument");
+                    return;
+                }
+                const auto &argument = node.arguments.front();
+                Expr &entries = module_.exprs[argument.value.value];
+                const auto *sequence = std::get_if<Sequence>(&entries.node);
+                if (!sequence) { type_error(entries.range, "ordinary collection items require a literal entry list"); return; }
+                std::unordered_set<std::string> members;
+                entries.phase = Phase::Constant;
+                for (const auto &entry : sequence->elements) {
+                    const bool map = shape.kind == TypeKind::Map;
+                    const ExprId key_id = map ? entry.key : entry.value;
+                    if (!key_id.valid() || (!map && entry.key.valid())) {
+                        type_error(entries.range, "ordinary collection entry has the wrong form"); continue;
+                    }
+                    Expr &key = check_expr(key_id);
+                    if (!same(shape.children[0], key.type)) { type_error(key.range, "ordinary collection key requires its exact declared type"); }
+                    if (key.constant) {
+                        if (const auto identity = scalar_key_identity(*key.constant); identity && !members.insert(*identity).second) {
+                            type_error(key.range, "duplicate ordinary collection member or key");
+                        }
+                    }
+                    entries.effects |= key.effects;
+                    entries.phase = join_phase(entries.phase, key.phase);
+                    if (map) {
+                        Expr &item = check_expr(entry.value, shape.children[1]);
+                        require_assignable(shape.children[1], item, "ordinary map value");
+                        entries.effects |= item.effects;
+                        entries.phase = join_phase(entries.phase, item.phase);
+                    }
+                }
+                entries.type = make_type(TypeKind::List, {shape.children[0]});
+                entries.value_kind = value_kind_for_phase(entries.phase);
+                expr_state_[argument.value.value] = 2;
+                expression.effects |= entries.effects;
+            }
+
             void check_construct(Expr &expression, const Construct &node, TypeId expected) {
                 TypeId applied = canonical(node.type);
-                if (expected.valid() && assignable(expected, applied)) { applied = canonical(expected); }
+                if (expected.valid() && assignable(expected, applied) &&
+                    (node.delta || (type(applied).kind != TypeKind::Set && type(applied).kind != TypeKind::Map))) {
+                    applied = canonical(expected);
+                }
                 if (node.delta && type(applied).kind != TypeKind::Symbol) {
                     const TypeKind kind = type(applied).kind;
                     if (kind == TypeKind::Map || kind == TypeKind::Set || kind == TypeKind::List || kind == TypeKind::Tuple) {
                         check_collection_delta(expression, node, applied);
                     } else { type_error(expression.range, "delta constructors require an admitted structural shape"); }
+                } else if (!node.delta && (type(applied).kind == TypeKind::Set || type(applied).kind == TypeKind::Map)) {
+                    check_ordinary_collection(expression, node, applied);
                 } else { applied = check_constructor_arguments(expression, applied, node.arguments, node.delta); }
                 expression.type  = node.delta ? make_type(TypeKind::Delta, {applied}) : applied;
                 expression.phase = Phase::Constant;

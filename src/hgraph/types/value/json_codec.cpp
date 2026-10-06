@@ -1477,6 +1477,9 @@ namespace hgraph
                     json_detail::append_escaped(
                         serialise_type_value(view.checked_as<TypeCarrier>()), out);
                     return;
+                case AtomicTag::ZonedTime:
+                    json_detail::append_escaped(format_zoned_time(view.checked_as<ZonedTime>()), out);
+                    return;
                 case AtomicTag::ZonedDateTime:
                     json_detail::append_escaped(
                         format_zoned_datetime(view.checked_as<ZonedDateTime>()),
@@ -1772,6 +1775,23 @@ namespace hgraph
                 case AtomicTag::Type:
                     return read_bound_atomic(
                         self, parse_type_value(reader.parse_string()));
+                case AtomicTag::ZonedTime: {
+                    const std::string text = reader.parse_string();
+                    const auto bracket = text.find('[');
+                    if (bracket == std::string::npos || text.empty() || text.back() != ']')
+                    {
+                        reader.fail("invalid zoned time");
+                    }
+                    const auto time_text = std::string_view{text}.substr(0, bracket);
+                    std::size_t position = 0;
+                    const CivilTime time{json_detail::parse_time_body_micros(time_text, position, reader)};
+                    if (position != time_text.size()) { reader.fail("invalid zoned time fields"); }
+                    const ZoneId zone{std::string_view{text}.substr(bracket + 1, text.size() - bracket - 2)};
+                    const auto &provider = bound_read_context != nullptr
+                        ? *bound_read_context->time_zone_provider : codec_time_zone_provider();
+                    if (!provider.contains(zone)) { reader.fail("unknown zoned time zone"); }
+                    return read_bound_atomic(self, ZonedTime{time, zone});
+                }
                 case AtomicTag::ZonedDateTime: {
                     const std::string text = reader.parse_string();
                     const auto bracket = text.find('[');
@@ -2250,6 +2270,10 @@ namespace hgraph
             if (meta == scalar_descriptor<ZoneId>::value_meta())
             {
                 return AtomicTag::ZoneId;
+            }
+            if (meta == scalar_descriptor<ZonedTime>::value_meta())
+            {
+                return AtomicTag::ZonedTime;
             }
             if (meta == scalar_descriptor<ZonedDateTime>::value_meta())
             {

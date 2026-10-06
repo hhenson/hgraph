@@ -6,6 +6,7 @@
 #include "syntax/temporal.h"
 
 #include <cstdint>
+#include <ostream>
 #include <deque>
 #include <limits>
 #include <optional>
@@ -69,6 +70,8 @@ namespace hgl::ir::hir
     enum class SymbolKind : std::uint8_t {
         Module,
         Struct,
+        Enum,
+        EnumMember,
         Operator,
         Function,
         Test,
@@ -217,7 +220,17 @@ namespace hgl::ir::hir
     { friend constexpr bool operator==(NullValue, NullValue) noexcept = default; };
     struct PlaceholderValue
     { friend constexpr bool operator==(PlaceholderValue, PlaceholderValue) noexcept = default; };
-    using Constant = std::variant<NullValue, PlaceholderValue, bool, std::int64_t, double, std::string, syntax::TemporalValue>;
+    struct EnumValue
+    {
+        std::string identity{};
+        std::int64_t number{0};
+        friend bool operator==(const EnumValue &, const EnumValue &) = default;
+        friend std::ostream &operator<<(std::ostream &out, const EnumValue &value) {
+            return out << value.identity << "::" << value.number;
+        }
+    };
+
+    using Constant = std::variant<NullValue, PlaceholderValue, bool, std::int64_t, double, std::string, syntax::TemporalValue, EnumValue>;
 
     struct Substitution
     {
@@ -645,6 +658,19 @@ namespace hgl::ir::hir
     };
     struct CppIncludeDecl
     { std::string spelling{}; };
+    struct EnumMember
+    {
+        std::string name{};
+        ExprId value{};
+        std::int64_t number{0};
+    };
+
+    struct EnumDecl
+    {
+        bool exported{false};
+        std::vector<EnumMember> members{};
+    };
+
     struct StructDecl
     {
         bool                          exported{false};
@@ -747,7 +773,7 @@ namespace hgl::ir::hir
     {};
     struct TestDecl
     { BlockId block{}; };
-    using DeclarationNode = std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, OperatorDecl, InstantiateDecl,
+    using DeclarationNode = std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, EnumDecl, OperatorDecl, InstantiateDecl,
                                          FunctionDecl, NativeSourceDecl, TestDecl>;
     struct Declaration
     {
