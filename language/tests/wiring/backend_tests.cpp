@@ -1618,7 +1618,7 @@ TEST_CASE("growing list traces reject gaps and non-tail removals before evaluati
         INFO(trace);
         INFO(result.message);
         CHECK_FALSE(result.passed);
-        CHECK(unit.diagnostics.render(unit.file).find("input delta outside publication profile") != std::string::npos);
+        CHECK(result.message.find("input delta outside publication profile") != std::string::npos);
     }
     Unit nested{R"(module checks.growing_state
 fn forward(value: list<set<str>>) -> list<set<str>> => value

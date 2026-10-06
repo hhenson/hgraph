@@ -55,3 +55,13 @@ that child rather than flattening its fields. Scalar delta aliases have already
 been canonicalized by type checking. The native-package value-pattern facade
 provides the same representation; it does not expand the native ABI safety
 envelope to pass structural deltas where no native projection is supported.
+
+Explicit source `delta<T>` annotations retain their source occurrence alongside
+canonical type identity, including when `delta<T>` reduces to an ordinary value.
+The checker uses that occurrence to report the shared delta error catalogue;
+structural constructor key equality is checked before payload execution when
+ordinary constants determine it. Provider-dependent keys remain cold recipes.
+Growing-list removed/modified overlap is checked at eval admission, not data
+formation. Eval materializes every supplied ordinary argument before validating
+fresh traces, and admission failures carry `eval.input_delta_profile` through
+the execution-error boundary.

@@ -799,6 +799,12 @@ if(UNIX)
             --part ${HGRAPH_STD}/tests/atomic_set_map_values.hgl
             --part ${HGRAPH_STD}/tests/growing_list_values.hgl
             --part ${HGRAPH_STD}/tests/rolling_values.hgl
+            --part ${HGRAPH_STD}/tests/numeric_boundary_values.hgl
+            --part ${HGRAPH_STD}/tests/infinite_float_values.hgl
+            --part ${HGRAPH_STD}/tests/nan_scalar_values.hgl
+            --part ${HGRAPH_STD}/tests/rolling_retention_values.hgl
+            --part ${HGRAPH_STD}/tests/rolling_structural_values.hgl
+            --part ${HGRAPH_STD}/tests/delta_identity_values.hgl
             --part ${HGRAPH_STD}/tests/optional_atomic_values.hgl
             --part ${HGRAPH_STD}/tests/recursive_atomic_values.hgl
             --part ${HGRAPH_STD}/tests/abstract_atomic_values.hgl
@@ -1027,15 +1033,79 @@ add_test(NAME hgraph_language_negative_mixed
         -DMANIFEST=${HGRAPH_SHARED_ROOT}/hgraph_spec/compiler/negative_testing/cases.json
         -P ${CMAKE_CURRENT_SOURCE_DIR}/negative/mixed.cmake)
 
+# Shared matrices run on every host. Frontend rejection selection avoids JIT;
+# positive controls and eval admission kernels are compiled by CMake below.
+add_executable(hgl_shared_fixture negative/shared_fixture.cpp)
+target_link_libraries(hgl_shared_fixture PRIVATE hgl::driver)
+hgl_link_runtime_executable(hgl_shared_fixture)
+hgl_apply_warnings(hgl_shared_fixture)
+set(_delta_source ${HGRAPH_SPEC}/language/examples/reject/delta-errors.hgl)
+set(_delta_positive ${CMAKE_CURRENT_BINARY_DIR}/negative/delta-positive.hgl)
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/negative)
+add_custom_command(OUTPUT ${_delta_positive}
+    COMMAND $<TARGET_FILE:hgl_shared_fixture> prepare ${_delta_source} ${_delta_positive}
+    DEPENDS hgl_shared_fixture ${_delta_source}
+    VERBATIM)
+add_test(NAME hgraph_language_delta_source_errors
+    COMMAND $<TARGET_FILE:hgl_shared_fixture> reject ${_delta_source})
+set_tests_properties(hgraph_language_delta_source_errors PROPERTIES
+    PASS_REGULAR_EXPRESSION "88 rejection cases, 0 failed"
+    FAIL_REGULAR_EXPRESSION "FAILED")
+
 # Build runtime kernels through CMake on every platform, including Windows.
 # The same direct test harness executes the parsed HGL assertions against them.
 hgl_add_module(hgl_negative_execution_fixture STATIC HGL negative/execution.hgl)
 hgl_add_module(hgl_negative_cleanup_fixture STATIC HGL negative/cleanup.hgl)
+hgl_add_module(hgl_delta_positive_fixture STATIC HGL ${_delta_positive})
+hgl_add_module(hgl_eval_profile_fixture STATIC HGL ${HGRAPH_SPEC}/language/examples/eval-profile-errors.hgl)
 add_executable(hgl_negative_tests negative/generated_tests.cpp wiring/standard_library_fixture.cpp)
 target_compile_features(hgl_negative_tests PRIVATE cxx_std_23)
-target_compile_definitions(hgl_negative_tests PRIVATE HGL_NEGATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/negative")
+target_compile_definitions(hgl_negative_tests PRIVATE
+    HGL_NEGATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/negative"
+    HGL_DELTA_POSITIVE_FILE="${_delta_positive}"
+    HGL_EVAL_PROFILE_FILE="${HGRAPH_SPEC}/language/examples/eval-profile-errors.hgl")
 target_link_libraries(hgl_negative_tests PRIVATE hgl_negative_execution_fixture hgl_negative_cleanup_fixture
+    hgl_delta_positive_fixture hgl_eval_profile_fixture
     hgl::wiring hgl::standard_library Catch2::Catch2WithMain)
 hgl_link_runtime_executable(hgl_negative_tests)
 hgl_apply_warnings(hgl_negative_tests)
 add_test(NAME hgraph_language_negative_generated COMMAND hgl_negative_tests)
+
+add_test(NAME hgraph_language_eval_profile_errors
+    COMMAND hgl_negative_tests "generated shared eval admission and delta positive controls")
+
+# Compile the entire shared standard-library test module, including helpers
+# declared in test contexts, so Windows runs the same source assertions as Unix.
+file(GLOB _std_matrix_candidates CONFIGURE_DEPENDS
+    "${HGRAPH_STD}/*.hgl" "${HGRAPH_STD}/impl/*.hgl" "${HGRAPH_STD}/tests/*.hgl")
+set(_std_matrix_parts)
+set(_std_matrix_args)
+set(_std_matrix_count 0)
+foreach(_source IN LISTS _std_matrix_candidates)
+    if(_source STREQUAL "${HGRAPH_STD}/standard.hgl")
+        continue()
+    endif()
+    file(STRINGS "${_source}" _module_line REGEX "^module hgraph\\.std( |$)")
+    if(NOT _module_line)
+        continue()
+    endif()
+    list(APPEND _std_matrix_parts "${_source}")
+    list(APPEND _std_matrix_args --part "${_source}")
+    file(STRINGS "${_source}" _test_lines REGEX "^[ \t]*test [A-Za-z_][A-Za-z_0-9]*[ \t]*\\{")
+    list(LENGTH _test_lines _test_count)
+    math(EXPR _std_matrix_count "${_std_matrix_count} + ${_test_count}")
+endforeach()
+hgl_add_module(hgl_std_matrix_fixture STATIC INCLUDE_TEST_CONTEXTS SOURCE_PARTS 8
+    HGL ${HGRAPH_STD}/standard.hgl PARTS ${_std_matrix_parts}
+    LINK_LIBRARIES hgl::core_native)
+add_executable(hgl_std_matrix_tests negative/stdlib_generated_driver.cpp)
+target_link_libraries(hgl_std_matrix_tests PRIVATE hgl_std_matrix_fixture hgl::driver)
+hgl_link_runtime_executable(hgl_std_matrix_tests)
+hgl_apply_warnings(hgl_std_matrix_tests)
+add_test(NAME hgraph_language_generated_standard_matrix
+    COMMAND hgl_std_matrix_tests test ${HGRAPH_STD}/standard.hgl ${_std_matrix_args}
+        --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
+set_tests_properties(hgraph_language_generated_standard_matrix PROPERTIES
+    PASS_REGULAR_EXPRESSION "${_std_matrix_count} tests?, 0 failed"
+    FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_CXX=hgl-scripted-compiler-must-not-run;HGL_DISABLE_CACHE=1")

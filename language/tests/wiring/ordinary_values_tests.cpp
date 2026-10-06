@@ -346,3 +346,16 @@ TEST_CASE("composite keys reject deep NaN and compare full retained values", "[o
     CHECK_NOTHROW(trace.accept(shape, delta.view()));
     CHECK_THROWS_WITH(trace.accept(shape, delta.view()), "addition of a present set member");
 }
+
+TEST_CASE("publication predicates preserve unrelated failures", "[ordinary][delta][errors]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    const auto *schema = TypeRegistry::instance().bundle("ordinary", "IncompleteProfile",
+        {{"value", scalar_descriptor<Int>::value_meta()}});
+    const Value incomplete{ValuePlanFactory::instance().type_for(schema)};
+    CHECK_THROWS_AS(validate_complete_value(incomplete.view()), PublicationProfileError);
+    CHECK_THROWS_AS(validate_complete_value(incomplete.view(),
+        [](const ValueTypeMetaData *, std::size_t) -> bool { throw std::bad_alloc{}; }), std::bad_alloc);
+    CHECK_THROWS_AS(validate_complete_value(incomplete.view(),
+        [](const ValueTypeMetaData *, std::size_t) -> bool { throw std::runtime_error{"storage failure"}; }), std::runtime_error);
+}

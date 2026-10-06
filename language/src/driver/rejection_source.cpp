@@ -49,6 +49,15 @@ namespace hgl::driver
             {"syntax.expected_token", syntax::Category::Parse}, {"rolling.size_kind", syntax::Category::Type},
             {"rolling.size_bounds", syntax::Category::Type},    {"yield.time_type", syntax::Category::Type},
             {"test.raises_code", syntax::Category::Type},       {"test.statement_phase", syntax::Category::Phase},
+            {"delta.unsupported_shape", syntax::Category::Shape},
+            {"delta.type_mismatch", syntax::Category::Type},
+            {"delta.argument_name", syntax::Category::Name},
+            {"delta.duplicate_argument", syntax::Category::Name},
+            {"delta.entry_constant", syntax::Category::Type},
+            {"delta.entry_type", syntax::Category::Type},
+            {"delta.duplicate_entry", syntax::Category::Type},
+            {"delta.index_bounds", syntax::Category::Type},
+            {"delta.overlap", syntax::Category::Type},
         };
         const std::regex pattern{
             R"re(^#[ \t]*expect-error[ \t]*\([ \t]*([a-z]+(?:-[a-z]+)*)[ \t]*,[ \t]*("(?:[^"\\]|\\.)*")[ \t]*\)[ \t\r]*$)re"};

@@ -115,7 +115,7 @@ namespace hgl::wiring {
         }
       private:
         static void require(bool condition, const char *message) {
-            if (!condition) { throw std::invalid_argument(message); }
+            if (!condition) { throw ordinary::PublicationProfileError(message); }
         }
         std::unordered_set<hgraph::Value, hgraph::ValueHash, hgraph::ValueEqual> members_;
         std::unordered_map<hgraph::Value, DeltaTrace, hgraph::ValueHash, hgraph::ValueEqual> keyed_children_;

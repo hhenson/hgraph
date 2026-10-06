@@ -1424,6 +1424,7 @@ namespace hgl::wiring
                 hgraph::BundleBuilder result{factory.type_for(payload_schema)};
                 std::vector<bool> supplied(payload_schema->field_count, false);
                 for (const auto &argument : arguments) {
+                    if (growing) { keys.emplace(factory.type_for(standard_types().int_type)); }
                     const std::size_t field = shape->kind == hgraph::TSTypeKind::TSS
                         ? (argument.name == "added" ? 0 : 1) : (argument.name == "remove" ? 0 : 1);
                     auto data = (shape->kind == hgraph::TSTypeKind::TSD || growing) && field == 1
@@ -2872,6 +2873,17 @@ namespace hgl::wiring
                 const auto &parameter = target.parameters[index];
                 Slot item = eval_value(argument.value, caller);
                 if (!parameter.is_const) {
+                    if (item.is_const() && item.meta()->try_value_kind() == hgraph::ValueTypeKind::List) {
+                        const auto *payload = ordinary::delta_schema(schema(parameter.type));
+                        const auto list = item.value.view().as_list();
+                        item.elements.reserve(list.size());
+                        for (std::size_t position = 0; position < list.size(); ++position) {
+                            item.elements.emplace_back(convert(hgraph::Value{list.at(position)}, payload, item.range, "eval input"));
+                        }
+                        item.kind = Slot::Kind::Sequence;
+                        item.element_meta = payload;
+                        item.resolved = true;
+                    }
                     if (item.kind != Slot::Kind::Sequence) {
                         fail(Category::Type, item.range, "eval drives '" + parameter.name + "' with a harness sequence");
                     }
@@ -2929,8 +2941,8 @@ namespace hgl::wiring
                         if (!inputs.back()[position]) { continue; }
                         try { admission.accept(parameter_schema, input_plan.payload(inputs.back()[position]->view()),
                             [&](const hgraph::ValueTypeMetaData *type, std::size_t field) { return bridge_.optional_field(type, field); }); }
-                        catch (const std::exception &error) {
-                            fail(Category::Type, range, "eval: input delta outside publication profile for '" + parameter.name +
+                        catch (const ordinary::PublicationProfileError &error) {
+                            throw ExecutionError("eval.input_delta_profile", "eval: input delta outside publication profile for '" + parameter.name +
                                  "' at position " + std::to_string(position) + ": " + error.what());
                         }
                     }

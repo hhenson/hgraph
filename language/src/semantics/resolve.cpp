@@ -1149,7 +1149,7 @@ namespace hgl::semantics
                             }
                             if (node.raises_block != ast::no_node) {
                                 const auto *literal = std::get_if<ast::StringLiteral>(&module_.expr(node.condition).node);
-                                if (!node.raises_literal || literal == nullptr || (literal->value != "yield.negative_duration" && literal->value != "yield.non_increasing_time")) {
+                                if (!node.raises_literal || literal == nullptr || (literal->value != "yield.negative_duration" && literal->value != "yield.non_increasing_time" && literal->value != "eval.input_delta_profile")) {
                                     diagnostics_.report(Category::Type, node.raises_argument_range,
                                                         "raises requires a literal execution error code", "test.raises_code");
                                 }
@@ -1246,7 +1246,7 @@ namespace hgl::semantics
                             resolve_expr(node.callee, context);
                             for (const ast::Argument &argument : node.arguments) { resolve_expr(argument.value, context); }
                         } else if constexpr (std::is_same_v<T, ast::Construct>) {
-                            resolve_type(node.type, context);
+                            resolve_type(node.type, context, false, false, node.delta, node.delta);
                             const Binding &target = result_.type_bindings[node.type];
                             // `m::Quote<i64>(...)` reaches here as a Construct
                             // rather than a Call: a struct another module
@@ -1255,10 +1255,8 @@ namespace hgl::semantics
                             // applied spelling working only when the expected
                             // type happened to supply the arguments.
                             const auto shape = module_.type(node.type).kind;
-                            const bool collection_delta = node.delta && (shape == ast::TypeKind::Set || shape == ast::TypeKind::Map ||
-                                shape == ast::TypeKind::List || shape == ast::TypeKind::Tuple);
                             const bool ordinary_collection = !node.delta && (shape == ast::TypeKind::Set || shape == ast::TypeKind::Map);
-                            if (!collection_delta && !ordinary_collection && target.kind != BindingKind::Struct && target.kind != BindingKind::ImportedStruct) {
+                            if (!node.delta && !ordinary_collection && target.kind != BindingKind::Struct && target.kind != BindingKind::ImportedStruct) {
                                 report(Category::Type, module_.type(node.type).range,
                                        "a struct constructor target is a concrete struct type");
                             }
@@ -1561,13 +1559,13 @@ namespace hgl::semantics
                 }
             }
 
-            void resolve_type(ast::TypeId id, Context &context, bool allow_signal = false, bool allow_schema = false, bool shape_argument = false) {
+            void resolve_type(ast::TypeId id, Context &context, bool allow_signal = false, bool allow_schema = false, bool shape_argument = false, bool delta_origin = false) {
                 const ast::Type &type = module_.type(id);
-                if (type.kind == ast::TypeKind::Signal && !allow_signal) {
+                if (type.kind == ast::TypeKind::Signal && !allow_signal && !delta_origin) {
                     report(Category::Type, type.range,
                            "'signal' is an input-only type marker and is only valid as a non-const parameter type");
                 }
-                if (type.kind == ast::TypeKind::Schema && !allow_schema) {
+                if (type.kind == ast::TypeKind::Schema && !allow_schema && !delta_origin) {
                     report(Category::Type, type.range,
                            "'schema' is borrowed runtime metadata and is only valid as a non-const native parameter type");
                 }
@@ -1645,7 +1643,7 @@ namespace hgl::semantics
                     }
                     }
                 }
-                for (const ast::TypeId child : type.children) { resolve_type(child, context, false, false, shape_argument && type.kind != ast::TypeKind::Atomic); }
+                for (const ast::TypeId child : type.children) { resolve_type(child, context, type.kind == ast::TypeKind::Delta, false, type.kind == ast::TypeKind::Delta || (shape_argument && type.kind != ast::TypeKind::Atomic), delta_origin || type.kind == ast::TypeKind::Delta); }
                 if (type.size != ast::no_node) { resolve_expr(type.size, context); }
                 if (type.min_size != ast::no_node) { resolve_expr(type.min_size, context); }
             }
@@ -2617,13 +2615,13 @@ namespace hgl::semantics
                     if (found == field_index.end()) {
                         report(Category::Name, argument.name.range,
                                "struct '" + std::string{structure.name.text} + "' has no field named '" +
-                                   std::string{argument.name.text} + "'");
+                                   std::string{argument.name.text} + "'", delta ? "delta.argument_name" : "");
                         continue;
                     }
                     const std::size_t index = found->second;
                     if (supplied[index]) {
                         report(Category::Name, argument.name.range,
-                               "field '" + std::string{argument.name.text} + "' is given twice");
+                               "field '" + std::string{argument.name.text} + "' is given twice", delta ? "delta.duplicate_argument" : "");
                     }
                     supplied[index] = true;
                     if (is_null(argument.value) && !info.fields[index].optional) {
@@ -2685,8 +2683,8 @@ namespace hgl::semantics
                 return std::nullopt;
             }
 
-            void report(Category category, SourceRange range, std::string message) {
-                diagnostics_.report(category, range, std::move(message));
+            void report(Category category, SourceRange range, std::string message, std::string code = {}) {
+                diagnostics_.report(category, range, std::move(message), std::move(code));
             }
 
             const syntax::SourceFile                      &file_;
