@@ -692,7 +692,7 @@ namespace hgl::syntax
         /// `throws` after a native signature: the C++ body may raise, and the
         /// descriptor records the translated exception policy (ADR 0009).
         struct throws_clause
-        { static constexpr auto rule = contextual<ContextToken::Throws> / contextual<ContextToken::Raises>; };
+        { static constexpr auto rule = contextual<ContextToken::Throws>; };
 
         struct native_function_decl
         {

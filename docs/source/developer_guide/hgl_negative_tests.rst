@@ -8,6 +8,9 @@ ownership, use and phase walks visit it. Its bindings keep ordinary lexical
 scope and its effects are preserved. The direct test backend executes once,
 catches only a structured HGL execution error and compares the complete code.
 Assertion failures and compiler diagnostics remain separate failure channels.
+The contextual ``raises`` form is recognized only after ``assert``; native
+function exception clauses continue to accept only ``throws``. In particular,
+``raises`` cannot alter a native function's generated ``noexcept`` contract.
 
 The error class gives its RTTI default visibility across scripted native
 images even in static runtime builds, so Darwin's dynamic cast and exception

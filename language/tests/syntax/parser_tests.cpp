@@ -317,6 +317,45 @@ native fn quiet(value: str) -> i64 {
     CHECK(tree.find("NativeFunctionDecl native fn quiet\n") != std::string::npos);
 }
 
+TEST_CASE("raises is an assertion form, not a native exception clause", "[parser][native][raises]") {
+    for (const std::string qualifier : {"", "const "}) {
+        for (const std::string body : {"\n", " { cpp() { return 1; } }\n"}) {
+            const std::string declaration = "module checks.native_raises\nnative " + qualifier + "fn f() -> i64 ";
+            const std::string source = declaration + "raises" + body;
+            Parsed parsed{source};
+            INFO(source);
+            REQUIRE(parsed.diagnostics.has_errors());
+            CHECK(parsed.diagnostics.diagnostics().front().category == Category::Parse);
+            CHECK(parsed.diagnostics.diagnostics().front().range.begin == source.find("raises", source.find("native ")));
+
+            DiagnosticSink lexical_diagnostics;
+            const auto tokens = lex(parsed.file, lexical_diagnostics);
+            REQUIRE_FALSE(lexical_diagnostics.has_errors());
+            CHECK_FALSE(parse_token_grammar(tokens.tokens).accepted);
+
+            Parsed permitted{declaration + "throws" + body};
+            INFO(permitted.diagnostics.render(permitted.file));
+            REQUIRE_FALSE(permitted.diagnostics.has_errors());
+            REQUIRE(permitted.module.declarations.size() == 2U);
+            const auto *native = std::get_if<ast::NativeFunctionDecl>(
+                &permitted.module.decl(permitted.module.declarations[1]).node);
+            REQUIRE(native != nullptr);
+            CHECK(native->throws);
+        }
+    }
+
+    const std::string tree = dump_clean(R"hgl(
+module checks.assert_raises
+const fn raises(value: i64) -> i64 => value
+test expected {
+    let value = raises(1)
+    assert value == 1
+    assert raises("yield.negative_duration") { assert true }
+}
+)hgl");
+    CHECK(tree.find("Assert") != std::string::npos);
+}
+
 TEST_CASE("native functions accept the contextual schema type", "[parser][native][schema]") {
     const std::string tree = dump_clean(R"hgl(
 module checks.schema
