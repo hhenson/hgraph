@@ -26,6 +26,15 @@ class CompilerParity(unittest.TestCase):
             self.assertFalse(assess('hgraph.std::conditional ... FAILED\n', 0,
                                    'hgraph.std', expected)['passed'])
 
+    def test_executed_kind_is_distinct_from_source_rejection(self):
+        self.assertTrue(assess('first ... ok [executed]\n', 0,
+                               'hgraph.std', ['first'])['passed'])
+        for result in ('ok [rejection]', 'FAILED [executed]', 'FAILED [rejection]',
+                       'ok [unknown]', 'ok [executed]: unexpected detail'):
+            with self.subTest(result=result):
+                self.assertFalse(assess(f'first ... {result}\n', 0,
+                                        'hgraph.std', ['first'])['passed'])
+
     def test_success_status_alone_is_not_evidence(self):
         for output in ['', 'first ... ok\n', 'first ... ok\nfirst ... ok\nsecond ... ok\n',
                        'first ... ok\nsecond ... FAILED\n', 'other.module::first ... ok\nsecond ... ok\n']:

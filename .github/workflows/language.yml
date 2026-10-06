@@ -184,7 +184,7 @@ jobs:
           hgl_native_package_tests
           hgl_wiring_tests hgl_wiring_type_tests
           hgl_operator_type_tests hgl_native_module_tests hgl_native_module_abi_c hgl_codegen_tests hgl_codegen_fixture
-          hgl_generated_tests hgl_contextual_binding_tests hgl_stdlib_test_driver hgl_spec_stdlib_conformance
+          hgl_generated_tests hgl_negative_tests hgl_contextual_binding_tests hgl_stdlib_test_driver hgl_spec_stdlib_conformance
       - name: Run the language suites
         run: ctest --test-dir build-language -R hgraph_language --output-on-failure --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_TEST_PARALLELISM || matrix.parallel }}
       - name: Validate compiler conformance gate
