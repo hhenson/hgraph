@@ -474,6 +474,13 @@ include them in a repository build; standalone consumers find ``hgraph-web`` or
 options are off by default, so a normal core configure resolves neither their
 dependencies nor their targets.
 
+Installed-package graph smoke tests must connect every operator output they
+intend to retain to a sink, or expose it as a compiled child graph output.
+Discarding the result of a wiring call is not a runtime root: a sinkless
+top-level graph is correctly pruned to zero nodes. Validate the extension
+``test_package`` consumers as well as the core installed-SDK consumer; the
+core consumer alone does not exercise extension graph fixtures.
+
 For persistence that default carries a design rule rather than a convenience:
 durable-store policy — Parquet and S3 detection, the recording option
 vocabularies — belongs to the extension, so a core configure resolves neither
