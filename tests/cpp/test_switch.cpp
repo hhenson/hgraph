@@ -1075,10 +1075,11 @@ TEST_CASE("switch_: a paused REF branch preserves the previous token until resum
 
     Wiring w;
     auto key = wire<stdlib::replay_impl, TS<Str>>(w, Str{"key"});
-    static_cast<void>(wire<stdlib::switch_>(
+    auto selected = wire<stdlib::switch_>(
         w, key,
         stdlib::switch_cases({{Value{Str{"a"}}, fn<ConstOneRef>()},
-                              {Value{Str{"b"}}, fn<PausedConstTwoRef>()}})));
+                              {Value{Str{"b"}}, fn<PausedConstTwoRef>()}}));
+    wire<stdlib::null_sink>(w, selected);
 
     GraphBuilder builder = std::move(w).finish();
     set_replay_values(builder.global_state(), "key", values<Str>(Str{"a"}, Str{"b"}));

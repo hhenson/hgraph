@@ -60,13 +60,18 @@ namespace
 
     // A graph whose compose body seeds the global state at wiring time, then
     // wires a node that modifies it during evaluation.
+    struct CounterSink
+    {
+        static void eval(In<"value", TS<std::int32_t>>) {}
+    };
+
     struct CounterGraph
     {
         static constexpr auto name = "counter_graph";
         static void           compose(Wiring &w)
         {
             w.global_state().set("counter", Value{std::int32_t{100}});  // set during wiring (compose)
-            wire<BumpCounter>(w);
+            wire<CounterSink>(w, wire<BumpCounter>(w));
         }
     };
 }  // namespace

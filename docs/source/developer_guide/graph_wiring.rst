@@ -100,8 +100,18 @@ identification and ranking are separate steps:
   at ``finish`` from the definition plus the instance's scalar values; the current
   slice has no scalars yet, so it builds the (scalar-free) ``NodeBuilder`` eagerly
   and stores it on the instance.
-- **Build ranks.** Finishing runs the rank pass: place source nodes in the
-  prefix (and set ``push_source_nodes_end``), topologically order the rest so
+- **Prune unused nodes.** Finishing walks backwards from every output-less
+  sink and, for a compiled child graph, the returned output port. Only reachable
+  nodes enter the runtime. The traversal follows all time-series inputs,
+  including passive and feedback inputs, structural children, delayed bindings,
+  and explicit rank dependencies. Unused nodes receive no runtime lifecycle or
+  evaluation callbacks. Nested outer captures are collected only for retained
+  nodes and the returned output. A top-level graph without sinks is empty.
+  This implements the specification's ``GRF-26`` graph rule and ``WIR-25``
+  session rule; their lifecycle and capture cases live in the shared runtime
+  specification.
+- **Build ranks.** Finishing runs the rank pass on retained nodes: place source
+  nodes in the prefix (and set ``push_source_nodes_end``), topologically order the rest so
   ``rank(parent) < rank(child)``, assign ``final_index = rank``, and remap every
   edge's ``WiringInstance`` endpoints to final indices (via a ``WiringInstance* →
   index`` map).
@@ -538,7 +548,7 @@ Slices:
 Deferred: multiple outputs (``TSB`` ports, optionally returned as an array as sugar);
 **graph-level** generic resolution (``TsVar`` / ``ScalarVar`` in a *graph*
 ``compose`` signature — node-level resolution above is done); higher-order operators
-and feedback; dead-node pruning; and the Python bridge that drives the core.
+and feedback; and the Python bridge that drives the core.
 
 Run-local ordinary entry declarations
 -------------------------------------

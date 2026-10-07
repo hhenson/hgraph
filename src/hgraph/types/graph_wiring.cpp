@@ -558,6 +558,7 @@ void validate_checkpoint_ingress_consumers(
 struct OuterCaptureCollector {
   std::size_t base_index{0};
   std::vector<WiringPortRef> captured{};
+  std::vector<std::optional<std::size_t>> capture_remap{};
   bool frozen{false};
 
   [[nodiscard]] std::size_t index_for(const WiringPortRef &outer) {
@@ -580,6 +581,13 @@ struct OuterCaptureCollector {
       return source.boundary_arg_index();
     }
     const std::size_t capture_index = source.boundary_capture_index();
+    if (!capture_remap.empty()) {
+      if (capture_index >= capture_remap.size() ||
+          !capture_remap[capture_index].has_value()) {
+        throw std::logic_error("sub-graph referenced a pruned outer capture");
+      }
+      return base_index + *capture_remap[capture_index];
+    }
     if (capture_index >= captured.size()) {
       throw std::logic_error(
           "captured sub-graph boundary index is out of range");
@@ -859,24 +867,111 @@ void select_output_value_storage(
   }
 }
 
+[[nodiscard]] std::vector<const WiringInstance *> reachable_instances(
+    const std::deque<WiringInstance> &instances,
+    const std::unordered_set<const WiringInstance *> *escaped_outputs = nullptr,
+    const std::unordered_set<const WiringInstance *> *external = nullptr) {
+  std::unordered_set<const WiringInstance *> owned;
+  for (const auto &instance : instances) {
+    if (external == nullptr || !external->contains(&instance)) {
+      owned.insert(&instance);
+    }
+  }
+
+  std::unordered_set<const WiringInstance *> live;
+  std::vector<const WiringInstance *> pending;
+  const auto retain = [&](const WiringInstance *instance) {
+    if (owned.contains(instance) && live.insert(instance).second) {
+      pending.push_back(instance);
+    }
+  };
+  for (const auto &instance : instances) {
+    const auto *schema = instance.builder.type().schema();
+    if (schema != nullptr && !schema->has_output()) {
+      retain(&instance);
+    }
+  }
+  if (escaped_outputs != nullptr) {
+    for (const auto *instance : *escaped_outputs) {
+      retain(instance);
+    }
+  }
+
+  std::vector<const WiringInstance *> producers;
+  while (!pending.empty()) {
+    const auto *instance = pending.back();
+    pending.pop_back();
+    // Feedback/passive inputs still require their producers even when they
+    // impose no topological ordering constraint.
+    for (const auto &input : instance->inputs) {
+      producers.clear();
+      collect_producers(input.source, producers, owned);
+      for (const auto *producer : producers) {
+        retain(producer);
+      }
+    }
+    for (const auto *producer : instance->rank_dependencies) {
+      retain(producer);
+    }
+  }
+
+  std::vector<const WiringInstance *> all;
+  all.reserve(live.size());
+  for (const auto &instance : instances) {
+    if (live.contains(&instance)) {
+      all.push_back(&instance);
+    }
+  }
+  return all;
+}
+
+void prune_outer_captures(
+    OuterCaptureCollector &captures,
+    const std::vector<const WiringInstance *> &all,
+    const std::optional<WiringPortRef> &output) {
+  std::unordered_set<std::size_t> used;
+  const auto collect = [&](const auto &self, const WiringPortRef &source) -> void {
+    if (source.is_delayed_source()) {
+      self(self, resolve_delayed_source(source));
+    } else if (source.is_captured_boundary_source()) {
+      used.insert(source.boundary_capture_index());
+    } else if (source.is_structural_source()) {
+      for (const auto &child : source.structural_children()) {
+        self(self, child);
+      }
+    }
+  };
+  for (const auto *instance : all) {
+    for (const auto &input : instance->inputs) {
+      collect(collect, input.source);
+    }
+  }
+  if (output.has_value()) {
+    collect(collect, *output);
+  }
+  auto original = std::move(captures.captured);
+  captures.captured.clear();
+  captures.capture_remap.resize(original.size());
+  for (std::size_t index = 0; index < original.size(); ++index) {
+    if (used.contains(index)) {
+      captures.capture_remap[index] = captures.captured.size();
+      captures.captured.push_back(std::move(original[index]));
+    }
+  }
+}
+
 // The one rank-and-build pass behind both ``finish`` flavours: Kahn
 // topological sort (an input edge is producer -> consumer; insertion
 // order breaks ties), then nodes + edges into a GraphBuilder.
 [[nodiscard]] RankedGraphBuild
 build_ranked_graph(std::deque<WiringInstance> &instances,
+                   const std::vector<const WiringInstance *> &all,
                    std::vector<NestedGraphInputBinding> *boundary_bindings,
                    OuterCaptureCollector *captures = nullptr,
                    const std::unordered_map<const WiringInstance *, std::size_t>
                        *external_sources = nullptr,
                    const std::unordered_set<const WiringInstance *>
                        *escaped_outputs = nullptr) {
-  std::vector<const WiringInstance *> all;
-  all.reserve(instances.size());
-  for (const auto &instance : instances) {
-    if (external_sources == nullptr || !external_sources->contains(&instance)) {
-      all.push_back(&instance);
-    }
-  }
   std::unordered_set<const WiringInstance *> owned{all.begin(), all.end()};
   validate_checkpoint_ingress_consumers(all, owned, escaped_outputs);
   select_output_value_storage(instances, owned, escaped_outputs);
@@ -2354,7 +2449,12 @@ void Wiring::validate_same_cycle_pairs(
   for (const auto &pair : impl_->same_cycle_pairs) {
     const auto capture = index_of.find(pair.capture);
     const auto source = index_of.find(pair.source);
-    if (capture == index_of.end() || source == index_of.end()) {
+    // A relay source with no consumers is pruned; its capture can remain a
+    // live sink. A retained source must still retain and follow its capture.
+    if (source == index_of.end()) {
+      continue;
+    }
+    if (capture == index_of.end()) {
       throw std::logic_error(
           "Wiring::finish lost a same-cycle boundary pair node ('" +
           name_of(pair.capture) + "' / '" + name_of(pair.source) + "')");
@@ -3193,7 +3293,8 @@ GraphBuilder Wiring::finish_top_level(bool consume_state) {
   const auto realization = TypeRealizationSnapshot::capture(
       TypeRegistry::instance(), type_realization_options(selected_state));
   TypeRealizationScope realization_scope{realization.get()};
-  RankedGraphBuild build = build_ranked_graph(impl_->instances, nullptr);
+  const auto all = reachable_instances(impl_->instances);
+  RankedGraphBuild build = build_ranked_graph(impl_->instances, all, nullptr);
   validate_same_cycle_pairs(build.index_of);
   // The wiring end FIXES the seed (ruling 2026-07-27): a live-seeded wiring
   // copies the selected GlobalState as it stands NOW — wiring-time
@@ -3381,14 +3482,25 @@ CompiledSubGraph Wiring::finish_subgraph(
   }
   std::unordered_set<const WiringInstance *> external_instance_set{
       external_instances.begin(), external_instances.end()};
-  for (const WiringInstance &instance : impl_->instances) {
-    if (external_instance_set.contains(&instance)) {
-      continue;
-    }
-    for (const WiringInputRef &input : instance.inputs) {
+  if (output.has_value() && output->is_delayed_source()) {
+    output = resolve_delayed_source(*output);
+  }
+  std::unordered_set<const WiringInstance *> escaped_outputs;
+  if (output.has_value()) {
+    collect_escaped_output_producers(*output, {}, escaped_outputs);
+  }
+  const auto all = reachable_instances(impl_->instances, &escaped_outputs,
+                                       &external_instance_set);
+  prune_outer_captures(captures, all, output);
+  for (const WiringInstance *instance : all) {
+    for (const WiringInputRef &input : instance->inputs) {
       collect_outer_captures(input.source, owned_instances,
                              external_instance_set, captures);
     }
+  }
+  if (output.has_value()) {
+    collect_outer_captures(*output, owned_instances, external_instance_set,
+                           captures);
   }
   captures.frozen = true;
   for (std::size_t index = 0; index < external_instances.size(); ++index) {
@@ -3397,17 +3509,8 @@ CompiledSubGraph Wiring::finish_subgraph(
                                  index);
   }
 
-  if (output.has_value() && output->is_delayed_source()) {
-    output = resolve_delayed_source(*output);
-  }
-  std::unordered_set<const WiringInstance *> escaped_outputs;
-  if (output.has_value()) {
-    collect_escaped_output_producers(*output, external_sources,
-                                     escaped_outputs);
-  }
-
   RankedGraphBuild build = build_ranked_graph(
-      impl_->instances, &compiled.input_bindings, &captures, &external_sources,
+      impl_->instances, all, &compiled.input_bindings, &captures, &external_sources,
       &escaped_outputs);
   validate_same_cycle_pairs(build.index_of);
   // GraphBuilder's default construction honours an active top-level

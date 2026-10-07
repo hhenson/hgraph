@@ -31,6 +31,11 @@ namespace
 {
     using namespace hgraph;
 
+    struct WiringOutputSink
+    {
+        static void eval(In<"value", TsVar<"S">>) {}
+    };
+
     struct OutputOnlyGraphEdgeLayout
     {
         std::size_t source_node{0};
@@ -191,7 +196,7 @@ namespace
         static void           compose(Wiring &w)
         {
             auto source = wire<ConstantSource>(w);
-            wire<AddOne>(w, source);
+            wire<WiringOutputSink>(w, wire<AddOne>(w, source));
         }
     };
 
@@ -300,7 +305,7 @@ namespace
         static void           compose(Wiring &w)
         {
             auto source = wire<ConstantSource>(w);
-            wire<PlusTwo>(w, source);
+            wire<WiringOutputSink>(w, wire<PlusTwo>(w, source));
         }
     };
 
@@ -320,7 +325,7 @@ namespace
         static void           compose(Wiring &w)
         {
             auto source = wire<ConstantSource>(w);   // interns to one node
-            wire<Sum>(w, source, source);            // 41 + 41
+            wire<WiringOutputSink>(w, wire<Sum>(w, source, source));   // 41 + 41
         }
     };
 
@@ -335,7 +340,7 @@ namespace
     struct ScaledSourceGraph
     {
         static constexpr auto name = "scaled_source_graph";
-        static void           compose(Wiring &w) { wire<ScaledSource>(w, Int{7}); }
+        static void           compose(Wiring &w) { wire<WiringOutputSink>(w, wire<ScaledSource>(w, Int{7})); }
     };
 
     // Compute node mixing a TS input port with a scalar argument; wire args are
@@ -365,7 +370,7 @@ namespace
         static void           compose(Wiring &w)
         {
             auto source = wire<ConstantSource>(w);   // 41
-            wire<Shift>(w, source, Int{5});          // 41 + 5 = 46
+            wire<WiringOutputSink>(w, wire<Shift>(w, source, Int{5}));   // 41 + 5 = 46
         }
     };
 
@@ -375,7 +380,7 @@ namespace
         static constexpr auto name = "configured_source_graph";
         static void           compose(Wiring &w, Scalar<"value", Int> value)
         {
-            wire<ScaledSource>(w, value.value());
+            wire<WiringOutputSink>(w, wire<ScaledSource>(w, value.value()));
         }
     };
 
@@ -386,7 +391,7 @@ namespace
         static void           compose(Wiring &w, Scalar<"offset", Int> offset)
         {
             auto source = wire<ConstantSource>(w);    // 41
-            wire<Shift>(w, source, offset.value());   // 41 + offset
+            wire<WiringOutputSink>(w, wire<Shift>(w, source, offset.value()));   // 41 + offset
         }
     };
 
@@ -395,7 +400,7 @@ namespace
         static constexpr auto name = "configured_pair_source_graph";
         static void           compose(Wiring &w, Scalar<"lhs", Int> lhs, Scalar<"rhs", Int> rhs)
         {
-            wire<ScaledSource>(w, lhs.value() * Int{10} + rhs.value());
+            wire<WiringOutputSink>(w, wire<ScaledSource>(w, lhs.value() * Int{10} + rhs.value()));
         }
     };
 
@@ -405,7 +410,7 @@ namespace
         static auto           defaults() { return std::tuple{arg<"value">(Int{12})}; }
         static void           compose(Wiring &w, Scalar<"value", Int> value)
         {
-            wire<ScaledSource>(w, value.value());
+            wire<WiringOutputSink>(w, wire<ScaledSource>(w, value.value()));
         }
     };
 
@@ -429,7 +434,7 @@ namespace
         static void           compose(Wiring &w)
         {
             auto source = wire<ConstantSource>(w);
-            wire<ShiftBy>(w, source, Int{5});
+            wire<WiringOutputSink>(w, wire<ShiftBy>(w, source, Int{5}));
         }
     };
 
@@ -439,7 +444,7 @@ namespace
         static void           compose(Wiring &w)
         {
             auto source = wire<ConstantSource>(w);
-            wire<Shift>(w, arg<"delta">(Int{5}), arg<"in">(source));
+            wire<WiringOutputSink>(w, wire<Shift>(w, arg<"delta">(Int{5}), arg<"in">(source)));
         }
     };
 
@@ -449,7 +454,7 @@ namespace
         static void           compose(Wiring &w)
         {
             auto source = wire<ConstantSource>(w);
-            wire<DefaultShift>(w, source);
+            wire<WiringOutputSink>(w, wire<DefaultShift>(w, source));
         }
     };
 
@@ -459,7 +464,7 @@ namespace
         static void           compose(Wiring &w)
         {
             auto source = wire<ConstantSource>(w);
-            wire<ShiftBy>(w, arg<"by">(Int{5}), arg<"x">(source));
+            wire<WiringOutputSink>(w, wire<ShiftBy>(w, arg<"by">(Int{5}), arg<"x">(source)));
         }
     };
 
@@ -477,7 +482,7 @@ namespace
         static void           compose(Wiring &w)
         {
             auto source = wire<stdlib::const_>(w, Int{41});  // erased Port<void>, resolved to TS<Int>
-            wire<AddOneSubGraph>(w, source);
+            wire<WiringOutputSink>(w, wire<AddOneSubGraph>(w, source));
         }
     };
 
@@ -509,7 +514,7 @@ namespace
         static void           compose(Wiring &w)
         {
             auto source = wire<ConstantSource>(w);
-            wire<CountSignalSubGraph>(w, source);
+            wire<WiringOutputSink>(w, wire<CountSignalSubGraph>(w, source));
         }
     };
 
@@ -522,7 +527,7 @@ namespace
         static void compose(Wiring &w)
         {
             auto source = wire<ConstantSource>(w);
-            wire<CountSignal>(w, stdlib::to_tsb<FreeSignalBundle>(w, source, source));
+            wire<WiringOutputSink>(w, wire<CountSignal>(w, stdlib::to_tsb<FreeSignalBundle>(w, source, source)));
         }
     };
 
@@ -531,7 +536,7 @@ namespace
         static void compose(Wiring &w)
         {
             auto source = wire<ConstantSource>(w);
-            wire<CountSignal>(w, stdlib::to_tsl<TS<Int>>(w, source, source));
+            wire<WiringOutputSink>(w, wire<CountSignal>(w, stdlib::to_tsl<TS<Int>>(w, source, source)));
         }
     };
 
@@ -593,7 +598,7 @@ namespace
         static void compose(Wiring &w)
         {
             auto source = wire<ConstantSource>(w);
-            wire<RefProbe>(w, source);
+            wire<WiringOutputSink>(w, wire<RefProbe>(w, source));
         }
     };
 
@@ -605,7 +610,7 @@ namespace
         {
             auto source = wire<ConstantSource>(w);
             auto list   = stdlib::to_tsl<TSL<TS<Int>, 2>>(w, source, source);
-            wire<StructuralListRefProbe>(w, list);
+            wire<WiringOutputSink>(w, wire<StructuralListRefProbe>(w, list));
         }
     };
 
@@ -617,7 +622,7 @@ namespace
         {
             auto source = wire<ConstantSource>(w);
             auto ref    = wire<RefCopy>(w, source);
-            wire<RefDeref>(w, ref);
+            wire<WiringOutputSink>(w, wire<RefDeref>(w, ref));
         }
     };
 
@@ -655,7 +660,7 @@ namespace
         {
             auto source = wire<TSource>(w);
             auto ref    = wire<RefCopyFor<TSchema>>(w, source);
-            wire<RefDerefPass<TSchema>>(w, ref);
+            wire<WiringOutputSink>(w, wire<RefDerefPass<TSchema>>(w, ref));
         }
     };
 
@@ -716,7 +721,7 @@ namespace
         static void compose(Wiring &w)
         {
             auto source = wire<ConstantSource>(w);
-            wire<BraceListInputSum>(w, {source, source});
+            wire<WiringOutputSink>(w, wire<BraceListInputSum>(w, {source, source}));
         }
     };
 
@@ -739,7 +744,7 @@ namespace
         static void compose(Wiring &w)
         {
             auto source = wire<ConstantSource>(w);
-            wire<BraceBundleInputSum>(w, {source, source});
+            wire<WiringOutputSink>(w, wire<BraceBundleInputSum>(w, {source, source}));
         }
     };
 
@@ -751,7 +756,7 @@ namespace
         {
             auto a = wire<ScaledSource>(w, Int{3});
             auto b = wire<ScaledSource>(w, Int{40});
-            wire<BraceBundleInputSum>(w, {{"b", b}, {"a", a}});
+            wire<WiringOutputSink>(w, wire<BraceBundleInputSum>(w, {{"b", b}, {"a", a}}));
         }
     };
 
@@ -774,7 +779,7 @@ namespace
         static void compose(Wiring &w)
         {
             auto source = wire<ConstantSource>(w);
-            wire<BraceBundlePartialInputProbe>(w, {{"a", source}});
+            wire<WiringOutputSink>(w, wire<BraceBundlePartialInputProbe>(w, {{"a", source}}));
         }
     };
 
@@ -922,7 +927,7 @@ namespace
         {
             auto source   = wire<ConstantSource>(w);
             auto previous = wire<RecordablePreviousValue>(w, source);
-            wire<RecordedStateLast>(w, recordable_state(previous));
+            wire<WiringOutputSink>(w, wire<RecordedStateLast>(w, recordable_state(previous)));
         }
     };
 
@@ -945,7 +950,7 @@ namespace
             auto source   = wire<ConstantSource>(w);
             auto previous = wire<RecordablePreviousValue>(w, source);
             auto state = nested_<RecordableStatePassthrough>(w, recordable_state(previous));
-            wire<RecordedStateLast>(w, state);
+            wire<WiringOutputSink>(w, wire<RecordedStateLast>(w, state));
         }
     };
 
@@ -985,7 +990,7 @@ namespace
         {
             auto source = wire<ConstantSource>(w);
             auto bundle = stdlib::to_tsb<RefRoundTripBundle>(w, source, source);
-            wire<StructuralBundleRefProbe>(w, bundle);
+            wire<WiringOutputSink>(w, wire<StructuralBundleRefProbe>(w, bundle));
         }
     };
 
@@ -1123,7 +1128,7 @@ namespace
                                                   std::span<const WiringPortRef>{},
                                                   Value{});
             Port<TS<Int>> source{w, std::move(source_ref)};
-            wire<AddOne>(w, error_output(source));
+            wire<WiringOutputSink>(w, wire<AddOne>(w, error_output(source)));
         }
     };
 
@@ -1221,7 +1226,7 @@ TEST_CASE("graph wiring: build_graph wires source -> add_one and runs in simulat
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 2);
+    REQUIRE(graph.node_count() == 3);
     // The rank pass orders source (no inputs) before add_one, so node 1 is add_one.
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{42});
 }
@@ -1306,9 +1311,11 @@ TEST_CASE("graph wiring: identical nodes are interned to one")
     CHECK(a.node() != nullptr);
     CHECK(a.node() == b.node());   // same interned wiring instance
 
+    wire<WiringOutputSink>(w, a);
+
     GraphBuilder            graph_builder = std::move(w).finish();
     testing::MockRootGraph  graph{graph_builder};
-    CHECK(graph.graph().node_count() == 1);   // deduped to a single runtime node
+    CHECK(graph.graph().node_count() == 2);   // one interned source + sink
 }
 
 TEST_CASE("graph wiring: node interning keeps distinct input ports separate")
@@ -1329,9 +1336,13 @@ TEST_CASE("graph wiring: node interning keeps distinct input ports separate")
     CHECK(first_pair.node() != repeated_source.node());
     CHECK(reversed_pair.node() != repeated_source.node());
 
+    wire<WiringOutputSink>(w, first_pair);
+    wire<WiringOutputSink>(w, reversed_pair);
+    wire<WiringOutputSink>(w, repeated_source);
+
     GraphBuilder           graph_builder = std::move(w).finish();
     testing::MockRootGraph graph{graph_builder};
-    CHECK(graph.graph().node_count() == 5);   // two sources + three distinct sums
+    CHECK(graph.graph().node_count() == 8);   // two sources + three sums + three sinks
 }
 
 TEST_CASE("graph wiring: push sources form the runtime prefix across implementations")
@@ -1344,7 +1355,7 @@ TEST_CASE("graph wiring: push sources form the runtime prefix across implementat
 
     const auto *schema = ts_type<TS<Int>>();
     Wiring w;
-    (void)w.add_unique_node(
+    auto first = w.add_unique_node(
         std::type_index(typeid(FirstPushSourceTag)),
         make_push_source_node(*schema),
         std::span<const WiringPortRef>{},
@@ -1359,14 +1370,17 @@ TEST_CASE("graph wiring: push sources form the runtime prefix across implementat
         std::span<const WiringPortRef>{},
         Value{});
 
-    (void)w.add_unique_node(
+    auto second = w.add_unique_node(
         std::type_index(typeid(SecondPushSourceTag)),
         make_push_source_node(*schema),
         std::span<const WiringPortRef>{},
         Value{});
 
+    wire<WiringOutputSink>(w, Port<TS<Int>>{w, first});
+    wire<WiringOutputSink>(w, Port<TS<Int>>{w, second});
+
     GraphBuilder graph = std::move(w).finish();
-    REQUIRE(graph.node_count() == 3);
+    REQUIRE(graph.node_count() == 5);
     CHECK(graph.nodes()[0].type().schema()->node_kind == NodeKind::PushSource);
     CHECK(graph.nodes()[1].type().schema()->node_kind == NodeKind::PushSource);
     CHECK(graph.nodes()[2].type().schema()->node_kind == NodeKind::Sink);
@@ -1388,7 +1402,7 @@ TEST_CASE("graph wiring: sub-graph composition inlines (flattens) into the paren
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 3);   // source + two add_one (the PlusTwo sub-graph flattened)
+    REQUIRE(graph.node_count() == 4);   // source + two add_one + sink (PlusTwo flattened)
     CHECK(graph.node_at(2).output(MIN_ST).value().checked_as<Int>() == Int{43});
 }
 
@@ -1409,7 +1423,7 @@ TEST_CASE("graph wiring: sub-graph typed input accepts an erased generic source 
     view.run();
 
     auto graph = view.graph();
-    REQUIRE(graph.node_count() == 2);
+    REQUIRE(graph.node_count() == 3);
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{42});
 }
 
@@ -1429,7 +1443,7 @@ TEST_CASE("graph wiring: sub-graph SIGNAL input accepts any time-series port")
     view.run();
 
     auto graph = view.graph();
-    REQUIRE(graph.node_count() == 2);
+    REQUIRE(graph.node_count() == 3);
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{1});
 }
 
@@ -1440,7 +1454,7 @@ TEST_CASE("graph wiring: SIGNAL input accepts a free structural TSB without a he
     GraphExecutorValue executor = testing::run_graph(build_graph<StructuralBundleSignalGraph>());
     auto graph = executor.view().graph();
 
-    REQUIRE(graph.node_count() == 2);
+    REQUIRE(graph.node_count() == 3);
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{1});
 }
 
@@ -1451,7 +1465,7 @@ TEST_CASE("graph wiring: SIGNAL input accepts a free fixed TSL without a helper 
     GraphExecutorValue executor = testing::run_graph(build_graph<StructuralListSignalGraph>());
     auto graph = executor.view().graph();
 
-    REQUIRE(graph.node_count() == 2);
+    REQUIRE(graph.node_count() == 3);
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{1});
 }
 
@@ -1471,7 +1485,7 @@ TEST_CASE("graph wiring: TS output can bind to a REF input")
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 2);
+    REQUIRE(graph.node_count() == 3);
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Bool>());
 }
 
@@ -1492,7 +1506,7 @@ TEST_CASE("graph wiring: structural TSL source can bind to a REF input as non-pe
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 3);
+    REQUIRE(graph.node_count() == 4);
     REQUIRE(graph.node_at(2).output(MIN_ST).valid());
     CHECK(graph.node_at(2).output(MIN_ST).value().checked_as<Bool>());
 }
@@ -1514,7 +1528,7 @@ TEST_CASE("graph wiring: structural TSB source can bind to a REF input as non-pe
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 3);
+    REQUIRE(graph.node_count() == 4);
     REQUIRE(graph.node_at(2).output(MIN_ST).valid());
     CHECK(graph.node_at(2).output(MIN_ST).value().checked_as<Bool>());
 }
@@ -1526,7 +1540,7 @@ TEST_CASE("graph wiring: brace initializer wires fixed TSL input as non-peered s
     GraphExecutorValue executor = testing::run_graph(build_graph<BraceListInputGraph>());
 
     auto graph = executor.view().graph();
-    REQUIRE(graph.node_count() == 2);
+    REQUIRE(graph.node_count() == 3);
     REQUIRE(graph.node_at(1).output(MIN_ST).valid());
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{82});
 }
@@ -1538,7 +1552,7 @@ TEST_CASE("graph wiring: brace initializer wires TSB input as non-peered structu
     GraphExecutorValue executor = testing::run_graph(build_graph<BraceBundleInputGraph>());
 
     auto graph = executor.view().graph();
-    REQUIRE(graph.node_count() == 2);
+    REQUIRE(graph.node_count() == 3);
     REQUIRE(graph.node_at(1).output(MIN_ST).valid());
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{82});
 }
@@ -1550,7 +1564,7 @@ TEST_CASE("graph wiring: named brace initializer wires TSB fields by name")
     GraphExecutorValue executor = testing::run_graph(build_graph<BraceBundleNamedInputGraph>());
 
     auto graph = executor.view().graph();
-    REQUIRE(graph.node_count() == 3);
+    REQUIRE(graph.node_count() == 4);
     REQUIRE(graph.node_at(2).output(MIN_ST).valid());
     CHECK(graph.node_at(2).output(MIN_ST).value().checked_as<Int>() == Int{43});
 }
@@ -1562,7 +1576,7 @@ TEST_CASE("graph wiring: partial named TSB initializer fills missing fields with
     GraphExecutorValue executor = testing::run_graph(build_graph<BraceBundlePartialInputGraph>());
 
     auto graph = executor.view().graph();
-    REQUIRE(graph.node_count() == 2);
+    REQUIRE(graph.node_count() == 3);
     REQUIRE(graph.node_at(1).output(MIN_ST).valid());
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{41});
 }
@@ -1618,14 +1632,14 @@ TEST_CASE("graph wiring: recordable_state exposes the hidden recordable-state po
     using namespace hgraph;
 
     GraphBuilder graph_builder = build_graph<RecordableStatePortGraph>();
-    REQUIRE(graph_builder.edges().size() == 2);
+    REQUIRE(graph_builder.edges().size() == 3);
     CHECK(graph_edge_source_node(graph_builder.edges()[1].source_node) == 1);
     CHECK(graph_edge_source_kind(graph_builder.edges()[1].source_node) == GraphEdgeSourceKind::RecordableState);
 
     GraphExecutorValue executor = testing::run_graph(std::move(graph_builder));
 
     auto graph = executor.view().graph();
-    REQUIRE(graph.node_count() == 3);
+    REQUIRE(graph.node_count() == 4);
     REQUIRE(graph.node_at(2).output(MIN_ST).valid());
     CHECK(graph.node_at(2).output(MIN_ST).value().checked_as<Int>() == Int{41});
 }
@@ -1635,14 +1649,14 @@ TEST_CASE("graph wiring: recordable state passes through a compiled nested bound
     using namespace hgraph;
 
     GraphBuilder graph_builder = build_graph<NestedRecordableStatePortGraph>();
-    REQUIRE(graph_builder.edges().size() == 3);
+    REQUIRE(graph_builder.edges().size() == 4);
     CHECK(graph_edge_source_kind(graph_builder.edges()[1].source_node) ==
           GraphEdgeSourceKind::RecordableState);
 
     GraphExecutorValue executor = testing::run_graph(std::move(graph_builder));
 
     auto graph = executor.view().graph();
-    REQUIRE(graph.node_count() == 4);
+    REQUIRE(graph.node_count() == 5);
     REQUIRE(graph.node_at(3).output(MIN_ST).valid());
     CHECK(graph.node_at(3).output(MIN_ST).value().checked_as<Int>() == Int{41});
 }
@@ -1652,14 +1666,14 @@ TEST_CASE("graph wiring: error_output exposes the hidden error-output port")
     using namespace hgraph;
 
     GraphBuilder graph_builder = build_graph<ErrorOutputPortGraph>();
-    REQUIRE(graph_builder.edges().size() == 1);
+    REQUIRE(graph_builder.edges().size() == 2);
     CHECK(graph_edge_source_node(graph_builder.edges()[0].source_node) == 0);
     CHECK(graph_edge_source_kind(graph_builder.edges()[0].source_node) == GraphEdgeSourceKind::ErrorOutput);
 
     GraphExecutorValue executor = testing::run_graph(std::move(graph_builder));
 
     auto graph = executor.view().graph();
-    REQUIRE(graph.node_count() == 2);
+    REQUIRE(graph.node_count() == 3);
     REQUIRE(graph.node_at(1).output(MIN_ST).valid());
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{100});
 }
@@ -1885,7 +1899,7 @@ TEST_CASE("graph wiring: REF output can bind back to a dereferenced TS input")
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 3);
+    REQUIRE(graph.node_count() == 4);
     CHECK(graph.node_at(2).output(MIN_ST).value().checked_as<Int>() == Int{41});
 }
 
@@ -1901,7 +1915,7 @@ TEST_CASE("graph wiring: REF round trip supports TSS")
     Value one{Int{1}};
     Value two{Int{2}};
 
-    REQUIRE(graph.node_count() == 3);
+    REQUIRE(graph.node_count() == 4);
     CHECK(set.size() == 2);
     CHECK(set.contains(one.view()));
     CHECK(set.contains(two.view()));
@@ -1919,7 +1933,7 @@ TEST_CASE("graph wiring: REF round trip supports TSD")
     Value one{Int{1}};
     Value two{Int{2}};
 
-    REQUIRE(graph.node_count() == 3);
+    REQUIRE(graph.node_count() == 4);
     REQUIRE(dict.contains(one.view()));
     REQUIRE(dict.contains(two.view()));
     CHECK(dict.at(one.view()).value().checked_as<Int>() == Int{10});
@@ -1936,7 +1950,7 @@ TEST_CASE("graph wiring: REF round trip supports fixed TSL")
     auto output = graph.node_at(2).output(MIN_ST);
     auto list   = output.as_list();
 
-    REQUIRE(graph.node_count() == 3);
+    REQUIRE(graph.node_count() == 4);
     REQUIRE(list.size() == 2);
     CHECK(list.at(0).value().checked_as<Int>() == Int{7});
     CHECK(list.at(1).value().checked_as<Int>() == Int{8});
@@ -1952,7 +1966,7 @@ TEST_CASE("graph wiring: REF round trip supports TSB")
     auto output = graph.node_at(2).output(MIN_ST);
     auto bundle = output.as_bundle();
 
-    REQUIRE(graph.node_count() == 3);
+    REQUIRE(graph.node_count() == 4);
     CHECK(bundle.field("a").value().checked_as<Int>() == Int{11});
     CHECK(bundle.field("b").value().checked_as<Int>() == Int{12});
 }
@@ -1975,7 +1989,7 @@ TEST_CASE("graph wiring: REF round trip supports nested collection children")
     Value four{Int{4}};
     Value five{Int{5}};
 
-    REQUIRE(graph.node_count() == 3);
+    REQUIRE(graph.node_count() == 4);
     CHECK(first_values.size() == 2);
     CHECK(first_values.contains(three.view()));
     CHECK(first_values.contains(four.view()));
@@ -1999,7 +2013,7 @@ TEST_CASE("graph wiring: multi-input node wires and type-checks its ports")
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 2);   // one interned source + sum
+    REQUIRE(graph.node_count() == 3);   // one interned source + sum + sink
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{82});
 }
 
@@ -2019,7 +2033,7 @@ TEST_CASE("graph wiring: a scalar argument configures a wired node")
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 1);
+    REQUIRE(graph.node_count() == 2);
     CHECK(graph.node_at(0).output(MIN_ST).value().checked_as<Int>() == Int{7});
 }
 
@@ -2039,7 +2053,7 @@ TEST_CASE("graph wiring: a scalar argument coexists with a time-series input por
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 2);   // source + shift
+    REQUIRE(graph.node_count() == 3);   // source + shift + sink
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{46});
 }
 
@@ -2055,9 +2069,12 @@ TEST_CASE("graph wiring: scalar values participate in node interning")
     CHECK(a.node() == b.node());
     CHECK(a.node() != c.node());
 
+    wire<WiringOutputSink>(w, a);
+    wire<WiringOutputSink>(w, c);
+
     GraphBuilder            graph_builder = std::move(w).finish();
     testing::MockRootGraph  graph{graph_builder};
-    CHECK(graph.graph().node_count() == 2);   // {7} deduped, {8} distinct
+    CHECK(graph.graph().node_count() == 4);   // two distinct sources + two sinks
 }
 
 TEST_CASE("graph wiring: StaticGraphSignature reflects a graph's compose parameters")
@@ -2091,7 +2108,7 @@ TEST_CASE("graph wiring: a top-level graph takes a scalar parameter via build_gr
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 1);
+    REQUIRE(graph.node_count() == 2);
     CHECK(graph.node_at(0).output(MIN_ST).value().checked_as<Int>() == Int{9});
 }
 
@@ -2111,7 +2128,7 @@ TEST_CASE("graph wiring: build_graph scalar parameters accept keyword arguments"
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 1);
+    REQUIRE(graph.node_count() == 2);
     CHECK(graph.node_at(0).output(MIN_ST).value().checked_as<Int>() == Int{42});
 }
 
@@ -2131,7 +2148,7 @@ TEST_CASE("graph wiring: build_graph uses defaulted scalar parameters")
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 1);
+    REQUIRE(graph.node_count() == 2);
     CHECK(graph.node_at(0).output(MIN_ST).value().checked_as<Int>() == Int{12});
 }
 
@@ -2163,7 +2180,7 @@ TEST_CASE("graph wiring: a graph scalar parameter threads into a node's scalar")
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 2);
+    REQUIRE(graph.node_count() == 3);
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{46});
 }
 
@@ -2183,7 +2200,7 @@ TEST_CASE("graph wiring: direct node wiring accepts keyword arguments")
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 2);
+    REQUIRE(graph.node_count() == 3);
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{46});
 }
 
@@ -2203,7 +2220,7 @@ TEST_CASE("graph wiring: direct node wiring uses defaulted scalar parameters")
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 2);
+    REQUIRE(graph.node_count() == 3);
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{46});
 }
 
@@ -2223,7 +2240,7 @@ TEST_CASE("graph wiring: wire<G> auto-wraps a scalar literal for a sub-graph par
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 2);   // source + shift (ShiftBy flattened away)
+    REQUIRE(graph.node_count() == 3);   // source + shift + sink (ShiftBy flattened)
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{46});
 }
 
@@ -2243,7 +2260,7 @@ TEST_CASE("graph wiring: flattened sub-graph wiring accepts keyword arguments")
     executor_view.run();
 
     auto graph = executor_view.graph();
-    REQUIRE(graph.node_count() == 2);   // source + shift (ShiftBy flattened away)
+    REQUIRE(graph.node_count() == 3);   // source + shift + sink (ShiftBy flattened)
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{46});
 }
 

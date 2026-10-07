@@ -472,22 +472,22 @@ namespace
         static void compose(Wiring &w)
         {
             auto scalar = wire<stdlib::const_, TS<Int>>(w, Int{3});
-            static_cast<void>(nested_<AddOneSubGraph>(w, scalar));
+            wire<stdlib::null_sink>(w, nested_<AddOneSubGraph>(w, scalar));
 
             auto dict = wire<stdlib::const_, TSD<Str, TS<Int>>>(
                 w, stdlib::make_map<Str, Int>({{Str{"a"}, Int{1}}, {Str{"b"}, Int{2}}, {Str{"c"}, Int{3}}}));
-            static_cast<void>(wire<stdlib::map_>(w, fn<AddOneSubGraph>(), dict));
-            static_cast<void>(wire<stdlib::mesh_>(w, fn<AddOneSubGraph>(), dict));
-            static_cast<void>(wire<stdlib::reduce_>(w, fn<stdlib::add_>(), dict));
+            wire<stdlib::null_sink>(w, wire<stdlib::map_>(w, fn<AddOneSubGraph>(), dict));
+            wire<stdlib::null_sink>(w, wire<stdlib::mesh_>(w, fn<AddOneSubGraph>(), dict));
+            wire<stdlib::null_sink>(w, wire<stdlib::reduce_>(w, fn<stdlib::add_>(), dict));
 
             auto ordered_dict = wire<stdlib::const_, TSD<Int, TS<Int>>>(
                 w, stdlib::make_map<Int, Int>({{Int{0}, Int{1}}, {Int{1}, Int{2}}, {Int{2}, Int{3}}}));
             auto ordered_zero = wire<stdlib::const_, TS<Int>>(w, Int{0});
-            static_cast<void>(wire<stdlib::reduce_>(
+            wire<stdlib::null_sink>(w, wire<stdlib::reduce_>(
                 w, fn<stdlib::add_>(), ordered_dict, ordered_zero, Bool{false}));
 
             auto key = wire<stdlib::const_, TS<Str>>(w, Str{"double"});
-            static_cast<void>(wire<stdlib::switch_>(
+            wire<stdlib::null_sink>(w, wire<stdlib::switch_>(
                 w, key,
                 stdlib::switch_cases({{Value{Str{"double"}}, fn<AddOneSubGraph>()}}),
                 scalar));

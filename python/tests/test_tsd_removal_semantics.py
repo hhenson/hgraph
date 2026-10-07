@@ -270,7 +270,7 @@ def test_nested_map_projection_preserves_final_key_removal(projection):
         partitions = hg.map_(part, d, __keys__=hg.const(frozenset({"A"}), TSS[str]))
         selected = (hg.map_(lambda value: value.raw, partitions)
                     if projection == "map" else partitions.raw)
-        observe(selected)
+        hg.null_sink(observe(selected))
         return count(hg.collapse_keys(selected))
 
     assert eval_node(run, [

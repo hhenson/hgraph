@@ -23,6 +23,11 @@ namespace
 {
     using namespace hgraph;
 
+    struct DiagnosticsSink
+    {
+        static void eval(In<"value", TsVar<"S">>) {}
+    };
+
     struct InspectAddOne
     {
         static constexpr auto name = "inspect_add_one";
@@ -41,7 +46,7 @@ namespace
         static void compose(Wiring &w)
         {
             auto scalar = wire<stdlib::const_, TS<Int>>(w, Int{3});
-            static_cast<void>(nested_<InspectAddOne>(w, scalar));
+            wire<DiagnosticsSink>(w, nested_<InspectAddOne>(w, scalar));
 
             auto dict = wire<stdlib::const_, TSD<Str, TS<Int>>>(
                 w, stdlib::make_map<Str, Int>({
@@ -49,12 +54,12 @@ namespace
                        {Str{"b"}, Int{2}},
                        {Str{"c"}, Int{3}},
                    }));
-            static_cast<void>(wire<stdlib::const_, TSS<Int>>(
+            wire<DiagnosticsSink>(w, wire<stdlib::const_, TSS<Int>>(
                 w, stdlib::make_set<Int>({Int{1}, Int{2}, Int{3}})));
-            static_cast<void>(wire<stdlib::to_window>(w, scalar, Int{64}, Int{1}));
-            static_cast<void>(wire<stdlib::map_>(w, fn<InspectAddOne>(), dict));
-            static_cast<void>(wire<stdlib::mesh_>(w, fn<InspectAddOne>(), dict));
-            static_cast<void>(wire<stdlib::reduce_>(w, fn<stdlib::add_>(), dict));
+            wire<DiagnosticsSink>(w, wire<stdlib::to_window>(w, scalar, Int{64}, Int{1}));
+            wire<DiagnosticsSink>(w, wire<stdlib::map_>(w, fn<InspectAddOne>(), dict));
+            wire<DiagnosticsSink>(w, wire<stdlib::mesh_>(w, fn<InspectAddOne>(), dict));
+            wire<DiagnosticsSink>(w, wire<stdlib::reduce_>(w, fn<stdlib::add_>(), dict));
 
             auto ordered = wire<stdlib::const_, TSD<Int, TS<Int>>>(
                 w, stdlib::make_map<Int, Int>({
@@ -63,11 +68,11 @@ namespace
                        {Int{2}, Int{3}},
                    }));
             auto zero = wire<stdlib::const_, TS<Int>>(w, Int{0});
-            static_cast<void>(wire<stdlib::reduce_>(
+            wire<DiagnosticsSink>(w, wire<stdlib::reduce_>(
                 w, fn<stdlib::add_>(), ordered, zero, Bool{false}));
 
             auto key = wire<stdlib::const_, TS<Str>>(w, Str{"active"});
-            static_cast<void>(wire<stdlib::switch_>(
+            wire<DiagnosticsSink>(w, wire<stdlib::switch_>(
                 w, key,
                 stdlib::switch_cases({
                     {Value{Str{"active"}}, fn<InspectAddOne>()},
@@ -103,7 +108,7 @@ namespace
         static void compose(Wiring &w)
         {
             auto value = wire<DiagnosticsRefSource>(w);
-            static_cast<void>(wire<DiagnosticsRefPublisher>(w, value));
+            wire<DiagnosticsSink>(w, wire<DiagnosticsRefPublisher>(w, value));
         }
     };
 
@@ -147,7 +152,7 @@ namespace
         static void compose(Wiring &w)
         {
             auto value = wire<DiagnosticsRefSource>(w);
-            static_cast<void>(wire<DiagnosticsNestedRefPublisher>(w, value));
+            wire<DiagnosticsSink>(w, wire<DiagnosticsNestedRefPublisher>(w, value));
         }
     };
 
@@ -176,7 +181,7 @@ namespace
         static void compose(Wiring &w)
         {
             auto value = wire<DiagnosticsRefSource>(w);
-            static_cast<void>(wire<DiagnosticsWideRefPublisher>(w, value));
+            wire<DiagnosticsSink>(w, wire<DiagnosticsWideRefPublisher>(w, value));
         }
     };
 
@@ -213,7 +218,7 @@ namespace
         static void compose(Wiring &w)
         {
             auto value = wire<DiagnosticsPartialBundleSource>(w);
-            static_cast<void>(wire<DiagnosticsBundleRefPublisher>(w, value));
+            wire<DiagnosticsSink>(w, wire<DiagnosticsBundleRefPublisher>(w, value));
         }
     };
 
@@ -224,7 +229,7 @@ namespace
         static void compose(Wiring &w)
         {
             auto value = wire<DiagnosticsPartialBundleSource>(w);
-            static_cast<void>(wire<DiagnosticsRefPublisher>(
+            wire<DiagnosticsSink>(w, wire<DiagnosticsRefPublisher>(
                 w, Port<TS<Int>>{w, value.node(), {0}}));
         }
     };
@@ -265,7 +270,7 @@ namespace
         static void compose(Wiring &w)
         {
             auto value = wire<DiagnosticsNestedTableSource>(w);
-            static_cast<void>(wire<DiagnosticsNestedTablePublisher>(w, value));
+            wire<DiagnosticsSink>(w, wire<DiagnosticsNestedTablePublisher>(w, value));
         }
     };
 
@@ -299,7 +304,7 @@ namespace
 
         static void compose(Wiring &w)
         {
-            static_cast<void>(wire<DiagnosticsFrameSource>(w));
+            wire<DiagnosticsSink>(w, wire<DiagnosticsFrameSource>(w));
         }
     };
 

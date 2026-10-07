@@ -22,6 +22,7 @@
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/value.h>
@@ -128,10 +129,10 @@ namespace
     struct TickGraph
     {
         static constexpr auto name = "tick_graph";
-        static void           compose(Wiring &w)
+        static Port<TS<std::int32_t>> compose(Wiring &w)
         {
             auto src = wire<TickingSource>(w, 3);  // count = 3
-            wire<AddOneNode>(w, src);
+            return wire<AddOneNode>(w, src);
         }
     };
 }  // namespace
@@ -497,7 +498,7 @@ TEST_CASE("simulation: a self-rescheduling source drives multiple cycles over ti
     auto &registry = TypeRegistry::instance();
     (void)registry.register_scalar<std::int32_t>("int32");
 
-    GraphBuilder graph_builder = build_graph<TickGraph>();  // TickingSource(count=3) -> AddOneNode
+    GraphBuilder graph_builder = compile_subgraph<TickGraph>().graph_builder;
 
     GraphExecutorBuilder executor_builder;
     executor_builder.graph_builder(std::move(graph_builder))

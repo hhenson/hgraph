@@ -174,7 +174,7 @@ namespace
         static void compose(Wiring &w)
         {
             auto value = wire<stdlib::replay_impl, TS<Int>>(w, Str{"input"});
-            static_cast<void>(wire<ThrowOnNegative>(w, value));
+            wire<stdlib::null_sink>(w, wire<ThrowOnNegative>(w, value));
         }
     };
 

@@ -394,9 +394,7 @@ def test_side_effects():
 
     with GlobalState():
         eval_node(g)
-        # hg_cpp retains every explicitly wired node.  Side-effect retention is
-        # a graph-construction property rather than an opt-in Python flag.
-        assert GlobalState.instance().get("t", None) == 1
+        assert GlobalState.instance().get("t", None) is None
 
     @graph
     def h():

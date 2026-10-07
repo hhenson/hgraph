@@ -54,7 +54,7 @@ def test_mixed_native_and_python_readers_share_the_cached_python_object():
     @graph
     def g(t: TS[int]) -> TS[int]:
         value = _produce_tuple(t)
-        hg.len_(value)  # A native reader forces canonical storage plus a cache.
+        hg.null_sink(hg.len_(value))  # A native reader forces canonical storage plus a cache.
         return _consume_tuple(value)
 
     assert eval_node(g, [1, 5, 9]) == [1, 5, 9]
@@ -146,7 +146,7 @@ def test_native_output_conversion_is_cached_between_python_readers():
 
     @graph
     def g(value: TS[tuple[int, ...]]) -> TS[int]:
-        read_a(value)
+        hg.null_sink(read_a(value))
         return read_b(value)
 
     assert eval_node(g, [(1, 2), (3, 4)]) == [1, 3]
