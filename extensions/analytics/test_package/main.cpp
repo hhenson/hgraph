@@ -5,6 +5,7 @@
 #include <hgraph/lib/std/operators/stream.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/static_node.h>
 
 #include <cstddef>
 #include <utility>
@@ -19,6 +20,11 @@ namespace
         hg::Field<"buffer", hg::TS<hg::ArrayOf<hg::Float, 4>>>,
         hg::Field<"index", hg::TS<hg::ArrayOf<hg::DateTime, 4>>>>;
 
+    struct InstalledOutputSink
+    {
+        static void eval(hg::In<"value", hg::TsVar<"S">>) {}
+    };
+
     struct InstalledConsumerGraph
     {
         static constexpr auto name = "installed_hgraph_analytics_consumer";
@@ -29,19 +35,19 @@ namespace
                 w, hg::Float{100.0});
             auto reset = hg::wire<hg::stdlib::const_, hg::TS<hg::Bool>>(
                 w, hg::Bool{false});
-            static_cast<void>(hg::wire<hga::diff>(w, input));
-            static_cast<void>(hg::wire<hga::count>(w, input));
-            static_cast<void>(hg::wire<hga::count>(w, input, reset));
-            static_cast<void>(hg::wire<hga::clip>(
+            hg::wire<InstalledOutputSink>(w, hg::wire<hga::diff>(w, input));
+            hg::wire<InstalledOutputSink>(w, hg::wire<hga::count>(w, input));
+            hg::wire<InstalledOutputSink>(w, hg::wire<hga::count>(w, input, reset));
+            hg::wire<InstalledOutputSink>(w, hg::wire<hga::clip>(
                 w, input, hg::Float{0.0}, hg::Float{200.0}));
-            static_cast<void>(hg::wire<hga::ewma>(w, input, hg::Float{0.2}));
-            static_cast<void>(hg::wire<hga::pct_change, hg::TS<hg::Float>>(
+            hg::wire<InstalledOutputSink>(w, hg::wire<hga::ewma>(w, input, hg::Float{0.2}));
+            hg::wire<InstalledOutputSink>(w, hg::wire<hga::pct_change, hg::TS<hg::Float>>(
                 w, input, hg::Int{12}, hg::stdlib::DivideByZero::Nan));
-            static_cast<void>(hg::wire<hga::std_, hg::TS<hg::Float>>(w, input));
-            static_cast<void>(hg::wire<hga::var_, hg::TS<hg::Float>>(w, input));
-            static_cast<void>(hg::wire<hga::rolling_mean, hg::TS<hg::Float>>(
+            hg::wire<InstalledOutputSink>(w, hg::wire<hga::std_, hg::TS<hg::Float>>(w, input));
+            hg::wire<InstalledOutputSink>(w, hg::wire<hga::var_, hg::TS<hg::Float>>(w, input));
+            hg::wire<InstalledOutputSink>(w, hg::wire<hga::rolling_mean, hg::TS<hg::Float>>(
                 w, input, hg::Int{4}, hg::Int{2}));
-            static_cast<void>(hg::wire<hga::resample>(w, input, hg::MIN_TD));
+            hg::wire<InstalledOutputSink>(w, hg::wire<hga::resample>(w, input, hg::MIN_TD));
 
             hg::Value array{hg::ValuePlanFactory::instance().type_for(
                 hg::TypeRegistry::instance().array(
@@ -58,14 +64,14 @@ namespace
                 w, std::move(array));
             auto q = hg::wire<hg::stdlib::const_, hg::TS<hg::Float>>(
                 w, hg::Float{0.5});
-            static_cast<void>(hg::wire<hga::quantile>(w, array_input, q));
-            static_cast<void>(hg::wire<hga::array_std>(w, array_input, hg::Int{1}));
+            hg::wire<InstalledOutputSink>(w, hg::wire<hga::quantile>(w, array_input, q));
+            hg::wire<InstalledOutputSink>(w, hg::wire<hga::array_std>(w, array_input, hg::Int{1}));
 
             auto window = hg::wire<hg::stdlib::to_window>(w, input, hg::Int{4})
                               .as<hg::TSW<hg::Float, 4, 4>>();
-            static_cast<void>(
+            hg::wire<InstalledOutputSink>(w,
                 hg::wire<hga::rolling_window, RollingFloat4>(w, window));
-            static_cast<void>(hg::wire<hga::std_, hg::TS<hg::Float>>(
+            hg::wire<InstalledOutputSink>(w, hg::wire<hga::std_, hg::TS<hg::Float>>(
                 w, window, hg::arg<"ddof">(hg::Int{1})));
         }
     };

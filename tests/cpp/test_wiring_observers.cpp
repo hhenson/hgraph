@@ -276,7 +276,7 @@ TEST_CASE("wiring observers expose stable graph, node, and overload records")
     // they remain valid after the Wiring itself has been consumed.
     CHECK(std::string{observer.node_entries.back().output_type.name()} ==
           std::string{ts_type<TS<Int>>()->name()});
-    CHECK(graph.node_count() == 2);
+    CHECK(graph.node_count() == 0);   // wiring events include nodes pruned before runtime construction
 }
 
 TEST_CASE("wiring observers report overload and enclosing graph failures")

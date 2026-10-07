@@ -76,7 +76,7 @@ def test_python_sender_returns_false_after_graph_stop():
 
     @graph
     def app() -> None:
-        source()
+        hg.null_sink(source())
 
     _run(app, seconds=0.1)
     assert len(retained) == 1
@@ -110,7 +110,7 @@ def test_push_queue_stop_hook_shares_state_and_joins_worker():
 
     @graph
     def app() -> None:
-        source("worker")
+        hg.null_sink(source("worker"))
 
     _run(app, seconds=0.1)
 

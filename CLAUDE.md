@@ -29,6 +29,12 @@ going forward:
 > **The developer-guide docs in `docs/source/developer_guide/` are authoritative.
 > Change the doc in the *same* change as the code. A doc/code divergence is a bug.**
 
+Runtime behavior contracts are owned by `external/hgraph_spec/runtime` in the
+specification repository. A behavior fix updates the applicable rules,
+scenarios, and expected traces there as well as this repository's implementation
+documentation; cross-link the separate pull requests. Developer-guide pages
+describe how the runtime implements those contracts.
+
 Concretely, for any non-trivial change:
 
 1. **Doc first.** If you are adding/altering a structure, layer, or invariant, update

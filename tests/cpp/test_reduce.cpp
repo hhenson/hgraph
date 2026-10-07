@@ -737,11 +737,11 @@ TEST_CASE("reduce: signed integer addition retains the explicit reduction tree")
                                    list_delta<TS<Int>>({{0, 10}})))),
                  values<Int>(15, 24));
 
-    GraphBuilder gb = build_graph<LiftedReduceConstGraph>();
+    GraphBuilder gb = compile_subgraph<LiftedReduceConstGraph>().graph_builder;
     CHECK(gb.node_count() == 2);   // const source + reduce node owning the combiner tree
     CHECK_FALSE(lift<stdlib::scalar_add<Int>>().lifted->associative);
 
-    GraphBuilder operator_fn_gb = build_graph<OperatorFnReduceConstGraph>();
+    GraphBuilder operator_fn_gb = compile_subgraph<OperatorFnReduceConstGraph>().graph_builder;
     CHECK(operator_fn_gb.node_count() == 2);   // the named operator uses the same nested reduction shape
 }
 
@@ -761,7 +761,7 @@ TEST_CASE("reduce: a lifted function identity does not supply reduce zero")
                      values<Value>(list_delta<TS<Int>>({{0, 7}})))),
                  values<Int>(7));
 
-    GraphBuilder gb = build_graph<LiftedReduceExplicitIdentityConstGraph>();
+    GraphBuilder gb = compile_subgraph<LiftedReduceExplicitIdentityConstGraph>().graph_builder;
     CHECK(gb.node_count() == 2);   // const source + lifted reduce node
 }
 
@@ -794,10 +794,10 @@ TEST_CASE("reduce: lifted standard kernels use built-in and explicit identities"
                                    list_delta<TS<Int>>({{1, 10}})))),
                  values<Int>(9, 10));
 
-    GraphBuilder gb = build_graph<LiftedReduceMinConstGraph>();
+    GraphBuilder gb = compile_subgraph<LiftedReduceMinConstGraph>().graph_builder;
     CHECK(gb.node_count() == 2);   // const source + lifted reduce node
 
-    GraphBuilder operator_min_gb = build_graph<OperatorFnMinReduceConstGraph>();
+    GraphBuilder operator_min_gb = compile_subgraph<OperatorFnMinReduceConstGraph>().graph_builder;
     CHECK(operator_min_gb.node_count() == 2);   // const source + lifted reduce node via fn<min_>
 }
 

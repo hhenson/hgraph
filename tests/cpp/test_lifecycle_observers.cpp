@@ -182,10 +182,10 @@ namespace
     struct LifecycleTickGraph
     {
         static constexpr auto name = "lifecycle_tick_graph";
-        static void           compose(Wiring &w)
+        static Port<TS<Int>>   compose(Wiring &w)
         {
             auto src = wire<LifecycleTickingSource>(w, 3);
-            wire<LifecycleTickAddOne>(w, src);
+            return wire<LifecycleTickAddOne>(w, src);
         }
     };
 
@@ -346,7 +346,7 @@ TEST_CASE("lifecycle observers: before/after graph and node evaluation bracket e
 
     stdlib::register_standard_operators();
 
-    GraphBuilder graph_builder = build_graph<LifecycleTickGraph>();
+    GraphBuilder graph_builder = compile_subgraph<LifecycleTickGraph>().graph_builder;
 
     std::vector<LogEntry> log;
     RecordingObserver      obs("obs", log);

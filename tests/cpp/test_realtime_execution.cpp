@@ -1,6 +1,7 @@
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/static_node.h>
@@ -117,9 +118,9 @@ namespace
     {
         static constexpr auto name = "wall_clock_scheduled_graph";
 
-        static void compose(Wiring &w, Scalar<"delay", TimeDelta> delay)
+        static Port<TS<Int>> compose(Wiring &w, Scalar<"delay", TimeDelta> delay)
         {
-            wire<WallClockScheduledSource>(w, delay);
+            return wire<WallClockScheduledSource>(w, delay);
         }
     };
 
@@ -361,7 +362,7 @@ TEST_CASE("real-time NodeScheduler supports wall-clock alarms")
 
     constexpr TimeDelta delay{20'000};
 
-    GraphBuilder graph_builder = build_graph<WallClockScheduledGraph>(delay);
+    GraphBuilder graph_builder = compile_subgraph<WallClockScheduledGraph>(delay).graph_builder;
 
     const DateTime start_time = hgraph::testing::wall_now();
 

@@ -3472,10 +3472,10 @@ TEST_CASE("map_ over TSL: lifted scalar add uses one specialised vector node")
                      values<Int>(10))),
                  values<Value>(list_delta<TS<Int>>({11, 12, 13})));
 
-    GraphBuilder gb = build_graph<MapLiftedAddConstG>();
+    GraphBuilder gb = compile_subgraph<MapLiftedAddConstG>().graph_builder;
     CHECK(gb.node_count() == 3);   // two const sources + one lifted TSL map node
 
-    GraphBuilder operator_fn_gb = build_graph<MapOperatorSubConstG>();
+    GraphBuilder operator_fn_gb = compile_subgraph<MapOperatorSubConstG>().graph_builder;
     CHECK(operator_fn_gb.node_count() == 3);   // two const sources + one lifted TSL map node via fn<sub_>
 }
 

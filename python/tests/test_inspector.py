@@ -376,7 +376,7 @@ def test_inspector_serves_and_expands_the_graph_while_it_is_running():
         ticks = hg.sum_(live_values())
         values = hg.convert[hg.TSD[int, hg.TS[int]]](
             key=ticks, ts=ticks)
-        hg.map_(lambda value: value * 2, values)
+        hg.null_sink(hg.map_(lambda value: value * 2, values))
         capture(ticks, label="live")
         hg.stop_engine(stop_signal())
 

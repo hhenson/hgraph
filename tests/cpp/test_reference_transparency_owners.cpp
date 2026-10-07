@@ -2,6 +2,7 @@
 // the four owners of the REF transparency rule, exercised directly.
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/time_series/endpoint_schema.h>
 #include <hgraph/types/time_series/ts_input.h>
@@ -68,7 +69,7 @@ namespace
     struct ObservedProbeGraph
     {
         static constexpr auto name = "rfc0036_observed_probe_graph";
-        static void           compose(Wiring &w)
+        static Port<TS<Int>>   compose(Wiring &w)
         {
             const auto *ts_int  = schema_descriptor<TS<Int>>::ts_meta();
             auto        source  = wire<OwnersConstantSource>(w);
@@ -89,7 +90,7 @@ namespace
             CHECK(plain.observed().schema == ts_int);
             CHECK(plain.observed().schema == plain.erased().schema);
 
-            wire<OwnersRefDeref>(w, ref);
+            return wire<OwnersRefDeref>(w, ref);
         }
     };
 }  // namespace
@@ -248,6 +249,6 @@ TEST_CASE("RFC 0036 owners: NamedPort::observed reads what the parameter will be
 {
     OwnersFixture f;
     static_cast<void>(f);
-    const auto executor = testing::run_graph(build_graph<ObservedProbeGraph>());
+    const auto executor = testing::run_graph(compile_subgraph<ObservedProbeGraph>().graph_builder);
     CHECK(executor.view().graph().node_at(2).output(MIN_ST).value().checked_as<Int>() == Int{41});
 }

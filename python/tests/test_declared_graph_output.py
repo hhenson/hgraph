@@ -20,6 +20,7 @@ from hgraph import (
     compute_node,
     graph,
     invert_,
+    sink_node,
 )
 from hgraph.test import eval_node
 
@@ -239,10 +240,9 @@ def test_a_sink_graph_is_untouched():
     """No return annotation is a sink; returning None is correct."""
     sank = []
 
-    @compute_node
-    def _record(x: TS[int]) -> TS[int]:
+    @sink_node
+    def _record(x: TS[int]):
         sank.append(x.value)
-        return x.value
 
     @graph
     def g(a: TS[int]):

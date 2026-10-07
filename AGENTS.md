@@ -56,6 +56,11 @@ callables to that path rather than become a second runtime implementation.
   only when it is a documented false positive with a narrow suppression.
 - Report exactly what changed, what was validated, and any remaining risk. Do
   not describe code work as complete when a required gate was skipped or failed.
+- Runtime behavior rules belong in `external/hgraph_spec/runtime`, maintained
+  in the specification repository. Update the applicable rules, scenarios, and
+  expected traces alongside a behavior fix, and cross-link the specification
+  and implementation pull requests. Keep implementation details in this
+  repository's developer guide.
 
 ## Definition Of Done
 
@@ -137,6 +142,10 @@ the edited documentation, commands, links, or configuration directly.
 
 ## Runtime Invariants
 
+- Build runtime graphs only from nodes reachable backward from sinks or a
+  compiled child graph's returned output. Retain every required input and
+  explicit dependency, including passive, feedback, and structural inputs.
+  Unreachable nodes must not be instantiated or receive lifecycle callbacks.
 - System nodes are implemented in C++ only. C++ graph and node authoring must
   remain first-class, not a binding layer over Python concepts.
 - Keep Python-specific code behind explicit build and ownership boundaries.
@@ -246,8 +255,18 @@ artifacts.
 
 ## Git Hygiene
 
+- Before starting new work, fetch the remote default branch and create the
+  dedicated branch from a clean checkout of that current base. Do not use a
+  stale detached HEAD or an unrelated feature branch as the starting point
+  unless the task explicitly requires that history. Use an isolated checkout
+  when necessary to preserve existing user or concurrent work.
 - Develop every change on a dedicated non-`main` branch and merge it through a
   pull request. Do not commit or push changes directly to `main`.
+- Before publishing or updating a pull request, fetch its target base again,
+  integrate any new base commits, resolve conflicts, and run the required
+  acceptance gates on the resulting tree. Verify GitHub reports the pull
+  request as mergeable before reporting it ready; a scoped diff alone does
+  not establish mergeability. This check does not require waiting for CI.
 - Open pull requests as ready for review, not as drafts, unless the user
   explicitly requests a draft.
 - A change that affects this repository and a downstream project requires a

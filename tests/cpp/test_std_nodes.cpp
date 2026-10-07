@@ -878,7 +878,7 @@ TEST_CASE("stdlib::debug_print print_delta renders only what changed")
     CHECK(whole_lines[1].find("a") != std::string::npos);
 }
 
-TEST_CASE("explicitly wired nodes are retained when their output is unconsumed")
+TEST_CASE("explicitly wired nodes are pruned when their output is unconsumed")
 {
     using namespace hgraph;
     using namespace hgraph::testing;
@@ -886,7 +886,7 @@ TEST_CASE("explicitly wired nodes are retained when their output is unconsumed")
 
     retained_unconsumed_evaluations = 0;
     CHECK_OUTPUT(eval_node<RetainedUnconsumedGraph>(), values<Int>(1));
-    CHECK(retained_unconsumed_evaluations == 1);
+    CHECK(retained_unconsumed_evaluations == 0);
 }
 
 namespace

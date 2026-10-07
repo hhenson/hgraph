@@ -3,11 +3,17 @@
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/operators/registration.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/static_node.h>
 
 namespace
 {
     using namespace hgraph;
     using namespace hgraph::web;
+
+    struct InstalledOutputSink
+    {
+        static void eval(In<"value", TS<Str>>) {}
+    };
 
     struct InstalledConsumerGraph
     {
@@ -19,7 +25,7 @@ namespace
             // the service implementation (RFC 0024). Until then the installed
             // package is exercised by registering the web schemas against a
             // graph built from the same SDK.
-            static_cast<void>(
+            wire<InstalledOutputSink>(w,
                 wire<stdlib::const_, TS<Str>>(w, Str{"installed-consumer"}));
         }
     };
