@@ -14,6 +14,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <stdexcept>
 
 namespace
@@ -210,6 +211,44 @@ TEST_CASE("node scheduler: multiple untagged events accumulate and advance in ti
     at_five.advance();  // consumes the +4 untagged, leaves the +6 tag
     CHECK(at_five.has_tag("named"));
     CHECK(at_five.next_scheduled_time() == base + TimeDelta{6});
+}
+
+TEST_CASE("node scheduler: identical schedules collapse to one event and the store stays ordered")
+{
+    // The pending-event store is a sorted, unique vector (not a std::set); the
+    // scheduler API must keep both invariants across interleaved inserts,
+    // tagged replacement and cancellation.
+    NodeSchedulerState state;
+    {
+        NodeScheduler sched{state, nullptr, 0, base};
+        sched.schedule(base + TimeDelta{3});
+        sched.schedule(base + TimeDelta{3});  // identical untagged event: not duplicated
+        sched.schedule(base + TimeDelta{1});
+        sched.schedule(base + TimeDelta{2}, "b");
+        sched.schedule(base + TimeDelta{2}, "a");  // same time, different tag: distinct
+        sched.schedule(base + TimeDelta{2}, "a");  // re-arming an identical tag: no-op
+        REQUIRE(state.events.size() == 4);
+        CHECK(std::is_sorted(state.events.begin(), state.events.end()));
+        CHECK(state.events.front() == NodeSchedulerState::Event{base + TimeDelta{1}, ""});
+        CHECK(state.events.back() == NodeSchedulerState::Event{base + TimeDelta{3}, ""});
+        CHECK(sched.next_scheduled_time() == base + TimeDelta{1});
+
+        // Moving a tag re-sorts it; cancelling a tag removes exactly its event.
+        sched.schedule(base + TimeDelta{5}, "a");
+        CHECK(std::is_sorted(state.events.begin(), state.events.end()));
+        CHECK(state.events.back() == NodeSchedulerState::Event{base + TimeDelta{5}, "a"});
+        sched.un_schedule("b");
+        REQUIRE(state.events.size() == 3);
+        CHECK(std::is_sorted(state.events.begin(), state.events.end()));
+        CHECK_FALSE(sched.has_tag("b"));
+    }
+
+    // Advancing past every pending time drains the store exactly once.
+    NodeScheduler at_five{state, nullptr, 0, base + TimeDelta{5}};
+    at_five.advance();
+    CHECK_FALSE(at_five.is_scheduled());
+    CHECK(state.events.empty());
+    CHECK(state.tags.empty());
 }
 
 TEST_CASE("node scheduler: wall-clock alarms fall back to graph time in simulation")

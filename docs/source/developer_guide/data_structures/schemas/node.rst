@@ -122,7 +122,12 @@ A ``NodeTypeMetaData`` carries:
 
 ``uses_scheduler``
     True when the node requests ``NodeScheduler`` injection. Runtime storage then
-    includes a per-node ``NodeSchedulerState`` component.
+    includes a per-node ``NodeSchedulerState`` component. Its pending events are
+    a sorted, unique ``std::vector`` of ``(time, tag)`` pairs rather than a
+    ``std::set``: a source that re-arms every tick inserts and pops one event
+    per cycle, and the vector keeps its capacity so steady-state scheduling
+    allocates nothing (``events.begin()`` is still the earliest event; the
+    ``tag -> time`` map indexes tagged events only).
 
 ``schedule_on_start``
     Declarative self-scheduling flag. When true, the default start op schedules

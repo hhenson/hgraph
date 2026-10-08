@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <map>
 #include <optional>
-#include <set>
+#include <vector>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -20,9 +20,9 @@ namespace hgraph
 {
     /**
      * Persistent per-node scheduler **state** — the small footprint stored on a
-     * node that declares a ``NodeScheduler``. It holds the set of pending
-     * ``(time, tag)`` events (ordered by time then tag) and the ``tag -> time``
-     * index used to replace/cancel tagged schedules. A node that never schedules
+     * node that declares a ``NodeScheduler``. It holds the sorted vector of pending
+     * ``(time, tag)`` events (ordered by time then tag, unique) and the
+     * ``tag -> time`` index used to replace/cancel tagged schedules. A node that never schedules
      * stores nothing (the slot exists only when ``uses_scheduler`` is set).
      *
      * Behaviour lives on the :cpp:class:`NodeScheduler` view, constructed on
@@ -31,8 +31,34 @@ namespace hgraph
      */
     struct HGRAPH_CLASS_EXPORT NodeSchedulerState
     {
-        std::set<std::pair<DateTime, std::string>> events{};
-        std::map<std::string, DateTime>            tags{};
+        using Event = std::pair<DateTime, std::string>;
+
+        /**
+         * Pending events, kept sorted by ``(time, tag)`` and unique, in a vector
+         * rather than a ``std::set``: a self-rescheduling source (every
+         * ``@generator``) inserts and pops one event per tick, and the set paid
+         * a node allocation and release for each. The vector keeps its capacity,
+         * so steady-state scheduling allocates nothing; pending counts are tiny
+         * (usually one), so the ordered insert and front erase are cheaper than
+         * tree rebalancing. ``begin()`` is still the earliest event.
+         */
+        std::vector<Event>              events{};
+        std::map<std::string, DateTime> tags{};
+
+        /** Insert keeping order and uniqueness (a duplicate is a no-op). */
+        void insert_event(Event event)
+        {
+            const auto position = std::lower_bound(events.begin(), events.end(), event);
+            if (position != events.end() && *position == event) { return; }
+            events.insert(position, std::move(event));
+        }
+
+        /** Erase one exact event if present. */
+        void erase_event(const Event &event)
+        {
+            const auto position = std::lower_bound(events.begin(), events.end(), event);
+            if (position != events.end() && *position == event) { events.erase(position); }
+        }
     };
 
     /**
@@ -204,7 +230,7 @@ namespace hgraph
             const auto it = state_->tags.find(std::string{tag});
             if (it == state_->tags.end()) { return default_time; }
             const DateTime when = it->second;
-            state_->events.erase({when, it->first});
+            state_->erase_event({when, it->first});
             state_->tags.erase(it);
             return when;
         }
@@ -255,13 +281,13 @@ namespace hgraph
             {
                 if (const auto it = state_->tags.find(tag_value); it != state_->tags.end())
                 {
-                    state_->events.erase({it->second, tag_value});  // replace existing tagged event
+                    state_->erase_event({it->second, tag_value});  // replace existing tagged event
                 }
             }
 
             const DateTime prev_first = state_->events.empty() ? MAX_DT : state_->events.begin()->first;
             if (tagged) { state_->tags[tag_value] = when; }  // only tagged events are indexed
-            state_->events.insert({when, tag_value});
+            state_->insert_event({when, tag_value});
             const DateTime next = state_->events.begin()->first;
             if (graph_ != nullptr && next < prev_first) { graph_->schedule_node(node_index_, next); }
         }
@@ -281,7 +307,7 @@ namespace hgraph
             require_state("un_schedule");
             if (const auto it = state_->tags.find(tag); it != state_->tags.end())
             {
-                state_->events.erase({it->second, it->first});
+                state_->erase_event({it->second, it->first});
                 state_->tags.erase(it);
             }
         }
@@ -346,7 +372,7 @@ namespace hgraph
                 if ((!restored.events.empty() && event <= *restored.events.rbegin()) ||
                     (!event.second.empty() && !restored.tags.emplace(event.second, event.first).second))
                     throw std::runtime_error("node scheduler checkpoint: events are unordered or tags are duplicated");
-                restored.events.insert(restored.events.end(), event);
+                restored.events.push_back(event);
             }
             return restored;
         }
