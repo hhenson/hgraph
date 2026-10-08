@@ -6,6 +6,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <array>
 
 #include <hgraph/types/metadata/debug_descriptor.h>
 #include <hgraph/types/metadata/type_record_registry.h>
@@ -171,6 +172,50 @@ TEST_CASE("Value TypeRecords carry atomic and fixed-composite debug descriptors"
     REQUIRE(debug->fields[1].type == bool_type.record());
     REQUIRE(debug->fields[1].validity_bit == 1);
     REQUIRE(debug->validity_offset == components[2].offset);
+}
+
+TEST_CASE("realized nested bindings retain strategy-specific debug children",
+          "[type-erasure][debug-descriptor][realized]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    auto &factory = ValuePlanFactory::instance();
+    const auto integer = factory.type_for(scalar_descriptor<Int>::value_meta());
+    const auto boolean = factory.type_for(scalar_descriptor<Bool>::value_meta());
+    const auto *child_schema = registry.bundle("RealizedDebugChild", {
+        {"number", integer.schema()}, {"enabled", boolean.schema()}});
+    const auto canonical_child = factory.type_for(child_schema);
+    const std::array child_fields{integer, boolean};
+    const auto realized_child = factory.realized_composite_type_for(child_schema, child_fields);
+    REQUIRE(realized_child != canonical_child);
+    REQUIRE(realized_child.plan() == canonical_child.plan());
+
+    const auto *list_schema = registry.fixed_list(child_schema, 2);
+    const auto canonical_list = factory.type_for(list_schema);
+    const auto realized_list = factory.realized_fixed_list_type_for(list_schema, realized_child);
+    REQUIRE(realized_list.plan() == canonical_list.plan());
+    CHECK(realized_list.record()->debug->element_type == realized_child.record());
+    CHECK(canonical_list.record()->debug->element_type == canonical_child.record());
+
+    const auto *parent_schema = registry.bundle("RealizedDebugParent", {{"children", list_schema}});
+    const std::array parent_fields{realized_list};
+    const auto realized_parent = factory.realized_composite_type_for(parent_schema, parent_fields);
+    const auto canonical_parent = factory.type_for(parent_schema);
+    REQUIRE(realized_parent.plan() == canonical_parent.plan());
+    CHECK(realized_parent.record()->debug->fields[0].type == realized_list.record());
+    CHECK(canonical_parent.record()->debug->fields[0].type == canonical_list.record());
+    CHECK(realized_parent.record()->debug->valid());
+    CHECK(realized_list.record()->debug->valid());
+
+    const auto *other_child_schema = registry.bundle("RealizedDebugOther", {
+        {"number", integer.schema()}, {"enabled", boolean.schema()}});
+    const auto other_list = factory.type_for(registry.fixed_list(other_child_schema, 2));
+    REQUIRE(other_list.plan() == realized_list.plan());
+    const std::array misleading_fields{other_list};
+    CHECK_THROWS_AS(intern_fixed_composite_debug_descriptor(
+        *parent_schema, *realized_parent.plan(), misleading_fields, &misleading_fields), std::invalid_argument);
+    CHECK_THROWS_AS(intern_fixed_composite_debug_descriptor(
+        *parent_schema, *realized_parent.plan(), {}, &misleading_fields), std::invalid_argument);
 }
 
 TEST_CASE("Value TypeRecords describe contiguous and stable-slot collections",

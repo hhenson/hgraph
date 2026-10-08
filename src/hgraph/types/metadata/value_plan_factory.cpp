@@ -1903,7 +1903,7 @@ struct RealizedCompositeEntry {
                          const std::vector<ValueTypeRef> &fields)
       : plan{&realized_composite_plan(schema, fields)},
         ops{schema, *plan, fields} {
-    const auto &debug = intern_fixed_composite_debug_descriptor(schema, *plan);
+    const auto &debug = intern_fixed_composite_debug_descriptor(schema, *plan, fields, &ops);
     binding = intern_value_type(schema, *plan, ops.ops, &debug);
   }
 };
@@ -2000,7 +2000,7 @@ struct RealizedFixedListEntry {
             .size_constant = schema.fixed_size,
             .data_offset = data_offset,
             .stride = elements_plan->array_stride(),
-        });
+        }, &ops);
     binding = intern_value_type(schema, *plan, ops.ops, &debug);
   }
 };
