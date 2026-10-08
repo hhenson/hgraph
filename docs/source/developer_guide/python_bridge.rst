@@ -823,6 +823,18 @@ validated against the lock-free ``TypeRegistry::reset_generation()``
 counter — the same invalidation discipline as the table codec's layout
 cache.
 
+**Attribute lookup on the runtime views is native.** ``TimeSeries`` exposes
+``value`` / ``delta_value`` / ``modified`` / ``valid`` as raw ``tp_getset``
+slots, and serves bundle-field access by name (and ``as_schema``) from a
+``tp_getattro`` slot that runs ``PyObject_GenericGetAttr`` first and falls
+back to the TSB child lookup only on an ``AttributeError``. It is
+deliberately **not** a Python-level ``__getattr__``: declaring one makes
+CPython route *every* attribute read on the type through
+``slot_tp_getattr_hook``, which cost about 7% of a Python node tick on
+``ts.value`` alone (2026-10-07 bake-off profile). Semantics are unchanged: a
+missing bundle field, or any unknown attribute on a non-bundle view, raises
+``AttributeError``.
+
 Platform notes
 --------------
 

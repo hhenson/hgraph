@@ -275,6 +275,67 @@ namespace hgraph::python_bridge
         }
     }
 
+    namespace
+    {
+    /** Native ``tp_getattro`` for TimeSeries: generic lookup first (the raw
+        getset slots and every def'd property), then the bundle-field
+        fallback that ``__getattr__`` used to provide. A Python-level
+        ``__getattr__`` makes CPython route EVERY attribute read through
+        ``slot_tp_getattr_hook``, which cost about 7% of a Python node tick on
+        ``ts.value`` alone (bake-off profile 2026-10-07); a C slot keeps the
+        fast path at one generic lookup. Semantics are unchanged: a missing
+        bundle field, or any attribute on a non-bundle view, is an
+        ``AttributeError``; ``as_schema`` returns the view itself. */
+    PyObject *py_ts_getattro(PyObject *self, PyObject *name) noexcept
+    {
+        PyObject *found = PyObject_GenericGetAttr(self, name);
+        if (found != nullptr || !PyErr_ExceptionMatches(PyExc_AttributeError)) { return found; }
+        // Run the fallback with no exception pending (as CPython does before a
+        // ``__getattr__``); the generic AttributeError is re-raised when the
+        // fallback does not apply.
+        PyObject *generic_error = PyErr_GetRaisedException();
+        try
+        {
+            auto &view = nb::cast<PyTimeSeries &>(nb::handle(self));
+            if (view.kind() == TSTypeKind::TSB)
+            {
+                // hgraph's TSB.as_schema: typed field access (the same view).
+                if (PyUnicode_CompareWithASCIIString(name, "as_schema") == 0)
+                {
+                    Py_XDECREF(generic_error);
+                    Py_INCREF(self);
+                    return self;
+                }
+                try
+                {
+                    nb::object child = nb::cast(view.child_at(nb::borrow(name)));
+                    Py_XDECREF(generic_error);
+                    return child.release().ptr();
+                }
+                catch (const std::out_of_range &)
+                {
+                    // hgraph parity: an absent bundle field is an ATTRIBUTE error
+                    // (the same exception a TSL attribute probe raises).
+                }
+            }
+        }
+        catch (nb::python_error &error)
+        {
+            Py_XDECREF(generic_error);
+            error.restore();
+            return nullptr;
+        }
+        catch (const std::exception &error)
+        {
+            Py_XDECREF(generic_error);
+            PyErr_SetString(PyExc_RuntimeError, error.what());
+            return nullptr;
+        }
+        PyErr_SetRaisedException(generic_error);  // steals the reference
+        return nullptr;
+    }
+    }  // namespace
+
     void bind_state_and_services(nb::module_ &m)
     {
     nb::class_<GlobalState>(m, "_GlobalState")
@@ -1212,6 +1273,7 @@ namespace hgraph::python_bridge
     };
     static PyType_Slot py_ts_slots[] = {
         {Py_tp_getset, static_cast<void *>(py_ts_getset)},
+        {Py_tp_getattro, reinterpret_cast<void *>(&py_ts_getattro)},
         {0, nullptr},
     };
     nb::class_<PyTimeSeries>(
@@ -1333,22 +1395,8 @@ namespace hgraph::python_bridge
             }
             return self_obj;
         }, "The same bundle input viewed through its declared schema.")
-        .def("__getattr__", [](nb::object self_obj, const std::string &name) -> nb::object {
-            auto &self = nb::cast<PyTimeSeries &>(self_obj);
-            if (self.kind() != TSTypeKind::TSB) { throw nb::attribute_error(name.c_str()); }
-            // hgraph's TSB.as_schema: typed field access (the same view).
-            if (name == "as_schema") { return self_obj; }
-            try
-            {
-                return nb::cast(self.child_at(nb::cast(name)));
-            }
-            catch (const std::out_of_range &)
-            {
-                // hgraph parity: an absent bundle field is an ATTRIBUTE error
-                // (the same exception a TSL attribute probe raises).
-                throw nb::attribute_error(name.c_str());
-            }
-        })
+        // Bundle field access by name (and ``as_schema``) is served by the
+        // native ``tp_getattro`` slot registered above, not a ``__getattr__``.
         .def("__contains__", &PyTimeSeries::contains, nb::arg("key"))
         .def("__len__", &PyTimeSeries::size)
         .def("__iter__", [](const PyTimeSeries &self) -> nb::object {
