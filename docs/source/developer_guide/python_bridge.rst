@@ -853,7 +853,11 @@ Platform notes
   (UTF-8 decode, hash and a temporary ``str`` per field per call); the generator
   trampoline additionally caches the last yielded ``timedelta`` object and its
   value by identity, since generators overwhelmingly re-yield one module-level
-  delta. Profiles of a generator-driven tick showed the per-field string path at
+  delta. Only an *exact* ``datetime.timedelta`` is cached: the caster also
+  accepts subclasses, which can expose ``days`` / ``seconds`` /
+  ``microseconds`` as properties over mutable instance state, so those are
+  converted on every yield (``test_python_generator_timedelta_cache.py``).
+  Profiles of a generator-driven tick showed the per-field string path at
   about a fifth of the tick before this change (bake-off, 2026-10-07).
 
 When it looks wrong but isn't

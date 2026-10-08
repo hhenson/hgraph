@@ -1378,8 +1378,11 @@ struct PyGenHandle {
   /// value. Generators overwhelmingly yield the same module-level delta
   /// (``MIN_TD``) every tick; holding a reference keeps the identity check
   /// sound (the object cannot be freed and its address reused) and a hit
-  /// skips the stable-ABI attribute unpacking entirely. ``timedelta`` is
-  /// immutable, so identity implies an identical value.
+  /// skips the stable-ABI attribute unpacking entirely. Only an EXACT
+  /// ``datetime.timedelta`` is cached: it is immutable, so identity implies
+  /// an identical value. The caster also accepts subclasses, which may
+  /// expose ``days`` / ``seconds`` / ``microseconds`` as properties over
+  /// mutable instance state, so those are converted on every yield.
   nb::object cached_delta_object;
   TimeDelta cached_delta{};
 };
@@ -1389,6 +1392,14 @@ struct PyGenStateRef {
   friend bool operator==(const PyGenStateRef &,
                          const PyGenStateRef &) noexcept = default;
 };
+
+/** True for an exact ``datetime.timedelta`` (never a subclass). The type
+    cache is populated by the timedelta cast that precedes every call; while
+    it is unset the comparison is false and nothing is cached. */
+inline bool is_exact_timedelta(nb::handle object) noexcept {
+  return Py_TYPE(object.ptr()) ==
+         reinterpret_cast<PyTypeObject *>(nb::detail::datetime_types.timedelta.ptr());
+}
 
 /** Pull the next (datetime, value) pair; schedules it or marks exhaustion. */
 template <typename Scheduler>
@@ -1419,8 +1430,10 @@ void py_gen_advance(PyGenHandle &handle, Scheduler &sched) {
           "a Python generator time must be a datetime or timedelta");
     }
     when = sched.now() + delay;
-    handle.cached_delta_object = std::move(time_object);
-    handle.cached_delta = delay;
+    if (is_exact_timedelta(time_object)) {
+      handle.cached_delta_object = std::move(time_object);
+      handle.cached_delta = delay;
+    }
   }
   if (handle.last_time.has_value() && when <= *handle.last_time) {
     throw std::invalid_argument(
