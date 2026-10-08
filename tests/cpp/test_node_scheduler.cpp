@@ -281,7 +281,8 @@ TEST_CASE("node scheduler: draining many deadlines moves only a linear number of
     std::size_t moved = 0;
     for (Int i = 1; i <= count; ++i)
     {
-        const auto *first = state.pending_events().data();
+        const auto pending_before = state.pending_events();
+        const auto *first = pending_before.data();
         NodeScheduler at_event{state, nullptr, 0, base + one * i};
         REQUIRE(at_event.is_scheduled_now());
         at_event.advance();

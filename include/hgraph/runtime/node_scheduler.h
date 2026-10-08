@@ -390,7 +390,8 @@ namespace hgraph
             if (state_ == nullptr) { return; }
             while (!state_->pending_events().empty() && state_->pending_events().front().first <= now_)
             {
-                const std::string &tag = state_->pending_events().front().second;
+                const auto pending = state_->pending_events();
+                const std::string &tag = pending.front().second;
                 if (!tag.empty()) { state_->tags.erase(tag); }  // only tagged events are indexed
                 state_->pop_event();
             }
