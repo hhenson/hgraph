@@ -707,6 +707,12 @@ namespace hgl::codegen
             }
             [[nodiscard]] std::string ordinary_view(const Value &value);
             [[nodiscard]] std::string ordinary_retain(const Value &value);
+            [[nodiscard]] static bool observation_needs_conversion(const HType &type) {
+                if (type.kind == HType::Kind::Tuple) { return true; }
+                return (type.kind == HType::Kind::List || type.kind == HType::Kind::Map) &&
+                       observation_needs_conversion(type.children.back());
+            }
+            [[nodiscard]] std::string convert_observation(const Value &value, bool to_ordinary);
             [[nodiscard]] std::string native_delta_view(const Value &value) {
                 if (value.raw_delta) { return value.code; }
                 if (value.type.kind == HType::Kind::Delta) {
@@ -2476,31 +2482,56 @@ namespace hgl::codegen
 
         std::string Emitter::ordinary_retain(const Value &value) {
             if (value.raw_delta) { return delta_plan(value.type.children.front(), value.range) + ".capture(" + value.code + ")"; }
-            if (value.type.kind == HType::Kind::Tuple && !value.ordinary_value && value.borrowed_value) {
-                const std::string source_plan = ordinary_held_plan(value.type, value.range);
-                const std::string base = "hgl_observed_tuple";
-                std::string observed = base;
-                while (local_names_.contains(observed)) { observed = base + "_" + std::to_string(++local_counts_[base]); }
-                local_names_.insert(observed);
-                // First normalize the live observation's physical strategy
-                // into the exact held-schema plan. Its prepared index ops then
-                // read their own storage, including projected input surfaces.
-                std::string code = "[&]() { auto " + observed + " = " + source_plan + ".retain(" + ordinary_view(value) + "); ";
-                std::vector<std::string> fields;
-                for (std::size_t index = 0; index < value.type.children.size(); ++index) {
-                    const std::string local = "hgl_observed_child_" + std::to_string(index);
-                    Value child = make_runtime(source_plan + ".index(" + observed + ".view(), " + std::to_string(index) + ")",
-                                               value.type.children[index], value.range);
-                    child.borrowed_value = true;
-                    code += "auto " + local + " = " + ordinary_retain(child) + "; ";
-                    fields.push_back("std::pair<std::size_t, hgraph::ValueView>{" + std::to_string(index) + ", " + local + ".view()}");
-                }
-                code += "const std::array<std::pair<std::size_t, hgraph::ValueView>, " + std::to_string(fields.size()) +
-                        "> hgl_fields{" + join(fields, ", ") + "}; return " + ordinary_plan(value.type, value.range) +
-                        ".bundle(hgl_fields); }()";
-                return code;
+            if (observation_needs_conversion(value.type) && !value.ordinary_value && value.borrowed_value) {
+                return convert_observation(value, true);
             }
             return ordinary_plan(value.type, value.range) + ".retain(" + ordinary_view(value) + ")";
+        }
+
+        std::string Emitter::convert_observation(const Value &value, bool to_ordinary) {
+            const std::string source_plan = to_ordinary ? ordinary_held_plan(value.type, value.range) : ordinary_plan(value.type, value.range);
+            const std::string target_plan = to_ordinary ? ordinary_plan(value.type, value.range) : ordinary_held_plan(value.type, value.range);
+            const std::string base = "hgl_observed_value";
+            std::string observed = base;
+            while (local_names_.contains(observed)) { observed = base + "_" + std::to_string(++local_counts_[base]); }
+            local_names_.insert(observed);
+            // Normalize the source's physical strategy into its exact
+            // prepared schema before reading children. This also handles
+            // projected input surfaces without inspecting their strategies.
+            std::string code = "[&]() { auto " + observed + " = " + source_plan + ".retain(" + ordinary_view(value) + "); ";
+            const auto convert_child = [&](const HType &type, const std::string &view) {
+                Value child = make_runtime(view, type, value.range);
+                child.borrowed_value = true;
+                child.ordinary_value = !to_ordinary;
+                return observation_needs_conversion(type) ? convert_observation(child, to_ordinary)
+                    : ordinary_plan(type, value.range) + ".retain(" + view + ")";
+            };
+            if (value.type.kind == HType::Kind::List) {
+                code += "auto hgl_result = " + target_plan + ".empty_list(); const auto hgl_size = " + source_plan +
+                        ".len(" + observed + ".view()); for (std::int64_t hgl_index = 0; hgl_index < hgl_size; ++hgl_index) { ";
+                code += "auto hgl_child = " + convert_child(value.type.children.back(), source_plan + ".index(" + observed + ".view(), hgl_index)") + "; ";
+                code += value.type.size.empty() ? target_plan + ".push(hgl_result.view(), hgl_child.view()); "
+                    : target_plan + ".index_mutable(hgl_result.view(), hgl_index).begin_mutation().copy_from(hgl_child.view()); ";
+                return code + "} return hgl_result; }()";
+            }
+            if (value.type.kind == HType::Kind::Map) {
+                code += "hgraph::MapBuilder hgl_result{" + target_plan + ".key_binding(), " + target_plan + ".element_binding()}; ";
+                code += "for (const auto &[hgl_key, hgl_value] : " + source_plan + ".items(" + observed + ".view())) { ";
+                code += "auto hgl_child = " + convert_child(value.type.children.back(), "hgl_value") + "; ";
+                code += "hgl_result.set_item(hgl_key, hgl_child.view()); } auto hgl_storage = hgl_result.build_storage(); ";
+                return code + "return hgraph::Value{" + target_plan + ".binding(), &hgl_storage, hgraph::Value::AdoptStorage{}}; }()";
+            }
+            std::vector<std::string> fields;
+            for (std::size_t index = 0; index < value.type.children.size(); ++index) {
+                const std::string local = "hgl_observed_child_" + std::to_string(index);
+                code += "auto " + local + " = " + convert_child(value.type.children[index], source_plan +
+                        ".index(" + observed + ".view(), " + std::to_string(index) + ")") + "; ";
+                fields.push_back("std::pair<std::size_t, hgraph::ValueView>{" + std::to_string(index) + ", " + local + ".view()}");
+            }
+            code += "const std::array<std::pair<std::size_t, hgraph::ValueView>, " + std::to_string(fields.size()) +
+                    "> hgl_fields{" + join(fields, ", ") + "}; return " + target_plan +
+                    ".bundle(hgl_fields); }()";
+            return code;
         }
 
         std::string Emitter::as_runtime(const Value &value, const HType &target, SourceRange range, const std::string &what) {
@@ -4556,7 +4587,7 @@ namespace hgl::codegen
                                                          selector + "))",
                                                      item, range, selector);
                 result.borrowed_value = item.kind == HType::Kind::Set || item.kind == HType::Kind::Map ||
-                                        item.kind == HType::Kind::List || item.kind == HType::Kind::Struct;
+                                        item.kind == HType::Kind::List || item.kind == HType::Kind::Struct || item.kind == HType::Kind::Tuple;
                 return result;
             }
             if (name == "schemas") {
@@ -5437,6 +5468,17 @@ namespace hgl::codegen
                 out.close();
                 return;
             }
+            if ((target.kind == HType::Kind::List || target.kind == HType::Kind::Map) &&
+                observation_needs_conversion(target) && value.ordinary_value) {
+                // Collections of ordinary tuples likewise need their exact
+                // temporal child schemas before a complete output transaction.
+                out.open("");
+                out.line("auto hgl_held_value = " + convert_observation(value, false) + ";");
+                out.line("auto hgl_mutation = " + selector + ".begin_mutation(" + selector + ".evaluation_time());");
+                out.line("static_cast<void>(hgl_mutation.copy_value_from(hgl_held_value.view()));");
+                out.close();
+                return;
+            }
             if (!value.borrowed_value) {
                 out.line(selector + ".set(" + converted + ");");
                 return;
@@ -5513,7 +5555,7 @@ namespace hgl::codegen
                         }
                         value.code = as_runtime(value, declared, value.range, "'" + binding.name + "'");
                         value.type = declared;
-                        if ((value.ordinary_value || (declared.kind == HType::Kind::Tuple && value.borrowed_value)) &&
+                        if ((value.ordinary_value || (observation_needs_conversion(declared) && value.borrowed_value)) &&
                             !value.global_borrow && !value.raw_delta) {
                             value.code = ordinary_retain(value);
                             value.borrowed_value = false;
@@ -6135,7 +6177,7 @@ namespace hgl::codegen
                 } else {
                     frame.params[index] = parameter.is_const ? make_const(name + ".value()", type, binding.range)
                                                              : make_runtime(name + ".value()", type, binding.range, name);
-                    if (!parameter.is_const && type.kind == HType::Kind::Tuple) {
+                    if (!parameter.is_const && observation_needs_conversion(type)) {
                         // A temporal tuple's complete observation remains a
                         // Bundle view; ordinary scalar tuple plans do not own it.
                         frame.params[index].borrowed_value = true;

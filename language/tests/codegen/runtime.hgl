@@ -79,6 +79,41 @@ export fn tuple_observed_generic<T>(value: tuple<T, bool>) -> tuple<T, bool> {
 }
 export fn tuple_observed_generic_int(value: tuple<i64, bool>) -> tuple<i64, bool> => tuple_observed_generic(value)
 
+export fn tuple_list_observe(value: tuple<list<tuple<i64, bool>, 2>, bool>) -> bool {
+    when all_valid(value) {
+        let copy = value
+        return copy[0][0][1]
+    }
+}
+
+export fn tuple_list_copy(value: tuple<list<tuple<i64, bool>, 2>, bool>) -> tuple<list<tuple<i64, bool>, 2>, bool> {
+    when all_valid(value) {
+        let copy = value
+        return copy
+    }
+}
+
+export fn tuple_list_first(value: tuple<list<tuple<i64, bool>, 2>, bool>) -> tuple<i64, bool> {
+    when valid(value[0]) && all_valid(at(value[0], 0)) {
+        let copy = at(value[0], 0)
+        return copy
+    }
+}
+
+export fn tuple_map_copy(value: tuple<map<i64, tuple<i64, bool>>, bool>) -> tuple<map<i64, tuple<i64, bool>>, bool> {
+    when all_valid(value) {
+        let copy = value
+        return copy
+    }
+}
+
+export fn tuple_collection_result(value: i64) -> tuple<list<tuple<i64, bool>, 2>, map<i64, tuple<i64, bool>>> {
+    when {
+        let pairs: list<tuple<i64, bool>, 2> = [(value, false), (value + 1, true)]
+        return (pairs, map<i64, tuple<i64, bool>>(items: [4: (value, false)]))
+    }
+}
+
 test structural_tuple_complete_and_sparse_results {
     assert eval(tuple_result, [1, 1, _, 2]) == [(1, true), (1, true), _, (2, true)]
     assert eval(tuple_patch, [1, 2, 2, 1]) == [(1, _), (_, true), (_, true), (1, _)]
@@ -103,6 +138,30 @@ test tuple_observations_become_owned_ordinary_values {
     assert eval(tuple_embed_copy, [(7, false), (_, true), (9, _)]) == [((7, false), 1), ((7, true), 1), ((9, true), 1)]
     assert eval(nested_tuple_observation_copy, [((7, false), 1), ((_, true), _), (_, 2)]) == [false, true, true]
     assert eval(tuple_observed_generic_int, [(7, false), (_, true), (9, _)]) == [(7, false), (7, true), (9, true)]
+}
+
+test tuple_observations_convert_nested_collection_children {
+    let pair_a = delta<tuple<i64, bool>>(items: [0: 7, 1: false])
+    let pair_b = delta<tuple<i64, bool>>(items: [0: 8, 1: true])
+    let list_input = delta<tuple<list<tuple<i64, bool>, 2>, bool>>(items: [
+        0: delta<list<tuple<i64, bool>, 2>>(items: [0: pair_a, 1: pair_b]), 1: true])
+    let list_tick = delta<tuple<list<tuple<i64, bool>, 2>, bool>>(items: [1: false])
+    let list_snapshot = delta<tuple<list<tuple<i64, bool>, 2>, bool>>(items: [
+        0: delta<list<tuple<i64, bool>, 2>>(items: [0: pair_a, 1: pair_b]), 1: false])
+    assert eval(tuple_list_observe, [list_input, list_tick, _, list_tick]) == [false, false, _, false]
+    assert eval(tuple_list_copy, [list_input, list_tick, _, list_tick]) == [list_input, list_snapshot, _, list_snapshot]
+    assert eval(tuple_list_first, [list_input, list_tick, _, list_tick]) == [(7, false), (7, false), _, (7, false)]
+    let map_input = delta<tuple<map<i64, tuple<i64, bool>>, bool>>(items: [
+        0: delta<map<i64, tuple<i64, bool>>>(upsert: [4: pair_a, 5: pair_b]), 1: true])
+    let map_remove = delta<tuple<map<i64, tuple<i64, bool>>, bool>>(items: [
+        0: delta<map<i64, tuple<i64, bool>>>(remove: [5])])
+    let map_snapshot = delta<tuple<map<i64, tuple<i64, bool>>, bool>>(items: [
+        0: delta<map<i64, tuple<i64, bool>>>(upsert: [4: pair_a], remove: [5]), 1: true])
+    assert eval(tuple_map_copy, [map_input, _, map_remove]) == [map_input, _, map_snapshot]
+    let result = delta<tuple<list<tuple<i64, bool>, 2>, map<i64, tuple<i64, bool>>>>(items: [
+        0: delta<list<tuple<i64, bool>, 2>>(items: [0: pair_a, 1: pair_b]),
+        1: delta<map<i64, tuple<i64, bool>>>(upsert: [4: pair_a])])
+    assert eval(tuple_collection_result, [7, _, 7]) == [result, _, result]
 }
 
 cpp include <hgraph/types/metadata/ts_value_type_meta_data.h>

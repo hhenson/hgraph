@@ -74,6 +74,37 @@ TEST_CASE("generated runtime tuple results publish complete values and sparse po
     CHECK_OUTPUT((eval_node<runtime::operators::tuple_observed_generic, Result>(complete_input)),
                  values<Value>(tsb_delta<Result>(Int{7}, Bool{false}), tsb_delta<Result>(Int{7}, Bool{true}),
                                tsb_delta<Result>(Int{9}, Bool{true})));
+
+    using List = TSL<Result, 2>;
+    using ListTuple = UnNamedTSB<Field<"0", List>, Field<"1", TS<Bool>>>;
+    const auto pairs = list_delta<Result>({{0, tsb_delta<Result>(Int{7}, Bool{false})},
+                                          {1, tsb_delta<Result>(Int{8}, Bool{true})}});
+    const auto list_initial = tsb_delta<ListTuple>(Value{pairs}, Bool{true});
+    const auto list_tick = tsb_delta<ListTuple>(std::nullopt, Bool{false});
+    const auto list_snapshot = tsb_delta<ListTuple>(Value{pairs}, Bool{false});
+    const auto list_input = values<Value>(list_initial, list_tick, none, list_tick);
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_list_observe, ListTuple>(list_input)),
+                 values<Bool>(false, false, none, false));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_list_copy, ListTuple>(list_input)),
+                 values<Value>(list_initial, list_snapshot, none, list_snapshot));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_list_first, ListTuple>(list_input)),
+                 values<Value>(tsb_delta<Result>(Int{7}, Bool{false}), tsb_delta<Result>(Int{7}, Bool{false}), none,
+                               tsb_delta<Result>(Int{7}, Bool{false})));
+
+    using Map = TSD<Int, Result>;
+    using MapTuple = UnNamedTSB<Field<"0", Map>, Field<"1", TS<Bool>>>;
+    const auto map_initial = tsb_delta<MapTuple>(dict_delta<Int, Result>(
+        {{4, tsb_delta<Result>(Int{7}, Bool{false})}, {5, tsb_delta<Result>(Int{8}, Bool{true})}}), Bool{true});
+    const auto map_remove = tsb_delta<MapTuple>(dict_delta<Int, Result>({}, {5}), std::nullopt);
+    const auto map_snapshot = tsb_delta<MapTuple>(dict_delta<Int, Result>(
+        {{4, tsb_delta<Result>(Int{7}, Bool{false})}}, {5}), Bool{true});
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_map_copy, MapTuple>(values<Value>(map_initial, none, map_remove))),
+                 values<Value>(map_initial, none, map_snapshot));
+    using Collections = UnNamedTSB<Field<"0", List>, Field<"1", Map>>;
+    const auto collection_result = tsb_delta<Collections>(Value{pairs}, dict_delta<Int, Result>(
+        {{4, tsb_delta<Result>(Int{7}, Bool{false})}}));
+    CHECK_OUTPUT(eval_node<runtime::operators::tuple_collection_result>(values<Int>(7, none, 7)),
+                 values<Value>(collection_result, none, collection_result));
 }
 
 TEST_CASE("generated module registration owns a removable provider generation", "[codegen][runtime][lifecycle]")

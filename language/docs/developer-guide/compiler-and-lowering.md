@@ -2376,7 +2376,11 @@ their exact child type at the checked constant position.
 An ordinary retention boundary, including a node local or a tuple constructor
 element, projects a temporal tuple observation through its prepared held Bundle
 plan and independently retains the children into the ordinary scalar Tuple
-plan. Nested tuple observations convert recursively. Concrete held plans join
+plan. Lists and maps containing positional tuples convert their elements
+recursively in one pass, using prepared index and entry-range operations on
+retained source storage. Complete ordinary collection children convert back
+to their held schemas before the existing output transaction copies them.
+Concrete held plans join
 the installer-prepared value plans; retained generic held plans bind the
 matched temporal value schema in node preparation. Evaluation neither aliases
 the two parent schemas nor discovers a child's type from its current value.

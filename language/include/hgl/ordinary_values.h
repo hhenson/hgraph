@@ -342,6 +342,9 @@ namespace hgl::ordinary
             if (binding.ops()->kind == hgraph::ValueOpsKind::MutableList) {
                 list_ = hgraph::checked_value_ops<hgraph::MutableListValueOps>(binding, "HGL ordinary mutable list");
             }
+            if (kind == hgraph::ValueTypeKind::Map) {
+                map_ = hgraph::checked_value_ops<hgraph::MapValueOps>(binding, "HGL ordinary map");
+            }
             if (kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) {
                 fields_.reserve(binding.schema()->field_count);
                 for (std::size_t index = 0; index < binding.schema()->field_count; ++index) {
@@ -367,6 +370,10 @@ namespace hgl::ordinary
             return hgraph::Value{binding_, value};
         }
         [[nodiscard]] hgraph::Value empty_list() const { return hgraph::Value{binding_}; }
+        [[nodiscard]] hgraph::KeyValueRange<hgraph::ValueView, hgraph::ValueView> items(const hgraph::ValueView &value) const {
+            if (map_ == nullptr) { throw std::invalid_argument("ordinary value storage is not a map"); }
+            return map_->make_kv_range(map_->context, value.data());
+        }
         [[nodiscard]] hgraph::Value bundle(std::span<const std::pair<std::size_t, hgraph::ValueView>> fields) const {
             hgraph::BundleBuilder result{binding_};
             for (const auto &[index, value] : fields) { result.set(index, value); }
@@ -419,6 +426,7 @@ namespace hgl::ordinary
         hgraph::ValueTypeRef binding_{};
         const hgraph::IndexedValueOps *indexed_{};
         const hgraph::MutableListValueOps *list_{};
+        const hgraph::MapValueOps *map_{};
         std::vector<PreparedValuePlan> fields_{};
         hgraph::ValueTypeRef element_{};
         hgraph::ValueTypeRef key_{};
