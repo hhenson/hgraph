@@ -270,6 +270,13 @@ namespace hgraph
         so derived-type rebuilds (error capture, passive inputs) resolve
         their own layout instead of inheriting a stale offset. */
     inline constexpr std::string_view node_prepared_inputs_field{"prepared_inputs"};
+    /** Planned field name of a node-private runtime cache: a small trivially
+        relocatable record a system node front-end acquires in its start
+        callback and reads per tick instead of re-deriving topology facts
+        (the feedback sink's source-node identity and ``ts`` route). Declared
+        through ``node_storage_plan_for``'s ``extra_fields`` like the
+        prepared-slot array; the layout caches its offset the same way. */
+    inline constexpr std::string_view node_runtime_cache_field{"runtime_cache"};
 
     /**
      * Build (and intern) the node storage plan. Components destroy in
@@ -337,6 +344,10 @@ namespace hgraph
             layer stays independent of the static-node header; static nodes
             cast to their ``PreparedInputSlotRoute`` array. */
         [[nodiscard]] void *prepared_input_routes() const noexcept;
+        /** The node's planned runtime-cache component
+            (``node_runtime_cache_field``), or null when this node type plans
+            none. Type-erased; the declaring front-end casts to its record. */
+        [[nodiscard]] void *runtime_cache() const noexcept;
 
         [[nodiscard]] std::string_view label() const noexcept;
         [[nodiscard]] NodeKind node_kind() const noexcept;

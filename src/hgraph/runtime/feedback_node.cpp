@@ -6,11 +6,13 @@
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/ts_input/bundle_view.h>
 #include <hgraph/types/time_series/ts_input/base_view.h>
+#include <hgraph/types/time_series/ts_input/detail.h>
 #include <hgraph/types/time_series/ts_output/base_view.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/date_time.h>
 
+#include <array>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -68,23 +70,33 @@ namespace hgraph
             apply_delta(view.output(evaluation_time), view.state());
         }
 
-        void evaluate_feedback_sink(const NodeView &view, DateTime evaluation_time)
+        /**
+         * Node-private runtime cache of the feedback sink (planned as the
+         * ``runtime_cache`` component). The sink's ``ts_self`` input is wired
+         * by the framework to the feedback source's own output and never
+         * rebinds, so the source node's index is a start-time fact; the sink
+         * and its source are always nodes of the SAME graph, so the sink's own
+         * graph pointer (kept current by ``attach_nodes``) locates the source
+         * without caching a graph handle. ``ts_route`` is the prepared slot
+         * route of the delta input (RFC 0008 stage 5), re-checked per use like
+         * every prepared route. Acquired after input activation in the start
+         * callback, cleared in stop; an unset cache falls back to the
+         * per-tick resolution.
+         */
+        struct FeedbackSinkCache
         {
-            auto root    = view.input(evaluation_time);
-            auto bundle  = root.as_bundle();
-            auto ts      = bundle[0];
-            auto ts_self = bundle[1];
+            detail::PreparedInputSlotRoute ts_route{};
+            std::size_t                    source_index{0};
+            bool                           source_resolved{false};
+        };
 
-            TSOutputView source_out  = ts_self.bound_output();
-            NodeView   source_node   = source_out.owner_node();
-            if (!source_node.valid())
-            {
-                throw std::logic_error("feedback sink could not recover the feedback source node");
-            }
-            if (!source_node.has_state())
-            {
-                throw std::logic_error("feedback sink target node has no delta state");
-            }
+        [[nodiscard]] FeedbackSinkCache *feedback_sink_cache(const NodeView &view) noexcept
+        {
+            return static_cast<FeedbackSinkCache *>(view.runtime_cache());
+        }
+
+        void copy_feedback_delta(const NodeView &source_node, const TSInputView &ts)
+        {
             // Copy through the already-planned source state when its binding
             // accepts the observed delta. This is intentionally binding-aware:
             // a polymorphic TS[Base] may expose a concrete Derived delta, whose
@@ -99,6 +111,76 @@ namespace hgraph
             {
                 source_node.replace_state(capture_delta(ts));
             }
+        }
+
+        [[nodiscard]] NodeView resolve_feedback_source(const TSInputView &ts_self)
+        {
+            TSOutputView source_out  = ts_self.bound_output();
+            NodeView   source_node   = source_out.owner_node();
+            if (!source_node.valid())
+            {
+                throw std::logic_error("feedback sink could not recover the feedback source node");
+            }
+            if (!source_node.has_state())
+            {
+                throw std::logic_error("feedback sink target node has no delta state");
+            }
+            return source_node;
+        }
+
+        void start_feedback_sink(const NodeView &view, DateTime evaluation_time)
+        {
+            FeedbackSinkCache *cache = feedback_sink_cache(view);
+            if (cache == nullptr) { return; }
+            *cache = FeedbackSinkCache{};
+            auto root = view.input(evaluation_time);
+            if (detail::has_input_children(root.data_view())) { cache->ts_route = root.prepare_child_route(0); }
+            // A source that cannot be resolved here is left to the evaluate
+            // fallback, which reports it exactly as the uncached path did.
+            auto               bundle     = root.as_bundle();
+            const TSInputView  ts_self    = bundle[1];
+            const TSOutputView source_out = ts_self.bound_output();
+            const NodeView     source_node = source_out.owner_node();
+            if (source_node.valid() && source_node.has_state() && source_node.graph_value() != nullptr &&
+                source_node.graph_value() == view.graph_value())
+            {
+                cache->source_index    = source_node.node_index();
+                cache->source_resolved = true;
+            }
+        }
+
+        void stop_feedback_sink(const NodeView &view, DateTime)
+        {
+            if (FeedbackSinkCache *cache = feedback_sink_cache(view); cache != nullptr)
+            {
+                *cache = FeedbackSinkCache{};
+            }
+        }
+
+        void evaluate_feedback_sink(const NodeView &view, DateTime evaluation_time)
+        {
+            auto root = view.input(evaluation_time);
+            if (const FeedbackSinkCache *cache = feedback_sink_cache(view);
+                cache != nullptr && cache->source_resolved)
+            {
+                GraphValue *graph = view.graph_value();
+                if (graph != nullptr)
+                {
+                    const TSInputView ts = [&]() -> TSInputView {
+                        if (cache->ts_route.ready()) { return root.child_from_prepared(cache->ts_route); }
+                        auto bundle = root.as_bundle();  // lvalue: the bundle accessor is &-qualified
+                        return bundle[0];
+                    }();
+                    copy_feedback_delta(graph->view().node_at(cache->source_index), ts);
+                    graph->schedule_node(cache->source_index, evaluation_time + MIN_TD);
+                    return;
+                }
+            }
+
+            auto     bundle      = root.as_bundle();
+            auto     ts          = bundle[0];
+            NodeView source_node = resolve_feedback_source(bundle[1]);
+            copy_feedback_delta(source_node, ts);
 
             GraphValue *graph = source_node.graph_value();
             if (graph == nullptr)
@@ -163,11 +245,19 @@ namespace hgraph
         node_schema.valid_inputs  = std::vector<std::size_t>{0};
 
         NodeCallbacks callbacks;
+        callbacks.start    = &start_feedback_sink;
         callbacks.evaluate = &evaluate_feedback_sink;
+        callbacks.stop     = &stop_feedback_sink;
 
-        return NodeBuilder::native(
-            std::move(node_schema),
-            std::move(callbacks),
-            feedback_sink_endpoint_schema(*input_schema, schema));
+        const std::array cache_field{NodeStorageField{
+            .name = node_runtime_cache_field,
+            .plan = &MemoryUtils::plan_for<FeedbackSinkCache>(),
+        }};
+        NodeTypeDescriptor descriptor;
+        descriptor.storage_plan = &node_storage_plan_for(node_schema, cache_field);
+        descriptor.schema       = std::move(node_schema);
+        descriptor.callbacks    = std::move(callbacks);
+        return NodeBuilder::from_descriptor(std::move(descriptor),
+                                            feedback_sink_endpoint_schema(*input_schema, schema));
     }
 }  // namespace hgraph

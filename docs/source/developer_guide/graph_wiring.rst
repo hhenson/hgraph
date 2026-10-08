@@ -237,6 +237,18 @@ never fire). The motivating idiom is the feedback read —
 ``add_(ts, passive(fb()))`` — which lets a bound feedback loop quiesce
 instead of re-ticking forever.
 
+**The feedback sink resolves its source once.** The framework wires the
+sink's second input (``ts_self``) to the feedback source's own output and that
+binding never rebinds, so the source node's index is a start-time fact and the
+sink and its source always belong to the same graph. The sink's start callback
+records the index, together with the prepared route of its delta input (RFC
+0008 stage 5), in its planned ``runtime_cache`` component (see the node
+storage tree in :doc:`data_structures/schemas/graph`); each tick then copies
+the delta into the source's state and schedules the source at ``t + MIN_TD``
+by index through the sink's own graph pointer, with no bound-output or
+owner-node resolution. A sink whose cache is unset (or whose source turned out
+not to be a node of the same graph) takes the original per-tick resolution.
+
 **A delayed binding changes compose order, not evaluation order.**
 ``delayed_binding<S>(w)`` owns shared control state. Atomic and dynamically
 shaped schemas expose one ``DelayedSource``. Fixed ``TSL`` and ``TSB`` schemas
