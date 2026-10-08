@@ -200,6 +200,25 @@ if(_hgraph_sanitizers)
         -fno-omit-frame-pointer
     )
     target_link_options(hgraph_options INTERFACE -fsanitize=${_hgraph_sanitizer_flags})
+
+    # Standalone compiler tools and locally built dependencies also share C++
+    # container implementations with the runtime. Instrument every compiled
+    # target consistently, without exporting their private build options.
+    function(_hgraph_instrument_directory directory)
+        get_property(_targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+        foreach(_target IN LISTS _targets)
+            get_target_property(_type "${_target}" TYPE)
+            if(_type MATCHES "^(EXECUTABLE|STATIC_LIBRARY|SHARED_LIBRARY|MODULE_LIBRARY|OBJECT_LIBRARY)$")
+                target_compile_options("${_target}" PRIVATE
+                    -fsanitize=${_hgraph_sanitizer_flags} -fno-omit-frame-pointer)
+                target_link_options("${_target}" PRIVATE -fsanitize=${_hgraph_sanitizer_flags})
+            endif()
+        endforeach()
+        get_property(_directories DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+        foreach(_directory IN LISTS _directories)
+            _hgraph_instrument_directory("${_directory}")
+        endforeach()
+    endfunction()
 endif()
 
 find_package(Threads REQUIRED)
@@ -1027,3 +1046,7 @@ install(FILES
     "${PROJECT_SOURCE_DIR}/cmake/HgraphNativeDependencies.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/hgraph
 )
+
+if(_hgraph_sanitizers)
+    _hgraph_instrument_directory("${CMAKE_CURRENT_SOURCE_DIR}")
+endif()
