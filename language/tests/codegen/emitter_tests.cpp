@@ -4471,3 +4471,38 @@ export fn default_value() -> atomic<Snapshot> => Snapshot()
     REQUIRE(payload != std::string::npos);
     CHECK(check < payload);
 }
+
+TEST_CASE("emit-cpp omits cache metadata when preparation needs no storage", "[codegen][runtime][cache]") {
+    Unit unit{R"hgl(module checks.empty_cache
+operator adjust<T>(value: T, const amount: T) -> T
+impl fn adjust<T>(value: T, const amount: T) -> T requires T in {f64} {
+    when { return value + amount }
+}
+instantiate adjust<f64>
+)hgl"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    const auto generated = emitted->header + emitted->source;
+    CHECK_FALSE(contains(generated, "_cache_fields"));
+    CHECK(contains(generated, "static void prepare("));
+
+    Unit controls{R"hgl(module checks.actual_cache
+export fn actual_cache(value: i64) -> i64 {
+    cache count: i64 = 0
+    when { count += 1
+        return count }
+}
+export fn aggregate_local(value: i64) -> i64 {
+    when { let pair = (value, false)
+        return pair[0] }
+}
+)hgl"};
+    const auto retained = controls.emit();
+    INFO(controls.diagnostics.render(controls.file));
+    REQUIRE(retained);
+    const auto with_storage = retained->header + retained->source;
+    CHECK(contains(with_storage, "hgraph::State<hgraph::Int>"));
+    CHECK(contains(with_storage, "aggregate_local_cache_fields"));
+    CHECK(contains(with_storage, "hgl::ordinary::PreparedValuePlan"));
+}

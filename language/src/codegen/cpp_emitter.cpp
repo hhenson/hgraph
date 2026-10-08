@@ -513,6 +513,11 @@ namespace hgl::codegen
             void                      dedent() { --indent_; }
             void                      append(std::string_view text) { out_ += text; }
             [[nodiscard]] std::string str() const { return out_; }
+            [[nodiscard]] Writer fragment() const {
+                Writer result;
+                result.indent_ = indent_;
+                return result;
+            }
             /// Fill a signature written as a placeholder once its body is
             /// emitted and the names the body uses are known.
             void replace_first(std::string_view placeholder, std::string_view text) {
@@ -875,7 +880,7 @@ namespace hgl::codegen
             bool ordinary_key_expression_{false};
             struct OrdinaryEntry { std::string key; HType type; std::string name; };
             std::vector<OrdinaryEntry> ordinary_entries_{};
-            void emit_ordinary_prepare(gir::CallableId decl, Writer &out, const std::string &fields_placeholder);
+            bool emit_ordinary_prepare(gir::CallableId decl, Writer &out, const std::string &fields_placeholder, Writer *cache_metadata = nullptr);
             /// Locals declared in the current function, for unique C++ names.
             std::unordered_map<std::string, int>                local_counts_{};
             std::unordered_set<std::string>                     local_names_{};
@@ -6760,7 +6765,7 @@ namespace hgl::codegen
             out.line();
         }
 
-        void Emitter::emit_ordinary_prepare(gir::CallableId decl, Writer &out, const std::string &fields_placeholder) {
+        bool Emitter::emit_ordinary_prepare(gir::CallableId decl, Writer &out, const std::string &fields_placeholder, Writer *cache_metadata) {
             const auto &fn = callable(decl);
             std::vector<std::pair<std::string, std::string>> distinct_keys;
             if (!fn.global_key_distinct.empty()) {
@@ -6822,14 +6827,14 @@ namespace hgl::codegen
                 fields += "hgl::ordinary::PreparedDeltaPlan " + name + "{}; ";
             }
             for (const auto &entry : ordinary_entries_) { fields += "hgraph::PreparedGlobalEntry " + entry.name + "{}; "; }
-            out.replace_first(fields_placeholder, fields);
+            (cache_metadata != nullptr ? *cache_metadata : out).replace_first(fields_placeholder, fields);
             const bool local_plans = !ordinary_node_plans_.empty() || !ordinary_held_node_plans_.empty() ||
                 !ordinary_publication_plans_.empty() || !ordinary_observation_plans_.empty() ||
                 !ordinary_inverse_observation_plans_.empty() || !ordinary_entries_.empty() ||
                 !delta_node_plans_.empty() || !aggregate_arguments.empty();
             out.open(local_plans ? "static void prepare(const hgraph::NodeView &view)" : "static void prepare(const hgraph::NodeView &)");
             out.line(namespace_ + "::prepare_ordinary_value_plans();");
-            if (!local_plans) { out.close(); return; }
+            if (!local_plans) { out.close(); return false; }
             out.line("auto &hgl_prepared = hgraph::State<hgl_cache_fields>{view.state()}.modify();");
             for (const auto &[index, scalar_index] : aggregate_arguments) {
                 const std::string source = "view.scalars().as_bundle().at(" + std::to_string(scalar_index) + ")";
@@ -6909,6 +6914,7 @@ namespace hgl::codegen
                 ordinary_preflight_schema_ = false;
                 out.close();
             }
+            return true;
         }
 
         void Emitter::emit_runtime_function(gir::CallableId decl, Writer &out) {
@@ -6931,19 +6937,25 @@ namespace hgl::codegen
             frame.runtime = true;
             out.line("// " + where(planned.range));
             const std::string ordinary_fields = next_placeholder();
+            const std::string cache_metadata_placeholder = next_placeholder();
+            const std::string cache_alias_placeholder = next_placeholder();
+            Writer cache_metadata = out.fragment();
+            out.append(cache_metadata_placeholder);
             if (info.caches.size() > 1 || ordinary_cache(planned, info)) {
                 const std::string cache_name = callable_cpp_name(decl) + "_cache_fields";
-                out.open("struct " + cache_name);
-                out.line(ordinary_fields);
+                cache_metadata.open("struct " + cache_name);
+                cache_metadata.line(ordinary_fields);
                 for (const RuntimeState &cache : info.caches) {
-                    out.line(value_type(planned_type(cache.type, cache.range), cache.range) + " field_" +
+                    cache_metadata.line(value_type(planned_type(cache.type, cache.range), cache.range) + " field_" +
                              std::to_string(cache.binding.value) + "{};");
                 }
-                out.close(";");
-                emit_cache_scalar_name(out, cache_name, active_callable_identity(planned));
+                cache_metadata.close(";");
+                emit_cache_scalar_name(cache_metadata, cache_name, active_callable_identity(planned));
             }
             out.open("struct " + callable_cpp_name(decl));
-            if (info.caches.size() > 1 || ordinary_cache(planned, info)) { out.line("using hgl_cache_fields = " + callable_cpp_name(decl) + "_cache_fields;"); }
+            Writer cache_alias = out.fragment();
+            cache_alias.line("using hgl_cache_fields = " + callable_cpp_name(decl) + "_cache_fields;");
+            out.append(cache_alias_placeholder);
             out.line("static constexpr auto name = " + quote(active_callable_identity(planned)) + ";");
             emit_defaults(planned, out);
             literal_callable_ = decl;
@@ -7083,8 +7095,15 @@ namespace hgl::codegen
             }
             active_uses_ = nullptr;
             literal_callable_ = {};
-            if (ordinary_cache(planned, info)) { emit_ordinary_prepare(decl, out, ordinary_fields); }
-            else if (info.caches.size() > 1) { out.replace_first(ordinary_fields, ""); }
+            const bool local_plans = ordinary_cache(planned, info) &&
+                emit_ordinary_prepare(decl, out, ordinary_fields, &cache_metadata);
+            if (!ordinary_cache(planned, info)) { cache_metadata.replace_first(ordinary_fields, ""); }
+            // The broad preparation predicate is only a discovery hint. Emit
+            // cache metadata after the body has proved storage is needed.
+            const bool needs_cache = info.caches.size() > 1 ||
+                (ordinary_cache(planned, info) && (!info.caches.empty() || local_plans));
+            out.replace_first(cache_metadata_placeholder, needs_cache ? cache_metadata.str() : "");
+            out.replace_first(cache_alias_placeholder, needs_cache ? cache_alias.str() : "");
             out.close(";");
             out.line();
         }
