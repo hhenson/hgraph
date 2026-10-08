@@ -2537,10 +2537,14 @@ namespace hgraph_::std_
                 hgl_cache.modify().field_483 = hgraph::Int{0};
                 while ((hgl_cache.ref().field_483 < hgl_cache.ref().hgl_plan_0.len(hgl_cache.ref().hgl_argument_0.view()))) {
                     {
-                        const auto  hgl_time_1 = hgl::ordinary::required_scalar<hgraph::DateTime>(hgl_cache.ref().hgl_plan_1.index(
-                            hgl_cache.ref().hgl_plan_0.index(hgl_cache.ref().hgl_argument_0.view(), hgl_cache.ref().field_483), 0));
-                        const auto &hgl_payload_1 = hgl_cache.ref().hgl_plan_1.index(
-                            hgl_cache.ref().hgl_plan_0.index(hgl_cache.ref().hgl_argument_0.view(), hgl_cache.ref().field_483), 1);
+                        const auto hgl_time_1 = hgl::ordinary::required_scalar<hgraph::DateTime>(
+                            hgl_cache.ref().hgl_plan_1.index(hgl_cache.ref().hgl_plan_0.index(hgl_cache.ref().hgl_argument_0.view(),
+                                                                                              hgl_cache.ref().field_483, true),
+                                                             0, true));
+                        const auto &hgl_payload_1 =
+                            hgl_cache.ref().hgl_plan_1.index(hgl_cache.ref().hgl_plan_0.index(hgl_cache.ref().hgl_argument_0.view(),
+                                                                                              hgl_cache.ref().field_483, true),
+                                                             1, true);
                         const hgraph::DateTime hgl_when_1 = hgl_time_1;
                         if (hgl_cache.ref().hgl_has_previous && hgl_when_1 <= hgl_cache.ref().hgl_previous) {
                             throw hgl::ExecutionError(
@@ -2618,17 +2622,19 @@ namespace hgraph_::std_
                 if ((ts.modified()) && (ts.valid())) {
                     auto recording = hgl_cache.ref().hgl_entry_0.get();
                     hgl_cache.ref().hgl_plan_0.push(
-                        recording, ([&]() {
-                                       auto hgl_field_0 = hgl_cache.ref().hgl_plan_1.retain(([&](const auto &hgl_scalar) {
-                                           return hgraph::ValueView{hgl_cache.ref().hgl_plan_1.binding(), &hgl_scalar};
-                                       }(hgl_cap_clock.evaluation_time())));
-                                       auto hgl_field_1 = hgl_cache.ref().hgl_delta_plan_0.capture(ts.delta_value());
-                                       std::array<std::pair<std::size_t, hgraph::ValueView>, 2> hgl_fields{
-                                           std::pair<std::size_t, hgraph::ValueView>{0, hgl_field_0.view()},
-                                           std::pair<std::size_t, hgraph::ValueView>{1, hgl_field_1.view()}};
-                                       return hgl_cache.ref().hgl_plan_2.bundle(hgl_fields);
-                                   }())
-                                       .view());
+                        recording,
+                        ([&]() {
+                            auto hgl_field_0 = hgl_cache.ref().hgl_plan_1.retain(([&](const auto &hgl_scalar) {
+                                return hgraph::ValueView{hgl_cache.ref().hgl_plan_1.binding(), &hgl_scalar};
+                            }(hgl_cap_clock.evaluation_time())));
+                            auto hgl_field_1 = hgl_cache.ref().hgl_delta_plan_0.capture(ts.delta_value());
+                            std::array<std::pair<std::size_t, hgraph::ValueView>, 2> hgl_fields{
+                                std::pair<std::size_t, hgraph::ValueView>{0, hgl_field_0.view()},
+                                std::pair<std::size_t, hgraph::ValueView>{1, hgl_field_1.view()}};
+                            return hgl_cache.ref().hgl_plan_2.bundle(hgl_fields);
+                        }())
+                            .view(),
+                        false);
                 }
             }
             static void prepare(const hgraph::NodeView &view) {
