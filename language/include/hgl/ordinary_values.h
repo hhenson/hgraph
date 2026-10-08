@@ -310,7 +310,6 @@ namespace hgl::ordinary
         const auto kind = schema->try_value_kind();
         if (kind == hgraph::ValueTypeKind::List) {
             const auto element = storage_binding(schema->element_type);
-            if (schema->is_fixed_size()) { return factory.realized_fixed_list_type_for(schema, element); }
             return hgraph::intern_value_type(*schema, hgraph::mutable_list_plan(element), hgraph::mutable_list_ops());
         }
         if (kind == hgraph::ValueTypeKind::Map) {
@@ -359,6 +358,7 @@ namespace hgl::ordinary
             if (binding.schema()->key_type != nullptr) {
                 key_ = hgraph::ValuePlanFactory::instance().type_for(binding.schema()->key_type);
             }
+            if (kind == hgraph::ValueTypeKind::List) { list_builder_binding_ = hgraph::compact_list_type(element_, *binding.schema()); }
         }
         [[nodiscard]] hgraph::ValueTypeRef binding() const noexcept { return binding_; }
         [[nodiscard]] hgraph::ValueTypeRef field_binding(std::size_t index) const { return fields_.at(index).binding(); }
@@ -366,10 +366,20 @@ namespace hgl::ordinary
         [[nodiscard]] hgraph::ValueTypeRef element_binding() const noexcept { return element_; }
         [[nodiscard]] hgraph::ValueTypeRef key_binding() const noexcept { return key_; }
         [[nodiscard]] hgraph::Value retain(const hgraph::ValueView &value) const {
+            if (!value.has_value()) { return hgraph::Value::typed_null(binding_); }
             if (binding_.schema()->is_abstract_bundle()) { return hgraph::Value{binding_, value.concrete()}; }
             return hgraph::Value{binding_, value};
         }
-        [[nodiscard]] hgraph::Value empty_list() const { return hgraph::Value{binding_}; }
+        [[nodiscard]] hgraph::Value empty_list() const {
+            if (!binding_.schema()->is_fixed_size()) { return hgraph::Value{binding_}; }
+            hgraph::ListBuilder builder{element_, *binding_.schema()};
+            builder.append_default(binding_.schema()->fixed_size);
+            auto storage = builder.build_storage();
+            return list(storage);
+        }
+        [[nodiscard]] hgraph::Value list(const hgraph::ListStorage &storage) const {
+            return retain(hgraph::ValueView{list_builder_binding_, &storage});
+        }
         [[nodiscard]] hgraph::KeyValueRange<hgraph::ValueView, hgraph::ValueView> items(const hgraph::ValueView &value) const {
             if (map_ == nullptr) { throw std::invalid_argument("ordinary value storage is not a map"); }
             return map_->make_kv_range(map_->context, value.data());
@@ -388,6 +398,7 @@ namespace hgl::ordinary
             return static_cast<std::int64_t>(size);
         }
         [[nodiscard]] hgraph::ValueView index(const hgraph::ValueView &value, std::int64_t index) const {
+            if (!value.has_value()) { throw std::logic_error("ordinary scalar value is absent"); }
             if (index < 0 || index >= len(value)) { throw std::out_of_range("ordinary value index out of bounds"); }
             const auto offset = static_cast<std::size_t>(index);
             if (indexed_->element_valid != nullptr && !indexed_->element_valid(indexed_->context, value.data(), offset)) {
@@ -397,6 +408,7 @@ namespace hgl::ordinary
                                      indexed_->element_at(indexed_->context, value.data(), offset)};
         }
         [[nodiscard]] hgraph::ValueView index_mutable(const hgraph::ValueView &value, std::int64_t index) const {
+            if (!value.has_value()) { throw std::logic_error("ordinary scalar value is absent"); }
             if (index < 0 || index >= len(value)) { throw std::out_of_range("ordinary value index out of bounds"); }
             const auto offset = static_cast<std::size_t>(index);
             auto writable = value.begin_mutation();
@@ -429,6 +441,7 @@ namespace hgl::ordinary
         const hgraph::MapValueOps *map_{};
         std::vector<PreparedValuePlan> fields_{};
         hgraph::ValueTypeRef element_{};
+        hgraph::ValueTypeRef list_builder_binding_{};
         hgraph::ValueTypeRef key_{};
     };
 

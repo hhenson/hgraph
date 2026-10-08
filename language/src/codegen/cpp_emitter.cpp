@@ -2509,12 +2509,11 @@ namespace hgl::codegen
                     : ordinary_plan(type, value.range) + ".retain(" + view + ")";
             };
             if (value.type.kind == HType::Kind::List) {
-                code += "auto hgl_result = " + target_plan + ".empty_list(); const auto hgl_size = " + source_plan +
+                code += "hgraph::ListBuilder hgl_result{" + target_plan + ".element_binding(), *" + target_plan + ".binding().schema()}; const auto hgl_size = " + source_plan +
                         ".len(" + observed + ".view()); for (std::int64_t hgl_index = 0; hgl_index < hgl_size; ++hgl_index) { ";
                 code += "auto hgl_child = " + convert_child(value.type.children.back(), source_plan + ".index(" + observed + ".view(), hgl_index)") + "; ";
-                code += value.type.size.empty() ? target_plan + ".push(hgl_result.view(), hgl_child.view()); "
-                    : target_plan + ".index_mutable(hgl_result.view(), hgl_index).begin_mutation().copy_from(hgl_child.view()); ";
-                return code + "} return hgl_result; }(" + ordinary_view(value) + ")";
+                code += "if (hgl_child.has_value()) { hgl_result.push_back(hgl_child.view()); } else { hgl_result.push_back_unset(); } ";
+                return code + "} auto hgl_storage = hgl_result.build_storage(); return " + target_plan + ".list(hgl_storage); }(" + ordinary_view(value) + ")";
             }
             if (value.type.kind == HType::Kind::Map) {
                 code += "hgraph::MapBuilder hgl_result{" + target_plan + ".key_binding(), " + target_plan + ".element_binding()}; ";

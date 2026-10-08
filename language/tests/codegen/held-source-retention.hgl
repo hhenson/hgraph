@@ -1,0 +1,23 @@
+module hgl.codegen.held_source_retention
+fn nested_list(value: tuple<list<list<tuple<i64, bool>, 2>, 2>, bool>) -> tuple<list<list<tuple<i64, bool>, 2>, 2>, bool> {
+    when valid(value) && valid(value[1]) {
+        let copy = value
+        return copy
+    }
+}
+fn nested_map(value: tuple<list<map<i64, tuple<i64, bool>>, 2>, bool>) -> i64 {
+    when valid(value) && valid(value[1]) {
+        let copy = value
+        return len(copy[0])
+    }
+}
+test nested_unset_collection_children_are_retained {
+    let list_value = delta<tuple<list<list<tuple<i64, bool>, 2>, 2>, bool>>(items: [
+        0: delta<list<list<tuple<i64, bool>, 2>, 2>>(items: [
+            0: delta<list<tuple<i64, bool>, 2>>(items: [0: delta<tuple<i64, bool>>(items: [0: 7])])]), 1: true])
+    assert eval(nested_list, [list_value]) == [list_value]
+    let map_value = delta<tuple<list<map<i64, tuple<i64, bool>>, 2>, bool>>(items: [
+        0: delta<list<map<i64, tuple<i64, bool>>, 2>>(items: [
+            0: delta<map<i64, tuple<i64, bool>>>(upsert: [4: delta<tuple<i64, bool>>(items: [0: 7])])]), 1: true])
+    assert eval(nested_map, [map_value]) == [2]
+}

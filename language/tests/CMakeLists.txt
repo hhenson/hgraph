@@ -836,6 +836,11 @@ if(UNIX)
         NAME hgraph_language_test_runtime
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
     )
+    add_test(NAME hgraph_language_test_held_source_retention
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/held-source-retention.hgl)
+    set_tests_properties(hgraph_language_test_held_source_retention PROPERTIES
+        PASS_REGULAR_EXPRESSION "1 test, 0 failed"
+        ENVIRONMENT "HGL_DISABLE_CACHE=1")
     add_test(NAME hgraph_language_test_sources
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/sources.hgl)
     set_tests_properties(hgraph_language_test_sources PROPERTIES

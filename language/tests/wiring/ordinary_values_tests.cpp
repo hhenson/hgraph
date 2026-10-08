@@ -56,6 +56,59 @@ TEST_CASE("ordinary lists keep canonical schemas with mutable planned storage", 
     CHECK(type_system_lock_count() == before);
 }
 
+TEST_CASE("prepared fixed List retention preserves observations and dense defaults separately", "[ordinary][list][observation]") {
+    using namespace hgraph;
+    using hgl::ordinary::PreparedValuePlan;
+    const auto *schema = TypeRegistry::instance().fixed_list(scalar_descriptor<Int>::value_meta(), 2);
+    const PreparedValuePlan plan{schema};
+    const Value seven{Int{7}};
+    ListBuilder builder{plan.element_binding(), *schema};
+    builder.push_back(seven.view());
+    builder.push_back_unset();
+    auto storage = builder.build_storage();
+    auto observed = plan.list(storage);
+    const auto before = type_system_lock_count();
+    for (std::size_t iteration = 0; iteration < 32; ++iteration) {
+        const auto retained = plan.retain(observed.view());
+        CHECK(retained.binding().schema() == schema);
+        CHECK(plan.index(retained.view(), 0).checked_as<Int>() == 7);
+        CHECK_FALSE(plan.index(retained.view(), 1).has_value());
+    }
+    CHECK(type_system_lock_count() == before);
+    auto dense = plan.empty_list();
+    CHECK(plan.index(dense.view(), 0).checked_as<Int>() == 0);
+    CHECK(plan.index(dense.view(), 1).checked_as<Int>() == 0);
+    plan.replace_index(dense.view(), 1, seven.view());
+    CHECK(plan.index(dense.view(), 1).checked_as<Int>() == 7);
+    CHECK_FALSE(plan.index(observed.view(), 1).has_value());
+    const auto absent = Value::typed_null(plan.binding());
+    CHECK_THROWS_WITH(plan.index(absent.view(), 0), "ordinary scalar value is absent");
+    const PreparedValuePlan nested_list{TypeRegistry::instance().fixed_list(schema, 2)};
+    ListBuilder nested_builder{nested_list.element_binding(), *nested_list.binding().schema()};
+    nested_builder.push_back(observed.view());
+    nested_builder.push_back_unset();
+    auto nested_storage = nested_builder.build_storage();
+    const auto nested = nested_list.list(nested_storage);
+    const auto nested_copy = nested_list.retain(nested.view());
+    CHECK_FALSE(nested_list.index(nested_copy.view(), 1).has_value());
+    CHECK_FALSE(plan.index(nested_list.index(nested_copy.view(), 0), 1).has_value());
+    const PreparedValuePlan map{TypeRegistry::instance().map(seven.binding().schema(), seven.binding().schema())};
+    MapBuilder map_builder{map.key_binding(), map.element_binding()};
+    map_builder.set_item(seven.view(), seven.view());
+    auto map_storage = map_builder.build_storage();
+    const Value map_value{map.binding(), &map_storage, Value::AdoptStorage{}};
+    const PreparedValuePlan nested_map{TypeRegistry::instance().fixed_list(map.binding().schema(), 2)};
+    ListBuilder maps{nested_map.element_binding(), *nested_map.binding().schema()};
+    maps.push_back(map_value.view());
+    maps.push_back_unset();
+    auto maps_storage = maps.build_storage();
+    const auto maps_value = nested_map.list(maps_storage);
+    const auto maps_copy = nested_map.retain(maps_value.view());
+    CHECK_FALSE(nested_map.index(maps_copy.view(), 1).has_value());
+    CHECK(nested_map.index(maps_copy.view(), 1).binding().schema() == map.binding().schema());
+    CHECK(nested_map.index(maps_copy.view(), 0).as_map().at(seven.view()).checked_as<Int>() == 7);
+}
+
 TEST_CASE("ordinary bundle construction retains nested lists without registry access", "[ordinary][bundle]") {
     using namespace hgraph;
     using hgl::ordinary::PreparedValuePlan;

@@ -861,3 +861,13 @@ retention does not discover a representation from the observed payload.
 Growing-list and dictionary snapshot builders likewise preserve unset entries.
 This source observation contract does not apply an output delta or copy source
 endpoint timestamps.
+
+HGL prepared fixed List observation plans use the existing mutable List
+ownership strategy with the exact fixed schema, preserving both unset bits
+and ordinary local writability. Conversion builds each live position or typed unset
+position directly with the prepared element binding; retaining an unset leaf
+does not manufacture its default payload. This representation correction
+preserves the compiler's existing sparse publication behavior. Ordinary fixed
+List default construction still creates valid default elements, so canonical
+authoring values keep their dense zero payloads independently of temporal
+observation holes.
