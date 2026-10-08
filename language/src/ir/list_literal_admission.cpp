@@ -61,7 +61,14 @@ namespace hgl::ir {
                 return true;
             }
 
+            void require_cold_effects(bool cold) {
+                if (!cold) { for (std::size_t index = 0; index < effect_facts_.size(); ++index) { effect_facts_[index] = false; } }
+            }
+
             bool invoke(const Expr &site, const Call &call, const FunctionDecl &fn, Facts &caller) {
+                // Evaluation effects are independent of whether the returned
+                // value depends on an argument. Keep them across ignored inputs.
+                effect_facts_.push_back(cold_call_contract(site));
                 Facts facts;
                 std::vector<bool> supplied(fn.signature.parameters.size());
                 std::size_t positional = 0;
@@ -94,20 +101,26 @@ namespace hgl::ir {
                     if (!supplied[index]) { facts[parameter.symbol.value] = expression(parameter.default_value, facts); }
                     key += facts[parameter.symbol.value] ? '1' : '0';
                 }
+                const bool argument_effects = effect_facts_.back();
+                effect_facts_.back() = fn.capabilities.empty() && !has_effect(fn.effects, Effect::UseCapability);
+                const auto finish = [&](bool result, bool body_effects) {
+                    effect_facts_.pop_back();
+                    require_cold_effects(argument_effects && body_effects);
+                    return result && argument_effects && body_effects;
+                };
                 // Without a body there is no proof that any argument is irrelevant.
                 // Retain the declared cold-call contract and require every bound
                 // argument (including defaults) to be cold.
                 if (!fn.concise_body.valid() && !fn.block_body.valid()) {
-                    return fn.capabilities.empty() && !has_effect(fn.effects, Effect::UseCapability) &&
-                        cold_call_contract(site) && std::ranges::all_of(facts, [](const auto &fact) { return fact.second; });
+                    return finish(std::ranges::all_of(facts, [](const auto &fact) { return fact.second; }), effect_facts_.back());
                 }
-                if (const auto found = results_.find(key); found != results_.end()) { return found->second; }
+                if (const auto found = results_.find(key); found != results_.end()) { return finish(found->second.value, found->second.effects); }
                 // A cycle with only constant inputs is provisionally cold;
                 // every nonrecursive expression still has to prove that fact.
                 // Do not memoize participants before the cycle is discharged.
                 if (!active_.insert(key).second) {
                     recursive_.insert(active_.begin(), active_.end());
-                    return fn.capabilities.empty() && std::ranges::all_of(facts, [](const auto &fact) { return fact.second; });
+                    return finish(std::ranges::all_of(facts, [](const auto &fact) { return fact.second; }), effect_facts_.back());
                 }
                 bool returned = true;
                 return_facts_.push_back(true);
@@ -116,13 +129,15 @@ namespace hgl::ir {
                 const bool complete = result && return_facts_.back() && fn.capabilities.empty();
                 return_facts_.pop_back();
                 active_.erase(key);
-                if (!recursive_.contains(key)) { results_.emplace(std::move(key), complete); }
-                return complete;
+                const bool body_effects = effect_facts_.back();
+                if (!recursive_.contains(key)) { results_.emplace(std::move(key), InvocationResult{complete, body_effects}); }
+                return finish(complete, body_effects);
             }
 
             bool expression(ExprId id, Facts &facts, bool control = true) {
                 if (!id.valid()) { return true; }
                 const auto &value = module_.expr(id);
+                require_cold_effects(value.operation.kind != OperationKind::Capability && !has_effect(value.effects, Effect::UseCapability));
                 return std::visit([&](const auto &node) -> bool {
                     using T = std::decay_t<decltype(node)>;
                     if constexpr (std::is_same_v<T, Literal>) { return true; }
@@ -160,7 +175,7 @@ namespace hgl::ir {
                                 const auto target = root(node.arguments.front().value);
                                 if (target.valid()) { facts[target.value] = control && constant; }
                             }
-                            if (!cold_call_contract(value)) { return false; }
+                            if (!cold_call_contract(value)) { require_cold_effects(false); return false; }
                             if (const auto *fn = function(value.operation.target); fn && !fn->is_const) { return false; }
                         }
                         return constant;
@@ -239,7 +254,9 @@ namespace hgl::ir {
             std::unordered_set<const Expr *> reported_;
             std::unordered_set<std::string> active_;
             std::unordered_set<std::string> recursive_;
-            std::unordered_map<std::string, bool> results_;
+            struct InvocationResult { bool value; bool effects; };
+            std::unordered_map<std::string, InvocationResult> results_;
+            std::vector<bool> effect_facts_;
             std::vector<bool> return_facts_;
         };
     }

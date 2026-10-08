@@ -4289,3 +4289,44 @@ TEST_CASE("generic list helper coldness is independent of type substitutions", "
         CHECK(unit.diagnostics.has_errors() == (argument == "value"));
     }
 }
+
+TEST_CASE("ignored value arguments retain capability evaluation effects", "[ir][typed][list-literal]") {
+    const std::string helpers =
+        "const fn stamp() -> datetime { inject clock\nreturn clock.now }\n"
+        "const fn first(x: i64, unused: datetime) -> i64 => x\n"
+        "const fn defaulted(x: i64, unused: datetime = stamp()) -> i64 => x\n"
+        "const fn nested(x: i64) -> i64 => first(x, stamp())\n";
+    for (const std::string expression : {"first(1, clock.now)", "first(1, stamp())", "defaulted(1)", "nested(1)"}) {
+        Lowered unit{"module checks.ignored_effect\n" + helpers +
+            "fn bad(value: i64) -> i64 { inject clock\nwhen { let values = [" + expression + "]\nreturn len(values) } }\n"};
+        require_clean(unit);
+        CHECK_FALSE(complete(unit));
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(std::ranges::any_of(unit.diagnostics.diagnostics(), [](const auto &diagnostic) {
+            return diagnostic.category == hgl::syntax::Category::Phase && diagnostic.code.empty() &&
+                diagnostic.message == "a nonempty ordinary list literal requires constant elements";
+        }));
+    }
+    Lowered control{"module checks.ignored_input\nconst fn first(x: i64, unused: i64) -> i64 => x\n"
+        "fn good(value: i64) -> i64 { when { let values = [first(1, value)]\nreturn len(values) } }\n"};
+    require_clean(control);
+    CHECK(complete(control));
+    INFO(control.diagnostics.render(control.file));
+    CHECK_FALSE(control.diagnostics.has_errors());
+}
+
+TEST_CASE("value call effect admission is not cached from irrelevant argument coldness", "[ir][typed][list-literal]") {
+    for (const bool effect_first : {false, true}) {
+        const std::string pure = "let admitted = [first(1, value)]\n";
+        const std::string effect = "let rejected = [first(1, stamp())]\n";
+        Lowered unit{"module checks.effect_cache\nconst fn stamp() -> datetime { inject clock\nreturn clock.now }\n"
+            "const fn first(x: i64, unused: datetime) -> i64 => x\n"
+            "fn observe(value: datetime) -> i64 { when {\n" + (effect_first ? effect + pure : pure + effect) + "return 1 } }\n"};
+        require_clean(unit);
+        CHECK_FALSE(complete(unit));
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(std::ranges::count_if(unit.diagnostics.diagnostics(), [](const auto &diagnostic) {
+            return diagnostic.message == "a nonempty ordinary list literal requires constant elements";
+        }) == 1);
+    }
+}
