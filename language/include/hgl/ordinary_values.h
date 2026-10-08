@@ -381,6 +381,7 @@ namespace hgl::ordinary
             return retain(hgraph::ValueView{list_builder_binding_, &storage});
         }
         [[nodiscard]] hgraph::KeyValueRange<hgraph::ValueView, hgraph::ValueView> items(const hgraph::ValueView &value) const {
+            if (!value.has_value()) { throw std::logic_error("ordinary scalar value is absent"); }
             if (map_ == nullptr) { throw std::invalid_argument("ordinary value storage is not a map"); }
             return map_->make_kv_range(map_->context, value.data());
         }
@@ -390,6 +391,7 @@ namespace hgl::ordinary
             return result.build();
         }
         [[nodiscard]] std::int64_t len(const hgraph::ValueView &value) const {
+            if (!value.has_value()) { throw std::logic_error("ordinary scalar value is absent"); }
             if (indexed_ == nullptr) { throw std::invalid_argument("ordinary value storage is not indexed"); }
             const auto size = indexed_->size(indexed_->context, value.data());
             if (size > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max())) {

@@ -83,6 +83,7 @@ TEST_CASE("prepared fixed List retention preserves observations and dense defaul
     CHECK_FALSE(plan.index(observed.view(), 1).has_value());
     const auto absent = Value::typed_null(plan.binding());
     CHECK_THROWS_WITH(plan.index(absent.view(), 0), "ordinary scalar value is absent");
+    CHECK_THROWS_WITH(plan.len(absent.view()), "ordinary scalar value is absent");
     const PreparedValuePlan nested_list{TypeRegistry::instance().fixed_list(schema, 2)};
     ListBuilder nested_builder{nested_list.element_binding(), *nested_list.binding().schema()};
     nested_builder.push_back(observed.view());
@@ -93,6 +94,8 @@ TEST_CASE("prepared fixed List retention preserves observations and dense defaul
     CHECK_FALSE(nested_list.index(nested_copy.view(), 1).has_value());
     CHECK_FALSE(plan.index(nested_list.index(nested_copy.view(), 0), 1).has_value());
     const PreparedValuePlan map{TypeRegistry::instance().map(seven.binding().schema(), seven.binding().schema())};
+    const auto absent_map = Value::typed_null(map.binding());
+    CHECK_THROWS_WITH(map.items(absent_map.view()), "ordinary scalar value is absent");
     MapBuilder map_builder{map.key_binding(), map.element_binding()};
     map_builder.set_item(seven.view(), seven.view());
     auto map_storage = map_builder.build_storage();

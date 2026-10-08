@@ -156,6 +156,13 @@ export fn tuple_list_observed_absent_slot(value: tuple<list<tuple<i64, bool>, 2>
     }
 }
 
+export fn tuple_list_observed_absent_length(value: tuple<list<tuple<i64, bool>, 2>, bool>) -> i64 {
+    when valid(value) && valid(value[1]) {
+        let copy = value
+        return len(copy[0])
+    }
+}
+
 export fn tuple_map_observed_partial(value: tuple<map<i64, tuple<i64, bool>>, bool>) -> tuple<map<i64, tuple<i64, bool>>, bool> {
     when valid(value) && valid(value[0]) {
         let copy = value

@@ -127,7 +127,10 @@ TEST_CASE("generated tuple observations preserve absent required payloads", "[co
     CHECK_THROWS_WITH((eval_node<runtime::operators::tuple_list_observed_absent_field, Nested>(nested_partial)),
                       Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
     CHECK_THROWS_WITH((eval_node<runtime::operators::tuple_list_observed_absent_slot, Nested>(nested_partial)),
-                      Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
+                     Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
+    const auto absent_list = values<Value>(tsb_delta<Nested>(std::nullopt, Bool{true}));
+    CHECK_THROWS_WITH((eval_node<runtime::operators::tuple_list_observed_absent_length, Nested>(absent_list)),
+                     Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
     using Map = UnNamedTSB<Field<"0", TSD<Int, Pair>>, Field<"1", TS<Bool>>>;
     const auto map_partial = values<Value>(tsb_delta<Map>(
         dict_delta<Int, Pair>({{4, tsb_delta<Pair>(Int{7}, std::nullopt)}}), Bool{true}));

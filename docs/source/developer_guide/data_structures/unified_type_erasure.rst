@@ -871,3 +871,7 @@ preserves the compiler's existing sparse publication behavior. Ordinary fixed
 List default construction still creates valid default elements, so canonical
 authoring values keep their dense zero payloads independently of temporal
 observation holes.
+Length, indexed payload access and Map item traversal check that their
+retained root has a payload before invoking storage operations. Reading an
+unset aggregate's payload raises the existing absent ordinary-value failure;
+retaining that same typed hole remains valid and does not traverse it.
