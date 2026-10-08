@@ -28,6 +28,26 @@ namespace
     }
 }  // namespace
 
+TEST_CASE("generated runtime tuple results publish complete values and sparse positional deltas", "[codegen][runtime][tuple]")
+{
+    session();
+    using Result = UnNamedTSB<Field<"0", TS<Int>>, Field<"1", TS<Bool>>>;
+    CHECK_OUTPUT(eval_node<runtime::operators::tuple_result>(values<Int>(1, 1, none, 2)),
+                 values<Value>(tsb_delta<Result>(Int{1}, Bool{true}), tsb_delta<Result>(Int{1}, Bool{true}), none,
+                               tsb_delta<Result>(Int{2}, Bool{true})));
+    CHECK_OUTPUT(eval_node<runtime::operators::tuple_patch>(values<Int>(1, 2, 2, 1)),
+                 values<Value>(tsb_delta<Result>(Int{1}, std::nullopt), tsb_delta<Result>(std::nullopt, Bool{true}),
+                               tsb_delta<Result>(std::nullopt, Bool{true}), tsb_delta<Result>(Int{1}, std::nullopt)));
+    const auto sparse = values<Value>(tsb_delta<Result>(Int{1}, std::nullopt),
+                                     tsb_delta<Result>(std::nullopt, Bool{true}), tsb_delta<Result>(Int{1}, std::nullopt), none);
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_forward, Result>(sparse)), sparse);
+    using Nested = UnNamedTSB<Field<"0", Result>, Field<"1", TS<Int>>>;
+    CHECK_OUTPUT(eval_node<runtime::operators::nested_tuple_result>(values<Int>(1, 1, none, -2)),
+                 values<Value>(tsb_delta<Nested>(tsb_delta<Result>(Int{1}, Bool{true}), Int{1}),
+                               tsb_delta<Nested>(tsb_delta<Result>(Int{1}, Bool{true}), Int{1}), none,
+                               tsb_delta<Nested>(tsb_delta<Result>(Int{-2}, Bool{false}), Int{-2})));
+}
+
 TEST_CASE("generated module registration owns a removable provider generation", "[codegen][runtime][lifecycle]")
 {
     hgl::wiring::ensure_session();

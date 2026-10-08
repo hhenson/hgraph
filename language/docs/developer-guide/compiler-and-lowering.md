@@ -2359,6 +2359,15 @@ ordinary language contracts, but cannot cross this eval boundary. Tests of
 those operations use admitted scalar inputs and outputs around the operation
 inside the graph. Positional tuple publications remain admitted.
 
+Runtime planning admits concrete positional tuples for both parameters and
+results, using the same unnamed bundle schema as their generic specializations.
+A complete ordinary tuple return retains its value before publication and
+copies each prepared positional child through its output mutation transaction.
+Nested tuples recurse through those child projections: ordinary tuple storage
+and temporal unnamed bundles keep their distinct parent value schemas. Sparse
+tuple returns and `delta_value` forwarding apply the prepared positional delta
+instead, preserving omitted children and repeated equal child publications.
+
 Direct ordinary assignment and `push` share a writable-place resolver. It walks
 field and index projections back to the mutable local owner, realizes writable
 storage there, and updates that same owner. It never mutates a detached result

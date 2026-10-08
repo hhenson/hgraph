@@ -4,6 +4,35 @@
 
 module hgl.codegen.runtime
 
+export fn tuple_result(value: i64) -> tuple<i64, bool> {
+    when { return (value, true) }
+}
+
+export fn tuple_patch(value: i64) -> tuple<i64, bool> {
+    when {
+        if value == 1 { return delta<tuple<i64, bool>>(items: [0: value]) }
+        return delta<tuple<i64, bool>>(items: [1: true])
+    }
+}
+
+export fn tuple_forward(value: tuple<i64, bool>) -> tuple<i64, bool> {
+    when { return delta_value(value) }
+}
+
+export fn nested_tuple_result(value: i64) -> tuple<tuple<i64, bool>, i64> {
+    when { return ((value, value > 0), value) }
+}
+
+test structural_tuple_complete_and_sparse_results {
+    assert eval(tuple_result, [1, 1, _, 2]) == [(1, true), (1, true), _, (2, true)]
+    assert eval(tuple_patch, [1, 2, 2, 1]) == [(1, _), (_, true), (_, true), (1, _)]
+    assert eval(nested_tuple_result, [1, 1, _, -2]) == [((1, true), 1), ((1, true), 1), _, ((-2, false), -2)]
+}
+
+test concrete_tuple_delta_forwarding {
+    assert eval(tuple_forward, [(1, _), (_, true), (1, _), _]) == [(1, _), (_, true), (1, _), _]
+}
+
 cpp include <hgraph/types/metadata/ts_value_type_meta_data.h>
 
 native fn known_schema(value: schema) -> bool {

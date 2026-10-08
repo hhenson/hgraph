@@ -5339,6 +5339,33 @@ namespace hgl::codegen
                 return;
             }
             const std::string converted = as_runtime(value, target, value.range, "output value");
+            if (target.kind == HType::Kind::Tuple && value.ordinary_value) {
+                // Ordinary tuples and temporal unnamed bundles have distinct
+                // parent value schemas. Publish their exact children rather
+                // than pretending that one parent representation is the other.
+                out.open("");
+                const auto local_name = [&](const std::string &base) {
+                    std::string name = base;
+                    while (local_names_.contains(name)) { name = base + "_" + std::to_string(++local_counts_[base]); }
+                    local_names_.insert(name);
+                    return name;
+                };
+                const std::string tuple = local_name("hgl_tuple_value");
+                out.line("const auto &" + tuple + " = " + converted + ";");
+                Value publication = value;
+                publication.code = tuple;
+                for (std::size_t index = 0; index < target.children.size(); ++index) {
+                    const std::string child_output = local_name("hgl_tuple_output_" + std::to_string(index));
+                    out.line("auto " + child_output + " = " + selector + ".template field<" + quote(std::to_string(index)) + ">();");
+                    Value child = make_runtime(ordinary_plan(target, value.range) + ".index(" + ordinary_view(publication) +
+                                               ", " + std::to_string(index) + ")", target.children[index], value.range);
+                    child.ordinary_value = true;
+                    child.borrowed_value = true;
+                    emit_output_value(child, target.children[index], child_output, out);
+                }
+                out.close();
+                return;
+            }
             if (!value.borrowed_value) {
                 out.line(selector + ".set(" + converted + ");");
                 return;
@@ -5348,7 +5375,7 @@ namespace hgl::codegen
             // describes modification, not success. Scope the transaction so
             // later writes in this evaluation see it.
             out.open("");
-            out.line("auto hgl_mutation = " + selector + ".begin_mutation(" + selector + ".base().evaluation_time());");
+            out.line("auto hgl_mutation = " + selector + ".begin_mutation(" + selector + ".evaluation_time());");
             out.line("static_cast<void>(hgl_mutation.copy_value_from(" + converted + "));");
             out.close();
         }
