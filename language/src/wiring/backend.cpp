@@ -1149,11 +1149,12 @@ namespace hgl::wiring
                 metadata.push_back(item.meta());
                 values.push_back(std::move(item.value));
             }
-            const auto   *meta = registry_.tuple(metadata);
-            hgraph::Value result{hgraph::ValuePlanFactory::instance().type_for(meta)};
-            auto          output = result.as_tuple().begin_mutation();
-            for (std::size_t index = 0; index < values.size(); ++index) { output.at(index).copy_from(values[index].view()); }
-            return make_const(std::move(result), range);
+            const auto *meta = registry_.tuple(metadata);
+            const ordinary::PreparedValuePlan plan{meta};
+            std::vector<std::pair<std::size_t, hgraph::ValueView>> fields;
+            fields.reserve(values.size());
+            for (std::size_t index = 0; index < values.size(); ++index) { fields.emplace_back(index, values[index].view()); }
+            return make_const(plan.bundle(fields), range);
         }
 
         Slot Compiler::eval_sequence(gir::ValueId id, const gir::Sequence &sequence, SourceRange range, Frame &frame) {

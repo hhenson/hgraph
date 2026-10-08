@@ -1629,3 +1629,28 @@ test reset {
     INFO(result.message);
     CHECK(result.passed);
 }
+
+TEST_CASE("ordinary tuple construction independently retains growing List children", "[wiring][ordinary-tuple][list-retention]") {
+    Unit unit{R"hgl(module checks.tuple_list_retention
+const fn retained_lists() -> bool {
+    var values: list<i64> = []
+    let empty_copies = (values, values)
+    push(values, 7)
+    let copies = (values, values)
+    push(values, 9)
+    var nested = ((values, values), values)
+    push(nested[0][0], 11)
+    return len(empty_copies[0]) == 0 && len(empty_copies[1]) == 0 &&
+        len(copies[0]) == 1 && copies[0][0] == 7 &&
+        len(copies[1]) == 1 && copies[1][0] == 7 &&
+        len(values) == 2 && values[1] == 9 &&
+        len(nested[0][0]) == 3 && nested[0][0][2] == 11 &&
+        len(nested[0][1]) == 2 && len(nested[1]) == 2
+}
+test independent_ownership { assert retained_lists() }
+)hgl"};
+    const auto passed = only(unit.tests());
+    INFO(passed.message);
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK(passed.passed);
+}
