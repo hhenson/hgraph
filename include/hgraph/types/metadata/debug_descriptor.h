@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <type_traits>
 
@@ -15,6 +16,7 @@ namespace hgraph
     struct SchemaHeader;
     struct TypeRecord;
     struct ValueTypeMetaData;
+    class ValueTypeRef;
     struct DebugDynamicLayout;
     struct DebugTimeSeriesLayout;
 
@@ -216,6 +218,10 @@ namespace hgraph
 
     [[nodiscard]] HGRAPH_EXPORT const DebugDescriptor &intern_fixed_composite_debug_descriptor(
         const ValueTypeMetaData &schema, const MemoryUtils::StoragePlan &plan);
+
+    [[nodiscard]] HGRAPH_EXPORT const DebugDescriptor &intern_fixed_composite_debug_descriptor(
+        const ValueTypeMetaData &schema, const MemoryUtils::StoragePlan &plan,
+        std::span<const ValueTypeRef> field_bindings, const void *representation);
 
     [[nodiscard]] HGRAPH_EXPORT const DebugDescriptor &intern_dynamic_debug_descriptor(
         const SchemaHeader &schema, const MemoryUtils::StoragePlan &plan, DebugLayoutKind layout,

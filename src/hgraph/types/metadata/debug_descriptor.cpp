@@ -99,12 +99,16 @@ namespace hgraph
             }
 
             [[nodiscard]] const DebugDescriptor &intern_fixed_composite(const ValueTypeMetaData &schema,
-                                                                        const MemoryUtils::StoragePlan &plan)
+                                                                        const MemoryUtils::StoragePlan &plan,
+                                                                        std::span<const ValueTypeRef> field_bindings = {},
+                                                                        const void *representation = nullptr)
             {
                 if (schema.value_kind() != ValueTypeKind::Tuple && schema.value_kind() != ValueTypeKind::Bundle)
                     throw std::invalid_argument("fixed-composite debug descriptor requires tuple or bundle schema");
                 if (schema.field_count > std::numeric_limits<std::uint32_t>::max())
                     throw std::length_error("fixed-composite debug descriptor exceeds the field-count ABI");
+                if (!field_bindings.empty() && field_bindings.size() != schema.field_count)
+                    throw std::invalid_argument("fixed-composite debug descriptor field count does not match schema");
                 if (!plan.is_composite() ||
                     plan.component_count() != schema.field_count + (schema.field_count == 0 ? 0 : 1))
                     throw std::invalid_argument("fixed-composite debug descriptor requires matching public fields "
@@ -115,10 +119,18 @@ namespace hgraph
                 const auto components = plan.components();
                 for (std::size_t index = 0; index < schema.field_count; ++index)
                 {
-                    const ValueTypeRef child = ValuePlanFactory::instance().type_for(schema.fields[index].type);
+                    const ValueTypeRef child = field_bindings.empty()
+                        ? ValuePlanFactory::instance().type_for(schema.fields[index].type)
+                        : field_bindings[index];
                     if (!child.valid())
                         throw std::logic_error("fixed-composite debug descriptor child has no "
                                                "canonical type record");
+                    if (child.plan() != components[index].plan)
+                        throw std::invalid_argument("fixed-composite debug descriptor child plan does not match storage");
+                    const auto *declared = schema.fields[index].type;
+                    const bool cycle_owner = child.schema()->is_owned() && child.schema()->element_type == declared;
+                    if (child.schema() != declared && !cycle_owner)
+                        throw std::invalid_argument("fixed-composite debug descriptor child schema does not match field");
                     entry->fields.push_back(DebugField{
                         .name = schema.fields[index].name,
                         .offset = components[index].offset,
@@ -140,7 +152,7 @@ namespace hgraph
                 };
                 entry->own_field_names();
                 entry->bind_fields();
-                return intern(DescriptorKey{&schema.header, &plan}, std::move(entry));
+                return intern(DescriptorKey{&schema.header, &plan, representation}, std::move(entry));
             }
 
             [[nodiscard]] const DebugDescriptor &intern_dynamic(const SchemaHeader &schema,
@@ -433,6 +445,15 @@ namespace hgraph
                                                                    const MemoryUtils::StoragePlan &plan)
     {
         return descriptor_registry().intern_fixed_composite(schema, plan);
+    }
+
+    const DebugDescriptor &intern_fixed_composite_debug_descriptor(
+        const ValueTypeMetaData &schema, const MemoryUtils::StoragePlan &plan,
+        std::span<const ValueTypeRef> field_bindings, const void *representation)
+    {
+        if (field_bindings.size() != schema.field_count)
+            throw std::invalid_argument("fixed-composite debug descriptor field count does not match schema");
+        return descriptor_registry().intern_fixed_composite(schema, plan, field_bindings, representation);
     }
 
     const DebugDescriptor &intern_dynamic_debug_descriptor(const SchemaHeader &schema,

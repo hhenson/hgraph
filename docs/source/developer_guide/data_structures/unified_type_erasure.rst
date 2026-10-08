@@ -509,7 +509,16 @@ The common record guarantees shallow inspection of every erased pointer:
 * capabilities and whether deeper navigation is available.
 
 Deeper inspection is described by an immutable ``DebugDescriptor`` produced by
-the same factory that resolves the type record. The data-only layouts are:
+the same factory that resolves the type record.
+
+Realized composites and fixed lists describe their actual child bindings,
+including the chosen storage strategies. Their stable factory-entry identity
+participates in descriptor interning: equal schemas and physical storage plans
+can still carry different child type records. Canonical bindings keep the
+canonical descriptor entry. This follows the existing representation identity
+used by dynamic and time-series descriptors and does not change their data ABI.
+
+The data-only layouts are:
 
 .. code-block:: cpp
 

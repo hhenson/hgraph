@@ -2359,6 +2359,48 @@ ordinary language contracts, but cannot cross this eval boundary. Tests of
 those operations use admitted scalar inputs and outputs around the operation
 inside the graph. Positional tuple publications remain admitted.
 
+Runtime planning admits concrete positional tuples for both parameters and
+results, using the same unnamed bundle schema as their generic specializations.
+A complete ordinary tuple return evaluates its expression once and publishes
+each live positional child through its typed output transaction, leaving
+absent children unset. Nested tuples recurse through those child projections:
+ordinary tuple storage and temporal unnamed bundles keep their distinct parent
+value schemas. Sparse
+tuple returns and `delta_value` forwarding apply the prepared positional delta
+instead, preserving omitted children and repeated equal child publications.
+Complete tuple input returns preserve the endpoint's borrowed Bundle value and
+copy it through the matching output transaction. Guarded temporal tuple indices
+lower to constant typed field selectors, preserving each position's exact child
+schema and its independent validity and modification observations.
+Ordinary tuple indices use the prepared scalar tuple plan instead, selecting
+their exact child type at the checked constant position.
+An ordinary retention boundary, including a node local or a tuple constructor
+element, projects a temporal tuple observation through its prepared held Bundle
+plan and independently retains the children into the ordinary scalar Tuple
+plan. Lists and maps containing positional tuples convert their elements
+recursively in one pass, using prepared index and entry-range operations on
+retained source storage. Complete ordinary collection children convert back
+to their held schemas before the existing output transaction copies them.
+Concrete held plans join
+the installer-prepared value plans; retained generic held plans bind the
+matched temporal value schema in node preparation. Evaluation neither aliases
+the two parent schemas nor discovers a child's type from its current value.
+Composition arguments with symbolic composite targets retain their concrete
+ports for wiring inference. A symbolic target is a signature pattern whose
+metadata is unresolved, so it cannot serve as a `Port::as` validation schema.
+Concrete target casts continue to use the existing schema validation.
+Absent positional children remain typed nil values through both conversion
+directions. Tuple assembly includes only live fields, preserving the existing
+validity bitmap rather than default-constructing a scalar payload. Complete
+tuple results skip absent views, and collection results use the inverse held
+conversion, so a copied partial tuple agrees with a direct complete return.
+Reading an absent required ordinary scalar uses the existing ordinary
+absent-value exception.
+This implements the existing recursive-observation copy rule in
+[VAL-17](../../../external/hgraph_spec/language/docs/design/value-mutability.md)
+and the validity bitmap rule in
+[Complete construction](../../../external/hgraph_spec/language/docs/user-guide/types-and-expressions.md#complete-construction).
+
 Direct ordinary assignment and `push` share a writable-place resolver. It walks
 field and index projections back to the mutable local owner, realizes writable
 storage there, and updates that same owner. It never mutates a detached result

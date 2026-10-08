@@ -28,6 +28,112 @@ namespace
     }
 }  // namespace
 
+TEST_CASE("generated runtime tuple results publish complete values and sparse positional deltas", "[codegen][runtime][tuple]")
+{
+    session();
+    using Result = UnNamedTSB<Field<"0", TS<Int>>, Field<"1", TS<Bool>>>;
+    CHECK_OUTPUT(eval_node<runtime::operators::tuple_result>(values<Int>(1, 1, none, 2)),
+                 values<Value>(tsb_delta<Result>(Int{1}, Bool{true}), tsb_delta<Result>(Int{1}, Bool{true}), none,
+                               tsb_delta<Result>(Int{2}, Bool{true})));
+    CHECK_OUTPUT(eval_node<runtime::operators::tuple_patch>(values<Int>(1, 2, 2, 1)),
+                 values<Value>(tsb_delta<Result>(Int{1}, std::nullopt), tsb_delta<Result>(std::nullopt, Bool{true}),
+                               tsb_delta<Result>(std::nullopt, Bool{true}), tsb_delta<Result>(Int{1}, std::nullopt)));
+    const auto sparse = values<Value>(tsb_delta<Result>(Int{1}, std::nullopt),
+                                     tsb_delta<Result>(std::nullopt, Bool{true}), tsb_delta<Result>(Int{1}, std::nullopt), none);
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_forward, Result>(sparse)), sparse);
+    using Nested = UnNamedTSB<Field<"0", Result>, Field<"1", TS<Int>>>;
+    CHECK_OUTPUT(eval_node<runtime::operators::nested_tuple_result>(values<Int>(1, 1, none, -2)),
+                 values<Value>(tsb_delta<Nested>(tsb_delta<Result>(Int{1}, Bool{true}), Int{1}),
+                               tsb_delta<Nested>(tsb_delta<Result>(Int{1}, Bool{true}), Int{1}), none,
+                               tsb_delta<Nested>(tsb_delta<Result>(Int{-2}, Bool{false}), Int{-2})));
+    const auto complete_input = values<Value>(tsb_delta<Result>(Int{7}, Bool{false}),
+                                             tsb_delta<Result>(std::nullopt, Bool{true}), tsb_delta<Result>(Int{9}, std::nullopt));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_complete_forward, Result>(complete_input)),
+                 values<Value>(tsb_delta<Result>(Int{7}, Bool{false}), tsb_delta<Result>(Int{7}, Bool{true}),
+                               tsb_delta<Result>(Int{9}, Bool{true})));
+    const auto partial_input = values<Value>(tsb_delta<Result>(std::nullopt, Bool{false}), tsb_delta<Result>(Int{7}, std::nullopt),
+                                            tsb_delta<Result>(std::nullopt, Bool{true}), tsb_delta<Result>(Int{9}, std::nullopt), none);
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_first, Result>(partial_input)), values<Int>(none, 7, none, 9, none));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_second, Result>(partial_input)), values<Bool>(false, none, true, none, none));
+    CHECK_OUTPUT(eval_node<runtime::operators::tuple_local_read>(values<Int>(1, -1, 0)), values<Bool>(true, false, false));
+    const auto nested_input = values<Value>(tsb_delta<Nested>(tsb_delta<Result>(std::nullopt, Bool{false}), std::nullopt),
+                                           tsb_delta<Nested>(tsb_delta<Result>(Int{7}, std::nullopt), std::nullopt),
+                                           tsb_delta<Nested>(std::nullopt, Int{9}));
+    CHECK_OUTPUT((eval_node<runtime::operators::nested_tuple_first, Nested>(nested_input)), values<Int>(none, 7, none));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_observation_copy, Result>(complete_input)), values<Int>(7, 7, 9));
+    const auto embedded = values<Value>(tsb_delta<Nested>(tsb_delta<Result>(Int{7}, Bool{false}), Int{1}),
+                                       tsb_delta<Nested>(tsb_delta<Result>(Int{7}, Bool{true}), Int{1}),
+                                       tsb_delta<Nested>(tsb_delta<Result>(Int{9}, Bool{true}), Int{1}));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_embed_input, Result>(complete_input)), embedded);
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_embed_copy, Result>(complete_input)), embedded);
+    const auto nested_complete_input = values<Value>(tsb_delta<Nested>(tsb_delta<Result>(Int{7}, Bool{false}), Int{1}),
+                                                    tsb_delta<Nested>(tsb_delta<Result>(std::nullopt, Bool{true}), std::nullopt),
+                                                    tsb_delta<Nested>(std::nullopt, Int{2}));
+    CHECK_OUTPUT((eval_node<runtime::operators::nested_tuple_observation_copy, Nested>(nested_complete_input)),
+                 values<Bool>(false, true, true));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_observed_generic, Result>(complete_input)),
+                 values<Value>(tsb_delta<Result>(Int{7}, Bool{false}), tsb_delta<Result>(Int{7}, Bool{true}),
+                               tsb_delta<Result>(Int{9}, Bool{true})));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_observed_generic_int, Result>(complete_input)),
+                 values<Value>(tsb_delta<Result>(Int{7}, Bool{false}), tsb_delta<Result>(Int{7}, Bool{true}),
+                               tsb_delta<Result>(Int{9}, Bool{true})));
+
+    using List = TSL<Result, 2>;
+    using ListTuple = UnNamedTSB<Field<"0", List>, Field<"1", TS<Bool>>>;
+    const auto pairs = list_delta<Result>({{0, tsb_delta<Result>(Int{7}, Bool{false})},
+                                          {1, tsb_delta<Result>(Int{8}, Bool{true})}});
+    const auto list_initial = tsb_delta<ListTuple>(Value{pairs}, Bool{true});
+    const auto list_tick = tsb_delta<ListTuple>(std::nullopt, Bool{false});
+    const auto list_snapshot = tsb_delta<ListTuple>(Value{pairs}, Bool{false});
+    const auto list_input = values<Value>(list_initial, list_tick, none, list_tick);
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_list_observe, ListTuple>(list_input)),
+                 values<Bool>(false, false, none, false));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_list_copy, ListTuple>(list_input)),
+                 values<Value>(list_initial, list_snapshot, none, list_snapshot));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_list_first, ListTuple>(list_input)),
+                 values<Value>(tsb_delta<Result>(Int{7}, Bool{false}), tsb_delta<Result>(Int{7}, Bool{false}), none,
+                               tsb_delta<Result>(Int{7}, Bool{false})));
+
+    using Map = TSD<Int, Result>;
+    using MapTuple = UnNamedTSB<Field<"0", Map>, Field<"1", TS<Bool>>>;
+    const auto map_initial = tsb_delta<MapTuple>(dict_delta<Int, Result>(
+        {{4, tsb_delta<Result>(Int{7}, Bool{false})}, {5, tsb_delta<Result>(Int{8}, Bool{true})}}), Bool{true});
+    const auto map_remove = tsb_delta<MapTuple>(dict_delta<Int, Result>({}, {5}), std::nullopt);
+    const auto map_snapshot = tsb_delta<MapTuple>(dict_delta<Int, Result>(
+        {{4, tsb_delta<Result>(Int{7}, Bool{false})}}, {5}), Bool{true});
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_map_copy, MapTuple>(values<Value>(map_initial, none, map_remove))),
+                 values<Value>(map_initial, none, map_snapshot));
+    using Collections = UnNamedTSB<Field<"0", List>, Field<"1", Map>>;
+    const auto collection_result = tsb_delta<Collections>(Value{pairs}, dict_delta<Int, Result>(
+        {{4, tsb_delta<Result>(Int{7}, Bool{false})}}));
+    CHECK_OUTPUT(eval_node<runtime::operators::tuple_collection_result>(values<Int>(7, none, 7)),
+                 values<Value>(collection_result, none, collection_result));
+}
+
+TEST_CASE("generated tuple observations preserve absent required payloads", "[codegen][runtime][tuple][observation]")
+{
+    session();
+    using Pair = UnNamedTSB<Field<"0", TS<Int>>, Field<"1", TS<Bool>>>;
+    const auto partial = values<Value>(tsb_delta<Pair>(Int{7}, std::nullopt));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_observed_present_field, Pair>(partial)), values<Int>(7));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_complete_forward, Pair>(partial)), partial);
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_observed_partial_result, Pair>(partial)), partial);
+    CHECK_THROWS_WITH((eval_node<runtime::operators::tuple_observed_absent_field, Pair>(partial)),
+                      Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
+    using Nested = UnNamedTSB<Field<"0", TSL<Pair, 2>>, Field<"1", TS<Bool>>>;
+    const auto nested_partial = values<Value>(tsb_delta<Nested>(
+        list_delta<Pair>({{0, tsb_delta<Pair>(Int{7}, std::nullopt)}}), Bool{true}));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_list_observed_partial_result, Nested>(nested_partial)), nested_partial);
+    CHECK_THROWS_WITH((eval_node<runtime::operators::tuple_list_observed_absent_field, Nested>(nested_partial)),
+                      Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
+    CHECK_THROWS_WITH((eval_node<runtime::operators::tuple_list_observed_absent_slot, Nested>(nested_partial)),
+                      Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
+    using Map = UnNamedTSB<Field<"0", TSD<Int, Pair>>, Field<"1", TS<Bool>>>;
+    const auto map_partial = values<Value>(tsb_delta<Map>(
+        dict_delta<Int, Pair>({{4, tsb_delta<Pair>(Int{7}, std::nullopt)}}), Bool{true}));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_map_observed_partial, Map>(map_partial)), map_partial);
+}
+
 TEST_CASE("generated module registration owns a removable provider generation", "[codegen][runtime][lifecycle]")
 {
     hgl::wiring::ensure_session();
