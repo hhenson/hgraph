@@ -10,6 +10,7 @@
 #include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/runtime.h>
+#include <hgraph/runtime/registry_snapshot.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/type_realization.h>
@@ -195,7 +196,9 @@ template <typename S> struct HeldCollectionObserver {
   static constexpr auto name = "held_collection_observer";
   static void eval(In<"step", TS<Int>>, In<"value", S, InputActivity::Passive, InputValidity::Unchecked> value,
                    Out<TS<Bool>> out) {
+    const auto before = type_system_lock_count();
     Value snapshot{value.base().value()};
+    REQUIRE(type_system_lock_count() == before);
     if constexpr (std::is_same_v<S, HeldSamples>) {
       REQUIRE(snapshot.view().as_list().size() == 2);
       REQUIRE(snapshot.view().as_list().at(1).checked_as<Int>() == 100);
@@ -315,6 +318,18 @@ TEST_CASE("held collection observations preserve invalid child holes", "[held-ch
     REQUIRE(retained.view().as_map().contains(key.view()));
     REQUIRE_FALSE(retained.view().as_map().at(key.view()).has_value());
     REQUIRE(retained.schema() == observed.schema());
+    const auto capture_before = type_system_lock_count();
+    const auto before = runtime_registry_snapshot();
+    const auto capture_cost = before.type_system_lock_acquisitions - capture_before;
+    for (int repeat = 0; repeat < 10; ++repeat) {
+      Value repeated{observed};
+      REQUIRE_FALSE(repeated.view().as_map().at(key.view()).has_value());
+    }
+    REQUIRE(type_system_lock_count() == before.type_system_lock_acquisitions);
+    const auto after = runtime_registry_snapshot();
+    // Registry snapshot capture itself acquires cold-path registry locks.
+    REQUIRE(after.type_system_lock_acquisitions - before.type_system_lock_acquisitions == capture_cost);
+    REQUIRE(after.type_records == before.type_records);
     Value absent{Int{3}};
     REQUIRE_THROWS_AS(observed.as_map().at(absent.view()), std::out_of_range);
     Value sibling{Int{2}};

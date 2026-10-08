@@ -1833,6 +1833,7 @@ namespace hgraph::ts_data_plan_factory_detail
             IndexedValueOps          dict_delta_bundle_ops{};
             ValueTypeRef modified_map_binding{nullptr};
             ValueTypeRef live_map_owning_binding{nullptr};
+            ValueTypeRef live_key_owning_binding{nullptr};
             ValueTypeRef live_element_owning_binding{nullptr};
             ValueTypeRef key_set_value_binding{nullptr};
             TSRoleTypeRef          key_set_ts_type{};
@@ -2141,7 +2142,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     throw std::logic_error("TSD schemas are not populated");
                 }
                 const auto key_binding = dict_layout.key_binding;
-                live_map_owning_binding = compact_map_type(value_owning_type(key_binding), live_element_owning_binding);
+                live_key_owning_binding = value_owning_type(key_binding);
+                live_map_owning_binding = compact_map_type(live_key_owning_binding, live_element_owning_binding);
                 const auto element_type = dict_layout.element_type;
                 const TSDSlotStorage sample{key_binding, element_type};
                 const auto &keys = sample.keys();
@@ -2286,8 +2288,9 @@ namespace hgraph::ts_data_plan_factory_detail
                     throw std::logic_error("TSD map copy requires a canonical map binding");
                 }
 
-                const auto key_binding = value_type_for_active_realization(
-                    binding.schema()->key_type);
+                const auto key_binding = Surface == SlotMapSurface::Live
+                    ? ctxd(context)->live_key_owning_binding
+                    : value_type_for_active_realization(binding.schema()->key_type);
                 const auto value_binding = Surface == SlotMapSurface::Live
                     ? ctxd(context)->live_element_owning_binding
                     : value_type_for_active_realization(binding.schema()->element_type);

@@ -1497,7 +1497,10 @@ TEST_CASE("TSDProxy all_valid checks live projected children and excludes remove
         auto held = proxy_data.as_dict().value();
         REQUIRE(held.as_map().contains(key.view()));
         REQUIRE_FALSE(held.as_map().at(key.view()).has_value());
+        const auto before = type_system_lock_count();
         Value snapshot{held};
+        for (int repeat = 0; repeat < 10; ++repeat) { Value repeated{held}; }
+        REQUIRE(type_system_lock_count() == before);
         REQUIRE(snapshot.view().as_map().contains(key.view()));
         REQUIRE_FALSE(snapshot.view().as_map().at(key.view()).has_value());
     }
