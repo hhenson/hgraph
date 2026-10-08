@@ -9,6 +9,8 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series_reference.h>
 #include <hgraph/types/value/value.h>
+#include <hgraph/types/value/value_builder.h>
+#include <hgraph/types/value/mutable_container_ops.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -1573,4 +1575,60 @@ TEST_CASE("TSDProxy saved child references expire without forcing slot reclamati
         REQUIRE(current.as_dict().at(key.view()).valid());
     }
     dict.key_set().data_view().as_set().unsubscribe_slot_observer(&lifecycle);
+}
+
+TEST_CASE("TSDProxy retained map materializes graph-local keys into their owning layout", "[held-child-validity][proxy-key]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto element = ValuePlanFactory::instance().type_for(integer);
+    const auto *key_schema = registry.list(integer);
+    const auto owner = compact_list_type(element, *key_schema);
+    // Keep this graph-local binding distinct from other tests' mutable lists.
+    static const auto graph_ops = mutable_list_ops();
+    const auto graph_key = intern_value_type(*key_schema, mutable_list_plan(element), graph_ops);
+    REQUIRE(graph_key.plan() != owner.plan());
+    register_value_owning_type(graph_key, owner);
+    const auto *ts = registry.ts(integer);
+    const auto *schema = registry.tsd(key_schema, ts);
+    auto &factory = TSDataPlanFactory::instance();
+    const auto child_type = factory.data_type_for(ts);
+    TSOutput source{factory.keyed_output_type_for(schema, graph_key, child_type.as_role())};
+    TSData proxy{tsd_proxy_data_type_for(*schema, child_type.as_role(), graph_key)};
+    ListBuilder key_builder{element};
+    key_builder.push_back(std::int32_t{7});
+    key_builder.push_back(std::int32_t{9});
+    Value key = key_builder.build();
+    Value payload{std::int32_t{70}};
+    auto source_view = source.view(MIN_ST);
+    source_view.as_dict().begin_mutation(MIN_ST).set(key.view(), payload.view());
+    auto proxy_view = proxy.view();
+    auto source_data = source.data_view();
+    bind_tsd_proxy(proxy_view, source_data.as_dict(), &invalid_child_ops, nullptr, MIN_ST);
+    bool child_valid = false;
+    SECTION("valid child") {
+        auto child = proxy_view.as_dict().at(key.view());
+        REQUIRE(child.begin_mutation(MIN_ST).copy_value_from(payload.view()));
+        child_valid = true;
+    }
+    SECTION("unset child") {
+        REQUIRE_FALSE(proxy_view.as_dict().at(key.view()).has_current_value());
+    }
+    const auto observed = proxy_view.as_dict().value();
+    REQUIRE((*observed.as_map().keys().begin()).binding() == graph_key);
+    const auto before = type_system_lock_count();
+    Value retained{observed};
+    REQUIRE(type_system_lock_count() == before);
+    const auto copied = retained.view().as_map();
+    const auto copied_key = *copied.keys().begin();
+    REQUIRE(copied_key.binding() == owner);
+    REQUIRE(copied_key.as_list().size() == 2);
+    CHECK(copied_key.as_list().at(0).checked_as<std::int32_t>() == 7);
+    CHECK(copied_key.as_list().at(1).checked_as<std::int32_t>() == 9);
+    REQUIRE(copied.contains(key.view()));
+    CHECK(copied.at(key.view()).has_value() == child_valid);
+    if (copied.at(key.view()).has_value()) { CHECK(copied.at(key.view()).checked_as<std::int32_t>() == 70); }
+    CHECK(copied_key.equals(*observed.as_map().keys().begin()));
+    CHECK(observed.hash() == retained.view().hash());
 }

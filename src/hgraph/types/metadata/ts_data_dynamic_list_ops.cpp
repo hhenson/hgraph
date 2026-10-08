@@ -1067,7 +1067,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 std::size_t seed = 0;
                 for (std::size_t index = 0; index < store.size(); ++index)
                 {
-                    seed = dynamic_combine_hash(seed, child_value_view(state, memory, index).hash());
+                    const auto child = child_value_view(state, memory, index);
+                    seed = dynamic_combine_hash(seed, child.has_value() ? child.hash() : 0x9e3779b97f4a7c15ULL);
                 }
                 return seed;
             }

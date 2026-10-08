@@ -2861,7 +2861,11 @@ namespace hgraph::ts_data_plan_factory_detail
                 std::size_t result = 0;
                 for (const auto [key, value] : map_kv_range<Surface>(context, memory))
                 {
-                    const auto value_hash = value.has_value() ? value_ops.hash(value.data()) : std::size_t{0};
+                    // Live values share the compact Map's unset marker. Delta
+                    // surfaces retain their existing hash convention.
+                    constexpr std::size_t unset_hash = Surface == SlotMapSurface::Live
+                        ? 0x9e3779b97f4a7c15ULL : std::size_t{0};
+                    const auto value_hash = value.has_value() ? value_ops.hash(value.data()) : unset_hash;
                     result ^= combine_hash(key_ops.hash(key.data()), value_hash);
                 }
                 return result;

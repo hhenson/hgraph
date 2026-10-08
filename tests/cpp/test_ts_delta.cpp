@@ -20,6 +20,7 @@
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/output_mutation.h>
 #include <hgraph/types/utils/counted_mutex.h>
+#include <hgraph/types/utils/key_slot_store.h>
 #include <hgraph/types/value/value_builder.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -220,6 +221,18 @@ template <typename Source, typename S> struct HeldCollectionGraph {
     return wire<HeldCollectionObserver<S>>(w, step, wire<Source>(w, action));
   }
 };
+// Retained and projected values have one semantic hash, including typed holes.
+void check_held_hash_lookup(const ValueView &observed, const ValueView &retained) {
+  REQUIRE(observed.equals(retained));
+  REQUIRE(retained.equals(observed));
+  CHECK(observed.hash() == retained.hash());
+  KeySlotStore keys{retained.binding()};
+  const auto inserted = keys.insert(retained);
+  REQUIRE(inserted.inserted);
+  CHECK(keys.find_slot(observed) == inserted.slot);
+  CHECK_FALSE(keys.insert(observed).inserted);
+  CHECK(keys.size() == 1);
+}
 } // namespace
 
 TEST_CASE("public C++ wiring observes invalid collection children on an independent step", "[held-child-validity]") {
@@ -273,6 +286,7 @@ TEST_CASE("held collection observations preserve invalid child holes", "[held-ch
     REQUIRE_FALSE(observed.as_indexed_view().at(0).has_value());
     REQUIRE(observed.as_indexed_view().at(1).checked_as<Int>() == 100);
     Value retained{observed};
+    check_held_hash_lookup(observed, retained.view());
     REQUIRE_FALSE(retained.view().as_indexed_view().at(0).has_value());
     REQUIRE(retained.view().as_indexed_view().at(1).checked_as<Int>() == 100);
     REQUIRE(retained.schema() == observed.schema());
@@ -295,6 +309,7 @@ TEST_CASE("held collection observations preserve invalid child holes", "[held-ch
     REQUIRE(observed.as_list().size() == 2);
     REQUIRE_FALSE(observed.as_list().at(0).has_value());
     Value retained{observed};
+    check_held_hash_lookup(observed, retained.view());
     REQUIRE(retained.schema() == observed.schema());
     REQUIRE_FALSE(retained.view().as_list().at(0).has_value());
     REQUIRE(retained.view().as_list().at(1).checked_as<Int>() == 100);
@@ -315,6 +330,7 @@ TEST_CASE("held collection observations preserve invalid child holes", "[held-ch
     REQUIRE(observed.as_map().contains(key.view()));
     REQUIRE_FALSE(observed.as_map().at(key.view()).has_value());
     Value retained{observed};
+    check_held_hash_lookup(observed, retained.view());
     REQUIRE(retained.view().as_map().contains(key.view()));
     REQUIRE_FALSE(retained.view().as_map().at(key.view()).has_value());
     REQUIRE(retained.schema() == observed.schema());
@@ -350,7 +366,9 @@ TEST_CASE("held collection retention keeps nested fixed-list holes", "[held-chil
     TSOutput source{schema_descriptor<Outer>::ts_meta()};
     const auto initial = list_delta<Child>({{0, partial}, {1, full}});
     apply_delta(source.view(MIN_ST), initial.view());
-    Value snapshot{source.view(MIN_ST).value()};
+    const auto observed = source.view(MIN_ST).value();
+    Value snapshot{observed};
+    check_held_hash_lookup(observed, snapshot.view());
     const auto nested = snapshot.view().as_list().at(0).as_list();
     REQUIRE(nested.at(0).checked_as<Int>() == 7);
     REQUIRE_FALSE(nested.at(1).has_value());
@@ -363,12 +381,24 @@ TEST_CASE("held collection retention keeps nested fixed-list holes", "[held-chil
     REQUIRE(nested.at(0).checked_as<Int>() == 7);
     REQUIRE_FALSE(nested.at(1).has_value());
   }
+  SECTION("growing list child") {
+    using Outer = TSL<Child>;
+    TSOutput source{schema_descriptor<Outer>::ts_meta()};
+    const auto initial = dynamic_list_delta<Child>({{0, partial}, {1, full}});
+    apply_delta(source.view(MIN_ST), initial.view());
+    const auto observed = source.view(MIN_ST).value();
+    Value snapshot{observed};
+    check_held_hash_lookup(observed, snapshot.view());
+    REQUIRE_FALSE(snapshot.view().as_list().at(0).as_list().at(1).has_value());
+  }
   SECTION("dictionary member") {
     using Outer = TSD<Int, Child>;
     TSOutput source{schema_descriptor<Outer>::ts_meta()};
     const auto initial = dict_delta<Int, Child>({{1, partial}, {2, full}});
     apply_delta(source.view(MIN_ST), initial.view());
-    Value snapshot{source.view(MIN_ST).value()};
+    const auto observed = source.view(MIN_ST).value();
+    Value snapshot{observed};
+    check_held_hash_lookup(observed, snapshot.view());
     Value key{Int{1}};
     const auto nested = snapshot.view().as_map().at(key.view()).as_list();
     REQUIRE(nested.at(0).checked_as<Int>() == 7);

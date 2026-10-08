@@ -550,9 +550,10 @@ namespace hgraph
                 MapBuilder builder{key_binding, value_binding};
                 for (const auto [key, value] : map_kv_range<Surface>(context, memory))
                 {
+                    Value owned_key{key_binding, key};
                     if (!value.has_value())
                     {
-                        builder.set_item_unset(key.data());
+                        builder.set_item_unset(owned_key.view().data());
                         continue;
                     }
                     Value owned_value{value};
@@ -560,7 +561,7 @@ namespace hgraph
                     {
                         throw std::logic_error("TSDProxy map copy materialized the wrong value binding");
                     }
-                    builder.set_item_copy(key.data(), owned_value.view().data());
+                    builder.set_item_copy(owned_key.view().data(), owned_value.view().data());
                 }
                 return builder.build_storage();
             }

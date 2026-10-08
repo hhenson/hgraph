@@ -859,6 +859,12 @@ endpoints, and retention copies their values or unset bits into independent
 compact storage. The element binding is prepared with the TSData context;
 retention does not discover a representation from the observed payload.
 Growing-list and dictionary snapshot builders likewise preserve unset entries.
+Live collection hashes use the same unset marker as their compact owning
+representations, recursively, so semantic equality also permits heterogeneous
+key lookup. This value rule does not change sparse delta hashes. Proxy map
+retention materializes each key through the prepared owning binding before
+copying it into the destination map; graph-local key storage is never treated
+as owning storage merely because the schemas match.
 This source observation contract does not apply an output delta or copy source
 endpoint timestamps.
 
