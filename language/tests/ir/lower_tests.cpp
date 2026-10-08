@@ -4368,3 +4368,21 @@ TEST_CASE("ordinary list admission follows operator lambda and lifted eval bound
         CHECK_FALSE(unit.diagnostics.has_errors());
     }
 }
+
+TEST_CASE("deferred lambda admission does not evaluate its native body", "[ir][typed][list-literal]") {
+    for (const bool runtime_literal : {false, true}) {
+        const std::string callback = runtime_literal
+            ? "fn(item: i64) -> list<i64> => [identity(item)]"
+            : "fn(item: i64) -> i64 => identity(item)";
+        Lowered unit{"module checks.deferred_callback\nnative const fn identity(value: i64) -> i64\n"
+            "const fn make() -> i64 { let callback = " + callback + "\nreturn 42 }\n"
+            "fn observe(value: i64) -> i64 { when { let values = [make()]\nreturn len(values) } }\n"};
+        require_clean(unit);
+        CHECK(complete(unit) != runtime_literal);
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(unit.diagnostics.has_errors() == runtime_literal);
+        CHECK(std::ranges::count_if(unit.diagnostics.diagnostics(), [](const auto &diagnostic) {
+            return diagnostic.message == "a nonempty ordinary list literal requires constant elements";
+        }) == (runtime_literal ? 1 : 0));
+    }
+}

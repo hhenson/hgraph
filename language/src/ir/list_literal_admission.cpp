@@ -141,7 +141,9 @@ namespace hgl::ir {
             bool expression(ExprId id, Facts &facts, bool control = true) {
                 if (!id.valid()) { return true; }
                 const auto &value = module_.expr(id);
-                require_cold_effects(value.operation.kind != OperationKind::Capability && !has_effect(value.effects, Effect::UseCapability));
+                if (!std::holds_alternative<Lambda>(value.node)) {
+                    require_cold_effects(value.operation.kind != OperationKind::Capability && !has_effect(value.effects, Effect::UseCapability));
+                }
                 return std::visit([&](const auto &node) -> bool {
                     using T = std::decay_t<decltype(node)>;
                     if constexpr (std::is_same_v<T, Literal>) { return true; }
@@ -203,9 +205,14 @@ namespace hgl::ir {
                     } else if constexpr (std::is_same_v<T, Lambda>) {
                         auto body_facts = facts;
                         for (const auto parameter : node.parameters) { body_facts[parameter.value] = false; }
+                        // Inspect the deferred body for invalid literals, but
+                        // constructing a callback does not execute its effects.
+                        auto caller_effects = std::move(effect_facts_);
+                        effect_facts_.clear();
                         return_facts_.push_back(true);
                         (void)expression(node.body, body_facts);
                         return_facts_.pop_back();
+                        effect_facts_ = std::move(caller_effects);
                         return recipe_(id);
                     } else if constexpr (std::is_same_v<T, Eval>) {
                         if (const auto *fn = function(value.operation.target); fn && fn->is_const) {
