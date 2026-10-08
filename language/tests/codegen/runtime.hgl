@@ -1469,7 +1469,7 @@ export fn unset_abstract_known(value: UnsetAbstractOuter) -> i64 {
         return pair[0]
     }
 }
-export fn unset_abstract_present(sibling: i64, inner: atomic<UnsetAbstractConcrete>) -> i64 {
+export fn unset_abstract_present(sibling: i64, inner: atomic<UnsetAbstractInner>) -> i64 {
     return unset_abstract_known(UnsetAbstractOuter(sibling: sibling, inner: inner))
 }
 

@@ -620,6 +620,17 @@ TEST_CASE("recursive atomic plans retain finite owned trees and validate descend
     CHECK_THROWS_AS(validate_complete_value(bad.view(), optional), std::invalid_argument);
     auto edge = plan.index_mutable(root.view(), 2);
     const PreparedValuePlan edge_plan{edge.binding()};
+    const auto absent_edge = Value::typed_null(edge_plan.binding());
+    const PreparedValuePlan absent_next_plan{edge_plan.field_binding(2)};
+    const auto projection_locks = type_system_lock_count();
+    for (std::size_t index = 0; index < 128; ++index) {
+        const auto next = edge_plan.field_observation(absent_edge.view(), 2);
+        const auto number = absent_next_plan.field_observation(next, 0);
+        CHECK_FALSE(next.has_value());
+        CHECK_FALSE(number.has_value());
+        CHECK(number.schema() == integer);
+    }
+    CHECK(type_system_lock_count() == projection_locks);
     CHECK(edge_plan.len(edge) == 3);
     edge_plan.replace_index(edge, 0, two.view());
     CHECK(edge_plan.index(edge, 0).checked_as<Int>() == 2);

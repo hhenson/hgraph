@@ -67,10 +67,11 @@ TEST_CASE("required unset scalar reads preserve their code and run normal stop c
     CHECK_OUTPUT(eval_node<runtime::unset_known_chain>(values<Value>(known_present)), values<Int>(1));
     CHECK_OUTPUT(eval_node<runtime::unset_abstract_known>(values<Value>(tsb_delta<Abstract>(Int{1}, std::nullopt))), values<Int>(1));
     const hgl::ordinary::PreparedValuePlan concrete{scalar_descriptor<runtime::UnsetAbstractConcrete::value_type>::value_meta()};
+    const hgl::ordinary::PreparedValuePlan family{scalar_descriptor<runtime::UnsetAbstractInner::value_type>::value_meta()};
     const Value zero{Int{0}};
     const std::array<std::pair<std::size_t, ValueView>, 1> concrete_fields{{{0, zero.view()}}};
-    CHECK_OUTPUT((eval_node<runtime::operators::unset_abstract_present, TS<runtime::UnsetAbstractConcrete::value_type>>(
-                     values<Int>(1), values<Value>(concrete.bundle(concrete_fields)))), values<Value>(Value{Int{1}}));
+    CHECK_OUTPUT((eval_node<runtime::operators::unset_abstract_present, TS<runtime::UnsetAbstractInner::value_type>>(
+                     values<Int>(1), values<Value>(family.retain(concrete.bundle(concrete_fields).view())))), values<Value>(Value{Int{1}}));
     using Lengths = UnNamedTSB<Field<"0", TS<Int>>, Field<"1", TS<Int>>>;
     CHECK_OUTPUT(eval_node<runtime::unset_mutable_present>(values<Value>(tsb_delta<Mutable>(Int{1}, tsb_delta<MutableInner>(dynamic_list_delta<TS<Int>>({{0, 4}}))))),
                  values<Value>(tsb_delta<Lengths>(Int{2}, Int{1})));
