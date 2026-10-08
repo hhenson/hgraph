@@ -16,6 +16,12 @@
 namespace hgraph {
 namespace {
 using ProfileClock = std::chrono::steady_clock;
+// Phase intervals accumulate in the monotonic clock's own resolution. Casting
+// each sample to the microsecond ``TimeDelta`` before summing rounded every
+// sub-microsecond node evaluation to zero, so a graph of cheap native nodes
+// reported a few percent of its real evaluation time. Totals convert to
+// ``TimeDelta`` only when a snapshot is taken.
+using ProfileDuration = ProfileClock::duration;
 using ProfileTime = ProfileClock::time_point;
 
 enum class ProfilePhase : std::uint8_t {
@@ -24,8 +30,13 @@ enum class ProfilePhase : std::uint8_t {
   Stop,
 };
 
-[[nodiscard]] TimeDelta elapsed(ProfileTime start, ProfileTime end) noexcept {
-  return std::chrono::duration_cast<TimeDelta>(end - start);
+[[nodiscard]] ProfileDuration elapsed(ProfileTime start,
+                                      ProfileTime end) noexcept {
+  return end - start;
+}
+
+[[nodiscard]] TimeDelta to_time_delta(ProfileDuration duration) noexcept {
+  return std::chrono::duration_cast<TimeDelta>(duration);
 }
 
 [[nodiscard]] DateTime current_wall_time() noexcept {
@@ -35,9 +46,23 @@ enum class ProfilePhase : std::uint8_t {
 
 struct EvaluationProfiler::State {
   struct PhaseState {
-    EvaluationProfilePhase snapshot{};
-    std::vector<TimeDelta> recent{};
+    std::uint64_t count{0};
+    std::uint64_t failures{0};
+    ProfileDuration total{0};
+    ProfileDuration max{0};
+    ProfileDuration recent_total{0};
+    std::vector<ProfileDuration> recent{};
     std::size_t recent_cursor{0};
+
+    [[nodiscard]] EvaluationProfilePhase snapshot() const noexcept {
+      return EvaluationProfilePhase{
+          .count = count,
+          .failures = failures,
+          .total_time = to_time_delta(total),
+          .max_time = to_time_delta(max),
+          .recent_time = to_time_delta(recent_total),
+      };
+    }
   };
 
   struct EntryState {
@@ -60,7 +85,7 @@ struct EvaluationProfiler::State {
   std::optional<ProfileTime> root_evaluation_started{};
   TimeDelta wall_time{0};
   std::uint64_t graph_cycles{0};
-  TimeDelta root_evaluation_time{0};
+  ProfileDuration root_evaluation_time{0};
   TimeDelta scheduling_lag_total{0};
   TimeDelta scheduling_lag_max{0};
   std::uint64_t scheduling_lag_samples{0};
@@ -85,21 +110,21 @@ phase_state(EvaluationProfiler::State::EntryState &entry, ProfilePhase phase) {
 }
 
 void record_duration(EvaluationProfiler::State::PhaseState &phase,
-                     TimeDelta duration, bool failed,
+                     ProfileDuration duration, bool failed,
                      std::size_t recent_window) {
-  if (duration < TimeDelta{0}) {
-    duration = TimeDelta{0};
+  if (duration < ProfileDuration{0}) {
+    duration = ProfileDuration{0};
   }
-  ++phase.snapshot.count;
+  ++phase.count;
   if (failed) {
-    ++phase.snapshot.failures;
+    ++phase.failures;
   }
-  phase.snapshot.total_time += duration;
-  phase.snapshot.max_time = std::max(phase.snapshot.max_time, duration);
+  phase.total += duration;
+  phase.max = std::max(phase.max, duration);
   if (recent_window == 0) {
     phase.recent.clear();
     phase.recent_cursor = 0;
-    phase.snapshot.recent_time = TimeDelta{0};
+    phase.recent_total = ProfileDuration{0};
     return;
   }
   if (phase.recent.capacity() < recent_window) {
@@ -107,12 +132,12 @@ void record_duration(EvaluationProfiler::State::PhaseState &phase,
   }
   if (phase.recent.size() < recent_window) {
     phase.recent.push_back(duration);
-    phase.snapshot.recent_time += duration;
+    phase.recent_total += duration;
     return;
   }
-  phase.snapshot.recent_time -= phase.recent[phase.recent_cursor];
+  phase.recent_total -= phase.recent[phase.recent_cursor];
   phase.recent[phase.recent_cursor] = duration;
-  phase.snapshot.recent_time += duration;
+  phase.recent_total += duration;
   phase.recent_cursor = (phase.recent_cursor + 1) % recent_window;
 }
 
@@ -146,14 +171,14 @@ void begin_phase(EvaluationProfiler::State::EntityState &entity,
   entity.active[phase_index(phase)] = ProfileClock::now();
 }
 
-TimeDelta end_phase(EvaluationProfiler::State::EntityState &entity,
-                    ProfilePhase phase, bool failed,
-                    std::size_t recent_window) {
+ProfileDuration end_phase(EvaluationProfiler::State::EntityState &entity,
+                          ProfilePhase phase, bool failed,
+                          std::size_t recent_window) {
   auto &started = entity.active[phase_index(phase)];
   if (!started.has_value() || entity.entry == nullptr) {
-    return TimeDelta{0};
+    return ProfileDuration{0};
   }
-  const TimeDelta duration = elapsed(*started, ProfileClock::now());
+  const ProfileDuration duration = elapsed(*started, ProfileClock::now());
   record_duration(phase_state(*entity.entry, phase), duration, failed,
                   recent_window);
   started.reset();
@@ -193,10 +218,11 @@ EvaluationProfileSnapshot EvaluationProfiler::snapshot() const {
   std::scoped_lock lock{state_->mutex};
   EvaluationProfileSnapshot result;
   result.graph_cycles = state_->graph_cycles;
-  result.wall_time = state_->wall_started.has_value()
-                         ? elapsed(*state_->wall_started, ProfileClock::now())
-                         : state_->wall_time;
-  result.root_evaluation_time = state_->root_evaluation_time;
+  result.wall_time =
+      state_->wall_started.has_value()
+          ? to_time_delta(elapsed(*state_->wall_started, ProfileClock::now()))
+          : state_->wall_time;
+  result.root_evaluation_time = to_time_delta(state_->root_evaluation_time);
   result.scheduling_lag_total = state_->scheduling_lag_total;
   result.scheduling_lag_max = state_->scheduling_lag_max;
   result.scheduling_lag_samples = state_->scheduling_lag_samples;
@@ -210,9 +236,9 @@ EvaluationProfileSnapshot EvaluationProfiler::snapshot() const {
   for (const auto &[path, entry] : state_->entries) {
     static_cast<void>(path);
     EvaluationProfileEntry copy = entry.identity;
-    copy.start = entry.start.snapshot;
-    copy.evaluation = entry.evaluation.snapshot;
-    copy.stop = entry.stop.snapshot;
+    copy.start = entry.start.snapshot();
+    copy.evaluation = entry.evaluation.snapshot();
+    copy.stop = entry.stop.snapshot();
     result.entries.push_back(std::move(copy));
   }
 
@@ -229,7 +255,7 @@ void EvaluationProfiler::reset() {
   state_->root_evaluation_started.reset();
   state_->wall_time = TimeDelta{0};
   state_->graph_cycles = 0;
-  state_->root_evaluation_time = TimeDelta{0};
+  state_->root_evaluation_time = ProfileDuration{0};
   state_->scheduling_lag_total = TimeDelta{0};
   state_->scheduling_lag_max = TimeDelta{0};
   state_->scheduling_lag_samples = 0;
@@ -270,7 +296,8 @@ void EvaluationProfiler::on_start_graph_failed(const GraphView &graph) {
     state_->graph_entities.erase(graph.data());
   }
   if (graph.is_root() && state_->wall_started.has_value()) {
-    state_->wall_time = elapsed(*state_->wall_started, ProfileClock::now());
+    state_->wall_time =
+        to_time_delta(elapsed(*state_->wall_started, ProfileClock::now()));
     state_->wall_started.reset();
   }
 }
@@ -429,7 +456,8 @@ void EvaluationProfiler::on_after_stop_graph(const GraphView &graph) {
     }
   }
   if (graph.is_root() && state_->wall_started.has_value()) {
-    state_->wall_time = elapsed(*state_->wall_started, ProfileClock::now());
+    state_->wall_time =
+        to_time_delta(elapsed(*state_->wall_started, ProfileClock::now()));
     state_->wall_started.reset();
   }
   if (options_.graph) {
@@ -446,7 +474,8 @@ void EvaluationProfiler::on_stop_graph_failed(const GraphView &graph) {
     state_->graph_entities.erase(graph.data());
   }
   if (graph.is_root() && state_->wall_started.has_value()) {
-    state_->wall_time = elapsed(*state_->wall_started, ProfileClock::now());
+    state_->wall_time =
+        to_time_delta(elapsed(*state_->wall_started, ProfileClock::now()));
     state_->wall_started.reset();
   }
 }
