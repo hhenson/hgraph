@@ -660,13 +660,16 @@ namespace hgraph::stdlib
             spec.child.graph_builder  = std::move(combiner_graph.graph_builder);
             spec.child.input_bindings = std::move(combiner_graph.input_bindings);
             spec.child.output_binding = combiner_graph.output_binding;
+            // A binary lifted scalar kernel evaluates the internal combine
+            // points directly (``evaluate_lifted_combiner``) instead of
+            // instantiating a child graph per combiner. The tree shape and the
+            // evaluation order are identical either way, so the kernel's own
+            // ``associative`` flag (which guards the re-associating single-node
+            // fixed-TSL fast path) does not gate this form: the caller already
+            // selected the associative tree by contract (``is_associative``).
             spec.lifted_kernel = resolve_lifted_kernel_for_schemas(
                 combiner, std::span<const TSValueTypeMetaData *const>{schemas.data(), schemas.size()}, element, &w);
-            if (spec.lifted_kernel != nullptr &&
-                (spec.lifted_kernel->arity != 2 || !spec.lifted_kernel->associative))
-            {
-                spec.lifted_kernel = nullptr;
-            }
+            if (spec.lifted_kernel != nullptr && spec.lifted_kernel->arity != 2) { spec.lifted_kernel = nullptr; }
             spec.has_zero = zero.has_value();
 
             std::vector<std::pair<std::string, const TSValueTypeMetaData *>> input_fields{

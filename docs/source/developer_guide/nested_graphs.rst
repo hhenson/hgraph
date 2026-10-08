@@ -351,6 +351,19 @@ slots: compacting the leaves is what keeps the live combiner count at ``n-1``.
 - **Aggregate resolution** (per position): empty leaf → ``Empty``; live leaf
   → ``Leaf``; internal: both children empty → ``Empty``, exactly one
   non-empty → alias that child's aggregate, both → ``Node`` (the combiner).
+- **Kernel combiners.** When the combiner resolves to a binary lifted scalar
+  kernel (every standard arithmetic/min/max/and/or operator over scalar
+  elements), internal combine points evaluate the kernel directly on the two
+  child aggregates (``evaluate_lifted_combiner``) and no combiner child graph
+  is instantiated, bound or scheduled. The tree shape and the deepest-first
+  order are exactly those of the child-graph form, so the kernel's own
+  ``associative`` flag does not gate the selection: that flag only guards the
+  re-associating single-node fixed-``TSL`` fast path above, while this tree is
+  already the caller's ``is_associative=True`` contract. Before 2026-10-07 the
+  gate also required the flag, which ``scalar_add``/``scalar_mul`` deliberately
+  leave false for signed and floating types; a ``reduce(add_, tsd, 0)`` over
+  ``TS[int]`` therefore ran one nested graph per combiner and cost the same as a
+  user-written graph combiner (bake-off: 0.22 µs per key tick).
 
 **Binding discipline (the map_ lesson, restated):** value ticks normally flow
 through standing bindings: a leaf tick notifies its combiner's child node
