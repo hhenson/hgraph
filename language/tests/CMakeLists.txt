@@ -855,6 +855,12 @@ if(UNIX)
         PASS_REGULAR_EXPRESSION "26 tests, 0 failed"
     )
 
+    add_test(NAME hgraph_language_tuple_written_order
+        COMMAND ${CMAKE_COMMAND}
+            -DHGL=$<TARGET_FILE:hgl>
+            -DSOURCE=${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/ordinary-tuple-values.hgl
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/tuple_written_order.cmake)
+
     add_test(
         NAME hgraph_language_run_runtime
         COMMAND $<TARGET_FILE:hgl> run ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
