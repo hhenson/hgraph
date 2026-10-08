@@ -2537,12 +2537,8 @@ namespace hgraph_::std_
                 hgl_cache.modify().field_483 = hgraph::Int{0};
                 while ((hgl_cache.ref().field_483 < hgl_cache.ref().hgl_plan_0.len(hgl_cache.ref().hgl_argument_0.view()))) {
                     {
-                        const auto  hgl_time_1    = ([](const hgraph::ValueView &hgl_scalar) {
-                            if (!hgl_scalar.valid()) { throw std::logic_error("ordinary scalar value is absent"); }
-                            return hgl_scalar.as<hgraph::DateTime>();
-                        }(hgl_cache.ref().hgl_plan_1.index(hgl_cache.ref().hgl_plan_0.index(hgl_cache.ref().hgl_argument_0.view(),
-                                                                                                hgl_cache.ref().field_483),
-                                                               0)));
+                        const auto  hgl_time_1 = hgl::ordinary::required_scalar<hgraph::DateTime>(hgl_cache.ref().hgl_plan_1.index(
+                            hgl_cache.ref().hgl_plan_0.index(hgl_cache.ref().hgl_argument_0.view(), hgl_cache.ref().field_483), 0));
                         const auto &hgl_payload_1 = hgl_cache.ref().hgl_plan_1.index(
                             hgl_cache.ref().hgl_plan_0.index(hgl_cache.ref().hgl_argument_0.view(), hgl_cache.ref().field_483), 1);
                         const hgraph::DateTime hgl_when_1 = hgl_time_1;
