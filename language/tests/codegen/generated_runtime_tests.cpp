@@ -110,6 +110,30 @@ TEST_CASE("generated runtime tuple results publish complete values and sparse po
                  values<Value>(collection_result, none, collection_result));
 }
 
+TEST_CASE("generated tuple observations preserve absent required payloads", "[codegen][runtime][tuple][observation]")
+{
+    session();
+    using Pair = UnNamedTSB<Field<"0", TS<Int>>, Field<"1", TS<Bool>>>;
+    const auto partial = values<Value>(tsb_delta<Pair>(Int{7}, std::nullopt));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_observed_present_field, Pair>(partial)), values<Int>(7));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_complete_forward, Pair>(partial)), partial);
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_observed_partial_result, Pair>(partial)), partial);
+    CHECK_THROWS_WITH((eval_node<runtime::operators::tuple_observed_absent_field, Pair>(partial)),
+                      Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
+    using Nested = UnNamedTSB<Field<"0", TSL<Pair, 2>>, Field<"1", TS<Bool>>>;
+    const auto nested_partial = values<Value>(tsb_delta<Nested>(
+        list_delta<Pair>({{0, tsb_delta<Pair>(Int{7}, std::nullopt)}}), Bool{true}));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_list_observed_partial_result, Nested>(nested_partial)), nested_partial);
+    CHECK_THROWS_WITH((eval_node<runtime::operators::tuple_list_observed_absent_field, Nested>(nested_partial)),
+                      Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
+    CHECK_THROWS_WITH((eval_node<runtime::operators::tuple_list_observed_absent_slot, Nested>(nested_partial)),
+                      Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
+    using Map = UnNamedTSB<Field<"0", TSD<Int, Pair>>, Field<"1", TS<Bool>>>;
+    const auto map_partial = values<Value>(tsb_delta<Map>(
+        dict_delta<Int, Pair>({{4, tsb_delta<Pair>(Int{7}, std::nullopt)}}), Bool{true}));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_map_observed_partial, Map>(map_partial)), map_partial);
+}
+
 TEST_CASE("generated module registration owns a removable provider generation", "[codegen][runtime][lifecycle]")
 {
     hgl::wiring::ensure_session();

@@ -2498,7 +2498,9 @@ namespace hgl::codegen
             // Normalize the source's physical strategy into its exact
             // prepared schema before reading children. This also handles
             // projected input surfaces without inspecting their strategies.
-            std::string code = "[&]() { auto " + observed + " = " + source_plan + ".retain(" + ordinary_view(value) + "); ";
+            std::string code = "[&](const hgraph::ValueView &hgl_source_view) { "
+                               "if (!hgl_source_view.has_value()) { return hgraph::Value::typed_null(" + target_plan + ".binding()); } "
+                               "auto " + observed + " = " + source_plan + ".retain(hgl_source_view); ";
             const auto convert_child = [&](const HType &type, const std::string &view) {
                 Value child = make_runtime(view, type, value.range);
                 child.borrowed_value = true;
@@ -2512,25 +2514,28 @@ namespace hgl::codegen
                 code += "auto hgl_child = " + convert_child(value.type.children.back(), source_plan + ".index(" + observed + ".view(), hgl_index)") + "; ";
                 code += value.type.size.empty() ? target_plan + ".push(hgl_result.view(), hgl_child.view()); "
                     : target_plan + ".index_mutable(hgl_result.view(), hgl_index).begin_mutation().copy_from(hgl_child.view()); ";
-                return code + "} return hgl_result; }()";
+                return code + "} return hgl_result; }(" + ordinary_view(value) + ")";
             }
             if (value.type.kind == HType::Kind::Map) {
                 code += "hgraph::MapBuilder hgl_result{" + target_plan + ".key_binding(), " + target_plan + ".element_binding()}; ";
                 code += "for (const auto &[hgl_key, hgl_value] : " + source_plan + ".items(" + observed + ".view())) { ";
                 code += "auto hgl_child = " + convert_child(value.type.children.back(), "hgl_value") + "; ";
                 code += "hgl_result.set_item(hgl_key, hgl_child.view()); } auto hgl_storage = hgl_result.build_storage(); ";
-                return code + "return hgraph::Value{" + target_plan + ".binding(), &hgl_storage, hgraph::Value::AdoptStorage{}}; }()";
+                return code + "return hgraph::Value{" + target_plan + ".binding(), &hgl_storage, hgraph::Value::AdoptStorage{}}; }(" + ordinary_view(value) + ")";
             }
-            std::vector<std::string> fields;
+            code += "std::array<std::pair<std::size_t, hgraph::ValueView>, " + std::to_string(value.type.children.size()) +
+                    "> hgl_fields{}; std::size_t hgl_field_count = 0; ";
             for (std::size_t index = 0; index < value.type.children.size(); ++index) {
                 const std::string local = "hgl_observed_child_" + std::to_string(index);
-                code += "auto " + local + " = " + convert_child(value.type.children[index], source_plan +
-                        ".index(" + observed + ".view(), " + std::to_string(index) + ")") + "; ";
-                fields.push_back("std::pair<std::size_t, hgraph::ValueView>{" + std::to_string(index) + ", " + local + ".view()}");
+                const std::string view = "hgl_observed_view_" + std::to_string(index);
+                code += "const auto " + view + " = " + source_plan + ".index(" + observed + ".view(), " + std::to_string(index) + "); ";
+                // Retaining a nil source into default-constructed owning
+                // storage would invent a payload. Keep its exact typed hole.
+                code += "auto " + local + " = " + view + ".has_value() ? " + convert_child(value.type.children[index], view) +
+                        " : hgraph::Value::typed_null(" + target_plan + ".field_binding(" + std::to_string(index) + ")); ";
+                code += "if (" + local + ".has_value()) { hgl_fields[hgl_field_count++] = {" + std::to_string(index) + ", " + local + ".view()}; } ";
             }
-            code += "const std::array<std::pair<std::size_t, hgraph::ValueView>, " + std::to_string(fields.size()) +
-                    "> hgl_fields{" + join(fields, ", ") + "}; return " + target_plan +
-                    ".bundle(hgl_fields); }()";
+            code += "return " + target_plan + ".bundle(std::span{hgl_fields.data(), hgl_field_count}); }(" + ordinary_view(value) + ")";
             return code;
         }
 
@@ -5445,8 +5450,8 @@ namespace hgl::codegen
             const std::string converted = as_runtime(value, target, value.range, "output value");
             if (target.kind == HType::Kind::Tuple && value.ordinary_value) {
                 // Ordinary tuples and temporal unnamed bundles have distinct
-                // parent value schemas. Publish their exact children rather
-                // than pretending that one parent representation is the other.
+                // parent value schemas. Publish live children through their
+                // typed transactions, leaving absent children unset.
                 out.open("");
                 const auto local_name = [&](const std::string &base) {
                     std::string name = base;
@@ -5461,19 +5466,23 @@ namespace hgl::codegen
                 for (std::size_t index = 0; index < target.children.size(); ++index) {
                     const std::string child_output = local_name("hgl_tuple_output_" + std::to_string(index));
                     out.line("auto " + child_output + " = " + selector + ".template field<" + quote(std::to_string(index)) + ">();");
-                    Value child = make_runtime(ordinary_plan(target, value.range) + ".index(" + ordinary_view(publication) +
-                                               ", " + std::to_string(index) + ")", target.children[index], value.range);
+                    const std::string child_value = local_name("hgl_tuple_child_" + std::to_string(index));
+                    out.line("const auto " + child_value + " = " + ordinary_plan(target, value.range) + ".index(" +
+                             ordinary_view(publication) + ", " + std::to_string(index) + ");");
+                    Value child = make_runtime(child_value, target.children[index], value.range);
                     child.ordinary_value = true;
                     child.borrowed_value = true;
+                    out.open("if (" + child_value + ".has_value())");
                     emit_output_value(child, target.children[index], child_output, out);
+                    out.close();
                 }
                 out.close();
                 return;
             }
             if ((target.kind == HType::Kind::List || target.kind == HType::Kind::Map) &&
                 observation_needs_conversion(target) && value.ordinary_value) {
-                // Collections of ordinary tuples likewise need their exact
-                // temporal child schemas before a complete output transaction.
+                // Collections of ordinary tuples need their exact temporal
+                // child schemas, including unset bits, before publication.
                 out.open("");
                 out.line("auto hgl_held_value = " + convert_observation(value, false) + ";");
                 out.line("auto hgl_mutation = " + selector + ".begin_mutation(" + selector + ".evaluation_time());");

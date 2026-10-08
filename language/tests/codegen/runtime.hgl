@@ -114,6 +114,55 @@ export fn tuple_collection_result(value: i64) -> tuple<list<tuple<i64, bool>, 2>
     }
 }
 
+export fn tuple_observed_present_field(value: tuple<i64, bool>) -> i64 {
+    when valid(value) && valid(value[0]) {
+        let copy = value
+        return copy[0]
+    }
+}
+
+export fn tuple_observed_partial_result(value: tuple<i64, bool>) -> tuple<i64, bool> {
+    when valid(value) && valid(value[0]) {
+        let copy = value
+        return copy
+    }
+}
+
+export fn tuple_list_observed_partial_result(value: tuple<list<tuple<i64, bool>, 2>, bool>) -> tuple<list<tuple<i64, bool>, 2>, bool> {
+    when valid(value) && valid(value[0]) && valid(at(value[0], 0)) {
+        let copy = value
+        return copy
+    }
+}
+
+export fn tuple_observed_absent_field(value: tuple<i64, bool>) -> bool {
+    when valid(value) && valid(value[0]) {
+        let copy = value
+        return copy[1]
+    }
+}
+
+export fn tuple_list_observed_absent_field(value: tuple<list<tuple<i64, bool>, 2>, bool>) -> bool {
+    when valid(value) && valid(value[0]) && valid(at(value[0], 0)) {
+        let copy = value
+        return copy[0][0][1]
+    }
+}
+
+export fn tuple_list_observed_absent_slot(value: tuple<list<tuple<i64, bool>, 2>, bool>) -> i64 {
+    when valid(value) && valid(value[0]) && valid(at(value[0], 0)) {
+        let copy = value
+        return copy[0][1][0]
+    }
+}
+
+export fn tuple_map_observed_partial(value: tuple<map<i64, tuple<i64, bool>>, bool>) -> tuple<map<i64, tuple<i64, bool>>, bool> {
+    when valid(value) && valid(value[0]) {
+        let copy = value
+        return copy
+    }
+}
+
 test structural_tuple_complete_and_sparse_results {
     assert eval(tuple_result, [1, 1, _, 2]) == [(1, true), (1, true), _, (2, true)]
     assert eval(tuple_patch, [1, 2, 2, 1]) == [(1, _), (_, true), (_, true), (1, _)]
@@ -162,6 +211,19 @@ test tuple_observations_convert_nested_collection_children {
         0: delta<list<tuple<i64, bool>, 2>>(items: [0: pair_a, 1: pair_b]),
         1: delta<map<i64, tuple<i64, bool>>>(upsert: [4: pair_a])])
     assert eval(tuple_collection_result, [7, _, 7]) == [result, _, result]
+}
+
+test tuple_observations_retain_present_sparse_fields {
+    assert eval(tuple_observed_present_field, [(7, _), _, (9, _)]) == [7, _, 9]
+    assert eval(tuple_observed_absent_field, [(7, false), (_, true)]) == [false, true]
+    assert eval(tuple_complete_forward, [(7, _)]) == [(7, _)]
+    assert eval(tuple_observed_partial_result, [(7, _)]) == [(7, _)]
+    let sparse_list = delta<tuple<list<tuple<i64, bool>, 2>, bool>>(items: [
+        0: delta<list<tuple<i64, bool>, 2>>(items: [0: delta<tuple<i64, bool>>(items: [0: 7])]), 1: true])
+    assert eval(tuple_list_observed_partial_result, [sparse_list]) == [sparse_list]
+    let partial = delta<tuple<map<i64, tuple<i64, bool>>, bool>>(items: [
+        0: delta<map<i64, tuple<i64, bool>>>(upsert: [4: delta<tuple<i64, bool>>(items: [0: 7])]), 1: true])
+    assert eval(tuple_map_observed_partial, [partial]) == [partial]
 }
 
 cpp include <hgraph/types/metadata/ts_value_type_meta_data.h>
