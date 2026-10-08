@@ -28,11 +28,6 @@ namespace hgraph {
 namespace {
 constexpr std::size_t invalid_cursor = std::numeric_limits<std::size_t>::max();
 
-[[nodiscard]] DateTime current_wall_time() noexcept {
-  return std::chrono::time_point_cast<std::chrono::microseconds>(
-      engine_clock::now());
-}
-
 [[nodiscard]] GlobalState initial_graph_builder_state() {
   if (const GlobalState *state = GlobalContext::active_state()) {
     return *state;
@@ -166,7 +161,6 @@ struct GraphRuntimeBaseStorage {
 
   DateTime next_scheduled_time{MAX_DT};
   DateTime evaluation_time{MIN_DT};
-  DateTime cycle_wall_start{current_wall_time()};
   std::size_t evaluation_cursor{invalid_cursor};
   bool started{false};
   bool starting{false};
@@ -827,7 +821,6 @@ void start_impl(const void *context, const GraphView &graph,
   state.lifecycle_observers->notify_before_start_graph(graph);
 
   state.evaluation_time = start_time;
-  state.cycle_wall_start = current_wall_time();
   std::size_t started_nodes = 0;
   auto rollback = UnwindCleanupGuard([&] {
     for (std::size_t index = started_nodes; index > 0; --index) {
@@ -1067,7 +1060,6 @@ bool evaluate_impl(const void *context, const GraphView &graph,
 
   if (!resuming) {
     state.lifecycle_observers->notify_before_graph_evaluation(graph);
-    state.cycle_wall_start = current_wall_time();
     state.next_scheduled_time = MAX_DT;
 
     if constexpr (std::is_same_v<Storage, RootGraphRuntimeStorage>) {
