@@ -4177,7 +4177,8 @@ const fn sample() -> Outer {
     const auto emitted = unit.emit();
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE(emitted);
-    CHECK(contains(emitted->header, ".index_mutable("));
+    CHECK(contains(emitted->header, ".index_writable_observation("));
+    CHECK(contains(emitted->header, ".replace_index("));
 }
 
 TEST_CASE("emit-cpp memoizes repeated generic occurrence DAGs", "[codegen][generic][scaling]") {

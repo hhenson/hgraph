@@ -370,7 +370,17 @@ scalar observations as typed values, including absence. This is an emit-time
 representation choice; their source types remain unchanged. Arithmetic,
 Boolean conditions and native scalar arguments consume the observation through
 ``required_scalar``; an absent payload raises ``value.unset_read``. An unset
-ordinary List's ``len`` uses the same execution code. The diagnostic is created
+ordinary List's ``len`` and admitted indexed List, Tuple, field and Map reads
+use the same execution code when the parent root is absent. The parent must
+have a payload before selecting a List position or Map member. Known-field
+observation projection uses the exact child bindings prepared with the parent,
+so a named field or Tuple field can preserve typed absence without a parent
+payload. Owned and abstract origins cache only declared binding references,
+preserving the existing boundary for recursive Atomic descendants.
+A writable observation grants access only to a present child; reading an unset
+child does not invoke the writer operation that marks it live. Present child
+mutation and whole-field replacement retain their existing paths. The diagnostic
+is created
 only on the failing branch, separately from successful scalar payload reads.
 Direct temporal validity checks, bounds, missing-key failures and global borrowed
 payload guards keep their existing paths and uncoded error identity. Retention and projection do not require a child payload.

@@ -3485,12 +3485,12 @@ namespace hgl::codegen
                     } else if constexpr (std::is_same_v<T, gir::Call>) {
                         return eval_planned_call(expression, node, frame);
                     } else if constexpr (std::is_same_v<T, gir::Index>) {
-                        const Value target = eval_planned_expr(node.target, frame);
+                        const Value target = eval_planned_expr(node.target, frame, preserve_observation);
                         const Value index  = eval_planned_expr(node.index, frame);
                         if (target.ordinary_value && target.type.kind == HType::Kind::Map) {
                             const HType item = target.type.children.back();
                             std::string code = ordinary_plan(target.type, expression.range) + ".map_index(" +
-                                               ordinary_view(target) + ", " + ordinary_view(index) + ")";
+                                               ordinary_view(target) + ", " + ordinary_view(index) + (target.global_borrow || target.global_payload ? ", false)" : ", true)");
                             const bool observe = preserve_observation && !ordinary_aggregate(item) && !target.global_borrow && !target.global_payload;
                             if (!ordinary_aggregate(item) && !observe) { code = ordinary_scalar(code, item, expression.range, !target.global_borrow && !target.global_payload); }
                             Value result = make_runtime(std::move(code), item, expression.range);
@@ -3510,9 +3510,13 @@ namespace hgl::codegen
                                 position = static_cast<std::size_t>(*checked);
                             }
                             const HType item = target.type.children[position];
+                            const bool known_observation = preserve_observation && target.type.kind == HType::Kind::Tuple &&
+                                !target.global_borrow && !target.global_payload;
                             std::string code = ordinary_plan(target.type, expression.range) +
-                                               (target.ordinary_writable && ordinary_aggregate(item) ? ".index_mutable(" : ".index(") +
-                                               ordinary_view(target) + ", " + index.code + ")";
+                                               (known_observation ? ".field_observation(" :
+                                                !preserve_observation && target.ordinary_writable && ordinary_aggregate(item) ? ".index_writable_observation(" : ".index(") +
+                                               ordinary_view(target) + ", " + index.code +
+                                               (known_observation ? ")" : target.global_borrow || target.global_payload ? ", false)" : ", true)");
                             const bool observe = preserve_observation && !ordinary_aggregate(item) && !target.global_borrow && !target.global_payload;
                             if (!ordinary_aggregate(item) && !observe) { code = ordinary_scalar(code, item, expression.range, !target.global_borrow && !target.global_payload); }
                             Value result = make_runtime(std::move(code), item, expression.range);
@@ -3563,7 +3567,7 @@ namespace hgl::codegen
                             expression.range);
                         return wire(marker, {target.code, argument_code(index)}, expression.range);
                     } else if constexpr (std::is_same_v<T, gir::Field>) {
-                        const Value target = eval_planned_expr(node.target, frame);
+                        const Value target = eval_planned_expr(node.target, frame, preserve_observation);
                         if (expression.operation.kind == gir::OperationKind::Capability &&
                             expression.operation.identity.starts_with("clock.")) {
                             use("hgl_cap_clock");
@@ -3590,10 +3594,14 @@ namespace hgl::codegen
                             const std::string plan = ordinary_plan(target.type, expression.range);
                             const std::string arguments = ordinary_view(target) + ", " +
                                                           std::to_string(field - contract.fields.begin()) + ")";
+                            const bool known_observation = preserve_observation && !target.global_borrow && !target.global_payload;
                             std::string code = plan +
-                                               (target.ordinary_writable && ordinary_aggregate(type) ? ".index_mutable(" : ".index(") +
-                                               arguments;
-                            const std::string projection = plan + ".replace_index(" + arguments.substr(0, arguments.size() - 1) + ", ";
+                                               (known_observation ? ".field_observation(" :
+                                                target.ordinary_writable && ordinary_aggregate(type) ? ".index_writable_observation(" : ".index(") +
+                                               arguments.substr(0, arguments.size() - 1) +
+                                               (known_observation ? ")" : target.global_borrow || target.global_payload ? ", false)" : ", true)");
+                            const std::string projection = plan + ".replace_index(" + arguments.substr(0, arguments.size() - 1) +
+                                (target.global_borrow || target.global_payload ? ", false, " : ", true, ");
                             const bool observe = preserve_observation && !ordinary_aggregate(type) && !target.global_borrow && !target.global_payload;
                             if (!ordinary_aggregate(type) && !observe) { code = ordinary_scalar(code, type, expression.range, !target.global_borrow && !target.global_payload); }
                             Value result = make_runtime(std::move(code), type, expression.range);
@@ -4554,7 +4562,8 @@ namespace hgl::codegen
                     const Value item = eval_planned_expr(call.arguments[1].value, frame);
                     Value result;
                     result.kind = Value::Kind::Void;
-                    result.code = plan + ".push(" + ordinary_view(list) + ", " + ordinary_view(item) + ")";
+                    result.code = plan + ".push(" + ordinary_view(list) + ", " + ordinary_view(item) +
+                        (list.global_borrow || list.global_payload ? ", false)" : ", true)");
                     result.range = range;
                     return result;
                 }

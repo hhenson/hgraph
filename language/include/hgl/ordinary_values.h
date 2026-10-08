@@ -26,8 +26,14 @@ namespace hgl::ordinary
     // Payload consumption is separate from retaining a typed observation.
     // Construct the diagnostic only on failure; the presence guard allocates
     // nothing on success and preserves the payload's existing copy semantics.
+    inline void require_payload(const hgraph::ValueView &value, bool retained_observation) {
+        if (!value.has_value()) {
+            if (!retained_observation) { throw std::logic_error("ordinary scalar value is absent"); }
+            throw hgl::ExecutionError{"value.unset_read", "ordinary scalar value is absent"};
+        }
+    }
     template <typename T> [[nodiscard]] T required_scalar(const hgraph::ValueView &value) {
-        if (!value.has_value()) { throw hgl::ExecutionError{"value.unset_read", "ordinary scalar value is absent"}; }
+        require_payload(value, true);
         return value.as<T>();
     }
     // Only explicit publication predicates use this marker. Allocation and
@@ -392,7 +398,16 @@ namespace hgl::ordinary
             if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) {
                 indexed_ = hgraph::checked_value_ops<hgraph::IndexedValueOps>(binding, "HGL ordinary indexed value");
             }
-            if (binding.schema()->is_owned() || binding.schema()->is_abstract_bundle()) { return; }
+            if (binding.schema()->is_owned() || binding.schema()->is_abstract_bundle()) {
+                // An absent boxed/family value has no concrete member to inspect.
+                // Cache only declared child bindings and keep the recursive
+                // owning boundary; full child plans could follow Atomic cycles.
+                field_bindings_.reserve(binding.schema()->field_count);
+                for (std::size_t index = 0; index < binding.schema()->field_count; ++index) {
+                    field_bindings_.push_back(storage_binding(binding.schema()->fields[index].type));
+                }
+                return;
+            }
             if (binding.ops()->kind == hgraph::ValueOpsKind::MutableList) {
                 list_ = hgraph::checked_value_ops<hgraph::MutableListValueOps>(binding, "HGL ordinary mutable list");
             }
@@ -401,8 +416,11 @@ namespace hgl::ordinary
             }
             if (kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) {
                 fields_.reserve(binding.schema()->field_count);
+                field_bindings_.reserve(binding.schema()->field_count);
                 for (std::size_t index = 0; index < binding.schema()->field_count; ++index) {
-                    fields_.emplace_back(indexed_->element_binding(indexed_->context, nullptr, index));
+                    const auto child = indexed_->element_binding(indexed_->context, nullptr, index);
+                    field_bindings_.push_back(child);
+                    fields_.emplace_back(child);
                 }
             }
             if (binding.schema()->element_type != nullptr) {
@@ -416,7 +434,7 @@ namespace hgl::ordinary
             if (kind == hgraph::ValueTypeKind::List) { list_builder_binding_ = hgraph::compact_list_type(element_, *binding.schema()); }
         }
         [[nodiscard]] hgraph::ValueTypeRef binding() const noexcept { return binding_; }
-        [[nodiscard]] hgraph::ValueTypeRef field_binding(std::size_t index) const { return fields_.at(index).binding(); }
+        [[nodiscard]] hgraph::ValueTypeRef field_binding(std::size_t index) const { return field_bindings_.at(index); }
         [[nodiscard]] const PreparedValuePlan &field_plan(std::size_t index) const { return fields_.at(index); }
         [[nodiscard]] hgraph::ValueTypeRef element_binding() const noexcept { return element_; }
         [[nodiscard]] hgraph::ValueTypeRef key_binding() const noexcept { return key_; }
@@ -435,8 +453,8 @@ namespace hgl::ordinary
         [[nodiscard]] hgraph::Value list(const hgraph::ListStorage &storage) const {
             return retain(hgraph::ValueView{list_builder_binding_, &storage});
         }
-        [[nodiscard]] hgraph::ValueView map_index(const hgraph::ValueView &value, const hgraph::ValueView &key) const {
-            if (!value.has_value()) { throw std::logic_error("ordinary scalar value is absent"); }
+        [[nodiscard]] hgraph::ValueView map_index(const hgraph::ValueView &value, const hgraph::ValueView &key, bool retained_observation = true) const {
+            require_payload(value, retained_observation);
             if (map_ == nullptr) { throw std::invalid_argument("ordinary value storage is not a map"); }
             if (!map_->contains(map_->context, value.data(), key.data())) { throw std::out_of_range("ordinary map key not present"); }
             return hgraph::ValueView{element_, map_->value_at(map_->context, value.data(), key.data())};
@@ -457,10 +475,7 @@ namespace hgl::ordinary
             return result.build();
         }
         [[nodiscard]] std::int64_t len(const hgraph::ValueView &value, bool retained_observation = true) const {
-            if (!value.has_value()) {
-                if (!retained_observation) { throw std::logic_error("ordinary scalar value is absent"); }
-                throw hgl::ExecutionError{"value.unset_read", "ordinary scalar value is absent"};
-            }
+            require_payload(value, retained_observation);
             if (indexed_ == nullptr) { throw std::invalid_argument("ordinary value storage is not indexed"); }
             const auto size = indexed_->size(indexed_->context, value.data());
             if (size > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max())) {
@@ -468,8 +483,8 @@ namespace hgl::ordinary
             }
             return static_cast<std::int64_t>(size);
         }
-        [[nodiscard]] hgraph::ValueView index(const hgraph::ValueView &value, std::int64_t index) const {
-            if (!value.has_value()) { throw std::logic_error("ordinary scalar value is absent"); }
+        [[nodiscard]] hgraph::ValueView index(const hgraph::ValueView &value, std::int64_t index, bool retained_observation = true) const {
+            require_payload(value, retained_observation);
             if (index < 0 || index >= len(value)) { throw std::out_of_range("ordinary value index out of bounds"); }
             const auto offset = static_cast<std::size_t>(index);
             if (indexed_->element_valid != nullptr && !indexed_->element_valid(indexed_->context, value.data(), offset)) {
@@ -478,8 +493,14 @@ namespace hgl::ordinary
             return hgraph::ValueView{indexed_->element_binding(indexed_->context, value.data(), offset),
                                      indexed_->element_at(indexed_->context, value.data(), offset)};
         }
-        [[nodiscard]] hgraph::ValueView index_mutable(const hgraph::ValueView &value, std::int64_t index) const {
-            if (!value.has_value()) { throw std::logic_error("ordinary scalar value is absent"); }
+        [[nodiscard]] hgraph::ValueView field_observation(const hgraph::ValueView &value, std::size_t index) const {
+            // A known field's exact binding was prepared independently of any
+            // payload. Selecting its absence does not discover a member/length.
+            if (!value.has_value()) { return hgraph::ValueView{field_binding(index), nullptr}; }
+            return this->index(value, static_cast<std::int64_t>(index));
+        }
+        [[nodiscard]] hgraph::ValueView index_mutable(const hgraph::ValueView &value, std::int64_t index, bool retained_observation = true) const {
+            require_payload(value, retained_observation);
             if (index < 0 || index >= len(value)) { throw std::out_of_range("ordinary value index out of bounds"); }
             const auto offset = static_cast<std::size_t>(index);
             auto writable = value.begin_mutation();
@@ -491,15 +512,26 @@ namespace hgl::ordinary
             return hgraph::ValueView{indexed_->element_binding(indexed_->context, value.data(), offset),
                                      element};
         }
+        [[nodiscard]] hgraph::ValueView index_writable_observation(const hgraph::ValueView &value, std::int64_t index, bool retained_observation = true) const {
+            auto observed = this->index(value, index, retained_observation);
+            // Mutable element access commits validity. A read must not turn an
+            // unset child into its default payload merely to grant writability.
+            if (!observed.has_value()) { return observed; }
+            return index_mutable(value, index, retained_observation);
+        }
         // Replacing a slot is a mutation of its owning parent, not permission
         // to mutate the internals of a read-only child container.
         void replace_index(const hgraph::ValueView &parent, std::int64_t index, const hgraph::ValueView &source) const {
-            const auto child = this->index(parent, index);
+            replace_index(parent, index, true, source);
+        }
+        void replace_index(const hgraph::ValueView &parent, std::int64_t index, bool retained_observation, const hgraph::ValueView &source) const {
+            const auto child = this->index(parent, index, retained_observation);
             hgraph::Value retained{child.binding(), source};
-            auto target = index_mutable(parent, index);
+            auto target = index_mutable(parent, index, retained_observation);
             target.binding().copy_assign_at(const_cast<void *>(target.data()), retained.view().data());
         }
-        void push(const hgraph::ValueView &list, const hgraph::ValueView &element) const {
+        void push(const hgraph::ValueView &list, const hgraph::ValueView &element, bool retained_observation = true) const {
+            require_payload(list, retained_observation);
             if (list_ == nullptr) { throw std::invalid_argument("ordinary list storage does not support growth"); }
             auto retained = hgraph::Value{element_, element};
             auto writable = list.begin_mutation();
@@ -511,6 +543,7 @@ namespace hgl::ordinary
         const hgraph::MutableListValueOps *list_{};
         const hgraph::MapValueOps *map_{};
         std::vector<PreparedValuePlan> fields_{};
+        std::vector<hgraph::ValueTypeRef> field_bindings_{};
         hgraph::ValueTypeRef element_{};
         hgraph::ValueTypeRef list_builder_binding_{};
         hgraph::ValueTypeRef key_{};

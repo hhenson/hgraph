@@ -57,6 +57,15 @@ TEST_CASE("required payload guards separate absent errors from present scalar re
     CHECK(sum == 0);
     CHECK_FALSE(observed_true);
     CHECK(type_system_lock_count() == before);
+    const PreparedValuePlan tuple{scalar_descriptor<Tuple<Int, Bool>>::value_meta()};
+    const auto absent_tuple = Value::typed_null(tuple.binding());
+    const auto projection_locks = type_system_lock_count();
+    for (std::size_t index = 0; index < 128; ++index) {
+        const auto child = tuple.field_observation(absent_tuple.view(), 1);
+        CHECK_FALSE(child.has_value());
+        CHECK(child.binding() == tuple.field_binding(1));
+    }
+    CHECK(type_system_lock_count() == projection_locks);
     const auto expect_uncoded = [](auto invoke) {
         try { invoke(); FAIL("existing collection error unexpectedly succeeded"); }
         catch (const std::exception &error) { CHECK(hgl::execution_error_code(error).empty()); }
@@ -64,12 +73,18 @@ TEST_CASE("required payload guards separate absent errors from present scalar re
     const PreparedValuePlan list{scalar_descriptor<List<Int, 2>>::value_meta()};
     const auto present_list = list.empty_list();
     expect_uncoded([&] { (void)list.index(present_list.view(), 2); });
-    // This extension defines len on an unset List, not indexing that root.
-    expect_uncoded([&] { (void)list.index(Value::typed_null(list.binding()).view(), 0); });
+    // Root access requires the retained parent's payload; selecting an unset
+    // child of a present parent remains an observation, not a payload read.
+    try { (void)list.index(Value::typed_null(list.binding()).view(), 0); FAIL("absent indexed root unexpectedly read"); }
+    catch (const hgl::ExecutionError &error) { CHECK(error.code() == "value.unset_read"); }
+    expect_uncoded([&] { (void)list.index(Value::typed_null(list.binding()).view(), 0, false); });
     expect_uncoded([&] { (void)list.len(Value::typed_null(list.binding()).view(), false); });
     const PreparedValuePlan map{scalar_descriptor<Map<Int, Int>>::value_meta()};
     const Value empty_map{map.binding()};
     expect_uncoded([&] { (void)map.map_index(empty_map.view(), zero.view()); });
+    try { (void)map.map_index(Value::typed_null(map.binding()).view(), zero.view()); FAIL("absent mapped root unexpectedly read"); }
+    catch (const hgl::ExecutionError &error) { CHECK(error.code() == "value.unset_read"); }
+    expect_uncoded([&] { (void)map.map_index(Value::typed_null(map.binding()).view(), zero.view(), false); });
 }
 
 TEST_CASE("prepared generic publications reconcile recursive values without registry access", "[ordinary][publication]") {

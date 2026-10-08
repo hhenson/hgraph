@@ -1295,6 +1295,18 @@ export fn unset_retain_partial(value: tuple<i64, bool>) -> tuple<i64, bool> {
 
 test required_unset_payload_errors {
     assert raises("value.unset_read") {
+        eval(unset_mutable_push, value: [delta<UnsetGrowingSamples>(sibling: 1)])
+    }
+    assert raises("value.unset_read") {
+        eval(unset_mutable_length, value: [delta<UnsetObservedSamples>(sibling: 1)])
+    }
+    assert raises("value.unset_read") {
+        eval(unset_list_index, value: [delta<UnsetObservedSamples>(sibling: 1)])
+    }
+    assert raises("value.unset_read") {
+        eval(unset_map_index, value: [delta<UnsetObservedMapping>(sibling: 1)])
+    }
+    assert raises("value.unset_read") {
         eval(unset_native_text, value: [delta<UnsetObservedNumber>(sibling: 1)])
     }
     assert raises("value.unset_read") {
@@ -1310,6 +1322,15 @@ test required_unset_payload_errors {
 }
 
 test required_unset_present_payloads_and_retention {
+    assert eval(unset_mutable_push, value: [delta<UnsetGrowingSamples>(sibling: 1, child: delta<list<i64>>(items: [0: 4]))]) == [2]
+    assert eval(unset_abstract_known, value: [delta<UnsetAbstractOuter>(sibling: 1)]) == [1]
+    assert eval(unset_abstract_present, sibling: [1], inner: [UnsetAbstractConcrete(number: 0)]) == [1]
+    assert eval(unset_known_chain, value: [delta<UnsetKnownOuter>(sibling: 1)]) == [1]
+    assert eval(unset_known_staged, value: [delta<UnsetKnownOuter>(sibling: 1)]) == [1]
+    assert eval(unset_known_chain, value: [delta<UnsetKnownOuter>(sibling: 1, inner: delta<UnsetKnownInner>(nested: delta<UnsetKnownNested>(number: 0)))]) == [1]
+    assert eval(unset_mutable_present, value: [delta<UnsetMutableOuter>(sibling: 1, inner: delta<UnsetMutableInner>(items: delta<list<i64>>(items: [0: 4])))]) == [(2, 1)]
+    assert eval(unset_list_index, value: [delta<UnsetObservedSamples>(sibling: 1, child: delta<list<i64, 2>>(items: [0: 4, 1: 5]))]) == [5]
+    assert eval(unset_map_index, value: [delta<UnsetObservedMapping>(sibling: 1, child: delta<map<i64, i64>>(upsert: [1: 4]))]) == [5]
     assert eval(unset_native_text, value: [delta<UnsetObservedNumber>(sibling: 1, child: 0)]) == ["0"]
     assert eval(unset_number, value: [delta<UnsetObservedNumber>(sibling: 1, child: 0)]) == [1]
     assert eval(unset_flag, value: [delta<UnsetObservedFlag>(sibling: 1, child: false), delta<UnsetObservedFlag>(child: true)]) == [0, 1]
@@ -1373,4 +1394,91 @@ export fn unset_global_field(value: i64) -> i64 {
 
 export fn unset_temporal_delta(value: UnsetObservedNumber) -> i64 {
     when valid(value.child) && modified(value.child) { return delta_value(value.child) }
+}
+
+export fn unset_list_index(value: UnsetObservedSamples) -> i64 {
+    when {
+        let copy = value
+        let child = copy.child
+        return child[0] + 1
+    }
+}
+struct UnsetObservedMapping {
+    sibling: i64
+    child: map<i64, i64>
+}
+export fn unset_map_index(value: UnsetObservedMapping) -> i64 {
+    when {
+        let copy = value
+        let child = copy.child
+        return child[1] + 1
+    }
+}
+
+struct UnsetKnownNested { number: i64 }
+struct UnsetKnownInner { nested: UnsetKnownNested }
+struct UnsetKnownOuter { sibling: i64
+    inner: UnsetKnownInner }
+export fn unset_known_chain(value: UnsetKnownOuter) -> i64 {
+    when {
+        let copy = value
+        let child = copy.inner.nested.number
+        let alias = child
+        let pair = (copy.sibling, alias)
+        return pair[0]
+    }
+}
+export fn unset_known_staged(value: UnsetKnownOuter) -> i64 {
+    when {
+        let copy = value
+        let inner = copy.inner
+        let nested = inner.nested
+        let child = nested.number
+        let alias = child
+        let pair = (copy.sibling, alias)
+        return pair[0]
+    }
+}
+export fn unset_mutable_length(value: UnsetObservedSamples) -> i64 {
+    when {
+        var copy = value
+        return len(copy.child)
+    }
+}
+struct UnsetMutableInner { items: list<i64> }
+struct UnsetMutableOuter { sibling: i64
+    inner: UnsetMutableInner }
+export fn unset_mutable_present(value: UnsetMutableOuter) -> tuple<i64, i64> {
+    when valid(value) && valid(value.inner) && valid(value.inner.items) {
+        let original = value
+        var copy = value
+        push(copy.inner.items, 9)
+        return (len(copy.inner.items), len(original.inner.items))
+    }
+}
+
+abstract struct UnsetAbstractInner { number: i64 }
+struct UnsetAbstractConcrete: UnsetAbstractInner {}
+struct UnsetAbstractOuter { sibling: i64
+    inner: atomic<UnsetAbstractInner> }
+export fn unset_abstract_known(value: UnsetAbstractOuter) -> i64 {
+    when {
+        let copy = value
+        let child = copy.inner.number
+        let pair = (copy.sibling, child)
+        return pair[0]
+    }
+}
+export fn unset_abstract_present(sibling: i64, inner: atomic<UnsetAbstractConcrete>) -> i64 {
+    return unset_abstract_known(UnsetAbstractOuter(sibling: sibling, inner: inner))
+}
+
+struct UnsetGrowingSamples { sibling: i64
+    child: list<i64> }
+export fn unset_mutable_push(value: UnsetGrowingSamples) -> i64 {
+    when {
+        var copy = value
+        push(copy.child, 1)
+        return len(copy.child)
+    }
 }

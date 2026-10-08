@@ -41,6 +41,14 @@ TEST_CASE("required unset scalar reads preserve their code and run normal stop c
     using Number = runtime::UnsetObservedNumber::time_series;
     using Flag = runtime::UnsetObservedFlag::time_series;
     using Samples = runtime::UnsetObservedSamples::time_series;
+    using Mapping = runtime::UnsetObservedMapping::time_series;
+    using Known = runtime::UnsetKnownOuter::time_series;
+    using KnownInner = runtime::UnsetKnownInner::time_series;
+    using KnownNested = runtime::UnsetKnownNested::time_series;
+    using Abstract = runtime::UnsetAbstractOuter::time_series;
+    using Mutable = runtime::UnsetMutableOuter::time_series;
+    using MutableInner = runtime::UnsetMutableInner::time_series;
+    using Growing = runtime::UnsetGrowingSamples::time_series;
     const auto expect_unset = [](auto invoke) {
         try { invoke(); FAIL("required absent payload unexpectedly produced a result"); }
         catch (const std::exception &error) { CHECK(hgl::execution_error_code(error) == "value.unset_read"); }
@@ -48,6 +56,27 @@ TEST_CASE("required unset scalar reads preserve their code and run normal stop c
     expect_unset([&] { (void)eval_node<runtime::unset_number>(values<Value>(tsb_delta<Number>(Int{1}, std::nullopt))); });
     expect_unset([&] { (void)eval_node<runtime::unset_flag>(values<Value>(tsb_delta<Flag>(Int{1}, std::nullopt))); });
     expect_unset([&] { (void)eval_node<runtime::unset_length>(values<Value>(tsb_delta<Samples>(Int{1}, std::nullopt))); });
+    expect_unset([&] { (void)eval_node<runtime::unset_list_index>(values<Value>(tsb_delta<Samples>(Int{1}, std::nullopt))); });
+    expect_unset([&] { (void)eval_node<runtime::unset_map_index>(values<Value>(tsb_delta<Mapping>(Int{1}, std::nullopt))); });
+    expect_unset([&] { (void)eval_node<runtime::unset_mutable_length>(values<Value>(tsb_delta<Samples>(Int{1}, std::nullopt))); });
+    expect_unset([&] { (void)eval_node<runtime::unset_mutable_push>(values<Value>(tsb_delta<Growing>(Int{1}, std::nullopt))); });
+    CHECK_OUTPUT(eval_node<runtime::unset_mutable_push>(values<Value>(tsb_delta<Growing>(Int{1}, dynamic_list_delta<TS<Int>>({{0, 4}})))), values<Int>(2));
+    CHECK_OUTPUT(eval_node<runtime::unset_known_chain>(values<Value>(tsb_delta<Known>(Int{1}, std::nullopt))), values<Int>(1));
+    CHECK_OUTPUT(eval_node<runtime::unset_known_staged>(values<Value>(tsb_delta<Known>(Int{1}, std::nullopt))), values<Int>(1));
+    const auto known_present = tsb_delta<Known>(Int{1}, tsb_delta<KnownInner>(tsb_delta<KnownNested>(Int{0})));
+    CHECK_OUTPUT(eval_node<runtime::unset_known_chain>(values<Value>(known_present)), values<Int>(1));
+    CHECK_OUTPUT(eval_node<runtime::unset_abstract_known>(values<Value>(tsb_delta<Abstract>(Int{1}, std::nullopt))), values<Int>(1));
+    const hgl::ordinary::PreparedValuePlan concrete{scalar_descriptor<runtime::UnsetAbstractConcrete::value_type>::value_meta()};
+    const Value zero{Int{0}};
+    const std::array<std::pair<std::size_t, ValueView>, 1> concrete_fields{{{0, zero.view()}}};
+    CHECK_OUTPUT((eval_node<runtime::operators::unset_abstract_present, TS<runtime::UnsetAbstractConcrete::value_type>>(
+                     values<Int>(1), values<Value>(concrete.bundle(concrete_fields)))), values<Value>(Value{Int{1}}));
+    using Lengths = UnNamedTSB<Field<"0", TS<Int>>, Field<"1", TS<Int>>>;
+    CHECK_OUTPUT(eval_node<runtime::unset_mutable_present>(values<Value>(tsb_delta<Mutable>(Int{1}, tsb_delta<MutableInner>(dynamic_list_delta<TS<Int>>({{0, 4}}))))),
+                 values<Value>(tsb_delta<Lengths>(Int{2}, Int{1})));
+    CHECK_OUTPUT(eval_node<runtime::unset_mutable_length>(values<Value>(tsb_delta<Samples>(Int{1}, list_delta<TS<Int>>({{0, 4}, {1, 5}})))), values<Int>(2));
+    CHECK_OUTPUT(eval_node<runtime::unset_list_index>(values<Value>(tsb_delta<Samples>(Int{1}, list_delta<TS<Int>>({{0, 4}, {1, 5}})))), values<Int>(5));
+    CHECK_OUTPUT(eval_node<runtime::unset_map_index>(values<Value>(tsb_delta<Mapping>(Int{1}, dict_delta<Int, TS<Int>>({{1, 4}})))), values<Int>(5));
     expect_unset([&] { (void)eval_node<runtime::unset_native_text>(values<Value>(tsb_delta<Number>(Int{1}, std::nullopt))); });
     CHECK_OUTPUT(eval_node<runtime::unset_number>(values<Value>(tsb_delta<Number>(Int{1}, Int{0}))), values<Int>(1));
     CHECK_OUTPUT(eval_node<runtime::unset_flag>(values<Value>(tsb_delta<Flag>(Int{1}, Bool{false}))), values<Int>(0));
