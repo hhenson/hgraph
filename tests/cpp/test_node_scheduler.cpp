@@ -10,12 +10,14 @@
 // (missing state and wall-clock fallback without realtime support).
 
 #include <hgraph/runtime/node_scheduler.h>
+#include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/util/date_time.h>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
 #include <stdexcept>
+#include <vector>
 
 namespace
 {
@@ -23,6 +25,24 @@ namespace
 
     const DateTime           base = MIN_ST;  // MIN_ST is runtime-initialised
     constexpr TimeDelta one  = TimeDelta{1};
+
+    struct SchedulerDrainNode
+    {
+        static void eval(In<"count", TS<Int>> count, NodeScheduler scheduler,
+                         State<Int> fired, Out<TS<Int>> out)
+        {
+            if (count.modified())
+            {
+                for (Int i = 1; i <= count.value(); ++i) { scheduler.schedule(MIN_TD * i); }
+                out.set(Int{0});
+            }
+            else if (scheduler.is_scheduled_now())
+            {
+                fired.set(fired.get() + 1);
+                out.set(fired.get());
+            }
+        }
+    };
 }  // namespace
 
 TEST_CASE("node scheduler: a default (state-less) view is empty and refuses mutation")
@@ -249,6 +269,106 @@ TEST_CASE("node scheduler: identical schedules collapse to one event and the sto
     CHECK_FALSE(at_five.is_scheduled());
     CHECK(state.events.empty());
     CHECK(state.tags.empty());
+}
+
+TEST_CASE("node scheduler: draining many deadlines moves only a linear number of survivors")
+{
+    constexpr Int count = 4096;
+    NodeSchedulerState state;
+    NodeScheduler sched{state, nullptr, 0, base};
+    for (Int i = 1; i <= count; ++i) { sched.schedule(base + one * i); }
+    const auto capacity = state.events.capacity();
+    std::size_t moved = 0;
+    for (Int i = 1; i <= count; ++i)
+    {
+        const auto *first = state.pending_events().data();
+        NodeScheduler at_event{state, nullptr, 0, base + one * i};
+        REQUIRE(at_event.is_scheduled_now());
+        at_event.advance();
+        REQUIRE(state.pending_events().size() == static_cast<std::size_t>(count - i));
+        if (!state.pending_events().empty())
+        {
+            if (state.events_head == 0) { moved += state.pending_events().size(); }
+            else { CHECK(state.pending_events().data() == first + 1); }
+            CHECK(at_event.next_scheduled_time() == base + one * (i + 1));
+        }
+    }
+    CHECK(moved < static_cast<std::size_t>(count));
+    CHECK(state.events.empty());
+    CHECK(state.events.capacity() == capacity);
+
+    // The common one-event re-arming path reuses that allocation after draining.
+    for (Int i = 1; i <= 100; ++i)
+    {
+        sched.schedule(base + one * i);
+        sched.un_schedule();
+        CHECK(state.events_head == 0);
+        CHECK(state.events.capacity() == capacity);
+    }
+}
+
+TEST_CASE("node scheduler: a consumed prefix survives insertion cancellation and checkpointing")
+{
+    NodeSchedulerState state;
+    NodeScheduler sched{state, nullptr, 0, base};
+    for (Int i = 1; i <= 8; ++i) { sched.schedule(base + one * i, std::to_string(i)); }
+    NodeScheduler at_two{state, nullptr, 0, base + one * 2};
+    at_two.advance();
+    REQUIRE(state.events_head == 2);
+    CHECK_FALSE(at_two.has_tag("1"));
+    CHECK_FALSE(at_two.has_tag("2"));
+    // Even a checkpoint cut before the consumed prefix must not revive it.
+    const auto image = at_two.capture_checkpoint(base);
+    REQUIRE(image.events.size() == 6);
+    CHECK(image.events.front().first == base + one * 3);
+    NodeSchedulerState restored;
+    NodeScheduler recovered{restored, nullptr, 0, base + one * 3};
+    recovered.restore_checkpoint(image);
+    CHECK(recovered.is_scheduled_now());
+    CHECK(restored.events_head == 0);
+    CHECK_FALSE(recovered.has_tag("1"));
+
+    sched.schedule(base + one * 3);  // insert before the live tagged event
+    sched.schedule(base + one * 3);  // duplicate untagged event
+    REQUIRE(state.pending_events().size() == 7);
+    CHECK(state.pending_events().front().second.empty());
+    sched.un_schedule();
+    CHECK(sched.pop_tag("4") == base + one * 4);
+    sched.schedule(base + one * 9, "5");  // replace a non-front event
+    CHECK(std::is_sorted(state.pending_events().begin(), state.pending_events().end()));
+    CHECK(sched.tag_time("5") == base + one * 9);
+    sched.un_schedule("3");
+    CHECK(sched.next_scheduled_time() == base + one * 6);
+    NodeScheduler at_nine{state, nullptr, 0, base + one * 9};
+    at_nine.advance();
+    CHECK(state.pending_events().empty());
+    CHECK(state.tags.empty());
+    CHECK(state.events_head == 0);
+}
+
+TEST_CASE("node scheduler: reset clears a consumed prefix before reuse")
+{
+    NodeSchedulerState state;
+    NodeScheduler sched{state, nullptr, 0, base};
+    for (Int i = 1; i <= 8; ++i) { sched.schedule(base + one * i); }
+    sched.un_schedule();
+    REQUIRE(state.events_head == 1);
+    const auto capacity = state.events.capacity();
+    sched.reset();
+    CHECK(state.events_head == 0);
+    CHECK(state.events.capacity() == capacity);
+    CHECK_FALSE(sched.is_scheduled());
+    sched.schedule(base + one, "reused");
+    CHECK(sched.next_scheduled_time() == base + one);
+    CHECK(sched.has_tag("reused"));
+}
+
+TEST_CASE("node scheduler: many pending alarms fire through public node evaluation")
+{
+    constexpr Int count = 1024;
+    const auto result = testing::eval_node<SchedulerDrainNode>({count});
+    REQUIRE(result.size() == static_cast<std::size_t>(count + 1));
+    for (Int i = 0; i <= count; ++i) { CHECK(result[static_cast<std::size_t>(i)] == i); }
 }
 
 TEST_CASE("node scheduler: wall-clock alarms fall back to graph time in simulation")

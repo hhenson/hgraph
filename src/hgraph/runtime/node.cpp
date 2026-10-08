@@ -948,8 +948,8 @@ namespace hgraph
             const auto         &runtime      = runtime_context(context);
             const bool          has_scheduler = runtime.layout.has_scheduler();
             NodeSchedulerState *scheduler     = has_scheduler ? &node_scheduler_state(runtime, view.data()) : nullptr;
-            const bool          scheduled_now = scheduler != nullptr && !scheduler->events.empty() &&
-                                       scheduler->events.begin()->first == evaluation_time;
+            const bool          scheduled_now = scheduler != nullptr && !scheduler->pending_events().empty() &&
+                                       scheduler->pending_events().front().first == evaluation_time;
 
             const bool do_eval = callbacks(context).input_validity_in_evaluate ||
                                  !runtime.layout.has_input() ||
