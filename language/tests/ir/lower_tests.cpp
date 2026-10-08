@@ -4330,3 +4330,41 @@ TEST_CASE("value call effect admission is not cached from irrelevant argument co
         }) == 1);
     }
 }
+
+TEST_CASE("ordinary list admission follows operator lambda and lifted eval boundaries", "[ir][typed][list-literal]") {
+    for (const std::string source : {
+        "fn bad() -> list<i64> => [const(42)]",
+        "const fn fixed(unused: i64) -> i64 => 42\nfn bad() -> list<i64> => [fixed(const(1))]",
+        "fn bad(value: i64) -> i64 { when { let transform = fn(item: i64) -> list<i64> => [item]\nreturn value } }",
+        "fn bad(value: i64) -> i64 { when { let transform = fn(item: i64) -> list<i64> => [value]\nreturn value } }",
+        "fn bad(values: map<str, i64>) -> map<str, list<i64>> => map(values, fn(value: i64) -> list<i64> => [value])",
+        "const fn make(x: i64) -> list<i64> => [x]\ntest lifted { eval(const(make), [1, 2]) }",
+        "const fn make(x: i64, unused: i64 = 1) -> list<i64> => [x]\ntest lifted { let cold = make(1)\neval(const(make), x: [1, 2]) }",
+        "const fn make(x: i64) -> list<i64> => [x]\nconst fn nested(x: i64) -> list<i64> => make(x)\ntest lifted { eval(const(nested), [1, 2]) }"
+    }) {
+        Lowered unit{"module checks.cold_boundaries\nuse hgraph.std::{const, map}\n" + source + "\n"};
+        INFO(source);
+        require_clean(unit);
+        CHECK_FALSE(complete(unit));
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(std::ranges::any_of(unit.diagnostics.diagnostics(), [](const auto &diagnostic) {
+            return diagnostic.category == hgl::syntax::Category::Phase && diagnostic.code.empty() &&
+                diagnostic.message == "a nonempty ordinary list literal requires constant elements";
+        }));
+    }
+    for (const std::string source : {
+        "fn good() -> list<i64> => [42]",
+        "fn good(value: i64, const configured: i64) -> i64 { when { let transform = fn(item: i64) -> list<i64> => [configured]\nreturn value } }",
+        "fn good(values: map<str, i64>) -> map<str, list<i64>> => map(values, fn(value: i64) -> list<i64> => [42])",
+        "const fn make(x: i64, unused: i64) -> list<i64> => [x]\ntest lifted { eval(const(make), 1, [1, 2]) }",
+        "const fn make(unused: i64, x: i64 = 1) -> list<i64> => [x]\ntest lifted { eval(const(make), unused: [1, 2]) }",
+        "const fn make(x: i64, unused: i64) -> list<i64> => [x]\ntest lifted { eval(const(make), unused: [1, 2], x: 1) }"
+    }) {
+        Lowered unit{"module checks.cold_boundary_controls\nuse hgraph.std::{const, map}\n" + source + "\n"};
+        INFO(source);
+        require_clean(unit);
+        CHECK(complete(unit));
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK_FALSE(unit.diagnostics.has_errors());
+    }
+}

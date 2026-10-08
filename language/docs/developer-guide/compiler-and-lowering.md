@@ -2300,7 +2300,10 @@ sequence. Ordinary nonempty literals must have constant elements. The cold
 `ir/list_literal_admission` pass follows relevant value-function arguments,
 locals and control flow; it admits constant invocations without treating a
 `const fn` declaration as a promise of purity. Runtime capability dependencies
-remain nonconstant. Harness sequences and constructor entry lists retain their
+remain nonconstant. Nominal operator results are temporal even with constant
+configuration. The pass checks lambda bodies with their runtime or wiring
+parameters, and binds lifted call and `eval` inputs as runtime payloads while
+retaining scalar configuration facts. Harness sequences and constructor entry lists retain their
 separate admission paths. Nonempty constant list literals initialize elements in source order:
 unbounded lists use prepared append, while fixed lists initialize their checked
 positions without changing their extent. An ordinary global-entry local keeps

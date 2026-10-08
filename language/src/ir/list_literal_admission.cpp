@@ -65,15 +65,15 @@ namespace hgl::ir {
                 if (!cold) { for (std::size_t index = 0; index < effect_facts_.size(); ++index) { effect_facts_[index] = false; } }
             }
 
-            bool invoke(const Expr &site, const Call &call, const FunctionDecl &fn, Facts &caller) {
+            bool invoke(const Expr &site, const std::vector<Argument> &arguments, const FunctionDecl &fn, Facts &caller) {
                 // Evaluation effects are independent of whether the returned
                 // value depends on an argument. Keep them across ignored inputs.
                 effect_facts_.push_back(cold_call_contract(site));
                 Facts facts;
                 std::vector<bool> supplied(fn.signature.parameters.size());
                 std::size_t positional = 0;
-                for (const auto &argument : call.arguments) {
-                    const bool value = expression(argument.value, caller);
+                for (const auto &argument : arguments) {
+                    bool value = expression(argument.value, caller);
                     std::size_t index = positional;
                     if (!argument.name.empty()) {
                         const auto found = std::ranges::find_if(fn.signature.parameters, [&](const auto &parameter) {
@@ -86,6 +86,9 @@ namespace hgl::ir {
                         }
                     }
                     if (index >= supplied.size()) { continue; }
+                    // A harness sequence or a port is constant as a source
+                    // description, but its lifted parameter is a runtime payload.
+                    if (index < site.operation.lift_inputs.size() && site.operation.lift_inputs[index]) { value = false; }
                     const auto &parameter = fn.signature.parameters[index];
                     auto [entry, inserted] = facts.emplace(parameter.symbol.value, value);
                     if (!inserted) { entry->second = entry->second && value; }
@@ -106,7 +109,8 @@ namespace hgl::ir {
                 const auto finish = [&](bool result, bool body_effects) {
                     effect_facts_.pop_back();
                     require_cold_effects(argument_effects && body_effects);
-                    return result && argument_effects && body_effects;
+                    return result && argument_effects && body_effects &&
+                        !std::ranges::any_of(site.operation.lift_inputs, [](bool input) { return input; });
                 };
                 // Without a body there is no proof that any argument is irrelevant.
                 // Retain the declared cold-call contract and require every bound
@@ -166,7 +170,7 @@ namespace hgl::ir {
                         return constant;
                     } else if constexpr (std::is_same_v<T, Call> || std::is_same_v<T, Construct>) {
                         if constexpr (std::is_same_v<T, Call>) {
-                            if (const auto *fn = function(value.operation.target); fn && fn->is_const) { return invoke(value, node, *fn, facts); }
+                            if (const auto *fn = function(value.operation.target); fn && fn->is_const) { return invoke(value, node.arguments, *fn, facts); }
                         }
                         bool constant = true;
                         for (const auto &argument : node.arguments) { constant = expression(argument.value, facts) && constant; }
@@ -175,6 +179,9 @@ namespace hgl::ir {
                                 const auto target = root(node.arguments.front().value);
                                 if (target.valid()) { facts[target.value] = control && constant; }
                             }
+                            // Nominal operators produce temporal results even
+                            // when all their configuration arguments are cold.
+                            if (value.operation.kind == OperationKind::NominalOperator) { return false; }
                             if (!cold_call_contract(value)) { require_cold_effects(false); return false; }
                             if (const auto *fn = function(value.operation.target); fn && !fn->is_const) { return false; }
                         }
@@ -193,8 +200,19 @@ namespace hgl::ir {
                     } else if constexpr (std::is_same_v<T, BlockExpr>) {
                         bool returned = true;
                         return block(node.block, facts, control, returned) && returned;
+                    } else if constexpr (std::is_same_v<T, Lambda>) {
+                        auto body_facts = facts;
+                        for (const auto parameter : node.parameters) { body_facts[parameter.value] = false; }
+                        return_facts_.push_back(true);
+                        (void)expression(node.body, body_facts);
+                        return_facts_.pop_back();
+                        return recipe_(id);
                     } else if constexpr (std::is_same_v<T, Eval>) {
-                        for (const auto &argument : node.arguments) { (void)expression(argument.value, facts); }
+                        if (const auto *fn = function(value.operation.target); fn && fn->is_const) {
+                            (void)invoke(value, node.arguments, *fn, facts);
+                        } else {
+                            for (const auto &argument : node.arguments) { (void)expression(argument.value, facts); }
+                        }
                         return false;
                     } else { return recipe_(id); }
                 }, value.node);
