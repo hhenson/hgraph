@@ -33,6 +33,9 @@ namespace hgraph
      */
     struct BundleHierarchyMetaData
     {
+        /** Exact ordinary nominal origin of a prepared held projection.
+            Null for ordinary nominal metadata; this is not a schema alias. */
+        const ValueTypeMetaData *const ordinary_origin{nullptr};
         const char *namespace_name{nullptr};
         const char *local_name{nullptr};
         std::vector<const ValueTypeMetaData *> parents{};

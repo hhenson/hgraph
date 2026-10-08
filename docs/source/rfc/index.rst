@@ -73,3 +73,4 @@ RFC catalogue
    rfc_0043_prepared_global_entries
    rfc_0044_scalar_schema_projections
    rfc_0045_zoned_time_scalar
+   rfc_0046_nominal_held_bundle_schemas

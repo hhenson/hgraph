@@ -45,7 +45,9 @@ TEST_CASE("generated structural types preserve nominal metadata", "[codegen][gen
     REQUIRE(labeled->bundle_hierarchy->parents == std::vector<const ValueTypeMetaData *>{value_box});
     REQUIRE(pair->is_abstract_bundle());
     REQUIRE(swapped->bundle_hierarchy->parents == std::vector<const ValueTypeMetaData *>{pair});
-    REQUIRE(schema_descriptor<structural::Box<Float>::time_series>::ts_meta()->value_schema == box);
+    const auto *held_box = schema_descriptor<structural::Box<Float>::time_series>::ts_meta()->value_schema;
+    REQUIRE(held_box != box);
+    CHECK(held_box->bundle_hierarchy->ordinary_origin == box);
 }
 
 TEST_CASE("generated structural construction uses substituted inherited fields", "[codegen][generated][struct]") {

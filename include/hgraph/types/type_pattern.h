@@ -243,6 +243,9 @@ namespace hgraph
         std::int64_t               min_duration_micros{0};  ///< duration ``TSW`` minimum in microseconds.
         bool                       any_window{false};       ///< ``TSW`` wildcard over tick/duration window shape.
         bool                       duration_window{false};  ///< true for a concrete duration ``TSW``.
+        bool                       nominal_projected{false}; ///< exact held nominal marker, resolved independently of its ordinary origin.
+        std::vector<TypePattern>   nominal_parents{}; ///< exact temporal parent patterns prepared for that marker.
+        const ValueTypeMetaData *(*nominal_origin_resolver)(const ResolutionMap &){nullptr}; ///< cold source constructor for generic result records.
         bool                       named_bundle{false};     ///< true for nominal ``TSB<Name,...>``.
         bool                       size_var{false};  ///< true when ``TSL`` size is a named variable.
         bool                       schema_var{false}; ///< true when ``TSB`` binds the whole schema to ``name``.
@@ -683,7 +686,22 @@ namespace hgraph
     template <typename ValueBundle, typename... Fields> struct ts_pattern_lower<NominalTSB<ValueBundle, Fields...>>
     {
         [[nodiscard]] static TypePattern lower() {
-            if constexpr (value_schema_descriptor<ValueBundle>::is_concrete())
+            if constexpr (requires { typename ValueBundle::ordinary_origin; })
+            {
+                TypePattern pattern = TypePattern::tsb(type_pattern_detail::tsb_field_names<Fields...>(),
+                                                       type_pattern_detail::tsb_field_patterns<Fields...>(), {}, true);
+                pattern.nominal_projected = true;
+                pattern.scalar = to_scalar_pattern<typename ValueBundle::ordinary_origin>();
+                pattern.nominal_origin_resolver = &scalar_resolver<typename ValueBundle::ordinary_origin>::resolve;
+                pattern.nominal_parents = []<typename... Parents>(BundleParents<Parents...>) {
+                    return std::vector<TypePattern>{to_pattern<Parents>()...};
+                }(typename ValueBundle::parents{});
+                if constexpr (value_schema_descriptor<ValueBundle>::is_concrete()) {
+                    pattern.bundle_name = value_schema_descriptor<ValueBundle>::value_meta()->name();
+                }
+                return pattern;
+            }
+            else if constexpr (value_schema_descriptor<ValueBundle>::is_concrete())
             {
                 const auto *value = value_schema_descriptor<ValueBundle>::value_meta();
                 return TypePattern::tsb(type_pattern_detail::tsb_field_names<Fields...>(),
@@ -694,7 +712,9 @@ namespace hgraph
             {
                 TypePattern pattern = TypePattern::tsb(type_pattern_detail::tsb_field_names<Fields...>(),
                                                        type_pattern_detail::tsb_field_patterns<Fields...>(), {}, true);
-                pattern.scalar = to_scalar_pattern<ValueBundle>();
+                if constexpr (requires { typename ValueBundle::ordinary_origin; }) {
+                    pattern.scalar = to_scalar_pattern<typename ValueBundle::ordinary_origin>();
+                } else { pattern.scalar = to_scalar_pattern<ValueBundle>(); }
                 return pattern;
             }
         }
@@ -929,6 +949,7 @@ namespace hgraph
         }
         collect_pattern_variables(pattern.scalar, out);
         for (const auto &child : pattern.children) { collect_pattern_variables(child, out); }
+        for (const auto &parent : pattern.nominal_parents) { collect_pattern_variables(parent, out); }
         if (pattern.size_var) { type_pattern_detail::push_unique(out, pattern.size_name); }
     }
 

@@ -902,3 +902,344 @@ const fn native_subfamily_capture() -> NativePublicationFamily {
     push(child.items, 2)
     return ancestor
 }
+
+# Concrete and inherited nominal records retain their ordinary origin.
+struct NominalObservedRecord { pair: tuple<i64, bool>
+                extra: i64 = null }
+abstract struct NominalObservedParent { id: i64 }
+struct NominalObservedChild: NominalObservedParent { pair: tuple<i64, bool>
+                      extra: i64 = null }
+struct NominalObservedGenericRecord<T> { pair: tuple<T, bool> }
+export fn nominal_construct(value: i64) -> NominalObservedRecord {
+    when { return NominalObservedRecord(pair: (value, false)) }
+}
+export fn nominal_copied(value: NominalObservedRecord) -> NominalObservedRecord {
+    when valid(value) && valid(value.pair) && valid(value.pair[0]) {
+        let copy = value
+        return copy
+    }
+}
+export fn nominal_read(value: NominalObservedRecord) -> bool {
+    when valid(value) && all_valid(value.pair) {
+        let copy = value
+        return copy.pair[1]
+    }
+}
+export fn nominal_child_copied(value: NominalObservedChild) -> NominalObservedChild {
+    when valid(value) && valid(value.id) {
+        let copy = value
+        return copy
+    }
+}
+export fn nominal_generic_copied<T>(value: NominalObservedGenericRecord<T>) -> NominalObservedGenericRecord<T> {
+    when all_valid(value) {
+        let copy = value
+        return copy
+    }
+}
+export fn nominal_generic_int(value: NominalObservedGenericRecord<i64>) -> NominalObservedGenericRecord<i64> => nominal_generic_copied(value)
+export fn nominal_tuple_read(value: tuple<NominalObservedRecord, bool>) -> bool {
+    when valid(value) && valid(value[0]) && all_valid(value[0].pair) {
+        let copy = value
+        return copy[0].pair[1]
+    }
+}
+export fn nominal_list_read(value: list<NominalObservedRecord, 2>) -> bool {
+    when valid(value) && valid(at(value, 0)) && all_valid(at(value, 0).pair) {
+        let copy = value
+        return copy[0].pair[1]
+    }
+}
+export fn nominal_map_read(value: map<i64, NominalObservedRecord>) -> bool {
+    when valid(value) && valid(at(value, 4)) && all_valid(at(value, 4).pair) {
+        let copy = value
+        return copy[4].pair[1]
+    }
+}
+test named_record_constructor_and_sparse_observation {
+    let partial = delta<NominalObservedRecord>(pair: delta<tuple<i64, bool>>(items: [0: 7]))
+    let tick = delta<NominalObservedRecord>(pair: delta<tuple<i64, bool>>(items: [1: false]))
+    let complete = delta<NominalObservedRecord>(pair: delta<tuple<i64, bool>>(items: [0: 7, 1: false]))
+    assert eval(nominal_construct, [7, _, 7]) == [complete, _, complete]
+    assert eval(nominal_copied, [partial, tick]) == [partial, complete]
+    assert eval(nominal_read, [complete]) == [false]
+    let child = delta<NominalObservedChild>(id: 4, pair: delta<tuple<i64, bool>>(items: [0: 7]))
+    let child_tick = delta<NominalObservedChild>(pair: delta<tuple<i64, bool>>(items: [1: false]))
+    let child_complete = delta<NominalObservedChild>(id: 4, pair: delta<tuple<i64, bool>>(items: [0: 7, 1: false]))
+    assert eval(nominal_child_copied, [child, child_tick]) == [child, child_complete]
+    assert eval(nominal_generic_int, [delta<NominalObservedGenericRecord<i64>>(pair: delta<tuple<i64, bool>>(items: [0: 7, 1: false]))]) == [delta<NominalObservedGenericRecord<i64>>(pair: delta<tuple<i64, bool>>(items: [0: 7, 1: false]))]
+}
+test named_record_in_supported_composites {
+    let record = delta<NominalObservedRecord>(pair: delta<tuple<i64, bool>>(items: [0: 7, 1: false]))
+    assert eval(nominal_tuple_read, [delta<tuple<NominalObservedRecord, bool>>(items: [0: record, 1: true])]) == [false]
+    assert eval(nominal_list_read, [delta<list<NominalObservedRecord, 2>>(items: [0: record])]) == [false]
+    assert eval(nominal_map_read, [delta<map<i64, NominalObservedRecord>>(upsert: [4: record])]) == [false]
+}
+
+export fn generic_tuple<T>(value: T) -> tuple<T, bool> {
+    when { return (value, false) }
+}
+export fn generic_tuple_int_wrapper(value: i64) -> tuple<i64, bool> => generic_tuple(value)
+test generic_tuple_runtime_field {
+    assert eval(generic_tuple_int_wrapper, [7, 8]) == [(7, false), (8, false)]
+}
+
+# Complete ordinary publications reconcile observations; deltas stay sparse.
+struct NominalPublicationPair {
+    left: i64
+    right: bool
+}
+
+
+export fn publication_select_value(step: i64, a: NominalPublicationPair, b: NominalPublicationPair) -> NominalPublicationPair {
+    when modified(step) && valid(step) && valid(a) && valid(b) {
+        if step == 1 {
+            let copy = a
+            return copy
+        } else {
+            let copy = b
+            return copy
+        }
+    }
+}
+
+export fn publication_select_delta(step: i64, a: NominalPublicationPair, b: NominalPublicationPair) -> NominalPublicationPair {
+    when modified(step) && valid(step) && valid(a) && valid(b) {
+        if step == 1 {
+            if modified(a) { return delta_value(a) }
+        } else {
+            if modified(b) { return delta_value(b) }
+        }
+    }
+}
+
+export fn publication_pair_validity(step: i64, watched: NominalPublicationPair) -> bool {
+    when modified(step) && valid(step) { return all_valid(watched) }
+}
+export fn publication_value_validity(step: i64, a: NominalPublicationPair, b: NominalPublicationPair) -> bool =>
+    publication_pair_validity(step, publication_select_value(step, a, b))
+export fn publication_delta_validity(step: i64, a: NominalPublicationPair, b: NominalPublicationPair) -> bool =>
+    publication_pair_validity(step, publication_select_delta(step, a, b))
+
+test complete_value_and_delta_have_distinct_child_validity {
+    let full = delta<NominalPublicationPair>(left: 1, right: true)
+    let partial = delta<NominalPublicationPair>(left: 2)
+    # B is independently partial; it never held A's right-hand value.
+    assert eval(publication_value_validity, step: [1, 2, 3], a: [full, _, _], b: [partial, partial, _]) == [true, false, false]
+    assert eval(publication_delta_validity, step: [1, 2, 3], a: [full, _, _], b: [partial, partial, _]) == [true, true, true]
+}
+
+export fn publication_removing_map(step: i64) -> map<i64, i64> {
+    inject out
+    when {
+        if step == 1 {
+            upsert(out, 7, 10)
+            upsert(out, 8, 20)
+        } else if step == 2 { remove(out, 8) }
+    }
+}
+export fn publication_invalidating_map(step: i64) -> map<i64, i64> {
+    inject out
+    when {
+        if step == 1 {
+            upsert(out, 7, 10)
+            upsert(out, 8, 20)
+        } else if step == 2 { invalidate(out, 8) }
+    }
+}
+export fn publication_copy_map(step: i64, value: map<i64, i64>) -> map<i64, i64> {
+    when modified(step) && valid(step) && valid(value) {
+        let copy = value
+        return copy
+    }
+}
+export fn publication_delta_map(value: map<i64, i64>) -> map<i64, i64> {
+    when { return delta_value(value) }
+}
+export fn publication_has_second(step: i64, watched: map<i64, i64>) -> bool {
+    when modified(step) && valid(step) && valid(watched) { return contains(watched, 8) }
+}
+export fn publication_map_validity(step: i64, watched: map<i64, i64>) -> bool {
+    when modified(step) && valid(step) { return all_valid(watched) }
+}
+export fn publication_copied_membership(step: i64) -> bool => publication_has_second(step, publication_copy_map(step, publication_removing_map(step)))
+export fn publication_delta_membership(step: i64) -> bool => publication_has_second(step, publication_delta_map(publication_removing_map(step)))
+export fn publication_copied_invalid_membership(step: i64) -> bool => publication_has_second(step, publication_copy_map(step, publication_invalidating_map(step)))
+export fn publication_copied_map_validity(step: i64) -> bool => publication_map_validity(step, publication_copy_map(step, publication_invalidating_map(step)))
+
+# Child invalidation is observed through the complete value; no empty delta
+# application or new invalid member is required by these cases.
+test complete_map_copy_reconciles_membership_and_child_validity {
+    assert eval(publication_copied_membership, step: [1, 2, 3]) == [true, false, false]
+    assert eval(publication_delta_membership, step: [1, 2, 3]) == [true, false, false]
+    assert eval(publication_copied_invalid_membership, step: [1, 2, 3]) == [true, true, true]
+    assert eval(publication_copied_map_validity, step: [1, 2, 3]) == [true, false, false]
+}
+
+export fn publication_select_tuple(step: i64, a: tuple<i64, bool>, b: tuple<i64, bool>) -> tuple<i64, bool> {
+    when modified(step) && valid(step) && valid(a) && valid(b) {
+        if step == 1 {
+            let copy = a
+            return copy
+        } else {
+            let copy = b
+            return copy
+        }
+    }
+}
+export fn publication_tuple_validity(step: i64, watched: tuple<i64, bool>) -> bool {
+    when modified(step) && valid(step) { return all_valid(watched) }
+}
+export fn publication_tuple_result_validity(step: i64, a: tuple<i64, bool>, b: tuple<i64, bool>) -> bool =>
+    publication_tuple_validity(step, publication_select_tuple(step, a, b))
+
+test complete_tuple_copy_clears_a_previously_valid_child {
+    # Separate B has no right child; sparse updates to A cannot create this state.
+    assert eval(publication_tuple_result_validity, step: [1, 2, 3], a: [(1, true), _, _], b: [(2, _), (2, _), _]) == [true, false, false]
+}
+
+export fn publication_select_list(step: i64, a: list<i64, 2>, b: list<i64, 2>) -> list<i64, 2> {
+    when modified(step) && valid(step) && valid(a) && valid(b) {
+        if step == 1 {
+            let copy = a
+            return copy
+        } else {
+            let copy = b
+            return copy
+        }
+    }
+}
+export fn publication_list_validity(step: i64, watched: list<i64, 2>) -> bool {
+    when modified(step) && valid(step) { return all_valid(watched) }
+}
+export fn publication_list_result_validity(step: i64, a: list<i64, 2>, b: list<i64, 2>) -> bool =>
+    publication_list_validity(step, publication_select_list(step, a, b))
+
+test complete_fixed_list_copy_clears_a_previously_valid_child {
+    let full = delta<list<i64, 2>>(items: [0: 1, 1: 10])
+    let partial = delta<list<i64, 2>>(items: [0: 2])
+    assert eval(publication_list_result_validity, step: [1, 2, 3], a: [full, _, _], b: [partial, partial, _]) == [true, false, false]
+}
+
+export fn publication_generic_select<T>(step: i64, a: T, b: T) -> T {
+    when modified(step) && valid(step) && valid(a) && valid(b) {
+        if step == 1 {
+            let copy = a
+            return copy
+        } else {
+            let copy = b
+            return copy
+        }
+    }
+}
+export fn publication_generic_tuple_validity(step: i64, a: tuple<i64, bool>, b: tuple<i64, bool>) -> bool =>
+    publication_tuple_validity(step, publication_generic_select(step, a, b))
+export fn publication_generic_list_validity(step: i64, a: list<i64, 2>, b: list<i64, 2>) -> bool =>
+    publication_list_validity(step, publication_generic_select(step, a, b))
+export fn publication_generic_pair_validity(step: i64, a: NominalPublicationPair, b: NominalPublicationPair) -> bool =>
+    publication_pair_validity(step, publication_generic_select(step, a, b))
+export fn publication_generic_map_copy<T>(step: i64, value: T) -> T {
+    when modified(step) && valid(step) && valid(value) {
+        let copy = value
+        return copy
+    }
+}
+export fn publication_generic_map_membership(step: i64) -> bool =>
+    publication_has_second(step, publication_generic_map_copy(step, publication_removing_map(step)))
+export fn publication_generic_map_validity(step: i64) -> bool =>
+    publication_map_validity(step, publication_generic_map_copy(step, publication_invalidating_map(step)))
+export fn publication_nested_validity(step: i64, watched: tuple<tuple<i64, bool>, bool>) -> bool {
+    when modified(step) && valid(step) { return all_valid(watched) && all_valid(watched[0]) }
+}
+export fn publication_generic_nested_validity(step: i64, a: tuple<tuple<i64, bool>, bool>, b: tuple<tuple<i64, bool>, bool>) -> bool =>
+    publication_nested_validity(step, publication_generic_select(step, a, b))
+test generic_complete_values_preserve_recursive_observations {
+    assert eval(publication_generic_tuple_validity, step: [1, 2, 3], a: [(1, false), _, _], b: [(2, _), (2, _), _]) == [true, false, false]
+    let full_list = delta<list<i64, 2>>(items: [0: 1, 1: 10])
+    let partial_list = delta<list<i64, 2>>(items: [0: 2])
+    assert eval(publication_generic_list_validity, step: [1, 2, 3], a: [full_list, _, _], b: [partial_list, partial_list, _]) == [true, false, false]
+    let full_pair = delta<NominalPublicationPair>(left: 1, right: false)
+    let partial_pair = delta<NominalPublicationPair>(left: 2)
+    assert eval(publication_generic_pair_validity, step: [1, 2, 3], a: [full_pair, _, _], b: [partial_pair, partial_pair, _]) == [true, false, false]
+    assert eval(publication_generic_map_membership, step: [1, 2, 3]) == [true, false, false]
+    assert eval(publication_generic_map_validity, step: [1, 2, 3]) == [true, false, false]
+    assert eval(publication_generic_nested_validity, step: [1, 2, 3], a: [((1, false), false), _, _], b: [((2, _), false), ((2, _), false), _]) == [true, false, false]
+}
+
+export fn generic_tuple_record(value: NominalObservedGenericRecord<tuple<i64, bool>>) -> NominalObservedGenericRecord<tuple<i64, bool>> => nominal_generic_copied(value)
+test generic_record_with_structural_argument {
+    let inner = delta<tuple<i64, bool>>(items: [0: 7, 1: false])
+    let pair = delta<tuple<tuple<i64, bool>, bool>>(items: [0: inner, 1: false])
+    let record = delta<NominalObservedGenericRecord<tuple<i64, bool>>>(pair: pair)
+    assert eval(generic_tuple_record, [record]) == [record]
+}
+
+export fn generic_list_record(value: NominalObservedGenericRecord<list<tuple<i64, bool>, 2>>) -> NominalObservedGenericRecord<list<tuple<i64, bool>, 2>> => nominal_generic_copied(value)
+export fn generic_map_record(value: NominalObservedGenericRecord<map<i64, tuple<i64, bool>>>) -> NominalObservedGenericRecord<map<i64, tuple<i64, bool>>> => nominal_generic_copied(value)
+export fn generic_nominal_record(value: NominalObservedGenericRecord<NominalObservedRecord>) -> NominalObservedGenericRecord<NominalObservedRecord> => nominal_generic_copied(value)
+struct NominalGenericAtomicRecord<T> {
+    plain: T
+    opaque: atomic<T>
+}
+export fn atomic_copied<T>(value: NominalGenericAtomicRecord<T>) -> NominalGenericAtomicRecord<T> {
+    when all_valid(value) { let copy = value
+        return copy }
+}
+export fn atomic_tuple_record(value: NominalGenericAtomicRecord<tuple<i64, bool>>) -> NominalGenericAtomicRecord<tuple<i64, bool>> => atomic_copied(value)
+test generic_record_composite_closure_and_atomic_boundary {
+    let partial_pair = delta<tuple<i64, bool>>(items: [0: 7])
+    let list_value = delta<list<tuple<i64, bool>, 2>>(items: [0: partial_pair])
+    let listed = delta<NominalObservedGenericRecord<list<tuple<i64, bool>, 2>>>(pair: delta<tuple<list<tuple<i64, bool>, 2>, bool>>(items: [0: list_value, 1: false]))
+    assert eval(generic_list_record, [listed]) == [listed]
+    let map_value = delta<map<i64, tuple<i64, bool>>>(upsert: [4: partial_pair])
+    let mapped = delta<NominalObservedGenericRecord<map<i64, tuple<i64, bool>>>>(pair: delta<tuple<map<i64, tuple<i64, bool>>, bool>>(items: [0: map_value, 1: false]))
+    assert eval(generic_map_record, [mapped]) == [mapped]
+    let record_value = delta<NominalObservedRecord>(pair: partial_pair)
+    let named = delta<NominalObservedGenericRecord<NominalObservedRecord>>(pair: delta<tuple<NominalObservedRecord, bool>>(items: [0: record_value, 1: false]))
+    assert eval(generic_nominal_record, [named]) == [named]
+    let atomic_record = delta<NominalGenericAtomicRecord<tuple<i64, bool>>>(plain: partial_pair, opaque: (7, false))
+    assert eval(atomic_tuple_record, [atomic_record]) == [atomic_record]
+}
+
+const fn scalar_helper_list_size(value: i64) -> i64 {
+    var items: list<i64> = []
+    push(items, value)
+    return len(items)
+}
+export fn scalar_tuple_local(value: i64) -> i64 {
+    when { let pair = (value, false)
+        return pair[0] }
+}
+export fn scalar_list_local(value: i64) -> i64 {
+    when { var items: list<i64> = []
+        push(items, value)
+        return len(items) }
+}
+export fn scalar_list_helper(value: i64) -> i64 {
+    when { return scalar_helper_list_size(value) }
+}
+test scalar_signatures_prepare_aggregate_locals_and_helpers {
+    assert eval(scalar_tuple_local, [7, 8]) == [7, 8]
+    assert eval(scalar_list_local, [7, 8]) == [1, 1]
+    assert eval(scalar_list_helper, [7, 8]) == [1, 1]
+}
+
+const fn specialized_pair_helper<T>(value: T) -> tuple<T, bool> => (value, false)
+export fn specialized_int_helper_node(value: i64) -> tuple<i64, bool> {
+    when { return specialized_pair_helper(value) }
+}
+export fn specialized_float_helper_node(value: f64) -> tuple<f64, bool> {
+    when { return specialized_pair_helper(value) }
+}
+fn specialized_pair_check(integer: tuple<i64, bool>, floating: tuple<f64, bool>) -> bool {
+    when valid(integer[0]) && valid(integer[1]) && valid(floating[0]) && valid(floating[1]) {
+        return !integer[1] && !floating[1] && ((integer[0] == 7 && floating[0] == 1.5) || (integer[0] == 8 && floating[0] == 2.5))
+    }
+}
+export fn specialized_helpers_together(integer: i64, floating: f64) -> bool =>
+    specialized_pair_check(specialized_int_helper_node(integer), specialized_float_helper_node(floating))
+test aggregate_helpers_keep_concrete_specializations_independent {
+    assert eval(specialized_helpers_together, integer: [7, 8], floating: [1.5, 2.5]) == [true, true]
+    assert eval(specialized_int_helper_node, [9]) == [(9, false)]
+    assert eval(specialized_float_helper_node, [3.5]) == [(3.5, false)]
+}

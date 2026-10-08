@@ -1,6 +1,7 @@
 #include <hgl/ordinary_values.h>
 
 #include <hgraph/types/utils/counted_mutex.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 
@@ -32,6 +33,148 @@ TEST_CASE("ordinary delta identities retain fixed extent and nominal origin", "[
     CHECK(scalar_descriptor<Held<Temporal>>::value_meta() == two->value_schema);
     CHECK(scalar_descriptor<Delta<Temporal>>::value_meta() == delta_schema(two));
     CHECK((scalar_descriptor<hgl::ordinary::List<std::int64_t, 2>>::value_meta() == two->value_schema));
+}
+
+TEST_CASE("prepared generic publications reconcile recursive values without registry access", "[ordinary][publication]") {
+    using namespace hgraph;
+    using hgl::ordinary::PreparedValuePlan;
+    using hgl::ordinary::PreparedPublicationPlan;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *boolean = scalar_descriptor<Bool>::value_meta();
+    const auto *pair_source = registry.tuple({integer, boolean});
+    const auto *pair_target = registry.un_named_tsb({{"0", registry.ts(integer)}, {"1", registry.ts(boolean)}});
+    const PreparedValuePlan pair_value{pair_source};
+    const PreparedPublicationPlan pair_publish{pair_target, pair_source};
+    const Value one{Int{1}}, two{Int{2}}, falsity{Bool{false}};
+    const std::array full_fields{std::pair<std::size_t, ValueView>{0, one.view()}, std::pair<std::size_t, ValueView>{1, falsity.view()}};
+    const std::array partial_fields{std::pair<std::size_t, ValueView>{0, two.view()}};
+    const auto full_pair = pair_value.bundle(full_fields);
+    const auto partial_pair = pair_value.bundle(partial_fields);
+    const auto *map_source = registry.map(integer, pair_source);
+    const auto *map_target = registry.tsd(integer, pair_target);
+    const PreparedValuePlan map_value{map_source};
+    const PreparedPublicationPlan map_publish{map_target, map_source};
+    MapBuilder full_builder{map_value.key_binding(), map_value.element_binding()};
+    full_builder.set_item(one.view(), full_pair.view());
+    full_builder.set_item(two.view(), full_pair.view());
+    auto full_storage = full_builder.build_storage();
+    const Value full_map{map_value.binding(), &full_storage, Value::AdoptStorage{}};
+    MapBuilder partial_builder{map_value.key_binding(), map_value.element_binding()};
+    partial_builder.set_item(one.view(), partial_pair.view());
+    auto partial_storage = partial_builder.build_storage();
+    const Value partial_map{map_value.binding(), &partial_storage, Value::AdoptStorage{}};
+    TSOutput pair_output{*pair_target};
+    TSOutput map_output{*map_target};
+    const auto before = type_system_lock_count();
+    for (std::size_t cycle = 0; cycle < 64; ++cycle) {
+        const auto time = MIN_ST + MIN_TD * static_cast<std::int64_t>(cycle);
+        const bool full = cycle % 2 == 0;
+        pair_publish.apply(pair_output.view(time), full ? full_pair.view() : partial_pair.view());
+        map_publish.apply(map_output.view(time), full ? full_map.view() : partial_map.view());
+        CHECK(pair_output.view(time).all_valid() == full);
+        // TS-9 checks immediate children: the partial Pair is still valid.
+        CHECK(map_output.view(time).all_valid());
+        auto map_endpoint = map_output.view(time);
+        auto map_view = map_endpoint.as_dict();
+        CHECK(map_view.contains(two.view()) == full);
+        auto member = map_view.at(one.view());
+        CHECK(member.all_valid() == full);
+        CHECK(pair_output.view(time).value().as_bundle().at(0).checked_as<Int>() == (full ? 1 : 2));
+        if (full) { CHECK_FALSE(pair_output.view(time).value().as_bundle().at(1).checked_as<Bool>()); }
+    }
+    CHECK(type_system_lock_count() == before);
+    CHECK_THROWS_AS((PreparedPublicationPlan{registry.tsl(registry.ts(integer), 3), registry.fixed_list(integer, 2)}), std::invalid_argument);
+    CHECK_THROWS_AS((PreparedPublicationPlan{registry.tsd(boolean, pair_target), map_source}), std::invalid_argument);
+}
+
+TEST_CASE("generic observations retain ordinary origins and recursive holes without registry access", "[ordinary][observation]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    using Pair = FixedTuple<Int, Bool>;
+    using Record = NominalBundle<"ordinary", "GenericObserved", false, BundleParents<>, BundleArguments<Pair>, Field<"payload", Pair>>;
+    using Lifted = Temporal<Record>;
+    const auto *ordinary = scalar_descriptor<Record>::value_meta();
+    const auto *shape = schema_descriptor<Lifted>::ts_meta();
+    CHECK(shape->value_schema != ordinary);
+    CHECK(ordinary_nominal_origin(shape->value_schema) == ordinary);
+    CHECK(ordinary->bundle_generic_arguments().front() == scalar_descriptor<Pair>::value_meta());
+    CHECK(shape->fields()[0].type == schema_descriptor<Temporal<Pair>>::ts_meta());
+    CHECK((schema_descriptor<TS<Pair>>::ts_meta()->kind == TSTypeKind::TS));
+    CHECK((schema_descriptor<Temporal<List<Pair, 2>>>::ts_meta()->element_ts() == schema_descriptor<Temporal<Pair>>::ts_meta()));
+    CHECK((schema_descriptor<Temporal<Map<Int, Pair>>>::ts_meta()->element_ts() == schema_descriptor<Temporal<Pair>>::ts_meta()));
+    const PreparedValuePlan ordinary_plan{ordinary};
+    const PreparedValuePlan pair_plan{scalar_descriptor<Pair>::value_meta()};
+    const Value seven{Int{7}}, falsity{Bool{false}};
+    const auto partial = pair_plan.bundle(std::array{std::pair<std::size_t, ValueView>{0, seven.view()}});
+    const auto full = pair_plan.bundle(std::array{std::pair<std::size_t, ValueView>{0, seven.view()},
+        std::pair<std::size_t, ValueView>{1, falsity.view()}});
+    const auto partial_record = ordinary_plan.bundle(std::array{std::pair<std::size_t, ValueView>{0, partial.view()}});
+    const auto full_record = ordinary_plan.bundle(std::array{std::pair<std::size_t, ValueView>{0, full.view()}});
+    const PreparedObservationPlan to_held{shape, ordinary, false};
+    const PreparedObservationPlan to_ordinary{shape, ordinary};
+    const auto before = type_system_lock_count();
+    for (std::size_t cycle = 0; cycle < 32; ++cycle) {
+        const auto held = to_held.retain(cycle % 2 == 0 ? partial_record.view() : full_record.view());
+        CHECK(held.schema() == shape->value_schema);
+        const auto copy = to_ordinary.retain(held.view());
+        CHECK(copy.schema() == ordinary);
+        auto payload = ordinary_plan.index(copy.view(), 0);
+        CHECK(pair_plan.index(payload, 0).checked_as<Int>() == 7);
+        CHECK(pair_plan.index(payload, 1).has_value() == (cycle % 2 != 0));
+        if (cycle % 2 != 0) { CHECK_FALSE(pair_plan.index(payload, 1).checked_as<Bool>()); }
+    }
+    CHECK(type_system_lock_count() == before);
+    using PlainOrigin = NominalBundle<"ordinary", "PlainObserved", false, BundleParents<>, BundleArguments<>, Field<"number", Int>, Field<"flag", Bool>>;
+    using PlainCanonical = NominalTSB<PlainOrigin, Field<"number", TS<Int>>, Field<"flag", TS<Bool>>>;
+    const auto *plain_ordinary = scalar_descriptor<PlainOrigin>::value_meta();
+    const auto *plain_held = schema_descriptor<Temporal<PlainOrigin>>::ts_meta();
+    const auto *plain_canonical = schema_descriptor<PlainCanonical>::ts_meta();
+    TSOutput provider{*plain_canonical};
+    TSInput declared{TSInputBuilderFactory::checked_builder_for(*plain_held, TSEndpointSchema::peered(plain_held))};
+    const PreparedValuePlan plain_value{plain_ordinary};
+    const auto plain_payload = plain_value.bundle(std::array{std::pair<std::size_t, ValueView>{0, seven.view()},
+        std::pair<std::size_t, ValueView>{1, falsity.view()}});
+    const PreparedPublicationPlan plain_publish{plain_canonical, plain_ordinary};
+    plain_publish.apply(provider.view(MIN_ST), plain_payload.view());
+    declared.view(nullptr, MIN_ST).bind_output(provider.view(MIN_ST));
+    const PreparedObservationPlan endpoint_plan{plain_held, plain_ordinary};
+    CHECK(declared.view(nullptr, MIN_ST).value().schema() == plain_ordinary);
+    CHECK_THROWS_AS((PreparedPublicationPlan{plain_held, TypeRegistry::instance().bundle("ordinary", "WrongOrigin",
+        {{"number", scalar_descriptor<Int>::value_meta()}, {"flag", scalar_descriptor<Bool>::value_meta()}})}), std::invalid_argument);
+    CHECK_THROWS_AS((PreparedPublicationPlan{plain_held, TypeRegistry::instance().un_named_bundle({
+        {"missing", scalar_descriptor<Int>::value_meta()}, {"flag", scalar_descriptor<Bool>::value_meta()}})}), std::invalid_argument);
+    CHECK_THROWS_AS((TypeRegistry::instance().projected_bundle(plain_ordinary, {
+        {"flag", scalar_descriptor<Bool>::value_meta()}, {"number", scalar_descriptor<Int>::value_meta()}})), std::invalid_argument);
+    // Private conversion maps names once even when an independently prepared
+    // structural destination has a different order. Such a destination is not
+    // temporally equivalent to the nominal input, so wiring still rejects it.
+    const auto *reordered = TypeRegistry::instance().un_named_tsb({
+        {"flag", TypeRegistry::instance().ts(scalar_descriptor<Bool>::value_meta())},
+        {"number", TypeRegistry::instance().ts(scalar_descriptor<Int>::value_meta())}});
+    CHECK_FALSE(time_series_schema_equivalent(plain_held, reordered));
+    const PreparedPublicationPlan reordered_publish{reordered, plain_ordinary};
+    TSOutput reordered_output{*reordered};
+    reordered_publish.apply(reordered_output.view(MIN_ST), plain_payload.view());
+    auto reordered_endpoint = reordered_output.view(MIN_ST);
+    CHECK_FALSE(reordered_endpoint.value().as_bundle().at(0).checked_as<Bool>());
+    CHECK(reordered_endpoint.value().as_bundle().at(1).checked_as<Int>() == 7);
+    const auto endpoint_before = type_system_lock_count();
+    for (std::size_t copy_index = 0; copy_index < 32; ++copy_index) {
+        const auto copy = endpoint_plan.retain_endpoint(declared.view(nullptr, MIN_ST));
+        CHECK(copy.schema() == plain_ordinary);
+        CHECK(plain_value.index(copy.view(), 0).checked_as<Int>() == 7);
+        CHECK_FALSE(plain_value.index(copy.view(), 1).checked_as<Bool>());
+    }
+    CHECK(type_system_lock_count() == endpoint_before);
+    const auto nil = to_ordinary.retain(Value::typed_null(storage_binding(shape->value_schema)).view());
+    CHECK_FALSE(nil.has_value());
+    CHECK(nil.schema() == ordinary);
+    auto &registry = TypeRegistry::instance();
+    const auto *wrong_origin = registry.bundle("ordinary", "OtherObserved", {{"payload", scalar_descriptor<Pair>::value_meta()}},
+        {}, false, "__type__", {scalar_descriptor<Pair>::value_meta()});
+    CHECK_THROWS_AS((PreparedObservationPlan{shape, wrong_origin}), std::invalid_argument);
+    CHECK_THROWS_AS((PreparedObservationPlan{schema_descriptor<TS<Pair>>::ts_meta(), shape->value_schema}), std::invalid_argument);
 }
 
 TEST_CASE("ordinary lists keep canonical schemas with mutable planned storage", "[ordinary][list]") {

@@ -425,6 +425,13 @@ namespace hgraph
         }
     };
 
+    template <typename Parents> struct held_nominal_parent_resolver;
+    template <typename... Parents> struct held_nominal_parent_resolver<BundleParents<Parents...>> {
+        static std::vector<const ValueTypeMetaData *> resolve(const ResolutionMap &m) {
+            return {ts_resolver<Parents>::resolve(m)->value_schema...};
+        }
+    };
+
     template <typename ValueBundle, typename... Fields> struct ts_resolver<NominalTSB<ValueBundle, Fields...>>
     {
         [[nodiscard]] static const TSValueTypeMetaData *resolve(const ResolutionMap &m) {
@@ -433,8 +440,14 @@ namespace hgraph
             (fields.emplace_back(ts_field_descriptor<Fields>::field_name(),
                                  ts_resolver<typename ts_field_descriptor<Fields>::schema>::resolve(m)),
              ...);
-            const auto *value = value_schema_descriptor<ValueBundle>::value_meta();
-            return TypeRegistry::instance().tsb(value->name(), fields);
+            if constexpr (requires { typename ValueBundle::ordinary_origin; }) {
+                const auto *origin = scalar_resolver<typename ValueBundle::ordinary_origin>::resolve(m);
+                std::vector<std::pair<std::string, const ValueTypeMetaData *>> held_fields;
+                for (const auto &[name, type] : fields) { held_fields.emplace_back(name, type->value_schema); }
+                const auto *value = TypeRegistry::instance().projected_bundle(origin, held_fields,
+                    held_nominal_parent_resolver<typename ValueBundle::parents>::resolve(m));
+                return TypeRegistry::instance().tsb(value, fields);
+            } else { return TypeRegistry::instance().tsb(scalar_resolver<ValueBundle>::resolve(m), fields); }
         }
     };
 
@@ -490,6 +503,7 @@ namespace hgraph
             origin += LocalName.sv();
             const auto name = concrete ? concrete->name() : std::string_view{};
             if (!concrete || concrete->try_value_kind() != ValueTypeKind::Bundle ||
+                (concrete->bundle_hierarchy != nullptr && concrete->bundle_hierarchy->ordinary_origin != nullptr) ||
                 (sizeof...(TArguments) == 0 ? name != origin
                  : !name.starts_with(origin) || name.size() <= origin.size() || name[origin.size()] != '[') ||
                 concrete->bundle_generic_arguments().size() != sizeof...(TArguments))
@@ -938,6 +952,14 @@ namespace hgraph
     {
         static void unify(const TSValueTypeMetaData *c, ResolutionMap &m)
         {
+            if constexpr (requires { typename ValueBundle::ordinary_origin; }) {
+                const auto *source = TypeRegistry::instance().dereference(c);
+                const auto *origin = source != nullptr ? source->value_schema : nullptr;
+                if (origin != nullptr && origin->bundle_hierarchy != nullptr && origin->bundle_hierarchy->ordinary_origin != nullptr) {
+                    origin = origin->bundle_hierarchy->ordinary_origin;
+                }
+                scalar_unifier<typename ValueBundle::ordinary_origin>::unify(origin, m);
+            }
             (type_resolution_detail::unify_tsb_field<Fields>(c, m), ...);
         }
     };

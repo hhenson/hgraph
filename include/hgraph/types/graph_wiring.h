@@ -2315,13 +2315,13 @@ namespace hgraph
                     if (field.second == nullptr) { return nullptr; }
                 }
                 const auto *value = value_schema_descriptor<ValueBundle>::value_meta();
-                return TypeRegistry::instance().tsb(value->name(), fields);
+                return TypeRegistry::instance().tsb(value, fields);
             }
             [[nodiscard]] static const TSValueTypeMetaData *infer(const WiringNamedStructuralSourceArg &arg) {
                 auto fields = structural_arg_detail::inferred_named_tsb_fields(arg);
                 if (fields.empty()) { return nullptr; }
                 const auto *value = value_schema_descriptor<ValueBundle>::value_meta();
-                return TypeRegistry::instance().tsb(value->name(), fields);
+                return TypeRegistry::instance().tsb(value, fields);
             }
         };
 

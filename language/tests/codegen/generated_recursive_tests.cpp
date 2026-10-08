@@ -95,9 +95,10 @@ TEST_CASE("generated recursive structs register their edges as owners", "[codege
     const auto *expr = scalar_descriptor<typename recursive::Expr::value_type>::value_meta();
     CHECK(add->fields[1].type->element_type == expr);
 
-    // The temporal shape's edge is one endpoint; its value schema is the struct.
+    // The temporal edge retains the ordinary owner; its parent is distinct held metadata.
     const auto *temporal = schema_descriptor<typename recursive::Node::time_series>::ts_meta();
-    CHECK(temporal->value_schema == node);
+    CHECK(temporal->value_schema != node);
+    CHECK(temporal->value_schema->bundle_hierarchy->ordinary_origin == node);
     CHECK(temporal->fields()[1].type == registry.ts(registry.owned(node)));
 }
 

@@ -6,6 +6,8 @@
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/value/mutable_container_ops.h>
 #include <hgraph/types/value/value_builder.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_input.h>
 
 #include <cstdint>
 #include <charconv>
@@ -30,6 +32,45 @@ namespace hgl::ordinary
     template <typename Shape> struct Delta {};
     template <typename Shape> struct Held {};
     template <typename Shape> struct Origin {};
+
+    // HGL lifts ordinary generic arguments recursively while retaining their
+    // independent ordinary identity. Explicit Atomic fields bypass this alias.
+    template <typename T> struct TemporalType { using type = hgraph::TS<T>; };
+    template <typename T> using Temporal = typename TemporalType<T>::type;
+    template <hgraph::fixed_string Name, typename... Constraints>
+    struct TemporalType<hgraph::ScalarVar<Name, Constraints...>> {
+        using type = hgraph::TsVar<Name, Temporal<Constraints>...>;
+    };
+    template <typename T, std::int64_t N> struct TemporalType<List<T, N>> {
+        using type = hgraph::TSL<Temporal<T>, N < 0 ? hgraph::unbounded_tsl_size : static_cast<std::size_t>(N)>;
+    };
+    template <std::size_t Index> consteval auto positional_name() {
+        constexpr auto digits = [] { std::size_t n = Index, count = 1; while (n >= 10) { n /= 10; ++count; } return count; }();
+        char text[digits + 1]{};
+        auto n = Index;
+        for (auto i = digits; i != 0; --i) { text[i - 1] = static_cast<char>('0' + n % 10); n /= 10; }
+        return hgraph::fixed_string{ text };
+    }
+    template <typename Tuple, typename Indices> struct TemporalTuple;
+    template <typename... Ts, std::size_t... Indices>
+    struct TemporalTuple<hgraph::FixedTuple<Ts...>, std::index_sequence<Indices...>> {
+        using type = hgraph::UnNamedTSB<hgraph::Field<positional_name<Indices>(), Temporal<Ts>>...>;
+    };
+    template <typename... Ts> struct TemporalType<hgraph::FixedTuple<Ts...>>
+        : TemporalTuple<hgraph::FixedTuple<Ts...>, std::index_sequence_for<Ts...>> {};
+    template <typename K> struct TemporalType<hgraph::Set<K>> { using type = hgraph::TSS<K>; };
+    template <typename K, typename V> struct TemporalType<hgraph::Map<K, V>> { using type = hgraph::TSD<K, Temporal<V>>; };
+    template <typename Parents> struct TemporalParents;
+    template <typename... Parents> struct TemporalParents<hgraph::BundleParents<Parents...>> {
+        using type = hgraph::BundleParents<Temporal<Parents>...>;
+    };
+    template <hgraph::fixed_string NS, hgraph::fixed_string Name, bool Abstract, typename Parents, typename Args, typename... Fields>
+    struct TemporalType<hgraph::NominalBundle<NS, Name, Abstract, Parents, Args, Fields...>> {
+        using origin = hgraph::NominalBundle<NS, Name, Abstract, Parents, Args, Fields...>;
+        using held = hgraph::HeldNominalBundle<origin, typename TemporalParents<Parents>::type,
+            hgraph::Field<Fields::name_sv, Temporal<typename Fields::schema>>...>;
+        using type = hgraph::NominalTSB<held, hgraph::Field<Fields::name_sv, Temporal<typename Fields::schema>>...>;
+    };
 
     inline void validate_key_schema(const hgraph::ValueTypeMetaData *schema,
                                     std::unordered_set<const hgraph::ValueTypeMetaData *> &visiting) {
@@ -215,6 +256,11 @@ namespace hgl::ordinary
     // A nominal generic argument records its exact temporal source, separately
     // from the ordinary payload schema. These are interned build-time metadata;
     // no marker value is stored in a publication or inspected during evaluation.
+    inline const hgraph::ValueTypeMetaData *ordinary_nominal_origin(const hgraph::ValueTypeMetaData *value) {
+        const auto *hierarchy = value->bundle_hierarchy;
+        return hierarchy != nullptr && hierarchy->ordinary_origin != nullptr ? hierarchy->ordinary_origin : value;
+    }
+
     inline const hgraph::ValueTypeMetaData *origin_schema(const hgraph::TSValueTypeMetaData *shape) {
         using namespace hgraph;
         std::string kind;
@@ -287,7 +333,7 @@ namespace hgl::ordinary
                 if (!child) { return nullptr; }
                 fields.emplace_back(value->fields[i].name, child);
             }
-            return held->is_named_bundle() ? registry.tsb(held->name(), fields) : registry.un_named_tsb(fields);
+            return held->is_named_bundle() ? registry.tsb(held, fields) : registry.un_named_tsb(fields);
         }
         return nullptr;
     }
@@ -380,6 +426,17 @@ namespace hgl::ordinary
         [[nodiscard]] hgraph::Value list(const hgraph::ListStorage &storage) const {
             return retain(hgraph::ValueView{list_builder_binding_, &storage});
         }
+        [[nodiscard]] hgraph::ValueView map_index(const hgraph::ValueView &value, const hgraph::ValueView &key) const {
+            if (!value.has_value()) { throw std::logic_error("ordinary scalar value is absent"); }
+            if (map_ == nullptr) { throw std::invalid_argument("ordinary value storage is not a map"); }
+            if (!map_->contains(map_->context, value.data(), key.data())) { throw std::out_of_range("ordinary map key not present"); }
+            return hgraph::ValueView{element_, map_->value_at(map_->context, value.data(), key.data())};
+        }
+        [[nodiscard]] bool map_contains(const hgraph::ValueView &value, const hgraph::ValueView &key) const {
+            if (!value.has_value()) { throw std::logic_error("ordinary scalar value is absent"); }
+            if (map_ == nullptr) { throw std::invalid_argument("ordinary value storage is not a map"); }
+            return map_->contains(map_->context, value.data(), key.data());
+        }
         [[nodiscard]] hgraph::KeyValueRange<hgraph::ValueView, hgraph::ValueView> items(const hgraph::ValueView &value) const {
             if (!value.has_value()) { throw std::logic_error("ordinary scalar value is absent"); }
             if (map_ == nullptr) { throw std::invalid_argument("ordinary value storage is not a map"); }
@@ -445,6 +502,282 @@ namespace hgl::ordinary
         hgraph::ValueTypeRef element_{};
         hgraph::ValueTypeRef list_builder_binding_{};
         hgraph::ValueTypeRef key_{};
+    };
+
+    // Private compiler normalization of a matched temporal observation into
+    // its declared ordinary value. All shape and nominal checks are cold;
+    // evaluation uses only prepared accessors, indices and child operations.
+    class PreparedObservationPlan {
+      public:
+        PreparedObservationPlan() = default;
+        PreparedObservationPlan(const hgraph::TSValueTypeMetaData *shape, const hgraph::ValueTypeMetaData *ordinary, bool to_ordinary = true)
+            : source_{to_ordinary ? shape->value_schema : ordinary}, target_{to_ordinary ? ordinary : shape->value_schema} {
+            using namespace hgraph;
+            if (shape->value_schema == ordinary && shape->kind != TSTypeKind::TSB &&
+                shape->kind != TSTypeKind::TSL && shape->kind != TSTypeKind::TSD) {
+                operation_ = &retain_same; endpoint_operation_ = &retain_endpoint_leaf; return;
+            }
+            switch (shape->kind) {
+                case TSTypeKind::TSB: {
+                    const auto kind = ordinary->try_value_kind();
+                    if (kind != ValueTypeKind::Tuple && kind != ValueTypeKind::Bundle) { mismatch(); }
+                    if (shape->field_count() != ordinary->field_count) { mismatch(); }
+                    if (ordinary->is_named_bundle()) {
+                        if (shape->value_schema != ordinary && ordinary_nominal_origin(shape->value_schema) != ordinary) { mismatch(); }
+                    } else if (shape->value_schema->is_named_bundle()) { mismatch(); }
+                    for (std::size_t index = 0; index < ordinary->field_count; ++index) {
+                        std::size_t source_index = index;
+                        if (ordinary->is_named_bundle()) {
+                            source_index = shape->field_count();
+                            for (std::size_t j = 0; j < shape->field_count(); ++j) {
+                                if (std::string_view{shape->fields()[j].name} == std::string_view{ordinary->fields[index].name}) { source_index = j; break; }
+                            }
+                            if (source_index == shape->field_count()) { mismatch(); }
+                        } else if (kind == ValueTypeKind::Tuple && shape->fields()[index].name != std::to_string(index)) { mismatch(); }
+                        if (to_ordinary) {
+                            indices_.push_back(source_index);
+                            children_.emplace_back(shape->fields()[source_index].type, ordinary->fields[index].type, true);
+                        }
+                    }
+                    if (!to_ordinary) {
+                        for (std::size_t index = 0; index < shape->field_count(); ++index) {
+                            auto ordinary_index = index;
+                            if (ordinary->is_named_bundle()) {
+                                for (std::size_t j = 0; j < ordinary->field_count; ++j) {
+                                    if (std::string_view{ordinary->fields[j].name} == std::string_view{shape->fields()[index].name}) { ordinary_index = j; break; }
+                                }
+                            }
+                            indices_.push_back(ordinary_index);
+                            children_.emplace_back(shape->fields()[index].type, ordinary->fields[ordinary_index].type, false);
+                        }
+                    }
+                    operation_ = &retain_bundle;
+                    endpoint_operation_ = &retain_endpoint_bundle;
+                    break;
+                }
+                case TSTypeKind::TSL:
+                    if (ordinary->try_value_kind() != ValueTypeKind::List || ordinary->is_fixed_size() == shape->is_unbounded_tsl() ||
+                        (ordinary->is_fixed_size() && ordinary->fixed_size != shape->fixed_size())) { mismatch(); }
+                    children_.emplace_back(shape->element_ts(), ordinary->element_type, to_ordinary);
+                    operation_ = &retain_list;
+                    endpoint_operation_ = &retain_endpoint_list;
+                    break;
+                case TSTypeKind::TSD:
+                    if (ordinary->try_value_kind() != ValueTypeKind::Map || ordinary->key_type != shape->key_type()) { mismatch(); }
+                    children_.emplace_back(shape->element_ts(), ordinary->element_type, to_ordinary);
+                    operation_ = &retain_map;
+                    endpoint_operation_ = &retain_endpoint_map;
+                    break;
+                default: mismatch();
+            }
+        }
+        [[nodiscard]] hgraph::Value retain(const hgraph::ValueView &value) const {
+            if (!value.has_value()) { return hgraph::Value::typed_null(target_.binding()); }
+            return operation_(*this, value);
+        }
+        [[nodiscard]] hgraph::Value retain_endpoint(const hgraph::TSInputView &endpoint) const {
+            if (!endpoint.valid()) { return hgraph::Value::typed_null(target_.binding()); }
+            return endpoint_operation_(*this, endpoint);
+        }
+        [[nodiscard]] hgraph::ValueTypeRef binding() const noexcept { return target_.binding(); }
+      private:
+        [[noreturn]] static void mismatch() { throw std::invalid_argument("ordinary observation schema does not match its temporal origin"); }
+        static hgraph::Value retain_same(const PreparedObservationPlan &plan, const hgraph::ValueView &value) {
+            return plan.target_.retain(value);
+        }
+        static hgraph::Value retain_bundle(const PreparedObservationPlan &plan, const hgraph::ValueView &value) {
+            auto source = plan.source_.retain(value);
+            std::vector<hgraph::Value> children;
+            children.reserve(plan.children_.size());
+            std::vector<std::pair<std::size_t, hgraph::ValueView>> fields;
+            fields.reserve(plan.children_.size());
+            for (std::size_t index = 0; index < plan.children_.size(); ++index) {
+                children.push_back(plan.children_[index].retain(plan.source_.index(source.view(), static_cast<std::int64_t>(plan.indices_[index]))));
+                if (children.back().has_value()) { fields.emplace_back(index, children.back().view()); }
+            }
+            return plan.target_.bundle(fields);
+        }
+        static hgraph::Value retain_list(const PreparedObservationPlan &plan, const hgraph::ValueView &value) {
+            auto source = plan.source_.retain(value);
+            hgraph::ListBuilder builder{plan.target_.element_binding(), *plan.target_.binding().schema()};
+            const auto size = plan.source_.len(source.view());
+            for (std::int64_t index = 0; index < size; ++index) {
+                auto child = plan.children_.front().retain(plan.source_.index(source.view(), index));
+                if (child.has_value()) { builder.push_back(child.view()); } else { builder.push_back_unset(); }
+            }
+            auto storage = builder.build_storage();
+            return plan.target_.list(storage);
+        }
+        static hgraph::Value retain_map(const PreparedObservationPlan &plan, const hgraph::ValueView &value) {
+            auto source = plan.source_.retain(value);
+            hgraph::MapBuilder builder{plan.target_.key_binding(), plan.target_.element_binding()};
+            for (const auto &[key, value_child] : plan.source_.items(source.view())) {
+                auto child = plan.children_.front().retain(value_child);
+                if (child.has_value()) { builder.set_item(key, child.view()); } else { builder.set_item_unset(key); }
+            }
+            auto storage = builder.build_storage();
+            return hgraph::Value{plan.target_.binding(), &storage, hgraph::Value::AdoptStorage{}};
+        }
+        static hgraph::Value retain_endpoint_leaf(const PreparedObservationPlan &plan, const hgraph::TSInputView &endpoint) {
+            return plan.target_.retain(endpoint.value());
+        }
+        static hgraph::Value retain_endpoint_bundle(const PreparedObservationPlan &plan, const hgraph::TSInputView &endpoint) {
+            std::vector<hgraph::Value> children;
+            children.reserve(plan.children_.size());
+            std::vector<std::pair<std::size_t, hgraph::ValueView>> fields;
+            fields.reserve(plan.children_.size());
+            for (std::size_t index = 0; index < plan.children_.size(); ++index) {
+                children.push_back(plan.children_[index].retain_endpoint(endpoint.indexed_child_at(plan.indices_[index])));
+                if (children.back().has_value()) { fields.emplace_back(index, children.back().view()); }
+            }
+            return plan.target_.bundle(fields);
+        }
+        static hgraph::Value retain_endpoint_list(const PreparedObservationPlan &plan, const hgraph::TSInputView &endpoint) {
+            hgraph::ListBuilder builder{plan.target_.element_binding(), *plan.target_.binding().schema()};
+            const auto size = endpoint.as_list().size();
+            for (std::size_t index = 0; index < size; ++index) {
+                auto child = plan.children_.front().retain_endpoint(endpoint.indexed_child_at(index));
+                if (child.has_value()) { builder.push_back(child.view()); } else { builder.push_back_unset(); }
+            }
+            auto storage = builder.build_storage();
+            return plan.target_.list(storage);
+        }
+        static hgraph::Value retain_endpoint_map(const PreparedObservationPlan &plan, const hgraph::TSInputView &endpoint) {
+            hgraph::MapBuilder builder{plan.target_.key_binding(), plan.target_.element_binding()};
+            const auto map = endpoint.as_dict();
+            for (const auto &[key, child_endpoint] : map.items()) {
+                auto child = plan.children_.front().retain_endpoint(child_endpoint);
+                if (child.has_value()) { builder.set_item(key, child.view()); } else { builder.set_item_unset(key); }
+            }
+            auto storage = builder.build_storage();
+            return hgraph::Value{plan.target_.binding(), &storage, hgraph::Value::AdoptStorage{}};
+        }
+        PreparedValuePlan source_{};
+        PreparedValuePlan target_{};
+        std::vector<std::size_t> indices_{};
+        std::vector<PreparedObservationPlan> children_{};
+        hgraph::Value (*operation_)(const PreparedObservationPlan &, const hgraph::ValueView &){};
+        hgraph::Value (*endpoint_operation_)(const PreparedObservationPlan &, const hgraph::TSInputView &){};
+    };
+
+    // A source type variable resolves to a concrete temporal shape during
+    // preparation. Select its recursive publication operations there, while
+    // preserving the exact ordinary source bindings independently of the
+    // temporal parent's held schema.
+    class PreparedPublicationPlan
+    {
+      public:
+        PreparedPublicationPlan() = default;
+        PreparedPublicationPlan(const hgraph::TSValueTypeMetaData *shape,
+                                const hgraph::ValueTypeMetaData *source) : value_{source} {
+            if (shape->kind == hgraph::TSTypeKind::TSB) {
+                const auto kind = source->try_value_kind();
+                if (kind != hgraph::ValueTypeKind::Bundle && kind != hgraph::ValueTypeKind::Tuple) { throw std::invalid_argument("ordinary publication requires indexed fields"); }
+                if (source->field_count != shape->field_count()) { throw std::invalid_argument("ordinary publication field count mismatch"); }
+                if (source->is_named_bundle() && shape->value_schema->is_named_bundle() &&
+                    ordinary_nominal_origin(source) != ordinary_nominal_origin(shape->value_schema)) {
+                    throw std::invalid_argument("ordinary publication nominal origin mismatch");
+                }
+                for (std::size_t index = 0; index < source->field_count; ++index) {
+                    std::size_t target_index = shape->field_count();
+                    const auto positional = kind == hgraph::ValueTypeKind::Tuple ? std::to_string(index) : std::string{};
+                    const std::string_view name = kind == hgraph::ValueTypeKind::Tuple
+                        ? std::string_view{positional} : std::string_view{source->fields[index].name};
+                    for (std::size_t j = 0; j < shape->field_count(); ++j) {
+                        if (std::string_view{shape->fields()[j].name} == name) { target_index = j; break; }
+                    }
+                    if (target_index == shape->field_count()) { throw std::invalid_argument("ordinary publication field name mismatch"); }
+                    destination_indices_.push_back(target_index);
+                    children_.emplace_back(shape->fields()[target_index].type, source->fields[index].type);
+                }
+                publish_ = &publish_bundle;
+            } else if (shape->kind == hgraph::TSTypeKind::TSL) {
+                if (shape->is_unbounded_tsl()) { throw PublicationProfileError{"generic complete growing List publication is outside the fixed structural profile"}; }
+                if (source->try_value_kind() != hgraph::ValueTypeKind::List ||
+                    source->is_fixed_size() == shape->is_unbounded_tsl() ||
+                    (source->is_fixed_size() && source->fixed_size != shape->fixed_size())) { throw std::invalid_argument("ordinary publication list extent mismatch"); }
+                children_.emplace_back(shape->element_ts(), source->element_type);
+                publish_ = &publish_list;
+            } else if (shape->kind == hgraph::TSTypeKind::TSD) {
+                if (source->try_value_kind() != hgraph::ValueTypeKind::Map || source->key_type != shape->key_type()) { throw std::invalid_argument("ordinary publication map key schema mismatch"); }
+                children_.emplace_back(shape->element_ts(), source->element_type);
+                publish_ = &publish_map;
+            } else {
+                if (source != shape->value_schema) { throw std::invalid_argument("ordinary publication leaf schema mismatch"); }
+                publish_ = &publish_leaf;
+            }
+        }
+        void apply(const hgraph::TSOutputView &out, const hgraph::ValueView &source) const {
+            auto retained = value_.retain(source);
+            publish_(*this, out, retained.view());
+        }
+      private:
+        static void publish_leaf(const PreparedPublicationPlan &, const hgraph::TSOutputView &out,
+                                 const hgraph::ValueView &value) {
+            auto mutation = out.begin_mutation(out.evaluation_time());
+            static_cast<void>(mutation.copy_value_from(value));
+        }
+        static void publish_child(const PreparedPublicationPlan &plan, const hgraph::TSOutputView &out,
+                                  const hgraph::ValueView &value) {
+            if (value.has_value()) { plan.publish_(plan, out, value); }
+            else {
+                auto mutation = out.begin_mutation(out.evaluation_time());
+                static_cast<void>(mutation.invalidate());
+            }
+        }
+        static void require_live(const PreparedPublicationPlan &plan, const hgraph::ValueView &value) {
+            if (!value.has_value()) { throw PublicationProfileError{"ordinary structural publication requires a valid retained value"}; }
+            for (std::int64_t index = 0; index < plan.value_.len(value); ++index) {
+                if (plan.value_.index(value, index).has_value()) { return; }
+            }
+            throw PublicationProfileError{"ordinary structural publication requires a nonempty value with a valid child"};
+        }
+        static void publish_bundle(const PreparedPublicationPlan &plan, const hgraph::TSOutputView &out,
+                                   const hgraph::ValueView &value) {
+            require_live(plan, value);
+            auto bundle = out.as_bundle();
+            for (std::size_t index = 0; index < plan.children_.size(); ++index) {
+                publish_child(plan.children_[index], bundle.at(plan.destination_indices_[index]), plan.value_.index(value, static_cast<std::int64_t>(index)));
+            }
+        }
+        static void publish_list(const PreparedPublicationPlan &plan, const hgraph::TSOutputView &out,
+                                 const hgraph::ValueView &value) {
+            require_live(plan, value);
+            auto list = out.as_list();
+            const auto size = static_cast<std::size_t>(plan.value_.len(value));
+            for (std::size_t index = 0; index < size; ++index) {
+                publish_child(plan.children_.front(), list.at(index), plan.value_.index(value, static_cast<std::int64_t>(index)));
+            }
+        }
+        static void publish_map(const PreparedPublicationPlan &plan, const hgraph::TSOutputView &out,
+                                const hgraph::ValueView &value) {
+            if (!value.has_value()) { throw PublicationProfileError{"ordinary structural publication requires a valid retained value"}; }
+            bool live = false;
+            for (const auto [key, child] : plan.value_.items(value)) {
+                static_cast<void>(key);
+                live = live || child.has_value();
+            }
+            if (!live) { throw PublicationProfileError{"ordinary structural publication requires a nonempty value with a valid child"}; }
+            auto dict = out.as_dict();
+            std::vector<hgraph::Value> removals;
+            for (const auto key : dict.keys()) {
+                if (!plan.value_.map_contains(value, key)) { removals.emplace_back(key); }
+            }
+            auto mutation = dict.begin_mutation(out.evaluation_time());
+            for (const auto &key : removals) { static_cast<void>(mutation.erase(key.view())); }
+            for (const auto [key, child] : plan.value_.items(value)) {
+                if (!child.has_value() && !dict.contains(key)) {
+                    throw PublicationProfileError{"ordinary structural publication cannot create invalid map membership"};
+                }
+                auto data = mutation.at(key);
+                publish_child(plan.children_.front(), hgraph::TSOutputView{out.output(), data, out.evaluation_time()}, child);
+            }
+        }
+        PreparedValuePlan value_{};
+        std::vector<std::size_t> destination_indices_{};
+        std::vector<PreparedPublicationPlan> children_{};
+        void (*publish_)(const PreparedPublicationPlan &, const hgraph::TSOutputView &, const hgraph::ValueView &){
+            [](const PreparedPublicationPlan &, const hgraph::TSOutputView &, const hgraph::ValueView &) { throw std::logic_error("unprepared ordinary publication plan"); }};
     };
 
     class PreparedDeltaPlan

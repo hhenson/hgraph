@@ -277,6 +277,13 @@ namespace hgraph
         using value_bundle = TValueBundle;
     };
 
+    /** Exact held fields and parents of one ordinary nominal origin (RFC 0046). */
+    template <typename TOrigin, typename TParents, typename... TFields> struct HeldNominalBundle
+    {
+        using ordinary_origin = TOrigin;
+        using parents = TParents;
+    };
+
     /** Derive a TSB schema from a value-layer Bundle by lifting each field to ``TS<Field>``. */
     template <typename TValueBundle>
     struct TimeSeriesBundleFromScalar
@@ -1073,7 +1080,7 @@ namespace hgraph
                 std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
                 fields.reserve(sizeof...(TFields));
                 (fields.emplace_back(ts_field_descriptor<TFields>::field_name(), ts_field_descriptor<TFields>::ts_meta()), ...);
-                return TypeRegistry::instance().tsb(value->name(), fields);
+                return TypeRegistry::instance().tsb(value, fields);
             } else {
                 return nullptr;
             }
@@ -1298,6 +1305,38 @@ namespace hgraph
             }
         }
     };
+
+    namespace static_schema_detail
+    {
+        template <typename Parents> struct held_nominal_parents;
+        template <typename... Parents> struct held_nominal_parents<BundleParents<Parents...>> {
+            static constexpr bool is_concrete() noexcept { return (schema_descriptor<Parents>::is_concrete() && ...); }
+            static std::vector<const ValueTypeMetaData *> meta() {
+                return {schema_descriptor<Parents>::ts_meta()->value_schema...};
+            }
+        };
+    }
+
+    template <typename Origin, typename Parents, typename... Fields>
+    struct value_schema_descriptor<HeldNominalBundle<Origin, Parents, Fields...>> {
+        static constexpr bool is_concrete() noexcept {
+            return value_schema_descriptor<Origin>::is_concrete() &&
+                static_schema_detail::held_nominal_parents<Parents>::is_concrete() &&
+                (ts_field_descriptor<Fields>::is_concrete() && ...);
+        }
+        static const ValueTypeMetaData *value_meta() {
+            if constexpr (!is_concrete()) { return nullptr; }
+            else {
+                return TypeRegistry::instance().projected_bundle(value_schema_descriptor<Origin>::value_meta(),
+                    {{ts_field_descriptor<Fields>::field_name(), ts_field_descriptor<Fields>::ts_meta()->value_schema}...},
+                    static_schema_detail::held_nominal_parents<Parents>::meta());
+            }
+        }
+    };
+
+    template <typename Origin, typename Parents, typename... Fields>
+    struct scalar_descriptor<HeldNominalBundle<Origin, Parents, Fields...>>
+        : value_schema_descriptor<HeldNominalBundle<Origin, Parents, Fields...>> {};
 
     template <typename... TFields>
     struct scalar_descriptor<UnNamedBundle<TFields...>> : value_schema_descriptor<UnNamedBundle<TFields...>>

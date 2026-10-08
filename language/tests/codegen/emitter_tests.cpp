@@ -960,7 +960,7 @@ export abstract struct Shape<T> {
     CHECK(contains(emitted->header, "hgraph::NominalBundle<\"planned.module\", \"Record\", false"));
     CHECK(contains(emitted->header, "hgraph::Field<\"amount\", Item>"));
     CHECK(contains(emitted->header, "hgraph::Field<\"count\", hgraph::Int>"));
-    CHECK(contains(emitted->header, "hgraph::Field<\"amount\", hgraph::TS<Item>>"));
+    CHECK(contains(emitted->header, "hgraph::Field<\"amount\", hgl::ordinary::Temporal<Item>>"));
     CHECK_FALSE(contains(emitted->header, "struct Shape"));
     CHECK_FALSE(contains(emitted->header, "hgraph::Field<\"value\""));
     CHECK_FALSE(contains(emitted->header, "hgraph::Field<\"label\""));

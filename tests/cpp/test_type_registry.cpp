@@ -1,9 +1,13 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/time_series/endpoint_schema.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/type_pattern.h>
+#include <hgraph/lib/testing/check_output.h>
+#include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/utils/counted_mutex.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/utils/key_slot_store.h>
@@ -30,6 +34,85 @@ struct LabelScalarB {
 
 struct AnonymousLabelScalar {
   int value{};
+};
+using PlainOrigin = hgraph::NominalBundle<"tests.held", "Plain", false, hgraph::BundleParents<>, hgraph::BundleArguments<>,
+                                         hgraph::Field<"count", hgraph::Int>>;
+using PlainCanonical = hgraph::NominalTSB<PlainOrigin, hgraph::Field<"count", hgraph::TS<hgraph::Int>>>;
+using PlainHeldValue = hgraph::HeldNominalBundle<PlainOrigin, hgraph::BundleParents<>, hgraph::Field<"count", hgraph::TS<hgraph::Int>>>;
+using PlainHeld = hgraph::NominalTSB<PlainHeldValue, hgraph::Field<"count", hgraph::TS<hgraph::Int>>>;
+using PlainUnnamed = hgraph::UnNamedTSB<hgraph::Field<"count", hgraph::TS<hgraph::Int>>>;
+struct PlainUnnamedForwardProvider {
+  static void eval(hgraph::In<"value", PlainUnnamed> value, hgraph::Out<PlainUnnamed> out) {
+    auto mutation = out.begin_mutation(out.evaluation_time());
+    static_cast<void>(mutation.copy_value_from(value.value()));
+  }
+};
+struct CanonicalIntoUnnamedForwardProvider {
+  static hgraph::Port<PlainUnnamed> compose(hgraph::Wiring &w, hgraph::Port<PlainCanonical> value) {
+    return hgraph::wire<PlainUnnamedForwardProvider>(w, value.template as<PlainUnnamed>());
+  }
+};
+struct PlainCanonicalProvider {
+  static void eval(hgraph::In<"value", PlainCanonical> value, hgraph::Out<hgraph::TS<hgraph::Int>> out) {
+    out.set(value.template field<"count">().value());
+  }
+};
+struct PlainHeldProvider {
+  static void eval(hgraph::In<"value", PlainHeld> value, hgraph::Out<hgraph::TS<hgraph::Int>> out) {
+    out.set(value.template field<"count">().value());
+  }
+};
+struct PlainCanonicalForwardProvider {
+  static void eval(hgraph::In<"value", PlainCanonical> value, hgraph::Out<PlainCanonical> out) {
+    auto mutation = out.begin_mutation(out.evaluation_time());
+    static_cast<void>(mutation.copy_value_from(value.value()));
+  }
+};
+struct PlainHeldForwardProvider {
+  static void eval(hgraph::In<"value", PlainHeld> value, hgraph::Out<PlainHeld> out) {
+    auto mutation = out.begin_mutation(out.evaluation_time());
+    static_cast<void>(mutation.copy_value_from(value.value()));
+  }
+};
+struct PlainCanonicalFieldForwardProvider {
+  static void eval(hgraph::In<"value", PlainCanonical> value, hgraph::Out<PlainCanonical> out) {
+    out.template field<"count">().set(value.template field<"count">().value());
+  }
+};
+struct PlainHeldFieldForwardProvider {
+  static void eval(hgraph::In<"value", PlainHeld> value, hgraph::Out<PlainHeld> out) {
+    out.template field<"count">().set(value.template field<"count">().value());
+  }
+};
+struct HeldIntoCanonicalFieldForwardProvider {
+  static hgraph::Port<PlainCanonical> compose(hgraph::Wiring &w, hgraph::Port<PlainHeld> value) {
+    return hgraph::wire<PlainCanonicalFieldForwardProvider>(w, value.template as<PlainCanonical>());
+  }
+};
+struct CanonicalIntoHeldFieldForwardProvider {
+  static hgraph::Port<PlainHeld> compose(hgraph::Wiring &w, hgraph::Port<PlainCanonical> value) {
+    return hgraph::wire<PlainHeldFieldForwardProvider>(w, value.template as<PlainHeld>());
+  }
+};
+struct HeldIntoCanonicalForwardProvider {
+  static hgraph::Port<PlainCanonical> compose(hgraph::Wiring &w, hgraph::Port<PlainHeld> value) {
+    return hgraph::wire<PlainCanonicalForwardProvider>(w, value.template as<PlainCanonical>());
+  }
+};
+struct CanonicalIntoHeldForwardProvider {
+  static hgraph::Port<PlainHeld> compose(hgraph::Wiring &w, hgraph::Port<PlainCanonical> value) {
+    return hgraph::wire<PlainHeldForwardProvider>(w, value.template as<PlainHeld>());
+  }
+};
+struct HeldIntoCanonicalProvider {
+  static hgraph::Port<hgraph::TS<hgraph::Int>> compose(hgraph::Wiring &w, hgraph::Port<PlainHeld> value) {
+    return hgraph::wire<PlainCanonicalProvider>(w, value.template as<PlainCanonical>());
+  }
+};
+struct CanonicalIntoHeldProvider {
+  static hgraph::Port<hgraph::TS<hgraph::Int>> compose(hgraph::Wiring &w, hgraph::Port<PlainCanonical> value) {
+    return hgraph::wire<PlainHeldProvider>(w, value.template as<PlainHeld>());
+  }
 };
 } // namespace
 
@@ -239,6 +322,104 @@ TEST_CASE("TypeRegistry records invariant Bundle specializations") {
                                     {{"value", integer}}, {}, false, "__type__",
                                     {text}),
                     std::invalid_argument);
+}
+
+TEST_CASE("held nominal Bundle projections retain strict origins and projected parents", "[held-nominal]") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = scalar_descriptor<Int>::value_meta();
+  const auto *boolean = scalar_descriptor<Bool>::value_meta();
+  const auto *pair = registry.tuple({integer, boolean});
+  const auto *pair_ts = registry.un_named_tsb({{"0", registry.ts(integer)}, {"1", registry.ts(boolean)}});
+  const auto *base = registry.bundle("tests.held", "Parent", {{"pair", pair}}, {}, true);
+  const auto *held_base = registry.projected_bundle(base, {{"pair", pair_ts->value_schema}});
+  const auto *record = registry.bundle("tests.held", "Child[int]", {{"pair", pair}, {"amount", integer}},
+                                       {base}, false, "__type__", {integer});
+  const auto *held = registry.projected_bundle(record, {{"pair", pair_ts->value_schema}, {"amount", integer}}, {held_base});
+  REQUIRE(held != record);
+  REQUIRE(held_base != base);
+  CHECK(held->bundle_hierarchy->ordinary_origin == record);
+  CHECK(held_base->bundle_hierarchy->ordinary_origin == base);
+  CHECK(held->bundle_generic_arguments() == record->bundle_generic_arguments());
+  CHECK(held->bundle_hierarchy->parents == std::vector<const ValueTypeMetaData *>{held_base});
+  CHECK(held_base->is_abstract_bundle());
+  CHECK(std::string{held->bundle_hierarchy->discriminator_value} ==
+        std::string{record->bundle_hierarchy->discriminator_value});
+  CHECK(registry.value_is_a(held, held_base));
+  CHECK_FALSE(registry.value_is_a(held, base));
+  CHECK_FALSE(registry.value_is_a(record, held_base));
+  CHECK(registry.bundle_descendants(held_base) == std::vector<const ValueTypeMetaData *>{held});
+  CHECK(registry.bundle_descendants(base) == std::vector<const ValueTypeMetaData *>{record});
+  const auto snapshot = registry.bundle_hierarchy_snapshot();
+  CHECK(std::ranges::any_of(snapshot.entries, [held](const auto &entry) { return entry.schema == held; }));
+  CHECK(std::ranges::any_of(snapshot.entries, [held_base](const auto &entry) { return entry.schema == held_base && entry.has_children; }));
+  CHECK(registry.named_bundle("tests.held", "Child[int]") == record);
+  CHECK(registry.value_type("tests.held::Child[int]") == record);
+  CHECK(registry.projected_bundle(record, {{"pair", pair_ts->value_schema}, {"amount", integer}}, {held_base}) == held);
+  const auto *temporal = registry.tsb(held, {{"pair", pair_ts}, {"amount", registry.ts(integer)}});
+  REQUIRE(temporal->value_schema == held);
+  CHECK(temporal->fields()[0].type == pair_ts);
+  CHECK(temporal->value_schema->fields[0].type == pair_ts->value_schema);
+  CHECK(ValuePlanFactory::instance().type_for(held).schema() == held);
+  CHECK_THROWS_AS(registry.projected_bundle(record, {{"pair", pair_ts->value_schema}, {"amount", boolean}}, {held_base}), std::invalid_argument);
+  CHECK_THROWS_AS(registry.projected_bundle(record, {{"wrong", pair_ts->value_schema}, {"amount", integer}}, {held_base}), std::invalid_argument);
+  CHECK_THROWS_AS(registry.projected_bundle(record, {{"pair", pair_ts->value_schema}, {"amount", integer}}, {base}), std::invalid_argument);
+  CHECK_THROWS_AS(registry.projected_bundle(record, {{"pair", pair_ts->value_schema}, {"amount", integer}}), std::invalid_argument);
+  CHECK_THROWS_AS(registry.tsb(held, {{"pair", registry.ts(pair)}, {"amount", registry.ts(integer)}}), std::invalid_argument);
+  Value ordinary{ValuePlanFactory::instance().type_for(record)};
+  Value held_value{ValuePlanFactory::instance().type_for(held)};
+  CHECK_THROWS_AS(ordinary.view().begin_mutation().copy_from(held_value.view()), std::invalid_argument);
+}
+
+TEST_CASE("held nominal descriptors interoperate with canonical plain-field C++ providers", "[held-nominal]") {
+  using namespace hgraph;
+  using namespace hgraph::testing;
+  const auto *canonical = schema_descriptor<PlainCanonical>::ts_meta();
+  const auto *held = schema_descriptor<PlainHeld>::ts_meta();
+  REQUIRE(canonical != held);
+  CHECK(canonical->value_schema != held->value_schema);
+  CHECK(time_series_schema_equivalent(canonical, held));
+  CHECK_OUTPUT((eval_node<HeldIntoCanonicalProvider>(values<Value>(tsb_delta<PlainHeld>(Int{7})))), values<Int>(7));
+  CHECK_OUTPUT((eval_node<CanonicalIntoHeldProvider>(values<Value>(tsb_delta<PlainCanonical>(Int{7})))), values<Int>(7));
+  CHECK_OUTPUT(eval_node<HeldIntoCanonicalFieldForwardProvider>(values<Value>(tsb_delta<PlainHeld>(Int{7}))), values<Value>(tsb_delta<PlainCanonical>(Int{7})));
+  CHECK_OUTPUT(eval_node<CanonicalIntoHeldFieldForwardProvider>(values<Value>(tsb_delta<PlainCanonical>(Int{7}))), values<Value>(tsb_delta<PlainHeld>(Int{7})));
+  CHECK_THROWS_WITH(eval_node<HeldIntoCanonicalForwardProvider>(values<Value>(tsb_delta<PlainHeld>(Int{7}))),
+                    Catch::Matchers::ContainsSubstring("fixed TSData copy requires the parent value schema"));
+  CHECK_THROWS_WITH(eval_node<CanonicalIntoHeldForwardProvider>(values<Value>(tsb_delta<PlainCanonical>(Int{7}))),
+                    Catch::Matchers::ContainsSubstring("fixed TSData copy requires the parent value schema"));
+}
+
+TEST_CASE("temporal Bundle matching preserves exact source value metadata", "[legacy-parent-copy]") {
+  using namespace hgraph;
+  using namespace hgraph::testing;
+  CHECK(time_series_schema_equivalent(schema_descriptor<PlainCanonical>::ts_meta(), schema_descriptor<PlainUnnamed>::ts_meta()));
+  CHECK_THROWS_WITH(eval_node<CanonicalIntoUnnamedForwardProvider>(values<Value>(tsb_delta<PlainCanonical>(Int{7}))),
+                    Catch::Matchers::ContainsSubstring("fixed TSData copy requires the parent value schema"));
+}
+
+TEST_CASE("static generic held nominal markers resolve the same exact projection", "[held-nominal]") {
+  using namespace hgraph;
+  using T = ScalarVar<"held_record_element">;
+  using Pair = UnNamedTSB<Field<"0", TS<T>>, Field<"1", TS<Bool>>>;
+  using Origin = NominalBundle<"tests.held", "Generic", false, BundleParents<>, BundleArguments<T>,
+                               Field<"pair", FixedTuple<T, Bool>>>;
+  using Held = HeldNominalBundle<Origin, BundleParents<>, Field<"pair", Pair>>;
+  using Temporal = NominalTSB<Held, Field<"pair", Pair>>;
+  ResolutionMap bindings;
+  bindings.bind_scalar("held_record_element", scalar_descriptor<Int>::value_meta());
+  const auto *resolved = ts_resolver<Temporal>::resolve(bindings);
+  REQUIRE(resolved != nullptr);
+  const auto pattern = to_pattern<Temporal>();
+  CHECK(ts_pattern_resolve(pattern, bindings) == resolved);
+  ResolutionMap matched;
+  REQUIRE(ts_pattern_match(pattern, resolved, matched));
+  CHECK(matched.scalar("held_record_element") == scalar_descriptor<Int>::value_meta());
+  ResolutionMap ordinary_match;
+  CHECK_FALSE(scalar_pattern_match(to_scalar_pattern<Origin>(), resolved->value_schema, ordinary_match));
+  CHECK_THROWS_AS(scalar_unifier<Origin>::unify(resolved->value_schema, ordinary_match), std::logic_error);
+  ResolutionMap unified;
+  CHECK_NOTHROW(ts_unifier<Temporal>::unify(resolved, unified));
+  CHECK(unified.scalar("held_record_element") == scalar_descriptor<Int>::value_meta());
 }
 
 TEST_CASE("a storage category takes no part in type resolution") {

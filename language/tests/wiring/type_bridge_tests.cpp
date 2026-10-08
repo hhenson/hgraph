@@ -10,6 +10,7 @@
 #include <hgl/temporal_literals.h>
 #include <hgraph/lib/std/standard_types.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/time_series/endpoint_schema.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/registry_reset.h>
 
@@ -221,7 +222,14 @@ fn forms(
     CHECK(atomic_child.range.end > atomic_child.range.begin);
 
     CHECK(bridge.schema(unit.parameter("forms", "atomic_child")) == registry.ts(child));
-    CHECK(bridge.schema(unit.parameter("forms", "bundle_child")) == registry.tsb(child));
+    const auto *base = child->bundle_hierarchy->parents.front();
+    const auto *held_base = registry.projected_bundle(base, {{"first", types.float_type}});
+    const auto *held_child = registry.projected_bundle(child, {{"first", types.float_type}, {"second", types.float_type}}, {held_base});
+    const auto *child_temporal = bridge.schema(unit.parameter("forms", "bundle_child"));
+    CHECK(child_temporal == registry.tsb(held_child, {{"first", registry.ts(types.float_type)}, {"second", registry.ts(types.float_type)}}));
+    CHECK(child_temporal->value_schema != child);
+    CHECK(child_temporal->value_schema->bundle_hierarchy->ordinary_origin == child);
+    CHECK(hgraph::time_series_schema_equivalent(child_temporal, registry.tsb(child)));
     CHECK(bridge.schema(unit.parameter("forms", "tuple_value")) == registry.ts(registry.tuple({types.int_type, types.float_type})));
     CHECK(bridge.schema(unit.parameter("forms", "series_list")) == registry.tsl(registry.ts(types.float_type), 3));
     CHECK(bridge.schema(unit.parameter("forms", "series_set")) == registry.tss(types.str_type));
@@ -486,12 +494,13 @@ fn forms(
     CHECK(value("holder")->fields[0].type == node);
 
     // Temporal Node is a finite bundle: `next` is one endpoint whose value is
-    // the owner Node stores, so the bundle's value schema is Node itself.
+    // the owner Node stores. Its held parent metadata remains distinct.
     const auto *temporal = bridge.schema(unit.parameter("forms", "temporal"));
     REQUIRE(temporal != nullptr);
     REQUIRE(temporal->kind == hgraph::TSTypeKind::TSB);
     CHECK(temporal->fields()[1].type == registry.ts(node->fields[1].type));
-    CHECK(temporal->value_schema == node);
+    CHECK(temporal->value_schema != node);
+    CHECK(temporal->value_schema->bundle_hierarchy->ordinary_origin == node);
 
     // A second bridge over the same module finds the registered batch.
     hgl::wiring::TypeBridge again{unit.graph, unit.diagnostics};
@@ -1414,5 +1423,44 @@ fn observe(value: WindowFields) -> WindowFields => value
     REQUIRE(delta != nullptr);
     REQUIRE(delta->bundle_generic_arguments().size() == 1);
     CHECK(hgl::ordinary::origin_source(delta->bundle_generic_arguments()[0]) == shape);
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
+TEST_CASE("direct and static nominal tuple descriptors share exact held fields and parents", "[language][wiring][types][held-nominal]") {
+    Unit unit{R"(
+module checks.held_static_bridge
+abstract struct Parent { id: i64 }
+struct Child: Parent { pair: tuple<i64, bool>
+                      extra: i64 = null }
+fn identity(value: Child) -> Child => value
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    const auto type = unit.parameter("identity", "value");
+    const auto *source = bridge.value(type);
+    const auto *temporal = bridge.schema(type);
+    REQUIRE(source != nullptr);
+    REQUIRE(temporal != nullptr);
+    using namespace hgraph;
+    using Parent = NominalBundle<"checks.held_static_bridge", "Parent", true, BundleParents<>, BundleArguments<>, Field<"id", Int>>;
+    using HeldParent = HeldNominalBundle<Parent, BundleParents<>, Field<"id", TS<Int>>>;
+    using ParentTS = NominalTSB<HeldParent, Field<"id", TS<Int>>>;
+    using Pair = UnNamedTSB<Field<"0", TS<Int>>, Field<"1", TS<Bool>>>;
+    using Child = NominalBundle<"checks.held_static_bridge", "Child", false, BundleParents<Parent>, BundleArguments<>,
+                                Field<"id", Int>, Field<"pair", FixedTuple<Int, Bool>>, Field<"extra", Int>>;
+    using HeldChild = HeldNominalBundle<Child, BundleParents<ParentTS>, Field<"id", TS<Int>>, Field<"pair", Pair>, Field<"extra", TS<Int>>>;
+    using ChildTS = NominalTSB<HeldChild, Field<"id", TS<Int>>, Field<"pair", Pair>, Field<"extra", TS<Int>>>;
+    CHECK(source == value_schema_descriptor<Child>::value_meta());
+    CHECK(temporal == schema_descriptor<ChildTS>::ts_meta());
+    CHECK(temporal->value_schema != source);
+    CHECK(temporal->value_schema->bundle_hierarchy->ordinary_origin == source);
+    CHECK(temporal->value_schema->fields[1].type == schema_descriptor<Pair>::ts_meta()->value_schema);
+    REQUIRE(temporal->value_schema->bundle_hierarchy->parents.size() == 1);
+    CHECK(temporal->value_schema->bundle_hierarchy->parents[0] == value_schema_descriptor<HeldParent>::value_meta());
+    CHECK_FALSE(TypeRegistry::instance().value_is_a(temporal->value_schema, value_schema_descriptor<Parent>::value_meta()));
+    CHECK_FALSE(bridge.optional_field(temporal->value_schema, 0));
+    CHECK_FALSE(bridge.optional_field(temporal->value_schema, 1));
+    CHECK(bridge.optional_field(temporal->value_schema, 2));
     CHECK_FALSE(unit.diagnostics.has_errors());
 }

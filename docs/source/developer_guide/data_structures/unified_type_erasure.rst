@@ -306,6 +306,74 @@ bundle uses its nominal name, while its structural twin retains the
 ``Bundle{...}`` form.  Registry aliases are lookup names only and never mutate
 that canonical label or affect schema identity.
 
+An explicit held nominal Bundle (RFC 0046) has its own exact field schemas,
+storage binding and structural twin. ``TypeRegistry::projected_bundle`` prepares
+it from an ordinary nominal origin and exact projected parents. Its const
+``ordinary_origin`` pointer retains the language identity; it is never a value
+name alias and does not relax ordinary schema equality, copying or covariance.
+Even unchanged-field parents get distinct held metadata so their held children
+cannot join an ordinary family. Hierarchy snapshots include both separate
+families, preserving each abstract flag and discriminator. The factory checks
+the recursive projection relation once with a visited pair set, then interns
+the exact fields and verifies projected parents on reuse.
+
+``TypeRegistry::tsb(held_bundle, temporal_fields)`` requires each child's actual
+held schema to match the prepared Bundle field. Static ``HeldNominalBundle``
+markers and the HGL type bridge call these same preparation factories. Generic
+nominal TSB resolution retains its ordinary origin constructor and exact
+temporal parent patterns; only its auxiliary temporal nominal matching uses the
+ordinary origin. A normal scalar record pattern still rejects held metadata.
+Existing plain-field C++ nominal TSB providers retain their canonical schemas
+and use the established temporal name-and-child equivalence rule when wiring
+against a held descriptor. Atomic abstract families keep ordinary metadata and
+stop structural conversion; this representation API does not broaden the
+shared eval profile to structural abstract-family inputs.
+
+Temporal matching does not imply ordinary parent value identity.
+``In<TSB>::value()`` preserves the bound source's actual metadata, including
+at a legacy named/unnamed boundary. Whole ``copy_value_from`` still requires
+the exact output parent schema. A provider forwarding between matching
+temporal descriptors with different ordinary parents uses typed child
+selectors. HGL ordinary observations instead normalize through their prepared
+source and target bindings before publishing children.
+
+Normal generic record arguments preserve their ordinary metadata independently
+of their temporal resolutions. The private HGL ``Temporal`` alias recursively
+lifts Tuple, List, Map and nominal arguments; explicit Atomic fields bypass it.
+Delta-activated shape formals retain their originating temporal identity.
+``PreparedObservationPlan`` checks the actual temporal shape against the declared
+ordinary origin during preparation, records named-field indices by name, and
+selects recursive conversion operations. Retention preserves typed holes and
+uses those operations without schema discovery or registry access during ticks.
+``PreparedPublicationPlan`` likewise selects the generic result writer once;
+ordinary scalar matching and whole-parent copying remain strict.
+
+Runtime nodes prepare their ordinary bindings in node storage. Aggregate locals
+and recursively referenced value helpers also trigger cold preparation even
+with scalar-only signatures. Helper bindings share the module's dedicated
+preparation function with its provider installer; direct C++ node wiring does
+not depend on a provider having run before the first evaluation.
+
+HGL complete structural publication
+-----------------------------------
+
+HGL implements the specification's bounded complete-value publication rule
+separately from sparse delta application. It retains the complete expression
+before output writes, then publishes each live child and invalidates each
+observed unset child. A Map reconciles exact membership, removing absent output
+keys while preserving existing unset members. Empty or wholly invalid
+structural snapshots and newly introduced unset Map members remain outside
+this profile. Source endpoint timestamps are never copied.
+
+Resolved fields use prepared constant index plans. For a source type variable,
+``hgl::ordinary::PreparedPublicationPlan`` selects recursive publication
+function pointers from its concrete temporal schema during node preparation.
+Its exact ordinary source bindings remain separate from the output parent's
+held bindings. Evaluation uses these cached operations and child plans;
+it performs no type-kind discovery, schema interning or binding lookup.
+Generic input observations are erased values, and local retention owns their
+payload rather than wrapping the address of a ``ValueView`` object.
+
 Value ops tables carry a separate one-byte ``ValueOpsKind`` discriminator at
 offset zero.  It describes the concrete ops-table ABI, not the semantic value
 schema.  The supported hierarchy is ``Base <- Indexed`` with the leaf branches
