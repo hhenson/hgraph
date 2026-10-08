@@ -50,6 +50,17 @@ namespace hgl::ir {
                 return {};
             }
 
+            bool cold_call_contract(const Expr &site) const {
+                if (site.operation.kind == OperationKind::Capability || has_effect(site.effects, Effect::UseCapability)) { return false; }
+                for (const auto &native : module_.native_functions) {
+                    if ((native.symbol == site.operation.target ||
+                         std::ranges::find(site.operation.native_candidates, native.symbol) != site.operation.native_candidates.end()) &&
+                        (!native.capabilities.empty() ||
+                         std::ranges::find(native.phases, NativePhase::Wiring) == native.phases.end())) { return false; }
+                }
+                return true;
+            }
+
             bool invoke(const Expr &site, const Call &call, const FunctionDecl &fn, Facts &caller) {
                 Facts facts;
                 std::vector<bool> supplied(fn.signature.parameters.size());
@@ -74,11 +85,21 @@ namespace hgl::ir {
                     supplied[index] = true;
                     if (argument.name.empty() && parameter.pack == ParameterPack::None) { ++positional; }
                 }
+                // The valid target names one immutable symbolic source body. This
+                // analysis is type-independent: substitutions do not change that
+                // body or the parameter coldness facts used as the cache key.
                 std::string key = std::to_string(site.operation.target.value) + ":";
                 for (std::size_t index = 0; index < supplied.size(); ++index) {
                     const auto &parameter = fn.signature.parameters[index];
                     if (!supplied[index]) { facts[parameter.symbol.value] = expression(parameter.default_value, facts); }
                     key += facts[parameter.symbol.value] ? '1' : '0';
+                }
+                // Without a body there is no proof that any argument is irrelevant.
+                // Retain the declared cold-call contract and require every bound
+                // argument (including defaults) to be cold.
+                if (!fn.concise_body.valid() && !fn.block_body.valid()) {
+                    return fn.capabilities.empty() && !has_effect(fn.effects, Effect::UseCapability) &&
+                        cold_call_contract(site) && std::ranges::all_of(facts, [](const auto &fact) { return fact.second; });
                 }
                 if (const auto found = results_.find(key); found != results_.end()) { return found->second; }
                 // A cycle with only constant inputs is provisionally cold;
@@ -139,14 +160,8 @@ namespace hgl::ir {
                                 const auto target = root(node.arguments.front().value);
                                 if (target.valid()) { facts[target.value] = control && constant; }
                             }
-                            if (value.operation.kind == OperationKind::Capability || has_effect(value.effects, Effect::UseCapability)) { return false; }
+                            if (!cold_call_contract(value)) { return false; }
                             if (const auto *fn = function(value.operation.target); fn && !fn->is_const) { return false; }
-                            for (const auto &native : module_.native_functions) {
-                                if ((native.symbol == value.operation.target ||
-                                     std::ranges::find(value.operation.native_candidates, native.symbol) != value.operation.native_candidates.end()) &&
-                                    (!native.capabilities.empty() ||
-                                    std::ranges::find(native.phases, NativePhase::Wiring) == native.phases.end())) { return false; }
-                            }
                         }
                         return constant;
                     } else if constexpr (std::is_same_v<T, If>) {

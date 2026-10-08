@@ -1,5 +1,6 @@
 #include "ir/hir_printer.h"
 #include "ir/lower.h"
+#include "ir/list_literal_admission.h"
 #include "ir/type_check.h"
 #include "syntax/parser.h"
 
@@ -4217,5 +4218,74 @@ TEST_CASE("value helpers defer list literal admission to relevant argument depen
         CHECK(std::ranges::any_of(unit.diagnostics.diagnostics(), [](const auto &diagnostic) {
             return diagnostic.category == hgl::syntax::Category::Phase && diagnostic.code.empty();
         }));
+    }
+}
+
+TEST_CASE("body absent value declarations do not infer irrelevant list dependencies", "[ir][typed][list-literal]") {
+    // Ordinary source functions require a body. Exercise the defensive HIR path
+    // by removing a checked source body, as a declaration-only provider would.
+    for (const std::string argument : {"1", "value"}) {
+        Lowered unit{"module checks.body_absent\nconst fn identity(x: i64) -> i64 => x\n"
+            "fn observe(value: i64) -> i64 { when { let result = identity(" + argument + ")\nreturn result } }\n"};
+        require_clean(unit);
+        REQUIRE(complete(unit));
+        for (auto &declaration : unit.hir.declarations) {
+            if (auto *fn = std::get_if<hir::FunctionDecl>(&declaration.node); fn && fn->is_const) { fn->concise_body = {}; }
+        }
+        // Wrap the existing call in an ordinary literal without changing its
+        // resolved target/argument facts, then check admission in isolation.
+        auto found = std::ranges::find_if(unit.hir.exprs, [](const auto &expr) {
+            return std::holds_alternative<hir::Call>(expr.node) && expr.operation.kind == hir::OperationKind::ExactFunction;
+        });
+        REQUIRE(found != unit.hir.exprs.end());
+        const hir::ExprId call{static_cast<std::uint32_t>(found - unit.hir.exprs.begin())};
+        unit.hir.exprs.push_back(*found);
+        auto &literal = unit.hir.exprs[call.value];
+        hir::Sequence sequence;
+        sequence.elements.push_back({.value = hir::ExprId{static_cast<std::uint32_t>(unit.hir.exprs.size() - 1)}});
+        literal.node = std::move(sequence);
+        const std::array<const hir::Expr *, 1> literals{&literal};
+        hgl::syntax::DiagnosticSink diagnostics;
+        hgl::ir::check_list_literal_admission(unit.hir, literals,
+            [&](hir::ExprId id) { return unit.hir.expr(id).phase == hir::Phase::Constant; }, diagnostics);
+        INFO(diagnostics.render(unit.file));
+        CHECK(diagnostics.has_errors() == (argument == "value"));
+    }
+}
+
+TEST_CASE("native value list elements require cold arguments and a cold phase contract", "[ir][typed][list-literal]") {
+    // A source native value declaration has hook phases, not Wiring.
+    for (const std::string argument : {"1", "value"}) {
+        Lowered unit{"module checks.native_list\nnative const fn identity(value: i64) -> i64\n"
+            "fn observe(value: i64) -> i64 { when { let values = [identity(" + argument + ")]\nreturn len(values) } }\n"};
+        require_clean(unit);
+        CHECK_FALSE(complete(unit));
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(unit.diagnostics.has_errors());
+    }
+    for (const bool wiring : {false, true}) {
+        const auto catalog = native_catalog(wiring ? std::vector{hgl::semantics::NativeCallPhase::Wiring, hgl::semantics::NativeCallPhase::Evaluation}
+                                                   : std::vector{hgl::semantics::NativeCallPhase::Evaluation}, hgl::NativeExecutionRole::Value);
+        for (const std::string argument : {"1.0", "value"}) {
+            Lowered unit{"module checks.descriptor_list\nuse acme.stats::{blend}\n"
+                "fn observe(value: f64) -> i64 { when { let values = [blend(" + argument + ", 3)]\nreturn len(values) } }\n", catalog};
+            require_clean(unit);
+            const bool admitted = wiring && argument == "1.0";
+            CHECK(complete(unit) == admitted);
+            INFO(unit.diagnostics.render(unit.file));
+            CHECK(unit.diagnostics.has_errors() != admitted);
+        }
+    }
+}
+
+TEST_CASE("generic list helper coldness is independent of type substitutions", "[ir][typed][list-literal]") {
+    for (const std::string argument : {"1", "value"}) {
+        Lowered unit{"module checks.generic_list\nconst fn make<T>(x: T, unused: i64) -> list<T> => [x]\n"
+            "fn observe(value: i64) -> i64 { when { let floats = make(1.0, value)\n"
+            "let ints = make(" + argument + ", value)\nreturn len(floats) + len(ints) } }\n"};
+        require_clean(unit);
+        CHECK(complete(unit) == (argument == "1"));
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(unit.diagnostics.has_errors() == (argument == "value"));
     }
 }
