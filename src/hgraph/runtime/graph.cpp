@@ -767,13 +767,19 @@ void nested_schedule_node_impl(const void *context, const GraphView &graph,
   const auto &runtime = graph_context(context);
   auto &state = graph_header<NestedGraphRuntimeStorage>(runtime, graph.data());
   auto parent = state.parent_node();
+  // Resolved once: this runs on every notification that reaches an idle
+  // nested node (each child tick of a keyed map), and NodeView::graph() goes
+  // through the node ops table each time. The bake-off profile of a 200-key
+  // dense map put this function at about 17% of the run; it used to resolve
+  // the parent graph twice (clamp, then schedule).
+  const GraphView parent_graph = parent.graph();
 
   // An idle child retains the time of its last evaluation while its
   // parent may already be processing a later cycle. A cross-boundary
   // notification (notably a REF rebind that samples an older target)
   // must run in the parent's current cycle, never schedule either
   // graph back at the child's stale clock.
-  when = std::max(when, parent.graph().evaluation_time());
+  when = std::max(when, parent_graph.evaluation_time());
   schedule_node_impl<NestedGraphRuntimeStorage>(context, graph, node_index,
                                                 when);
 
@@ -792,7 +798,7 @@ void nested_schedule_node_impl(const void *context, const GraphView &graph,
   if (state.child_schedule_observer != nullptr) {
     state.child_schedule_observer(state.child_schedule_observer_context, when);
   }
-  parent.graph().schedule_node(parent.node_index(), when);
+  parent_graph.schedule_node(parent.node_index(), when);
 }
 
 void nested_set_child_schedule_observer_impl(const void *context, void *memory,

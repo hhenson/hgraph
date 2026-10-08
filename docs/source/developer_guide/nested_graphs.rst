@@ -529,7 +529,11 @@ graph ops (no separate engine/clock object; see the recorded decision):
   ``map_``) rely on when a child is not evaluated every parent cycle. The
   push is deliberately gated off during child evaluation (pull covers it, and
   pushing mid-evaluate would schedule a spurious extra parent cycle) and
-  while the child is stopped.
+  while the child is stopped. The push resolves the parent's graph **once**
+  per call (``NodeView::graph()`` goes through the node ops table); the
+  2026-10-07 bake-off profile put this function at about 17% of a dense
+  keyed-``map_`` run, and it used to resolve the parent graph twice (clamp,
+  then schedule).
 
 The push tells a keyed parent *when* but not *which child*. For ``map_`` and
 ``mesh_`` that identity matters: both operators keep sparse child worklists,
