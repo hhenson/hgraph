@@ -2296,7 +2296,12 @@ Complete ordinary struct construction evaluates supplied fields in written
 order, independently retains each result, and only then retains omitted
 constant defaults in schema order. Assembly uses field indices and never
 reevaluates expressions. List push retains the new element before changing the
-sequence. Nonempty constant list literals initialize elements in source order:
+sequence. Ordinary nonempty literals must have constant elements. The cold
+`ir/list_literal_admission` pass follows relevant value-function arguments,
+locals and control flow; it admits constant invocations without treating a
+`const fn` declaration as a promise of purity. Runtime capability dependencies
+remain nonconstant. Harness sequences and constructor entry lists retain their
+separate admission paths. Nonempty constant list literals initialize elements in source order:
 unbounded lists use prepared append, while fixed lists initialize their checked
 positions without changing their extent. An ordinary global-entry local keeps
 its prepared entry borrow so list growth updates the stored entry directly.

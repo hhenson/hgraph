@@ -161,6 +161,7 @@ add_library(hgl_ir STATIC
     src/ir/hir.cpp
     src/ir/hir_printer.cpp
     src/ir/lower.cpp
+    src/ir/list_literal_admission.cpp
     src/ir/type_check.cpp
 )
 add_library(hgl::ir ALIAS hgl_ir)

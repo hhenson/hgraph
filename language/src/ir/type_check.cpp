@@ -6,6 +6,7 @@
 #include "ir/constraint_solver.h"
 #include "ir/definite_assignment.h"
 #include "ir/generic_substitution.h"
+#include "ir/list_literal_admission.h"
 #include "syntax/temporal.h"
 
 #include <algorithm>
@@ -82,6 +83,10 @@ namespace hgl::ir
                 for (DeclarationId declaration : module_.source_order) { check_declaration(declaration); }
                 infer_capabilities();
                 check_value_call_phases();
+                if (!diagnostics_.has_errors()) {
+                    check_list_literal_admission(module_, ordinary_list_literals_,
+                        [&](ExprId id) { return constant_key_recipe(id); }, diagnostics_);
+                }
                 ir::check_definite_assignment(module_, diagnostics_);
                 validate_completion();
                 if (diagnostics_.has_errors()) { return false; }
@@ -3361,6 +3366,7 @@ namespace hgl::ir
                 const TypeKind kind   = expected.valid() && type(canonical(expected)).kind == TypeKind::HarnessSequence
                                             ? TypeKind::HarnessSequence
                                             : TypeKind::List;
+                if (kind == TypeKind::List && !node.elements.empty()) { ordinary_list_literals_.push_back(&expression); }
                 expression.type       = use_expected_list ? canonical(expected) : make_type(kind, {element_type});
                 expression.phase      = phase;
                 expression.value_kind = kind == TypeKind::HarnessSequence ? ValueKind::Constant : value_kind_for_phase(phase);
@@ -5470,6 +5476,7 @@ namespace hgl::ir
             std::vector<std::uint64_t> temporal_branches_{};
             std::uint64_t temporal_branch_id_{};
             std::unordered_map<std::uint32_t, Phase> symbol_phase_{};
+            std::vector<const Expr *> ordinary_list_literals_{};
             std::unordered_map<std::uint32_t, bool>  checked_blocks_{};
             std::unordered_set<std::uint64_t>        checked_type_applications_{};
             std::unordered_set<std::uint32_t> delta_observations_{};

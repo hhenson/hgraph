@@ -4134,3 +4134,88 @@ const fn stored() -> delta<list<i64>> => delta<list<i64>>(items: [1: 9], remove:
     INFO(unit.diagnostics.render(unit.file));
     CHECK_FALSE(unit.diagnostics.has_errors());
 }
+
+TEST_CASE("ordinary nonempty list literals require constant elements", "[ir][typed][list-literal]") {
+    for (const std::string body : {
+        "let values = [value]",
+        "let values: list<i64, 1> = [value]",
+        "let values: delta<atomic<list<i64>>> = [value]",
+        "let values = [(value, false)]",
+        "let values = [[value]]"
+    }) {
+        Lowered unit{"module checks.list_literal\nfn bad(value: i64) -> i64 { when {\n" + body + "\nreturn value\n} }\n"};
+        require_clean(unit);
+        CHECK_FALSE(complete(unit));
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(std::ranges::any_of(unit.diagnostics.diagnostics(), [&](const auto &diagnostic) {
+            return diagnostic.category == hgl::syntax::Category::Phase && diagnostic.code.empty() &&
+                   diagnostic.message == "a nonempty ordinary list literal requires constant elements";
+        }));
+    }
+}
+
+TEST_CASE("list literal admission preserves constant empty harness and delta construction", "[ir][typed][list-literal]") {
+    for (const std::string source : {
+        "const fn values() -> list<i64> => [1, 2]",
+        "const fn values() -> list<i64, 2> => [1, 2]",
+        "const fn values() -> list<timezone> => [@[Europe/London], @[Etc/UTC]]",
+        "const fn values() -> list<zoned_datetime> => [@2026-01-15T12:30+00:00[Etc/UTC]]",
+        "enum Mode { first, second }\nconst fn values() -> list<Mode, 2> => [Mode::first, Mode::second]",
+        "struct Point { x: i64 }\nfn values(value: i64) -> i64 { when { let points = [Point(x: 1)]\nreturn len(points) } }",
+        "fn values(value: i64) -> i64 { when { let fixed: list<tuple<i64, bool>, 2> = [(7, false), (8, true)]\nreturn fixed[0][0] } }",
+        "fn values(value: i64) -> i64 { when { var items: list<i64> = []\npush(items, value)\nreturn len(items) } }",
+        "fn values(value: list<i64, 2>) -> list<i64, 2> { when all_valid(value) { let copy = value\nreturn copy } }",
+        "fn values(value: i64) -> list<i64, 2> { when { return delta<list<i64, 2>>(items: [0: value]) } }",
+        "const fn countdown(x: i64) -> i64 { if x <= 0 { return 1 }\nreturn countdown(x - 1) }\nconst fn values() -> list<i64> => [countdown(2)]",
+        "fn identity(value: i64) -> i64 => value\ntest harness { assert eval(identity, [1, _, 2]) == [1, _, 2] }"
+    }) {
+        Lowered unit{"module checks.list_controls\n" + source + "\n"};
+        require_clean(unit);
+        CHECK(complete(unit));
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK_FALSE(unit.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("value helpers defer list literal admission to relevant argument dependencies", "[ir][typed][list-literal]") {
+    const std::string declarations =
+        "const fn make(x: i64, unused: i64) -> list<i64> => [x]\n"
+        "const fn first(x: i64, unused: i64) -> i64 => x\n"
+        "const fn nested(x: i64, unused: i64) -> list<i64> => make(first(x, unused), unused)\n";
+    for (const std::string call : {"make(value, 1)", "nested(value, 1)"}) {
+        Lowered unit{"module checks.dynamic_helper\n" + declarations +
+            "fn bad(value: i64) -> i64 { when { let values = " + call + "\nreturn len(values) } }\n"};
+        require_clean(unit);
+        CHECK_FALSE(complete(unit));
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(std::ranges::any_of(unit.diagnostics.diagnostics(), [](const auto &diagnostic) {
+            return diagnostic.category == hgl::syntax::Category::Phase && diagnostic.code.empty();
+        }));
+    }
+    for (const std::string call : {"make(1, 2)", "make(1, value)", "nested(1, value)"}) {
+        Lowered unit{"module checks.constant_helper\n" + declarations +
+            "fn good(value: i64) -> i64 { when { let values = " + call + "\nreturn len(values) } }\n"};
+        require_clean(unit);
+        CHECK(complete(unit));
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK_FALSE(unit.diagnostics.has_errors());
+    }
+    for (const std::string source : {
+        "const fn make() -> list<datetime> { inject clock\nreturn [clock.now] }",
+        "const fn stamp() -> datetime { inject clock\nreturn clock.now }\nconst fn make() -> list<datetime> => [stamp()]",
+        "const fn make(x: i64) -> list<i64> { var saved = 1\nsaved = x\nreturn [saved] }\nfn bad(value: i64) -> i64 { when { let values = make(value)\nreturn len(values) } }",
+        "const fn make(x: i64) -> list<i64> { var saved = 1\nif x > 0 { saved = 2 }\nreturn [saved] }\nfn bad(value: i64) -> i64 { when { let values = make(value)\nreturn len(values) } }",
+        "const fn pick(x: i64) -> i64 { if x > 0 { return 1 }\nreturn 2 }\nfn bad(value: i64) -> i64 { when { let values = [pick(value)]\nreturn len(values) } }",
+        "const fn make(x: i64) -> list<list<i64>> { var saved: list<i64> = []\nif x > 0 { push(saved, 1) }\nreturn [saved] }\nfn bad(value: i64) -> i64 { when { let values = make(value)\nreturn len(values) } }",
+        "struct Pair { first: i64\nsecond: i64 }\nconst fn make(x: i64) -> list<Pair> { var saved = Pair(first: x, second: 1)\nsaved.second = 2\nreturn [saved] }\nfn bad(value: i64) -> i64 { when { let values = make(value)\nreturn len(values) } }",
+        "const fn make(x: i64) -> list<i64> { var count = 0\nvar again = true\nwhile again { count += 1\nagain = x > count }\nreturn [count] }\nfn bad(value: i64) -> i64 { when { let values = make(value)\nreturn len(values) } }"
+    }) {
+        Lowered unit{"module checks.dynamic_recipe\n" + source + "\n"};
+        require_clean(unit);
+        CHECK_FALSE(complete(unit));
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(std::ranges::any_of(unit.diagnostics.diagnostics(), [](const auto &diagnostic) {
+            return diagnostic.category == hgl::syntax::Category::Phase && diagnostic.code.empty();
+        }));
+    }
+}
