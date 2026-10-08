@@ -109,7 +109,7 @@ export fn tuple_map_copy(value: tuple<map<i64, tuple<i64, bool>>, bool>) -> tupl
 
 export fn tuple_collection_result(value: i64) -> tuple<list<tuple<i64, bool>, 2>, map<i64, tuple<i64, bool>>> {
     when {
-        let pairs: list<tuple<i64, bool>, 2> = [(value, false), (value + 1, true)]
+        let pairs: list<tuple<i64, bool>, 2> = [(7, false), (8, true)]
         return (pairs, map<i64, tuple<i64, bool>>(items: [4: (value, false)]))
     }
 }
