@@ -336,6 +336,12 @@ the exact output parent schema. A provider forwarding between matching
 temporal descriptors with different ordinary parents uses typed child
 selectors. HGL ordinary observations instead normalize through their prepared
 source and target bindings before publishing children.
+Composition constructors retain shared preparation-time field provenance.
+At an Atomic call boundary, the direct compiler verifies the constructor's
+ordinary nominal origin, recursively adapts supplied child constructors to
+their exact ordinary field schemas, and uses the existing field assembler.
+Missing optional fields remain omitted; they do not gate construction. This
+adaptation does not make ordinary and held parent bindings interchangeable.
 
 Normal generic record arguments preserve their ordinary metadata independently
 of their temporal resolutions. The private HGL ``Temporal`` alias recursively

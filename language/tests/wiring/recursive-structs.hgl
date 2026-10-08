@@ -87,12 +87,17 @@ test mutual_pair { assert eval(pair_tag, tag: ["y"]) == ["y"] }
 test generic_edges {
     assert eval(tree_value, x: [2]) == [2]
     assert eval(swapped_value, x: ["s"]) == ["s"]
+    assert eval(tree_value, x: [_, 2]) == [_, 2]
 }
 test abstract_edges {
     assert eval(add_equal, x: [0]) == [true]
     assert eval(item_value, x: [1]) == [1]
+    assert eval(item_value, x: [_, 1]) == [_, 1]
 }
-test held_inline { assert eval(holder_value, x: [2]) == [2] }
+test held_inline {
+    assert eval(holder_value, x: [2]) == [2]
+    assert eval(holder_value, x: [_, 2]) == [_, 2]
+}
 test temporal_shape {
     assert eval(unwrapped_value, x: [2]) == [2]
     assert eval(wrapped_value, x: [1]) == [1]

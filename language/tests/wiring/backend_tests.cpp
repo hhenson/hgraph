@@ -1374,22 +1374,48 @@ struct Tree<T> { value: T
     left: atomic<Tree<T>> = null }
 abstract struct Linked { next: atomic<Linked> = null }
 struct Item: Linked { value: i64 }
+struct Holder { first: Node
+    count: i64 }
 fn node_value(value: atomic<Node>) -> i64 => value.next.value
 fn tree_value(value: atomic<Tree<i64>>) -> i64 => value.left.value
 fn item_value(value: atomic<Item>) -> i64 => value.value
+fn holder_value(value: atomic<Holder>) -> i64 => value.first.next.value
 fn nested(value: i64) -> i64 => node_value(Node(value: value, next: Node(value: 7)))
 fn generic(value: i64) -> i64 => tree_value(Tree<i64>(value: 1, left: Tree<i64>(value: value)))
 fn inherited(value: i64) -> i64 => item_value(Item(value: value))
+fn held_inline(value: i64) -> i64 => holder_value(Holder(first: Node(value: 1, next: Node(value: value)), count: 3))
 test recursive_values {
     assert eval(nested, value: [1, 2]) == [7, 7]
     assert eval(generic, value: [3, 4]) == [3, 4]
     assert eval(inherited, value: [5, 6]) == [5, 6]
+    assert eval(held_inline, value: [7, 8]) == [7, 8]
+    # Supplied fields gate complete construction; omitted recursive defaults do not.
+    assert eval(nested, value: [_, 2]) == [_, 7]
+    assert eval(generic, value: [_, 4]) == [_, 4]
+    assert eval(inherited, value: [_, 6]) == [_, 6]
+    assert eval(held_inline, value: [_, 8]) == [_, 8]
 }
 )"};
     const auto result = only(unit.tests());
     INFO(unit.diagnostics.render(unit.file));
     INFO(result.message);
     CHECK(result.passed);
+}
+
+TEST_CASE("complete constructor atomic adaptation rejects a different nominal origin", "[wiring][recursive]") {
+    Unit unit{R"(
+module checks.recursive_origin
+struct Node { value: i64
+    next: atomic<Node> = null }
+struct Other { value: i64
+    next: atomic<Other> = null }
+fn node_value(value: atomic<Node>) -> i64 => value.value
+fn wrong(value: i64) -> i64 => node_value(Other(value: value))
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK(unit.diagnostics.has_errors());
+    CHECK(std::any_of(unit.diagnostics.diagnostics().begin(), unit.diagnostics.diagnostics().end(),
+        [](const Diagnostic &diagnostic) { return diagnostic.category == Category::Type; }));
 }
 
 TEST_CASE("temporal publication literals preserve identity and validate before eval", "[wiring][temporal]") {
