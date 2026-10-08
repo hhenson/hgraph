@@ -1047,12 +1047,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.add_#36@instantiate:0";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::add(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:9
@@ -1077,12 +1078,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.add_#36@instantiate:1";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::add__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:9
@@ -1107,12 +1109,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.add_#36@instantiate:2";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::add__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:9
@@ -1137,12 +1140,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.add_#36@instantiate:3";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::add__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:16
@@ -1167,12 +1171,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.sub_#37@instantiate:4";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::sub(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:16
@@ -1197,12 +1202,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.sub_#37@instantiate:5";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::sub__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:16
@@ -1227,12 +1233,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.sub_#37@instantiate:6";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::sub__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:16
@@ -1257,12 +1264,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.sub_#37@instantiate:7";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::sub__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:23
@@ -1287,12 +1295,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.mul_#38@instantiate:8";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mul(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:23
@@ -1317,12 +1326,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.mul_#38@instantiate:9";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mul__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:23
@@ -1347,12 +1357,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.mul_#38@instantiate:10";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mul__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:23
@@ -1377,12 +1388,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.mul_#38@instantiate:11";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mul__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:30
@@ -1407,12 +1419,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.div_#39@instantiate:12";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                       hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::div(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:30
@@ -1437,12 +1450,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.div_#39@instantiate:13";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::div__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:30
@@ -1467,12 +1481,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.div_#39@instantiate:14";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::div__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:30
@@ -1497,12 +1512,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.div_#39@instantiate:15";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::div__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:37
@@ -1527,12 +1543,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.floordiv_#40@instantiate:16";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::floordiv(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:37
@@ -1557,12 +1574,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.floordiv_#40@instantiate:17";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::floordiv__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:37
@@ -1587,12 +1605,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.floordiv_#40@instantiate:18";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::floordiv__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:37
@@ -1617,12 +1636,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.floordiv_#40@instantiate:19";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::floordiv__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:44
@@ -1647,12 +1667,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.mod_#41@instantiate:20";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mod(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:44
@@ -1677,12 +1698,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.mod_#41@instantiate:21";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mod__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:44
@@ -1707,12 +1729,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.mod_#41@instantiate:22";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mod__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:44
@@ -1737,12 +1760,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.mod_#41@instantiate:23";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mod__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:51
@@ -1767,12 +1791,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.eq_#42@instantiate:24";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::eq(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:51
@@ -1797,12 +1822,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.eq_#42@instantiate:25";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::eq__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:51
@@ -1827,12 +1853,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.eq_#42@instantiate:26";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::eq__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:58
@@ -1857,12 +1884,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:27";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:58
@@ -1887,12 +1915,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:28";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:58
@@ -1917,12 +1946,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:29";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:58
@@ -1947,12 +1977,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:30";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:58
@@ -1977,12 +2008,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:31";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_5(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:58
@@ -2007,12 +2039,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:32";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_6(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:65
@@ -2037,12 +2070,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:33";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:65
@@ -2067,12 +2101,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:34";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:65
@@ -2097,12 +2132,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:35";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:65
@@ -2127,12 +2163,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:36";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:65
@@ -2157,12 +2194,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:37";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt__candidate_5(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:72
@@ -2187,12 +2225,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:38";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:72
@@ -2217,12 +2256,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:39";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:72
@@ -2247,12 +2287,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:40";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:72
@@ -2277,12 +2318,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:41";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:72
@@ -2307,12 +2349,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:42";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le__candidate_5(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:79
@@ -2337,12 +2380,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:43";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:79
@@ -2367,12 +2411,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:44";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:79
@@ -2397,12 +2442,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:45";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:79
@@ -2427,12 +2473,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:46";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:79
@@ -2457,12 +2504,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:47";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt__candidate_5(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:86
@@ -2487,12 +2535,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:48";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:86
@@ -2517,12 +2566,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:49";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:86
@@ -2547,12 +2597,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:50";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:86
@@ -2577,12 +2628,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:51";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:86
@@ -2607,12 +2659,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:52";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge__candidate_5(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:93
@@ -2636,12 +2689,13 @@ namespace hgraph_::operators_
             using hgl_cache_fields     = neg__impl_48__i64__i64__m53_cache_fields;
             static constexpr auto name = "hgraph.operators.neg_#48@instantiate:53";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Int>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
                     hgl_output.set(hgraph_::native::native::neg(ts.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:93
@@ -2665,12 +2719,13 @@ namespace hgraph_::operators_
             using hgl_cache_fields     = neg__impl_48__f64__f64__m54_cache_fields;
             static constexpr auto name = "hgraph.operators.neg_#48@instantiate:54";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
                     hgl_output.set(hgraph_::native::native::neg__candidate_2(ts.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:9
@@ -2695,12 +2750,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.add_#36@instantiate:55";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Str>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Str>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::add__candidate_5(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:51
@@ -2725,12 +2781,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.eq_#42@instantiate:56";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::eq__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:51
@@ -2755,12 +2812,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.eq_#42@instantiate:57";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::eq__candidate_5(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:51
@@ -2785,12 +2843,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.eq_#42@instantiate:58";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::eq__candidate_6(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:58
@@ -2815,12 +2874,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:59";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_7(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:58
@@ -2845,12 +2905,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:60";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_8(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:58
@@ -2875,12 +2936,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:61";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_9(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:65
@@ -2905,12 +2967,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:62";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt__candidate_6(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:65
@@ -2935,12 +2998,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:63";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt__candidate_7(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:65
@@ -2965,12 +3029,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:64";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt__candidate_8(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:72
@@ -2995,12 +3060,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:65";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le__candidate_6(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:72
@@ -3025,12 +3091,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:66";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le__candidate_7(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:72
@@ -3055,12 +3122,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:67";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le__candidate_8(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:79
@@ -3085,12 +3153,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:68";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt__candidate_6(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:79
@@ -3115,12 +3184,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:69";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt__candidate_7(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:79
@@ -3145,12 +3215,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:70";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt__candidate_8(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:86
@@ -3175,12 +3246,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:71";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge__candidate_6(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:86
@@ -3205,12 +3277,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:72";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge__candidate_7(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:86
@@ -3235,12 +3308,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:73";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge__candidate_8(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:51
@@ -3265,12 +3339,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.eq_#42@instantiate:74";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::eq__candidate_7(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
         // operators.hgl:58
@@ -3295,12 +3370,13 @@ namespace hgraph_::operators_
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:75";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_10(lhs.value(), rhs.value()));
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::operators_::prepare_ordinary_value_plans(); }
         };
 
     }  // namespace hgl_detail

@@ -239,7 +239,8 @@ namespace hgraph_::std_
                                   hgraph::Field<"value", hgl::ordinary::Delta<T>>>;
     };
 
-    inline hgl::ordinary::PreparedValuePlan hgl_value_plan_0{};
+    /// Compiler-owned bindings prepared before runtime evaluation.
+    void prepare_ordinary_value_plans();
     /// Operator contracts for the module's public callables.
     namespace operators
     {

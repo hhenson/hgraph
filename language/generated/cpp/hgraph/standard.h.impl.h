@@ -383,8 +383,24 @@ namespace hgraph_::std_
         };
 
         // standard.hgl:179
+        struct contains__impl_75_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_75_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#75.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_75
         {
+            using hgl_cache_fields     = contains__impl_75_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#75";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Int>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> item,
@@ -400,11 +416,28 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:199
+        struct contains__impl_77_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_77_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#77.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_77
         {
+            using hgl_cache_fields     = contains__impl_77_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#77";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Str>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> item,
@@ -420,6 +453,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:220
@@ -527,8 +561,24 @@ namespace hgraph_::std_
         };
 
         // standard.hgl:229
+        struct contains__impl_87_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_87_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#87.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_87
         {
+            using hgl_cache_fields     = contains__impl_87_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#87";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Bool>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> item,
@@ -544,11 +594,28 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:249
+        struct contains__impl_89_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_89_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#89.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_89
         {
+            using hgl_cache_fields     = contains__impl_89_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#89";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Float>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> item,
@@ -564,11 +631,28 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:269
+        struct contains__impl_91_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_91_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#91.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_91
         {
+            using hgl_cache_fields     = contains__impl_91_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#91";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Date>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> item,
@@ -584,11 +668,28 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:289
+        struct contains__impl_93_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_93_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#93.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_93
         {
+            using hgl_cache_fields     = contains__impl_93_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#93";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> item,
@@ -604,11 +705,28 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:309
+        struct contains__impl_95_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_95_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#95.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_95
         {
+            using hgl_cache_fields     = contains__impl_95_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#95";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> item,
@@ -624,11 +742,28 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:329
+        struct contains__impl_97_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_97_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#97.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_97
         {
+            using hgl_cache_fields     = contains__impl_97_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#97";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Time>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> item,
@@ -644,11 +779,28 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:364
+        struct contains__impl_102_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_102_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#102.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_102
         {
+            using hgl_cache_fields     = contains__impl_102_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#102";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Int>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::Int>, hgraph::InputValidity::Unchecked> item,
@@ -664,11 +816,28 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:375
+        struct contains__impl_103_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_103_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#103.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_103
         {
+            using hgl_cache_fields     = contains__impl_103_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#103";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Float>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::Float>, hgraph::InputValidity::Unchecked> item,
@@ -684,11 +853,28 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:386
+        struct contains__impl_104_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_104_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#104.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_104
         {
+            using hgl_cache_fields     = contains__impl_104_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#104";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Str>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::Str>, hgraph::InputValidity::Unchecked> item,
@@ -704,11 +890,28 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:397
+        struct contains__impl_105_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_105_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#105.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_105
         {
+            using hgl_cache_fields     = contains__impl_105_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#105";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Bool>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::Bool>, hgraph::InputValidity::Unchecked> item,
@@ -724,11 +927,28 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:408
+        struct contains__impl_106_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_106_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#106.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_106
         {
+            using hgl_cache_fields     = contains__impl_106_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#106";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Date>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::Date>, hgraph::InputValidity::Unchecked> item,
@@ -744,11 +964,28 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:419
+        struct contains__impl_107_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_107_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#107.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_107
         {
+            using hgl_cache_fields     = contains__impl_107_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#107";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Time>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::Time>, hgraph::InputValidity::Unchecked> item,
@@ -764,11 +1001,28 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:430
+        struct contains__impl_108_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_108_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#108.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_108
         {
+            using hgl_cache_fields     = contains__impl_108_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#108";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> item,
@@ -784,11 +1038,28 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:441
+        struct contains__impl_109_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::std_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::std_::hgl_detail::contains__impl_109_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.std.contains_#109.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::std_
+{
+    namespace hgl_detail
+    {
         struct contains__impl_109
         {
+            using hgl_cache_fields     = contains__impl_109_cache_fields;
             static constexpr auto name = "hgraph.std.contains_#109";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> item,
@@ -804,6 +1075,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:40
@@ -1950,6 +2222,7 @@ namespace hgraph_::std_
                 }
             }
             static void prepare(const hgraph::NodeView &view) {
+                hgraph_::std_::prepare_ordinary_value_plans();
                 auto &hgl_prepared = hgraph::State<hgl_cache_fields>{view.state()}.modify();
                 hgl_prepared.hgl_delta_plan_0 =
                     hgl::ordinary::PreparedDeltaPlan{view.input(hgraph::MIN_ST).indexed_child_at(0).schema()};
@@ -1978,17 +2251,17 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.const#20@instantiate:1";
             static auto           defaults() { return std::tuple{hgraph::arg<"delay">(hgraph::TimeDelta{0})}; }
             static void           start(hgraph::Scalar<"value", hgraph::Bool>, hgraph::Scalar<"delay", hgraph::TimeDelta> delay,
-                                        hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler                      alarm) {
+                                        hgraph::SingleShotScheduler alarm) {
                 alarm.schedule(delay.value());
             }
             static void eval(hgraph::Scalar<"value", hgraph::Bool> value, hgraph::Scalar<"delay", hgraph::TimeDelta>,
-                             hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler,
-                             hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                             hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if (true && true) {
                     hgl_output.set(value.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:33
@@ -2013,17 +2286,17 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.const#20@instantiate:2";
             static auto           defaults() { return std::tuple{hgraph::arg<"delay">(hgraph::TimeDelta{0})}; }
             static void           start(hgraph::Scalar<"value", hgraph::Int>, hgraph::Scalar<"delay", hgraph::TimeDelta> delay,
-                                        hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler                     alarm) {
+                                        hgraph::SingleShotScheduler alarm) {
                 alarm.schedule(delay.value());
             }
             static void eval(hgraph::Scalar<"value", hgraph::Int> value, hgraph::Scalar<"delay", hgraph::TimeDelta>,
-                             hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler,
-                             hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                             hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 if (true && true) {
                     hgl_output.set(value.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:33
@@ -2048,17 +2321,17 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.const#20@instantiate:3";
             static auto           defaults() { return std::tuple{hgraph::arg<"delay">(hgraph::TimeDelta{0})}; }
             static void           start(hgraph::Scalar<"value", hgraph::Float>, hgraph::Scalar<"delay", hgraph::TimeDelta> delay,
-                                        hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler                       alarm) {
+                                        hgraph::SingleShotScheduler alarm) {
                 alarm.schedule(delay.value());
             }
             static void eval(hgraph::Scalar<"value", hgraph::Float> value, hgraph::Scalar<"delay", hgraph::TimeDelta>,
-                             hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler,
-                             hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                             hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if (true && true) {
                     hgl_output.set(value.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:33
@@ -2083,17 +2356,17 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.const#20@instantiate:4";
             static auto           defaults() { return std::tuple{hgraph::arg<"delay">(hgraph::TimeDelta{0})}; }
             static void           start(hgraph::Scalar<"value", hgraph::Str>, hgraph::Scalar<"delay", hgraph::TimeDelta> delay,
-                                        hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler                     alarm) {
+                                        hgraph::SingleShotScheduler alarm) {
                 alarm.schedule(delay.value());
             }
             static void eval(hgraph::Scalar<"value", hgraph::Str> value, hgraph::Scalar<"delay", hgraph::TimeDelta>,
-                             hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler,
-                             hgraph::Out<hgraph::TS<hgraph::Str>> hgl_output) {
+                             hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Str>> hgl_output) {
                 if (true && true) {
                     hgl_output.set(value.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:33
@@ -2118,17 +2391,17 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.const#20@instantiate:5";
             static auto           defaults() { return std::tuple{hgraph::arg<"delay">(hgraph::TimeDelta{0})}; }
             static void           start(hgraph::Scalar<"value", hgraph::Date>, hgraph::Scalar<"delay", hgraph::TimeDelta> delay,
-                                        hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler                      alarm) {
+                                        hgraph::SingleShotScheduler alarm) {
                 alarm.schedule(delay.value());
             }
             static void eval(hgraph::Scalar<"value", hgraph::Date> value, hgraph::Scalar<"delay", hgraph::TimeDelta>,
-                             hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler,
-                             hgraph::Out<hgraph::TS<hgraph::Date>> hgl_output) {
+                             hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Date>> hgl_output) {
                 if (true && true) {
                     hgl_output.set(value.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:33
@@ -2153,17 +2426,17 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.const#20@instantiate:6";
             static auto           defaults() { return std::tuple{hgraph::arg<"delay">(hgraph::TimeDelta{0})}; }
             static void           start(hgraph::Scalar<"value", hgraph::Time>, hgraph::Scalar<"delay", hgraph::TimeDelta> delay,
-                                        hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler                      alarm) {
+                                        hgraph::SingleShotScheduler alarm) {
                 alarm.schedule(delay.value());
             }
             static void eval(hgraph::Scalar<"value", hgraph::Time> value, hgraph::Scalar<"delay", hgraph::TimeDelta>,
-                             hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler,
-                             hgraph::Out<hgraph::TS<hgraph::Time>> hgl_output) {
+                             hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Time>> hgl_output) {
                 if (true && true) {
                     hgl_output.set(value.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:33
@@ -2188,17 +2461,17 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.const#20@instantiate:7";
             static auto           defaults() { return std::tuple{hgraph::arg<"delay">(hgraph::TimeDelta{0})}; }
             static void           start(hgraph::Scalar<"value", hgraph::DateTime>, hgraph::Scalar<"delay", hgraph::TimeDelta> delay,
-                                        hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler                          alarm) {
+                                        hgraph::SingleShotScheduler alarm) {
                 alarm.schedule(delay.value());
             }
             static void eval(hgraph::Scalar<"value", hgraph::DateTime> value, hgraph::Scalar<"delay", hgraph::TimeDelta>,
-                             hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler,
-                             hgraph::Out<hgraph::TS<hgraph::DateTime>> hgl_output) {
+                             hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::DateTime>> hgl_output) {
                 if (true && true) {
                     hgl_output.set(value.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:33
@@ -2223,17 +2496,17 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.const#20@instantiate:8";
             static auto           defaults() { return std::tuple{hgraph::arg<"delay">(hgraph::TimeDelta{0})}; }
             static void start(hgraph::Scalar<"value", hgraph::TimeDelta>, hgraph::Scalar<"delay", hgraph::TimeDelta> delay,
-                              hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler                           alarm) {
+                              hgraph::SingleShotScheduler alarm) {
                 alarm.schedule(delay.value());
             }
             static void eval(hgraph::Scalar<"value", hgraph::TimeDelta> value, hgraph::Scalar<"delay", hgraph::TimeDelta>,
-                             hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler,
-                             hgraph::Out<hgraph::TS<hgraph::TimeDelta>> hgl_output) {
+                             hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::TimeDelta>> hgl_output) {
                 if (true && true) {
                     hgl_output.set(value.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:44
@@ -2256,9 +2529,10 @@ namespace hgraph_::std_
         {
             using hgl_cache_fields     = nothing_impl_22__bool__m9_cache_fields;
             static constexpr auto name = "hgraph.std.nothing#22@instantiate:9";
-            static void eval(hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Bool>>) {
+            static void           eval(hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Bool>>) {
                 if (true && true) {}
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:44
@@ -2281,9 +2555,10 @@ namespace hgraph_::std_
         {
             using hgl_cache_fields     = nothing_impl_22__i64__m10_cache_fields;
             static constexpr auto name = "hgraph.std.nothing#22@instantiate:10";
-            static void eval(hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Int>>) {
+            static void           eval(hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Int>>) {
                 if (true && true) {}
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:44
@@ -2306,9 +2581,10 @@ namespace hgraph_::std_
         {
             using hgl_cache_fields     = nothing_impl_22__f64__m11_cache_fields;
             static constexpr auto name = "hgraph.std.nothing#22@instantiate:11";
-            static void eval(hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Float>>) {
+            static void           eval(hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Float>>) {
                 if (true && true) {}
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:44
@@ -2331,9 +2607,10 @@ namespace hgraph_::std_
         {
             using hgl_cache_fields     = nothing_impl_22__str__m12_cache_fields;
             static constexpr auto name = "hgraph.std.nothing#22@instantiate:12";
-            static void eval(hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Str>>) {
+            static void           eval(hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Str>>) {
                 if (true && true) {}
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:44
@@ -2356,9 +2633,10 @@ namespace hgraph_::std_
         {
             using hgl_cache_fields     = nothing_impl_22__date__m13_cache_fields;
             static constexpr auto name = "hgraph.std.nothing#22@instantiate:13";
-            static void eval(hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Date>>) {
+            static void           eval(hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Date>>) {
                 if (true && true) {}
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:44
@@ -2381,9 +2659,10 @@ namespace hgraph_::std_
         {
             using hgl_cache_fields     = nothing_impl_22__time__m14_cache_fields;
             static constexpr auto name = "hgraph.std.nothing#22@instantiate:14";
-            static void eval(hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Time>>) {
+            static void           eval(hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::Time>>) {
                 if (true && true) {}
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:44
@@ -2406,10 +2685,10 @@ namespace hgraph_::std_
         {
             using hgl_cache_fields     = nothing_impl_22__datetime__m15_cache_fields;
             static constexpr auto name = "hgraph.std.nothing#22@instantiate:15";
-            static void           eval(hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler,
-                                       hgraph::Out<hgraph::TS<hgraph::DateTime>>) {
+            static void           eval(hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::DateTime>>) {
                 if (true && true) {}
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:44
@@ -2432,10 +2711,10 @@ namespace hgraph_::std_
         {
             using hgl_cache_fields     = nothing_impl_22__duration__m16_cache_fields;
             static constexpr auto name = "hgraph.std.nothing#22@instantiate:16";
-            static void           eval(hgraph::State<hgl_cache_fields>, hgraph::SingleShotScheduler,
-                                       hgraph::Out<hgraph::TS<hgraph::TimeDelta>>) {
+            static void           eval(hgraph::SingleShotScheduler, hgraph::Out<hgraph::TS<hgraph::TimeDelta>>) {
                 if (true && true) {}
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:55
@@ -2544,7 +2823,7 @@ namespace hgraph_::std_
             eval(hgraph::In<"ts_ref", hgraph::REF<hgraph::TS<hgraph::Bool>>, hgraph::InputValidity::Unchecked>        ts_ref,
                  hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>                         ts,
                  hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::Bool>>, hgraph::InputValidity::Unchecked> default_value,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Bool>>> hgl_output) {
+                 hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Bool>>>                                                   hgl_output) {
                 if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
@@ -2557,6 +2836,7 @@ namespace hgraph_::std_
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:69
@@ -2583,7 +2863,7 @@ namespace hgraph_::std_
             eval(hgraph::In<"ts_ref", hgraph::REF<hgraph::TS<hgraph::Int>>, hgraph::InputValidity::Unchecked>        ts_ref,
                  hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>                         ts,
                  hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::Int>>, hgraph::InputValidity::Unchecked> default_value,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Int>>> hgl_output) {
+                 hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Int>>>                                                   hgl_output) {
                 if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
@@ -2596,6 +2876,7 @@ namespace hgraph_::std_
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:69
@@ -2622,7 +2903,7 @@ namespace hgraph_::std_
                 hgraph::In<"ts_ref", hgraph::REF<hgraph::TS<hgraph::Float>>, hgraph::InputValidity::Unchecked>        ts_ref,
                 hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>                         ts,
                 hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::Float>>, hgraph::InputValidity::Unchecked> default_value,
-                hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Float>>> hgl_output) {
+                hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Float>>>                                                   hgl_output) {
                 if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
@@ -2635,6 +2916,7 @@ namespace hgraph_::std_
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:69
@@ -2661,7 +2943,7 @@ namespace hgraph_::std_
             eval(hgraph::In<"ts_ref", hgraph::REF<hgraph::TS<hgraph::Str>>, hgraph::InputValidity::Unchecked>        ts_ref,
                  hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>                         ts,
                  hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::Str>>, hgraph::InputValidity::Unchecked> default_value,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Str>>> hgl_output) {
+                 hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Str>>>                                                   hgl_output) {
                 if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
@@ -2674,6 +2956,7 @@ namespace hgraph_::std_
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:69
@@ -2700,7 +2983,7 @@ namespace hgraph_::std_
             eval(hgraph::In<"ts_ref", hgraph::REF<hgraph::TS<hgraph::Date>>, hgraph::InputValidity::Unchecked>        ts_ref,
                  hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>                         ts,
                  hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::Date>>, hgraph::InputValidity::Unchecked> default_value,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Date>>> hgl_output) {
+                 hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Date>>>                                                   hgl_output) {
                 if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
@@ -2713,6 +2996,7 @@ namespace hgraph_::std_
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:69
@@ -2739,7 +3023,7 @@ namespace hgraph_::std_
             eval(hgraph::In<"ts_ref", hgraph::REF<hgraph::TS<hgraph::Time>>, hgraph::InputValidity::Unchecked>        ts_ref,
                  hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>                         ts,
                  hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::Time>>, hgraph::InputValidity::Unchecked> default_value,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Time>>> hgl_output) {
+                 hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Time>>>                                                   hgl_output) {
                 if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
@@ -2752,6 +3036,7 @@ namespace hgraph_::std_
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:69
@@ -2778,8 +3063,8 @@ namespace hgraph_::std_
             eval(hgraph::In<"ts_ref", hgraph::REF<hgraph::TS<hgraph::DateTime>>, hgraph::InputValidity::Unchecked> ts_ref,
                  hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>                  ts,
                  hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::DateTime>>, hgraph::InputValidity::Unchecked>
-                     default_value,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::REF<hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                                                        default_value,
+                 hgraph::Out<hgraph::REF<hgraph::TS<hgraph::DateTime>>> hgl_output) {
                 if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
@@ -2792,6 +3077,7 @@ namespace hgraph_::std_
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // control.hgl:69
@@ -2818,8 +3104,8 @@ namespace hgraph_::std_
             eval(hgraph::In<"ts_ref", hgraph::REF<hgraph::TS<hgraph::TimeDelta>>, hgraph::InputValidity::Unchecked> ts_ref,
                  hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>                  ts,
                  hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::TimeDelta>>, hgraph::InputValidity::Unchecked>
-                     default_value,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::REF<hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                                                         default_value,
+                 hgraph::Out<hgraph::REF<hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
                 if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
@@ -2832,6 +3118,7 @@ namespace hgraph_::std_
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // replay_record.hgl:3
@@ -2924,6 +3211,7 @@ namespace hgraph_::std_
                 return;
             }
             static void prepare(const hgraph::NodeView &view) {
+                hgraph_::std_::prepare_ordinary_value_plans();
                 auto &hgl_prepared = hgraph::State<hgl_cache_fields>{view.state()}.modify();
                 hgl_prepared.hgl_argument_0 =
                     hgl::ordinary::PreparedValuePlan{view.scalars().as_bundle().at(0).binding().schema()}.retain(
@@ -2942,6 +3230,7 @@ namespace hgraph_::std_
         {
             hgl::ordinary::PreparedValuePlan hgl_plan_0{};
             hgl::ordinary::PreparedValuePlan hgl_plan_1{};
+            hgl::ordinary::PreparedValuePlan hgl_plan_2{};
             hgl::ordinary::PreparedDeltaPlan hgl_delta_plan_0{};
             hgraph::PreparedGlobalEntry      hgl_entry_0{};
         };
@@ -2974,19 +3263,20 @@ namespace hgraph_::std_
                     auto recording = hgl_cache.ref().hgl_entry_0.get();
                     hgl_cache.ref().hgl_plan_0.push(
                         recording, ([&]() {
-                                       auto hgl_field_0 = hgraph_::std_::hgl_value_plan_0.retain(([&](const auto &hgl_scalar) {
-                                           return hgraph::ValueView{hgraph_::std_::hgl_value_plan_0.binding(), &hgl_scalar};
+                                       auto hgl_field_0 = hgl_cache.ref().hgl_plan_1.retain(([&](const auto &hgl_scalar) {
+                                           return hgraph::ValueView{hgl_cache.ref().hgl_plan_1.binding(), &hgl_scalar};
                                        }(hgl_cap_clock.evaluation_time())));
                                        auto hgl_field_1 = hgl_cache.ref().hgl_delta_plan_0.capture(ts.delta_value());
                                        std::array<std::pair<std::size_t, hgraph::ValueView>, 2> hgl_fields{
                                            std::pair<std::size_t, hgraph::ValueView>{0, hgl_field_0.view()},
                                            std::pair<std::size_t, hgraph::ValueView>{1, hgl_field_1.view()}};
-                                       return hgl_cache.ref().hgl_plan_1.bundle(hgl_fields);
+                                       return hgl_cache.ref().hgl_plan_2.bundle(hgl_fields);
                                    }())
                                        .view());
                 }
             }
             static void prepare(const hgraph::NodeView &view) {
+                hgraph_::std_::prepare_ordinary_value_plans();
                 auto &hgl_prepared = hgraph::State<hgl_cache_fields>{view.state()}.modify();
                 hgl_prepared.hgl_plan_0 =
                     hgl::ordinary::PreparedValuePlan{hgraph::TypeRegistry::instance().list(hgraph::TypeRegistry::instance().bundle(
@@ -3002,7 +3292,9 @@ namespace hgraph_::std_
                          {"value", hgl::ordinary::delta_schema(view.input(hgraph::MIN_ST).indexed_child_at(0).schema())}},
                         {}, false, "__type__",
                         {hgl::ordinary::origin_schema(view.input(hgraph::MIN_ST).indexed_child_at(0).schema())}))};
-                hgl_prepared.hgl_plan_1 = hgl::ordinary::PreparedValuePlan{hgraph::TypeRegistry::instance().bundle(
+                hgl_prepared.hgl_plan_1 =
+                    hgl::ordinary::PreparedValuePlan{hgraph::scalar_descriptor<hgraph::DateTime>::value_meta()};
+                hgl_prepared.hgl_plan_2 = hgl::ordinary::PreparedValuePlan{hgraph::TypeRegistry::instance().bundle(
                     "hgraph.std", ([&]() {
                         std::string hgl_name{"TimedValue"};
                         hgl_name += '[';
@@ -3069,7 +3361,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.len_#59@instantiate:35";
             static void
             eval(hgraph::In<"value", hgraph::TSL<hgraph::TsVar<"T">, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> value,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 if ((value.modified()) && (value.valid())) {
                     const auto current = hgraph_::native::native::len__candidate_2(value);
                     if (((!(hgl_output.valid())) || (hgl_output.value().checked_as<hgraph::Int>() != current))) {
@@ -3077,6 +3369,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:48
@@ -3101,8 +3394,8 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.len_#61@instantiate:36";
             static void
             eval(hgraph::In<"value", hgraph::TSD<hgraph::ScalarVar<"K">, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked>
-                     value,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                                                      value,
+                 hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 if ((value.modified()) && (value.valid())) {
                     const auto current = hgraph_::native::native::len__candidate_5(value);
                     if (((!(hgl_output.valid())) || (hgl_output.value().checked_as<hgraph::Int>() != current))) {
@@ -3110,6 +3403,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:37
@@ -3133,7 +3427,7 @@ namespace hgraph_::std_
             using hgl_cache_fields     = len__impl_60__any_T__m37_cache_fields;
             static constexpr auto name = "hgraph.std.len_#60@instantiate:37";
             static void eval(hgraph::In<"value", hgraph::TSS<hgraph::ScalarVar<"T">>, hgraph::InputValidity::Unchecked> value,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 if ((value.modified()) && (value.valid())) {
                     const auto current = hgraph_::native::native::len__candidate_4(value);
                     if (((!(hgl_output.valid())) || (hgl_output.value().checked_as<hgraph::Int>() != current))) {
@@ -3141,6 +3435,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:67
@@ -3165,7 +3460,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.is_empty#64@instantiate:38";
             static void
             eval(hgraph::In<"value", hgraph::TSL<hgraph::TsVar<"T">, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> value,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((value.modified()) && (value.valid())) {
                     const auto current = hgraph_::native::native::is_empty__candidate_2(value);
                     if (((!(hgl_output.valid())) || (hgl_output.value().checked_as<hgraph::Bool>() != current))) {
@@ -3173,6 +3468,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:89
@@ -3197,8 +3493,8 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.is_empty#66@instantiate:39";
             static void
             eval(hgraph::In<"value", hgraph::TSD<hgraph::ScalarVar<"K">, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked>
-                     value,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                                                       value,
+                 hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((value.modified()) && (value.valid())) {
                     const auto current = hgraph_::native::native::is_empty__candidate_5(value);
                     if (((!(hgl_output.valid())) || (hgl_output.value().checked_as<hgraph::Bool>() != current))) {
@@ -3206,6 +3502,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:78
@@ -3229,7 +3526,7 @@ namespace hgraph_::std_
             using hgl_cache_fields     = is_empty_impl_65__any_T__m40_cache_fields;
             static constexpr auto name = "hgraph.std.is_empty#65@instantiate:40";
             static void eval(hgraph::In<"value", hgraph::TSS<hgraph::ScalarVar<"T">>, hgraph::InputValidity::Unchecked> value,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((value.modified()) && (value.valid())) {
                     const auto current = hgraph_::native::native::is_empty__candidate_4(value);
                     if (((!(hgl_output.valid())) || (hgl_output.value().checked_as<hgraph::Bool>() != current))) {
@@ -3237,6 +3534,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:189
@@ -3261,7 +3559,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.contains_#76@instantiate:41";
             static void eval(hgraph::In<"ts", hgraph::TSD<hgraph::Int, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::In<"item", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>                    item,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if (((ts.modified() || item.modified()) && (item.valid()))) {
                     if (hgraph_::native::native::bound(ts.base())) {
                         const auto present =
@@ -3276,6 +3574,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:209
@@ -3300,7 +3599,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.contains_#78@instantiate:42";
             static void eval(hgraph::In<"ts", hgraph::TSD<hgraph::Str, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::In<"item", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>                    item,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if (((ts.modified() || item.modified()) && (item.valid()))) {
                     if (hgraph_::native::native::bound(ts.base())) {
                         const auto present =
@@ -3315,6 +3614,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:239
@@ -3339,7 +3639,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.contains_#88@instantiate:43";
             static void eval(hgraph::In<"ts", hgraph::TSD<hgraph::Bool, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::In<"item", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>                    item,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if (((ts.modified() || item.modified()) && (item.valid()))) {
                     if (hgraph_::native::native::bound(ts.base())) {
                         const auto present =
@@ -3354,6 +3654,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:259
@@ -3378,7 +3679,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.contains_#90@instantiate:44";
             static void eval(hgraph::In<"ts", hgraph::TSD<hgraph::Float, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::In<"item", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> item,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Bool>>                                           hgl_output) {
                 if (((ts.modified() || item.modified()) && (item.valid()))) {
                     if (hgraph_::native::native::bound(ts.base())) {
                         const auto present =
@@ -3393,6 +3694,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:279
@@ -3417,7 +3719,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.contains_#92@instantiate:45";
             static void eval(hgraph::In<"ts", hgraph::TSD<hgraph::Date, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::In<"item", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>                    item,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if (((ts.modified() || item.modified()) && (item.valid()))) {
                     if (hgraph_::native::native::bound(ts.base())) {
                         const auto present =
@@ -3432,6 +3734,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:299
@@ -3457,7 +3760,7 @@ namespace hgraph_::std_
             static void
             eval(hgraph::In<"ts", hgraph::TSD<hgraph::DateTime, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                  hgraph::In<"item", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>                    item,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Bool>>                                                                 hgl_output) {
                 if (((ts.modified() || item.modified()) && (item.valid()))) {
                     if (hgraph_::native::native::bound(ts.base())) {
                         const auto present =
@@ -3472,6 +3775,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:319
@@ -3497,7 +3801,7 @@ namespace hgraph_::std_
             static void
             eval(hgraph::In<"ts", hgraph::TSD<hgraph::TimeDelta, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                  hgraph::In<"item", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>                    item,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if (((ts.modified() || item.modified()) && (item.valid()))) {
                     if (hgraph_::native::native::bound(ts.base())) {
                         const auto present =
@@ -3512,6 +3816,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:339
@@ -3536,7 +3841,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.contains_#98@instantiate:48";
             static void eval(hgraph::In<"ts", hgraph::TSD<hgraph::Time, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::In<"item", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>                    item,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if (((ts.modified() || item.modified()) && (item.valid()))) {
                     if (hgraph_::native::native::bound(ts.base())) {
                         const auto present =
@@ -3551,6 +3856,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:102
@@ -3576,7 +3882,7 @@ namespace hgraph_::std_
             static void
             eval(hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::Int>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> ts,
                  hgraph::In<"item", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> item,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Int>>                                          hgl_output) {
                 if ((ts.modified() || item.modified()) && (ts.valid() && item.valid())) {
                     auto found = hgraph::Int{-1};
                     for (const auto &[hgl_index_item, hgl_value_item] : ts.items()) {
@@ -3591,6 +3897,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:113
@@ -3616,7 +3923,7 @@ namespace hgraph_::std_
             static void           eval(
                 hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::Float>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> ts,
                 hgraph::In<"item", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> item,
-                hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                hgraph::Out<hgraph::TS<hgraph::Int>>                                            hgl_output) {
                 if ((ts.modified() || item.modified()) && (ts.valid() && item.valid())) {
                     auto found = hgraph::Int{-1};
                     for (const auto &[hgl_index_item, hgl_value_item] : ts.items()) {
@@ -3631,6 +3938,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:124
@@ -3656,7 +3964,7 @@ namespace hgraph_::std_
             static void
             eval(hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::Str>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> ts,
                  hgraph::In<"item", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> item,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Int>>                                          hgl_output) {
                 if ((ts.modified() || item.modified()) && (ts.valid() && item.valid())) {
                     auto found = hgraph::Int{-1};
                     for (const auto &[hgl_index_item, hgl_value_item] : ts.items()) {
@@ -3671,6 +3979,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:135
@@ -3696,7 +4005,7 @@ namespace hgraph_::std_
             static void
             eval(hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::Bool>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> ts,
                  hgraph::In<"item", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> item,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Int>>                                           hgl_output) {
                 if ((ts.modified() || item.modified()) && (ts.valid() && item.valid())) {
                     auto found = hgraph::Int{-1};
                     for (const auto &[hgl_index_item, hgl_value_item] : ts.items()) {
@@ -3711,6 +4020,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:146
@@ -3736,7 +4046,7 @@ namespace hgraph_::std_
             static void
             eval(hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::Date>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> ts,
                  hgraph::In<"item", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> item,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Int>>                                           hgl_output) {
                 if ((ts.modified() || item.modified()) && (ts.valid() && item.valid())) {
                     auto found = hgraph::Int{-1};
                     for (const auto &[hgl_index_item, hgl_value_item] : ts.items()) {
@@ -3751,6 +4061,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:157
@@ -3777,7 +4088,7 @@ namespace hgraph_::std_
             eval(hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::DateTime>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked>
                                                                                                     ts,
                  hgraph::In<"item", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> item,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Int>>                                               hgl_output) {
                 if ((ts.modified() || item.modified()) && (ts.valid() && item.valid())) {
                     auto found = hgraph::Int{-1};
                     for (const auto &[hgl_index_item, hgl_value_item] : ts.items()) {
@@ -3792,6 +4103,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:168
@@ -3818,7 +4130,7 @@ namespace hgraph_::std_
                 hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::TimeDelta>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked>
                                                                                                     ts,
                 hgraph::In<"item", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> item,
-                hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                hgraph::Out<hgraph::TS<hgraph::Int>>                                                hgl_output) {
                 if ((ts.modified() || item.modified()) && (ts.valid() && item.valid())) {
                     auto found = hgraph::Int{-1};
                     for (const auto &[hgl_index_item, hgl_value_item] : ts.items()) {
@@ -3833,6 +4145,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:351
@@ -3858,7 +4171,7 @@ namespace hgraph_::std_
             static void
             eval(hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::Time>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> ts,
                  hgraph::In<"item", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> item,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Int>>                                           hgl_output) {
                 if ((ts.modified() || item.modified()) && (ts.valid() && item.valid())) {
                     auto found = hgraph::Int{-1};
                     for (const auto &[hgl_index_item, hgl_value_item] : ts.items()) {
@@ -3873,6 +4186,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:455
@@ -3897,12 +4211,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#110@instantiate:57";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Bool>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:459
@@ -3927,12 +4241,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#111@instantiate:58";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Int>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:463
@@ -3957,12 +4271,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#112@instantiate:59";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Float>>>             hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:467
@@ -3987,12 +4301,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#113@instantiate:60";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>   ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Str>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:471
@@ -4017,12 +4331,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#114@instantiate:61";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Date>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:475
@@ -4047,12 +4361,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#115@instantiate:62";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Time>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:479
@@ -4077,12 +4391,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#116@instantiate:63";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::DateTime>>>             hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:483
@@ -4107,12 +4421,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#117@instantiate:64";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>     key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::TimeDelta>>>             hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:455
@@ -4137,12 +4451,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#110@instantiate:65";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Bool>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:459
@@ -4167,12 +4481,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#111@instantiate:66";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:463
@@ -4197,12 +4511,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#112@instantiate:67";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Float>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:467
@@ -4227,12 +4541,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#113@instantiate:68";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Str>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:471
@@ -4257,12 +4571,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#114@instantiate:69";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Date>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:475
@@ -4287,12 +4601,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#115@instantiate:70";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Time>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:479
@@ -4317,12 +4631,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#116@instantiate:71";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>     key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::DateTime>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:483
@@ -4347,12 +4661,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#117@instantiate:72";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>      key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::TimeDelta>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:455
@@ -4377,12 +4691,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#110@instantiate:73";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>   ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Bool>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:459
@@ -4407,12 +4721,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#111@instantiate:74";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>    ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Int>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:463
@@ -4437,12 +4751,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#112@instantiate:75";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Float>>>             hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:467
@@ -4467,12 +4781,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#113@instantiate:76";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>    ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Str>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:471
@@ -4497,12 +4811,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#114@instantiate:77";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>   ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Date>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:475
@@ -4527,12 +4841,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#115@instantiate:78";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>   ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Time>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:479
@@ -4557,12 +4871,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#116@instantiate:79";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::DateTime>>>            hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:483
@@ -4587,12 +4901,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#117@instantiate:80";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::TimeDelta>>>            hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:455
@@ -4617,12 +4931,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#110@instantiate:81";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Bool>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:459
@@ -4647,12 +4961,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#111@instantiate:82";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Int>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:463
@@ -4677,12 +4991,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#112@instantiate:83";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:467
@@ -4707,12 +5021,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#113@instantiate:84";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Str>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:471
@@ -4737,12 +5051,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#114@instantiate:85";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Date>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:475
@@ -4767,12 +5081,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#115@instantiate:86";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Time>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:479
@@ -4797,12 +5111,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#116@instantiate:87";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>     key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::DateTime>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:483
@@ -4827,12 +5141,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#117@instantiate:88";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>      key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::TimeDelta>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:455
@@ -4857,12 +5171,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#110@instantiate:89";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Bool>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:459
@@ -4887,12 +5201,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#111@instantiate:90";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Int>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:463
@@ -4917,12 +5231,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#112@instantiate:91";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Float>>>             hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:467
@@ -4947,12 +5261,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#113@instantiate:92";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>   ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Str>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:471
@@ -4977,12 +5291,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#114@instantiate:93";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Date>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:475
@@ -5007,12 +5321,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#115@instantiate:94";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Time>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:479
@@ -5037,12 +5351,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#116@instantiate:95";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::DateTime>>>             hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:483
@@ -5067,12 +5381,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#117@instantiate:96";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>     key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::TimeDelta>>>             hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:455
@@ -5097,12 +5411,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#110@instantiate:97";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Bool>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:459
@@ -5127,12 +5441,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#111@instantiate:98";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Int>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:463
@@ -5157,12 +5471,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#112@instantiate:99";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Float>>>             hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:467
@@ -5187,12 +5501,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#113@instantiate:100";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>   ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Str>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:471
@@ -5217,12 +5531,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#114@instantiate:101";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Date>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:475
@@ -5247,12 +5561,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#115@instantiate:102";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Time>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:479
@@ -5277,12 +5591,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#116@instantiate:103";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::DateTime>>>             hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:483
@@ -5307,12 +5621,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#117@instantiate:104";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>     key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::TimeDelta>>>             hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:455
@@ -5337,12 +5651,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#110@instantiate:105";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Bool>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:459
@@ -5367,12 +5681,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#111@instantiate:106";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Int>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:463
@@ -5397,12 +5711,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#112@instantiate:107";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Float>>>             hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:467
@@ -5427,12 +5741,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#113@instantiate:108";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Str>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:471
@@ -5457,12 +5771,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#114@instantiate:109";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Date>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:475
@@ -5487,12 +5801,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#115@instantiate:110";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Time>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:479
@@ -5517,12 +5831,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#116@instantiate:111";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::DateTime>>>          hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:483
@@ -5547,12 +5861,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#117@instantiate:112";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::TimeDelta>>>         hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:455
@@ -5577,12 +5891,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#110@instantiate:113";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>       ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Bool>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:459
@@ -5607,12 +5921,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#111@instantiate:114";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>        ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Int>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:463
@@ -5637,12 +5951,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#112@instantiate:115";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>      ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Float>>>             hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:467
@@ -5667,12 +5981,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#113@instantiate:116";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>        ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Str>>>               hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:471
@@ -5697,12 +6011,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#114@instantiate:117";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>       ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Date>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:475
@@ -5727,12 +6041,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#115@instantiate:118";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>       ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Time>>>              hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:479
@@ -5757,12 +6071,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#116@instantiate:119";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>   ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::DateTime>>>          hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:483
@@ -5787,12 +6101,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.collect_map#117@instantiate:120";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>  ts,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::TimeDelta>>>         hgl_output) {
                 if ((key.modified() || ts.modified()) && (key.valid() && ts.valid())) {
                     hgraph::upsert(hgl_output, key.value(), ts.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:487
@@ -5817,12 +6131,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#118@instantiate:121";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Bool>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:491
@@ -5847,12 +6161,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#119@instantiate:122";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Int>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:495
@@ -5877,12 +6191,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#120@instantiate:123";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Float>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:499
@@ -5907,12 +6221,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#121@instantiate:124";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Str>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:503
@@ -5937,12 +6251,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#122@instantiate:125";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Date>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:507
@@ -5967,12 +6281,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#123@instantiate:126";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Time>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:511
@@ -5997,12 +6311,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#124@instantiate:127";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>       key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::DateTime>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:515
@@ -6027,12 +6341,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#125@instantiate:128";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::TimeDelta>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:487
@@ -6057,12 +6371,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#118@instantiate:129";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Bool>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:491
@@ -6087,12 +6401,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#119@instantiate:130";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:495
@@ -6117,12 +6431,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#120@instantiate:131";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>     key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Float>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:499
@@ -6147,12 +6461,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#121@instantiate:132";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Str>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:503
@@ -6177,12 +6491,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#122@instantiate:133";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Date>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:507
@@ -6207,12 +6521,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#123@instantiate:134";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Time>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:511
@@ -6237,12 +6551,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#124@instantiate:135";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>        key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::DateTime>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:515
@@ -6267,12 +6581,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#125@instantiate:136";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::TimeDelta>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:487
@@ -6297,12 +6611,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#118@instantiate:137";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Bool>>>               hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:491
@@ -6327,12 +6641,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#119@instantiate:138";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Int>>>               hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:495
@@ -6357,12 +6671,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#120@instantiate:139";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Float>>>               hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:499
@@ -6387,12 +6701,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#121@instantiate:140";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Str>>>               hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:503
@@ -6417,12 +6731,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#122@instantiate:141";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Date>>>               hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:507
@@ -6447,12 +6761,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#123@instantiate:142";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Time>>>               hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:511
@@ -6477,12 +6791,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#124@instantiate:143";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>      key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::DateTime>>>               hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:515
@@ -6507,12 +6821,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#125@instantiate:144";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::TimeDelta>>>               hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:487
@@ -6537,12 +6851,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#118@instantiate:145";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Bool>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:491
@@ -6567,12 +6881,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#119@instantiate:146";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Int>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:495
@@ -6597,12 +6911,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#120@instantiate:147";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>     key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:499
@@ -6627,12 +6941,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#121@instantiate:148";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Str>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:503
@@ -6657,12 +6971,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#122@instantiate:149";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Date>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:507
@@ -6687,12 +7001,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#123@instantiate:150";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Time>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:511
@@ -6717,12 +7031,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#124@instantiate:151";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>        key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::DateTime>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:515
@@ -6747,12 +7061,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#125@instantiate:152";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::TimeDelta>>>                 hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:487
@@ -6777,12 +7091,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#118@instantiate:153";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Bool>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:491
@@ -6807,12 +7121,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#119@instantiate:154";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Int>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:495
@@ -6837,12 +7151,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#120@instantiate:155";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Float>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:499
@@ -6867,12 +7181,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#121@instantiate:156";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Str>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:503
@@ -6897,12 +7211,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#122@instantiate:157";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Date>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:507
@@ -6927,12 +7241,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#123@instantiate:158";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Time>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:511
@@ -6957,12 +7271,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#124@instantiate:159";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>       key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::DateTime>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:515
@@ -6987,12 +7301,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#125@instantiate:160";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::TimeDelta>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:487
@@ -7017,12 +7331,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#118@instantiate:161";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Bool>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:491
@@ -7047,12 +7361,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#119@instantiate:162";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Int>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:495
@@ -7077,12 +7391,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#120@instantiate:163";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Float>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:499
@@ -7107,12 +7421,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#121@instantiate:164";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Str>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:503
@@ -7137,12 +7451,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#122@instantiate:165";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Date>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:507
@@ -7167,12 +7481,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#123@instantiate:166";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Time>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:511
@@ -7197,12 +7511,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#124@instantiate:167";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>       key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::DateTime>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:515
@@ -7227,12 +7541,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#125@instantiate:168";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::TimeDelta>>>                hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:487
@@ -7257,12 +7571,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#118@instantiate:169";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>   value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Bool>>>              hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:491
@@ -7287,12 +7601,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#119@instantiate:170";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>    value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Int>>>               hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:495
@@ -7317,12 +7631,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#120@instantiate:171";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>  value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Float>>>             hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:499
@@ -7347,12 +7661,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#121@instantiate:172";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>    value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Str>>>               hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:503
@@ -7377,12 +7691,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#122@instantiate:173";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>   value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Date>>>              hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:507
@@ -7407,12 +7721,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#123@instantiate:174";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>   value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Time>>>              hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:511
@@ -7437,12 +7751,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#124@instantiate:175";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::DateTime>>>            hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:515
@@ -7467,12 +7781,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#125@instantiate:176";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::TimeDelta>>>            hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:487
@@ -7497,12 +7811,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#118@instantiate:177";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>    value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Bool>>>              hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:491
@@ -7527,12 +7841,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#119@instantiate:178";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>     value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Int>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Int>>>               hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:495
@@ -7557,12 +7871,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#120@instantiate:179";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>   value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Float>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Float>>>             hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:499
@@ -7587,12 +7901,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#121@instantiate:180";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>     value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Str>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Str>>>               hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:503
@@ -7617,12 +7931,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#122@instantiate:181";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>    value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Date>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Date>>>              hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:507
@@ -7647,12 +7961,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#123@instantiate:182";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>    value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Time>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Time>>>              hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:511
@@ -7677,12 +7991,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#124@instantiate:183";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::DateTime>>>           hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:515
@@ -7707,12 +8021,12 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.make_tsd#125@instantiate:184";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
-                                       hgraph::State<hgl_cache_fields>,
-                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                                       hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::TimeDelta>>>           hgl_output) {
                 if ((key.modified() || value.modified()) && (key.valid() && value.valid())) {
                     hgraph::upsert(hgl_output, key.value(), value.value());
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:519
@@ -7738,8 +8052,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Bool>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -7752,6 +8065,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:530
@@ -7777,8 +8091,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Int>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Int>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -7791,6 +8104,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:541
@@ -7816,8 +8130,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Float>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Float>>>                    hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -7830,6 +8143,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:552
@@ -7855,8 +8169,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Str>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Str>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -7869,6 +8182,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:563
@@ -7894,8 +8208,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Date>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Date>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -7908,6 +8221,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:574
@@ -7933,8 +8247,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Time>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Time>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -7947,6 +8260,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:585
@@ -7972,8 +8286,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::DateTime>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -7986,6 +8299,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:596
@@ -8011,8 +8325,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::TimeDelta>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8025,6 +8338,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:519
@@ -8050,8 +8364,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Bool>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8064,6 +8377,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:530
@@ -8089,8 +8403,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>>                       hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8103,6 +8416,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:541
@@ -8128,8 +8442,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Float>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Float>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8142,6 +8455,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:552
@@ -8167,8 +8481,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Str>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Str>>>                       hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8181,6 +8494,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:563
@@ -8206,8 +8520,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Date>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Date>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8220,6 +8533,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:574
@@ -8245,8 +8559,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Time>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Time>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8259,6 +8572,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:585
@@ -8284,8 +8598,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::DateTime>>>                  hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8298,6 +8611,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:596
@@ -8323,8 +8637,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::TimeDelta>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8337,6 +8650,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:519
@@ -8362,8 +8676,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Bool>>>                    hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8376,6 +8689,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:530
@@ -8401,8 +8715,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Int>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Int>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8415,6 +8728,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:541
@@ -8440,8 +8754,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Float>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Float>>>                   hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8454,6 +8767,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:552
@@ -8479,8 +8793,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Str>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Str>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8493,6 +8806,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:563
@@ -8518,8 +8832,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Date>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Date>>>                    hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8532,6 +8845,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:574
@@ -8557,8 +8871,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Time>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Time>>>                    hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8571,6 +8884,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:585
@@ -8596,8 +8910,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::DateTime>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8610,6 +8923,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:596
@@ -8635,8 +8949,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::TimeDelta>>>               hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8649,6 +8962,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:519
@@ -8674,8 +8988,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Bool>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8688,6 +9001,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:530
@@ -8713,8 +9027,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Int>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Int>>>                       hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8727,6 +9040,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:541
@@ -8752,8 +9066,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8766,6 +9079,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:552
@@ -8791,8 +9105,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Str>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Str>>>                       hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8805,6 +9118,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:563
@@ -8830,8 +9144,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Date>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Date>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8844,6 +9157,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:574
@@ -8869,8 +9183,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Time>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Time>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8883,6 +9196,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:585
@@ -8908,8 +9222,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::DateTime>>>                  hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8922,6 +9235,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:596
@@ -8947,8 +9261,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::TimeDelta>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -8961,6 +9274,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:519
@@ -8986,8 +9300,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Bool>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9000,6 +9313,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:530
@@ -9025,8 +9339,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Int>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Int>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9039,6 +9352,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:541
@@ -9064,8 +9378,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Float>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Float>>>                    hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9078,6 +9391,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:552
@@ -9103,8 +9417,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Str>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Str>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9117,6 +9430,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:563
@@ -9142,8 +9456,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Date>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Date>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9156,6 +9469,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:574
@@ -9181,8 +9495,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Time>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Time>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9195,6 +9508,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:585
@@ -9220,8 +9534,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::DateTime>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9234,6 +9547,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:596
@@ -9259,8 +9573,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::TimeDelta>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9273,6 +9586,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:519
@@ -9298,8 +9612,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Bool>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9312,6 +9625,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:530
@@ -9337,8 +9651,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Int>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Int>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9351,6 +9664,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:541
@@ -9376,8 +9690,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Float>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Float>>>                    hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9390,6 +9703,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:552
@@ -9415,8 +9729,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Str>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Str>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9429,6 +9742,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:563
@@ -9454,8 +9768,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Date>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Date>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9468,6 +9781,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:574
@@ -9493,8 +9807,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Time>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Time>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9507,6 +9820,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:585
@@ -9532,8 +9846,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::DateTime>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9546,6 +9859,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:596
@@ -9571,8 +9885,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::TimeDelta>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9585,6 +9898,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:519
@@ -9610,8 +9924,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Bool>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9624,6 +9937,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:530
@@ -9649,8 +9963,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Int>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Int>>>                  hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9663,6 +9976,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:541
@@ -9688,8 +10002,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Float>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Float>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9702,6 +10015,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:552
@@ -9727,8 +10041,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Str>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Str>>>                  hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9741,6 +10054,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:563
@@ -9766,8 +10080,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Date>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Date>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9780,6 +10093,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:574
@@ -9805,8 +10119,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Time>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Time>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9819,6 +10132,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:585
@@ -9844,8 +10158,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::DateTime>>>             hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9858,6 +10171,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:596
@@ -9883,8 +10197,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::TimeDelta>>>            hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9897,6 +10210,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:519
@@ -9922,8 +10236,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Bool>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Bool>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9936,6 +10249,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:530
@@ -9961,8 +10275,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Int>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Int>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -9975,6 +10288,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:541
@@ -10000,8 +10314,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Float>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Float>>>               hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -10014,6 +10327,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:552
@@ -10039,8 +10353,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Str>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Str>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -10053,6 +10366,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:563
@@ -10078,8 +10392,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Date>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Date>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -10092,6 +10405,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:574
@@ -10117,8 +10431,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Time>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Time>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -10131,6 +10444,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:585
@@ -10156,8 +10470,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::DateTime>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::DateTime>>>            hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -10170,6 +10483,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // standard.hgl:596
@@ -10195,8 +10509,7 @@ namespace hgraph_::std_
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
-                             hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
+                             hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::TimeDelta>>>           hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
                     const auto remove =
                         (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
@@ -10209,6 +10522,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:76
@@ -10234,12 +10548,13 @@ namespace hgraph_::std_
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if (((signal.modified()) && (signal.valid() && ts.valid()))) {
                     hgl_output.set(ts.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:76
@@ -10265,12 +10580,13 @@ namespace hgraph_::std_
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked>                                      signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 if (((signal.modified()) && (signal.valid() && ts.valid()))) {
                     hgl_output.set(ts.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:76
@@ -10296,12 +10612,13 @@ namespace hgraph_::std_
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if (((signal.modified()) && (signal.valid() && ts.valid()))) {
                     hgl_output.set(ts.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:76
@@ -10327,12 +10644,13 @@ namespace hgraph_::std_
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked>                                      signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Str>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Str>> hgl_output) {
                 if (((signal.modified()) && (signal.valid() && ts.valid()))) {
                     hgl_output.set(ts.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:76
@@ -10358,12 +10676,13 @@ namespace hgraph_::std_
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Date>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Date>> hgl_output) {
                 if (((signal.modified()) && (signal.valid() && ts.valid()))) {
                     hgl_output.set(ts.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:76
@@ -10389,12 +10708,13 @@ namespace hgraph_::std_
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Time>> hgl_output) {
+                 hgraph::Out<hgraph::TS<hgraph::Time>> hgl_output) {
                 if (((signal.modified()) && (signal.valid() && ts.valid()))) {
                     hgl_output.set(ts.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:76
@@ -10420,12 +10740,13 @@ namespace hgraph_::std_
             static void           eval(
                 hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                 hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
-                hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::DateTime>> hgl_output) {
+                hgraph::Out<hgraph::TS<hgraph::DateTime>> hgl_output) {
                 if (((signal.modified()) && (signal.valid() && ts.valid()))) {
                     hgl_output.set(ts.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:76
@@ -10451,13 +10772,14 @@ namespace hgraph_::std_
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked>
-                     ts,
-                 hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::TimeDelta>> hgl_output) {
+                                                            ts,
+                 hgraph::Out<hgraph::TS<hgraph::TimeDelta>> hgl_output) {
                 if (((signal.modified()) && (signal.valid() && ts.valid()))) {
                     hgl_output.set(ts.value());
                     return;
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:82
@@ -10483,14 +10805,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.drop#155@instantiate:257.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>>                hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto emit_value = (seen.value().checked_as<hgraph::Int>() >= count.value());
@@ -10501,6 +10822,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:82
@@ -10526,14 +10848,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.drop#155@instantiate:258.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>>                 hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto emit_value = (seen.value().checked_as<hgraph::Int>() >= count.value());
@@ -10544,6 +10865,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:82
@@ -10569,14 +10891,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.drop#155@instantiate:259.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>>               hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto emit_value = (seen.value().checked_as<hgraph::Int>() >= count.value());
@@ -10587,6 +10908,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:82
@@ -10612,14 +10934,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.drop#155@instantiate:260.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Str>>                 hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Str>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto emit_value = (seen.value().checked_as<hgraph::Int>() >= count.value());
@@ -10630,6 +10951,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:82
@@ -10655,14 +10977,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.drop#155@instantiate:261.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Date>>                hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Date>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto emit_value = (seen.value().checked_as<hgraph::Int>() >= count.value());
@@ -10673,6 +10994,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:82
@@ -10698,14 +11020,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.drop#155@instantiate:262.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Time>>                hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Time>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto emit_value = (seen.value().checked_as<hgraph::Int>() >= count.value());
@@ -10716,6 +11037,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:82
@@ -10741,14 +11063,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.drop#155@instantiate:263.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::DateTime>>            hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::DateTime>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto emit_value = (seen.value().checked_as<hgraph::Int>() >= count.value());
@@ -10759,6 +11080,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:82
@@ -10784,14 +11106,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.drop#155@instantiate:264.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::TimeDelta>>           hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::TimeDelta>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto emit_value = (seen.value().checked_as<hgraph::Int>() >= count.value());
@@ -10802,6 +11123,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:93
@@ -10826,14 +11148,14 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.filter_#156@instantiate:265";
             using recordable_state =
                 hgraph::TSB<"hgraph.std.filter_#156@instantiate:265.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
-            static void start(hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
             }
             static void eval(hgraph::In<"condition", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> condition,
                              hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        ts,
-                             hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TS<hgraph::Bool>>     hgl_output) {
+                             hgraph::RecordableState<recordable_state>                                           hgl_state,
+                             hgraph::Out<hgraph::TS<hgraph::Bool>>                                               hgl_output) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (((condition.modified() || ts.modified()) && (condition.valid()))) {
                     const auto open = ((condition.valid()) && condition.value());
@@ -10849,6 +11171,7 @@ namespace hgraph_::std_
                     was_open.set(open);
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:93
@@ -10873,14 +11196,13 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.filter_#156@instantiate:266";
             using recordable_state =
                 hgraph::TSB<"hgraph.std.filter_#156@instantiate:266.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
-            static void start(hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
             }
             static void eval(hgraph::In<"condition", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> condition,
                              hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         ts,
-                             hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TS<hgraph::Int>>      hgl_output) {
+                             hgraph::RecordableState<recordable_state> hgl_state, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (((condition.modified() || ts.modified()) && (condition.valid()))) {
                     const auto open = ((condition.valid()) && condition.value());
@@ -10896,6 +11218,7 @@ namespace hgraph_::std_
                     was_open.set(open);
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:93
@@ -10920,14 +11243,14 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.filter_#156@instantiate:267";
             using recordable_state =
                 hgraph::TSB<"hgraph.std.filter_#156@instantiate:267.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
-            static void start(hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
             }
             static void eval(hgraph::In<"condition", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> condition,
                              hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       ts,
-                             hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TS<hgraph::Float>>    hgl_output) {
+                             hgraph::RecordableState<recordable_state>                                           hgl_state,
+                             hgraph::Out<hgraph::TS<hgraph::Float>>                                              hgl_output) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (((condition.modified() || ts.modified()) && (condition.valid()))) {
                     const auto open = ((condition.valid()) && condition.value());
@@ -10943,6 +11266,7 @@ namespace hgraph_::std_
                     was_open.set(open);
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:93
@@ -10967,14 +11291,13 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.filter_#156@instantiate:268";
             using recordable_state =
                 hgraph::TSB<"hgraph.std.filter_#156@instantiate:268.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
-            static void start(hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
             }
             static void eval(hgraph::In<"condition", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> condition,
                              hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         ts,
-                             hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TS<hgraph::Str>>      hgl_output) {
+                             hgraph::RecordableState<recordable_state> hgl_state, hgraph::Out<hgraph::TS<hgraph::Str>> hgl_output) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (((condition.modified() || ts.modified()) && (condition.valid()))) {
                     const auto open = ((condition.valid()) && condition.value());
@@ -10990,6 +11313,7 @@ namespace hgraph_::std_
                     was_open.set(open);
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:93
@@ -11014,14 +11338,14 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.filter_#156@instantiate:269";
             using recordable_state =
                 hgraph::TSB<"hgraph.std.filter_#156@instantiate:269.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
-            static void start(hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
             }
             static void eval(hgraph::In<"condition", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> condition,
                              hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        ts,
-                             hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TS<hgraph::Date>>     hgl_output) {
+                             hgraph::RecordableState<recordable_state>                                           hgl_state,
+                             hgraph::Out<hgraph::TS<hgraph::Date>>                                               hgl_output) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (((condition.modified() || ts.modified()) && (condition.valid()))) {
                     const auto open = ((condition.valid()) && condition.value());
@@ -11037,6 +11361,7 @@ namespace hgraph_::std_
                     was_open.set(open);
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:93
@@ -11061,14 +11386,14 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.filter_#156@instantiate:270";
             using recordable_state =
                 hgraph::TSB<"hgraph.std.filter_#156@instantiate:270.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
-            static void start(hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
             }
             static void eval(hgraph::In<"condition", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> condition,
                              hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        ts,
-                             hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TS<hgraph::Time>>     hgl_output) {
+                             hgraph::RecordableState<recordable_state>                                           hgl_state,
+                             hgraph::Out<hgraph::TS<hgraph::Time>>                                               hgl_output) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (((condition.modified() || ts.modified()) && (condition.valid()))) {
                     const auto open = ((condition.valid()) && condition.value());
@@ -11084,6 +11409,7 @@ namespace hgraph_::std_
                     was_open.set(open);
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:93
@@ -11108,14 +11434,14 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.filter_#156@instantiate:271";
             using recordable_state =
                 hgraph::TSB<"hgraph.std.filter_#156@instantiate:271.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
-            static void start(hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
             }
             static void eval(hgraph::In<"condition", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> condition,
                              hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    ts,
-                             hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TS<hgraph::DateTime>> hgl_output) {
+                             hgraph::RecordableState<recordable_state>                                           hgl_state,
+                             hgraph::Out<hgraph::TS<hgraph::DateTime>>                                           hgl_output) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (((condition.modified() || ts.modified()) && (condition.valid()))) {
                     const auto open = ((condition.valid()) && condition.value());
@@ -11131,6 +11457,7 @@ namespace hgraph_::std_
                     was_open.set(open);
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:93
@@ -11155,14 +11482,14 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.filter_#156@instantiate:272";
             using recordable_state =
                 hgraph::TSB<"hgraph.std.filter_#156@instantiate:272.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
-            static void start(hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
             }
             static void eval(hgraph::In<"condition", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> condition,
                              hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   ts,
-                             hgraph::RecordableState<recordable_state>  hgl_state, hgraph::State<hgl_cache_fields>,
-                             hgraph::Out<hgraph::TS<hgraph::TimeDelta>> hgl_output) {
+                             hgraph::RecordableState<recordable_state>                                           hgl_state,
+                             hgraph::Out<hgraph::TS<hgraph::TimeDelta>>                                          hgl_output) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (((condition.modified() || ts.modified()) && (condition.valid()))) {
                     const auto open = ((condition.valid()) && condition.value());
@@ -11178,6 +11505,7 @@ namespace hgraph_::std_
                     was_open.set(open);
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:10
@@ -11203,14 +11531,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.take#150@instantiate:273.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>>                hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto index = (seen.value().checked_as<hgraph::Int>() + hgraph::Int{1});
@@ -11224,6 +11551,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:10
@@ -11249,14 +11577,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.take#150@instantiate:274.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>>                 hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto index = (seen.value().checked_as<hgraph::Int>() + hgraph::Int{1});
@@ -11270,6 +11597,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:10
@@ -11295,14 +11623,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.take#150@instantiate:275.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>>               hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto index = (seen.value().checked_as<hgraph::Int>() + hgraph::Int{1});
@@ -11316,6 +11643,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:10
@@ -11341,14 +11669,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.take#150@instantiate:276.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Str>>                 hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Str>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto index = (seen.value().checked_as<hgraph::Int>() + hgraph::Int{1});
@@ -11362,6 +11689,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:10
@@ -11387,14 +11715,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.take#150@instantiate:277.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Date>>                hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Date>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto index = (seen.value().checked_as<hgraph::Int>() + hgraph::Int{1});
@@ -11408,6 +11735,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:10
@@ -11433,14 +11761,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.take#150@instantiate:278.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Time>>                hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Time>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto index = (seen.value().checked_as<hgraph::Int>() + hgraph::Int{1});
@@ -11454,6 +11781,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:10
@@ -11479,14 +11807,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.take#150@instantiate:279.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::DateTime>>            hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::DateTime>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto index = (seen.value().checked_as<hgraph::Int>() + hgraph::Int{1});
@@ -11500,6 +11827,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:10
@@ -11525,14 +11853,13 @@ namespace hgraph_::std_
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
                 hgraph::TSB<"hgraph.std.take#150@instantiate:280.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
-            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state,
-                              hgraph::State<hgl_cache_fields>) {
+            static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
             }
             static void eval(hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::Scalar<"count", hgraph::Int> count, hgraph::RecordableState<recordable_state> hgl_state,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::TimeDelta>>           hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::TimeDelta>> hgl_output) {
                 auto seen = hgl_state.field<"seen">();
                 if ((ts.modified()) && (ts.valid())) {
                     const auto index = (seen.value().checked_as<hgraph::Int>() + hgraph::Int{1});
@@ -11546,6 +11873,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:26
@@ -11570,7 +11898,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.freeze#151@instantiate:281";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        ts,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Bool>>                                               hgl_output) {
                 if ((predicate.modified() || ts.modified()) && (predicate.valid())) {
                     if (predicate.value()) {
                         predicate.make_passive();
@@ -11587,6 +11915,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:26
@@ -11611,7 +11940,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.freeze#151@instantiate:282";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         ts,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Int>>                                                hgl_output) {
                 if ((predicate.modified() || ts.modified()) && (predicate.valid())) {
                     if (predicate.value()) {
                         predicate.make_passive();
@@ -11628,6 +11957,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:26
@@ -11652,7 +11982,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.freeze#151@instantiate:283";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       ts,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Float>>                                              hgl_output) {
                 if ((predicate.modified() || ts.modified()) && (predicate.valid())) {
                     if (predicate.value()) {
                         predicate.make_passive();
@@ -11669,6 +11999,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:26
@@ -11693,7 +12024,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.freeze#151@instantiate:284";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         ts,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Str>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Str>>                                                hgl_output) {
                 if ((predicate.modified() || ts.modified()) && (predicate.valid())) {
                     if (predicate.value()) {
                         predicate.make_passive();
@@ -11710,6 +12041,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:26
@@ -11734,7 +12066,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.freeze#151@instantiate:285";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        ts,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Date>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Date>>                                               hgl_output) {
                 if ((predicate.modified() || ts.modified()) && (predicate.valid())) {
                     if (predicate.value()) {
                         predicate.make_passive();
@@ -11751,6 +12083,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:26
@@ -11775,7 +12108,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.freeze#151@instantiate:286";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        ts,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Time>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::Time>>                                               hgl_output) {
                 if ((predicate.modified() || ts.modified()) && (predicate.valid())) {
                     if (predicate.value()) {
                         predicate.make_passive();
@@ -11792,6 +12125,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:26
@@ -11816,7 +12150,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.freeze#151@instantiate:287";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    ts,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::DateTime>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::DateTime>>                                           hgl_output) {
                 if ((predicate.modified() || ts.modified()) && (predicate.valid())) {
                     if (predicate.value()) {
                         predicate.make_passive();
@@ -11833,6 +12167,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
         // stream.hgl:26
@@ -11857,7 +12192,7 @@ namespace hgraph_::std_
             static constexpr auto name = "hgraph.std.freeze#151@instantiate:288";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   ts,
-                             hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::TimeDelta>> hgl_output) {
+                             hgraph::Out<hgraph::TS<hgraph::TimeDelta>>                                          hgl_output) {
                 if ((predicate.modified() || ts.modified()) && (predicate.valid())) {
                     if (predicate.value()) {
                         predicate.make_passive();
@@ -11874,6 +12209,7 @@ namespace hgraph_::std_
                     }
                 }
             }
+            static void prepare(const hgraph::NodeView &) { hgraph_::std_::prepare_ordinary_value_plans(); }
         };
 
     }  // namespace hgl_detail
