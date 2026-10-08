@@ -6,7 +6,9 @@
 #include <catch2/matchers/catch_matchers.hpp>
 
 #include <array>
+#include <chrono>
 #include <cstdint>
+#include <iostream>
 #include <type_traits>
 
 TEST_CASE("ordinary delta identities retain fixed extent and nominal origin", "[ordinary][delta]") {
@@ -175,6 +177,92 @@ TEST_CASE("generic observations retain ordinary origins and recursive holes with
         {}, false, "__type__", {scalar_descriptor<Pair>::value_meta()});
     CHECK_THROWS_AS((PreparedObservationPlan{shape, wrong_origin}), std::invalid_argument);
     CHECK_THROWS_AS((PreparedObservationPlan{schema_descriptor<TS<Pair>>::ts_meta(), shape->value_schema}), std::invalid_argument);
+}
+
+TEST_CASE("cold Bundle field indices preserve reordered publication and exact named observations", "[ordinary][field-mapping]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *origin = registry.bundle("ordinary", "IndexedFields", {{"alpha", integer}, {"beta", integer}, {"gamma", integer}});
+    const auto *named = registry.tsb(origin);
+    const auto *reordered = registry.un_named_tsb({{"gamma", registry.ts(integer)}, {"alpha", registry.ts(integer)}, {"beta", registry.ts(integer)}});
+    const PreparedValuePlan values{origin};
+    const Value seven{Int{7}}, eight{Int{8}}, nine{Int{9}};
+    const auto payload = values.bundle(std::array{std::pair<std::size_t, ValueView>{0, seven.view()},
+        std::pair<std::size_t, ValueView>{1, eight.view()}, std::pair<std::size_t, ValueView>{2, nine.view()}});
+    const PreparedObservationPlan forward{named, origin}, inverse{named, origin, false};
+    const PreparedPublicationPlan publication{reordered, origin};
+    TSOutput output{*reordered};
+    const auto before = type_system_lock_count();
+    for (std::size_t iteration = 0; iteration < 8; ++iteration) {
+        const auto held = inverse.retain(payload.view());
+        const auto copy = forward.retain(held.view());
+        CHECK(values.index(copy.view(), 0).checked_as<Int>() == 7);
+        CHECK(values.index(copy.view(), 1).checked_as<Int>() == 8);
+        CHECK(values.index(copy.view(), 2).checked_as<Int>() == 9);
+        publication.apply(output.view(MIN_ST), copy.view());
+        const auto result = output.view(MIN_ST).value().as_bundle();
+        CHECK(result.at(0).checked_as<Int>() == 9);
+        CHECK(result.at(1).checked_as<Int>() == 7);
+        CHECK(result.at(2).checked_as<Int>() == 8);
+    }
+    CHECK(type_system_lock_count() == before);
+    // Malformed cold metadata must fail before any child can be mapped twice.
+    // Its value binding remains the exact registered origin, so these controls
+    // exercise name validation rather than introducing a schema alias.
+    std::array<TSFieldMetaData, 3> duplicate{named->fields()[0], named->fields()[1], named->fields()[2]};
+    const std::string duplicate_name{"alpha"};
+    duplicate[1].name = duplicate_name.c_str();
+    auto malformed = *named;
+    malformed.set_tsb(duplicate.data(), duplicate.size(), named->bundle_name());
+    CHECK_THROWS_AS((PreparedObservationPlan{&malformed, origin}), std::invalid_argument);
+    CHECK_THROWS_AS((PreparedObservationPlan{&malformed, origin, false}), std::invalid_argument);
+    CHECK_THROWS_AS((PreparedPublicationPlan{&malformed, origin}), std::invalid_argument);
+    duplicate[1].name = "missing";
+    CHECK_THROWS_AS((PreparedObservationPlan{&malformed, origin}), std::invalid_argument);
+    CHECK_THROWS_AS((PreparedObservationPlan{&malformed, origin, false}), std::invalid_argument);
+    CHECK_THROWS_AS((PreparedPublicationPlan{&malformed, origin}), std::invalid_argument);
+}
+
+TEST_CASE("cold Bundle preparation reports doubling per-field costs", "[.][ordinary-field-preparation-benchmark]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *scalar = registry.ts(integer);
+    constexpr std::size_t repetitions = 32;
+    for (const auto count : {std::size_t{512}, std::size_t{1024}, std::size_t{2048}, std::size_t{4096}}) {
+        std::vector<std::pair<std::string, const ValueTypeMetaData *>> value_fields;
+        std::vector<std::pair<std::string, const TSValueTypeMetaData *>> temporal_fields;
+        value_fields.reserve(count);
+        temporal_fields.reserve(count);
+        for (std::size_t index = 0; index < count; ++index) {
+            value_fields.emplace_back("field_" + std::to_string(index), integer);
+            temporal_fields.emplace_back("field_" + std::to_string(count - index - 1), scalar);
+        }
+        // Registry/schema creation and initial plan realization are outside
+        // every timed region. Only cold conversion/publication preparation is
+        // measured; runtime name lookups are covered by the functional test.
+        const auto *origin = registry.bundle("ordinary", "ScalingFields" + std::to_string(count), value_fields);
+        const auto *named = registry.tsb(origin);
+        const auto *reordered = registry.un_named_tsb(temporal_fields);
+        const PreparedObservationPlan warm_forward{named, origin}, warm_inverse{named, origin, false};
+        const PreparedPublicationPlan warm_publication{reordered, origin};
+        CHECK(warm_forward.binding().schema() == origin);
+        CHECK(warm_inverse.binding().schema() == named->value_schema);
+        const auto measure = [&](auto prepare) {
+            const auto start = std::chrono::steady_clock::now();
+            for (std::size_t iteration = 0; iteration < repetitions; ++iteration) { prepare(); }
+            return std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - start).count()
+                / static_cast<double>(count * repetitions);
+        };
+        const auto forward_ns = measure([&] { const PreparedObservationPlan plan{named, origin}; });
+        const auto inverse_ns = measure([&] { const PreparedObservationPlan plan{named, origin, false}; });
+        const auto publication_ns = measure([&] { const PreparedPublicationPlan plan{reordered, origin}; });
+        std::cout << "cold Bundle preparation fields=" << count << " forward_ns/field=" << forward_ns
+                  << " inverse_ns/field=" << inverse_ns << " publication_ns/field=" << publication_ns << '\n';
+    }
 }
 
 TEST_CASE("ordinary lists keep canonical schemas with mutable planned storage", "[ordinary][list]") {

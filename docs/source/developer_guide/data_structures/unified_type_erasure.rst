@@ -347,6 +347,11 @@ selects recursive conversion operations. Retention preserves typed holes and
 uses those operations without schema discovery or registry access during ticks.
 ``PreparedPublicationPlan`` likewise selects the generic result writer once;
 ordinary scalar matching and whole-parent copying remain strict.
+Both plans build a cold hash index of destination field names, reject duplicate
+or missing names, and retain only positional indices for evaluation. Forward
+and inverse observation mappings are derived from the same field bijection.
+Preparing a Bundle therefore takes linear expected time in its field count;
+evaluation never performs a name lookup.
 
 Runtime nodes prepare their ordinary bindings in node storage. Aggregate locals
 and recursively referenced value helpers also trigger cold preparation even

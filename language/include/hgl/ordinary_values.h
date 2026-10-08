@@ -8,6 +8,7 @@
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_input.h>
+#include <ankerl/unordered_dense.h>
 
 #include <cstdint>
 #include <charconv>
@@ -525,31 +526,34 @@ namespace hgl::ordinary
                     if (ordinary->is_named_bundle()) {
                         if (shape->value_schema != ordinary && ordinary_nominal_origin(shape->value_schema) != ordinary) { mismatch(); }
                     } else if (shape->value_schema->is_named_bundle()) { mismatch(); }
+                    indices_.resize(ordinary->field_count);
+                    children_.reserve(ordinary->field_count);
+                    ankerl::unordered_dense::map<std::string_view, std::size_t> temporal_names;
+                    if (ordinary->is_named_bundle()) {
+                        temporal_names.reserve(shape->field_count());
+                        for (std::size_t index = 0; index < shape->field_count(); ++index) {
+                            const auto *name = shape->fields()[index].name;
+                            if (name == nullptr || !temporal_names.try_emplace(name, index).second) { mismatch(); }
+                        }
+                    }
+                    std::vector<bool> matched(shape->field_count());
                     for (std::size_t index = 0; index < ordinary->field_count; ++index) {
                         std::size_t source_index = index;
                         if (ordinary->is_named_bundle()) {
-                            source_index = shape->field_count();
-                            for (std::size_t j = 0; j < shape->field_count(); ++j) {
-                                if (std::string_view{shape->fields()[j].name} == std::string_view{ordinary->fields[index].name}) { source_index = j; break; }
-                            }
-                            if (source_index == shape->field_count()) { mismatch(); }
+                            const auto *name = ordinary->fields[index].name;
+                            if (name == nullptr) { mismatch(); }
+                            const auto found = temporal_names.find(name);
+                            if (found == temporal_names.end() || matched[found->second]) { mismatch(); }
+                            source_index = found->second;
+                            matched[source_index] = true;
                         } else if (kind == ValueTypeKind::Tuple && shape->fields()[index].name != std::to_string(index)) { mismatch(); }
-                        if (to_ordinary) {
-                            indices_.push_back(source_index);
-                            children_.emplace_back(shape->fields()[source_index].type, ordinary->fields[index].type, true);
-                        }
+                        if (to_ordinary) { indices_[index] = source_index; }
+                        else { indices_[source_index] = index; }
                     }
-                    if (!to_ordinary) {
-                        for (std::size_t index = 0; index < shape->field_count(); ++index) {
-                            auto ordinary_index = index;
-                            if (ordinary->is_named_bundle()) {
-                                for (std::size_t j = 0; j < ordinary->field_count; ++j) {
-                                    if (std::string_view{ordinary->fields[j].name} == std::string_view{shape->fields()[index].name}) { ordinary_index = j; break; }
-                                }
-                            }
-                            indices_.push_back(ordinary_index);
-                            children_.emplace_back(shape->fields()[index].type, ordinary->fields[ordinary_index].type, false);
-                        }
+                    for (std::size_t index = 0; index < ordinary->field_count; ++index) {
+                        const auto temporal_index = to_ordinary ? indices_[index] : index;
+                        const auto ordinary_index = to_ordinary ? index : indices_[index];
+                        children_.emplace_back(shape->fields()[temporal_index].type, ordinary->fields[ordinary_index].type, to_ordinary);
                     }
                     operation_ = &retain_bundle;
                     endpoint_operation_ = &retain_endpoint_bundle;
@@ -678,15 +682,28 @@ namespace hgl::ordinary
                     ordinary_nominal_origin(source) != ordinary_nominal_origin(shape->value_schema)) {
                     throw std::invalid_argument("ordinary publication nominal origin mismatch");
                 }
+                ankerl::unordered_dense::map<std::string_view, std::size_t> temporal_names;
+                temporal_names.reserve(shape->field_count());
+                for (std::size_t index = 0; index < shape->field_count(); ++index) {
+                    const auto *name = shape->fields()[index].name;
+                    if (name == nullptr || !temporal_names.try_emplace(name, index).second) {
+                        throw std::invalid_argument("ordinary publication field name mismatch");
+                    }
+                }
+                destination_indices_.reserve(source->field_count);
+                children_.reserve(source->field_count);
+                std::vector<bool> matched(shape->field_count());
                 for (std::size_t index = 0; index < source->field_count; ++index) {
-                    std::size_t target_index = shape->field_count();
                     const auto positional = kind == hgraph::ValueTypeKind::Tuple ? std::to_string(index) : std::string{};
+                    if (kind != hgraph::ValueTypeKind::Tuple && source->fields[index].name == nullptr) {
+                        throw std::invalid_argument("ordinary publication field name mismatch");
+                    }
                     const std::string_view name = kind == hgraph::ValueTypeKind::Tuple
                         ? std::string_view{positional} : std::string_view{source->fields[index].name};
-                    for (std::size_t j = 0; j < shape->field_count(); ++j) {
-                        if (std::string_view{shape->fields()[j].name} == name) { target_index = j; break; }
-                    }
-                    if (target_index == shape->field_count()) { throw std::invalid_argument("ordinary publication field name mismatch"); }
+                    const auto found = temporal_names.find(name);
+                    if (found == temporal_names.end() || matched[found->second]) { throw std::invalid_argument("ordinary publication field name mismatch"); }
+                    const auto target_index = found->second;
+                    matched[target_index] = true;
                     destination_indices_.push_back(target_index);
                     children_.emplace_back(shape->fields()[target_index].type, source->fields[index].type);
                 }
