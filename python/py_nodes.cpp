@@ -1450,6 +1450,17 @@ struct py_generator_node {
       "hgraph.python.generator";
   static constexpr bool uses_python_values = true;
   static constexpr bool requires_phase_runner = true;
+  // The node contract (scalar schema, state, output) is declared here so the
+  // per-tick ``eval`` can take only what it reads. Every declared hook
+  // parameter is materialised per call by the invocation frame; the seven
+  // lifecycle scalars cost a scalar-bundle projection each on every tick when
+  // ``eval`` listed them (RFC 0008 frame; bake-off profile 2026-10-07).
+  using signature_args =
+      std::tuple<Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,
+                 Scalar<"scalars", ScalarVar<"SV">>, Scalar<"stop_fn", PyNodeRef>,
+                 Scalar<"stop_enabled", Bool>, Scalar<"stop_config", Str>,
+                 Scalar<"stop_scalars", ScalarVar<"XSV">>, State<PyGenStateRef>,
+                 NodeScheduler, Out<TsVar<"O">>>;
 
   static void start(Scalar<"fn", PyNodeRef> fn, Scalar<"config", Str> config,
                     Scalar<"scalars", ScalarVar<"SV">> scalars,
@@ -1489,21 +1500,8 @@ struct py_generator_node {
     });
   }
 
-  static void eval(Scalar<"fn", PyNodeRef> fn, Scalar<"config", Str> config,
-                   Scalar<"scalars", ScalarVar<"SV">> scalars,
-                   Scalar<"stop_fn", PyNodeRef> stop_fn,
-                   Scalar<"stop_enabled", Bool> stop_enabled,
-                   Scalar<"stop_config", Str> stop_config,
-                   Scalar<"stop_scalars", ScalarVar<"XSV">> stop_scalars,
-                   State<PyGenStateRef> state, NodeScheduler sched,
+  static void eval(State<PyGenStateRef> state, NodeScheduler sched,
                    Out<TsVar<"O">> out) {
-    static_cast<void>(fn);
-    static_cast<void>(config);
-    static_cast<void>(scalars);
-    static_cast<void>(stop_fn);
-    static_cast<void>(stop_enabled);
-    static_cast<void>(stop_config);
-    static_cast<void>(stop_scalars);
     translate_python_error([&] {
       PyGenHandle *handle = state.get().handle;
       if (handle == nullptr || handle->exhausted) {
