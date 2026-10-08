@@ -1243,3 +1243,134 @@ test aggregate_helpers_keep_concrete_specializations_independent {
     assert eval(specialized_int_helper_node, [9]) == [(9, false)]
     assert eval(specialized_float_helper_node, [3.5]) == [(3.5, false)]
 }
+
+
+struct UnsetObservedNumber {
+    sibling: i64
+    child: i64
+}
+struct UnsetObservedFlag {
+    sibling: i64
+    child: bool
+}
+struct UnsetObservedSamples {
+    sibling: i64
+    child: list<i64, 2>
+}
+
+export fn unset_number(value: UnsetObservedNumber) -> i64 {
+    when {
+        let copy = value
+        let child = copy.child
+        return child + 1
+    }
+}
+export fn unset_flag(value: UnsetObservedFlag) -> i64 {
+    when {
+        let copy = value
+        let child = copy.child
+        if child { return 1 } else { return 0 }
+    }
+}
+export fn unset_length(value: UnsetObservedSamples) -> i64 {
+    when {
+        let copy = value
+        return len(copy.child)
+    }
+}
+export fn unset_native_text(value: UnsetObservedNumber) -> str {
+    when {
+        let copy = value
+        let child = copy.child
+        return str(child)
+    }
+}
+export fn unset_retain_partial(value: tuple<i64, bool>) -> tuple<i64, bool> {
+    when {
+        let copy = value
+        let child = copy[1]
+        return (copy[0], child)
+    }
+}
+
+test required_unset_payload_errors {
+    assert raises("value.unset_read") {
+        eval(unset_native_text, value: [delta<UnsetObservedNumber>(sibling: 1)])
+    }
+    assert raises("value.unset_read") {
+        eval(unset_number, value: [delta<UnsetObservedNumber>(sibling: 1)])
+    }
+    assert raises("value.unset_read") {
+        eval(unset_flag, value: [delta<UnsetObservedFlag>(sibling: 1)])
+    }
+    assert raises("value.unset_read") {
+        eval(unset_length, value: [delta<UnsetObservedSamples>(sibling: 1)])
+    }
+    assert true
+}
+
+test required_unset_present_payloads_and_retention {
+    assert eval(unset_native_text, value: [delta<UnsetObservedNumber>(sibling: 1, child: 0)]) == ["0"]
+    assert eval(unset_number, value: [delta<UnsetObservedNumber>(sibling: 1, child: 0)]) == [1]
+    assert eval(unset_flag, value: [delta<UnsetObservedFlag>(sibling: 1, child: false), delta<UnsetObservedFlag>(child: true)]) == [0, 1]
+    assert eval(unset_length, value: [delta<UnsetObservedSamples>(sibling: 1, child: delta<list<i64, 2>>(items: [0: 4, 1: 5]))]) == [2]
+    assert eval(unset_retain_partial, value: [(1, _)]) == [(1, _)]
+    assert eval(unset_retain_partial, value: [(1, false)]) == [(1, false)]
+}
+
+export fn unset_rebuild_number(value: UnsetObservedNumber) -> UnsetObservedNumber {
+    when {
+        let copy = value
+        let child = copy.child
+        return UnsetObservedNumber(sibling: copy.sibling, child: child)
+    }
+}
+
+export fn unset_error_cleanup(value: UnsetObservedNumber) -> i64 {
+    inject logger
+    when {
+        let copy = value
+        let child = copy.child
+        info(logger, "before")
+        let first = child + 1
+        info(logger, "unreachable")
+        return first
+    }
+    stop { info(logger, "stopped") }
+}
+
+struct UnsetGeneratorNumber {
+    sibling: i64
+    child: i64 = null
+}
+export fn unset_generator_retention() -> i64 {
+    inject logger
+    let copy = UnsetGeneratorNumber(sibling: 1)
+    let child = copy.child
+    let alias = child
+    info(logger, "retained")
+    yield 1us: 1
+    info(logger, "resumed")
+    yield 1us: alias + 1
+}
+
+export fn unset_generator_present() -> i64 {
+    let copy = UnsetGeneratorNumber(sibling: 1, child: 0)
+    let child = copy.child
+    let alias = child
+    yield 1us: 1
+    yield 1us: alias + 1
+}
+
+export fn unset_global_field(value: i64) -> i64 {
+    inject global_state
+    start { set(global_state, "unset-required-read-global", UnsetGeneratorNumber(sibling: 1)) }
+    when {
+        let borrowed: UnsetGeneratorNumber = get(global_state, "unset-required-read-global")
+        return borrowed.child
+    }
+}
+
+export fn unset_temporal_delta(value: UnsetObservedNumber) -> i64 {
+    when valid(value.child) && modified(value.child) { return delta_value(value.child) }
+}

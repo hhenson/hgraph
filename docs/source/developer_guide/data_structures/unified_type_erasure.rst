@@ -365,6 +365,20 @@ with scalar-only signatures. Helper bindings share the module's dedicated
 preparation function with its provider installer; direct C++ node wiring does
 not depend on a provider having run before the first evaluation.
 
+HGL owning ``let`` bindings and ordinary constructor children retain projected
+scalar observations as typed values, including absence. This is an emit-time
+representation choice; their source types remain unchanged. Arithmetic,
+Boolean conditions and native scalar arguments consume the observation through
+``required_scalar``; an absent payload raises ``value.unset_read``. An unset
+ordinary List's ``len`` uses the same execution code. The diagnostic is created
+only on the failing branch, separately from successful scalar payload reads.
+Direct temporal validity checks, bounds, missing-key failures and global borrowed
+payload guards keep their existing paths and uncoded error identity. Retention and projection do not require a child payload.
+Generator owning locals use the same decision: projected scalar observations
+live in typed owning storage across suspension, while native scalar locals
+retain their existing representation. Hoisted storage is selected during
+emission, including nested emission frames; evaluation does not inspect types.
+
 HGL complete structural publication
 -----------------------------------
 

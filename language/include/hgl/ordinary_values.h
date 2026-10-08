@@ -1,6 +1,7 @@
 #ifndef HGL_ORDINARY_VALUES_H
 #define HGL_ORDINARY_VALUES_H
 
+#include <hgl/execution_error.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/metadata/type_realization.h>
@@ -22,6 +23,13 @@
 
 namespace hgl::ordinary
 {
+    // Payload consumption is separate from retaining a typed observation.
+    // Construct the diagnostic only on failure; the presence guard allocates
+    // nothing on success and preserves the payload's existing copy semantics.
+    template <typename T> [[nodiscard]] T required_scalar(const hgraph::ValueView &value) {
+        if (!value.has_value()) { throw hgl::ExecutionError{"value.unset_read", "ordinary scalar value is absent"}; }
+        return value.as<T>();
+    }
     // Only explicit publication predicates use this marker. Allocation and
     // storage failures retain their original exception identity.
     class PublicationProfileError : public std::invalid_argument {
@@ -445,11 +453,14 @@ namespace hgl::ordinary
         }
         [[nodiscard]] hgraph::Value bundle(std::span<const std::pair<std::size_t, hgraph::ValueView>> fields) const {
             hgraph::BundleBuilder result{binding_};
-            for (const auto &[index, value] : fields) { result.set(index, value); }
+            for (const auto &[index, value] : fields) { if (value.has_value()) { result.set(index, value); } }
             return result.build();
         }
-        [[nodiscard]] std::int64_t len(const hgraph::ValueView &value) const {
-            if (!value.has_value()) { throw std::logic_error("ordinary scalar value is absent"); }
+        [[nodiscard]] std::int64_t len(const hgraph::ValueView &value, bool retained_observation = true) const {
+            if (!value.has_value()) {
+                if (!retained_observation) { throw std::logic_error("ordinary scalar value is absent"); }
+                throw hgl::ExecutionError{"value.unset_read", "ordinary scalar value is absent"};
+            }
             if (indexed_ == nullptr) { throw std::invalid_argument("ordinary value storage is not indexed"); }
             const auto size = indexed_->size(indexed_->context, value.data());
             if (size > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max())) {

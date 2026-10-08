@@ -37,6 +37,41 @@ TEST_CASE("ordinary delta identities retain fixed extent and nominal origin", "[
     CHECK((scalar_descriptor<hgl::ordinary::List<std::int64_t, 2>>::value_meta() == two->value_schema));
 }
 
+TEST_CASE("required payload guards separate absent errors from present scalar reads", "[ordinary][unset-read]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    const Value zero{Int{0}}, falsity{Bool{false}};
+    const PreparedValuePlan integer{zero.binding()}, boolean{falsity.binding()};
+    const auto absent = integer.retain(Value::typed_null(integer.binding()).view());
+    CHECK_FALSE(absent.has_value());
+    CHECK(absent.schema() == zero.schema());
+    try { (void)required_scalar<Int>(absent.view()); FAIL("absent required payload unexpectedly read"); }
+    catch (const hgl::ExecutionError &error) { CHECK(error.code() == "value.unset_read"); }
+    const auto before = type_system_lock_count();
+    Int sum = 0;
+    bool observed_true = false;
+    for (std::size_t index = 0; index < 128; ++index) {
+        sum += required_scalar<Int>(zero.view());
+        observed_true = observed_true || required_scalar<Bool>(falsity.view());
+    }
+    CHECK(sum == 0);
+    CHECK_FALSE(observed_true);
+    CHECK(type_system_lock_count() == before);
+    const auto expect_uncoded = [](auto invoke) {
+        try { invoke(); FAIL("existing collection error unexpectedly succeeded"); }
+        catch (const std::exception &error) { CHECK(hgl::execution_error_code(error).empty()); }
+    };
+    const PreparedValuePlan list{scalar_descriptor<List<Int, 2>>::value_meta()};
+    const auto present_list = list.empty_list();
+    expect_uncoded([&] { (void)list.index(present_list.view(), 2); });
+    // This extension defines len on an unset List, not indexing that root.
+    expect_uncoded([&] { (void)list.index(Value::typed_null(list.binding()).view(), 0); });
+    expect_uncoded([&] { (void)list.len(Value::typed_null(list.binding()).view(), false); });
+    const PreparedValuePlan map{scalar_descriptor<Map<Int, Int>>::value_meta()};
+    const Value empty_map{map.binding()};
+    expect_uncoded([&] { (void)map.map_index(empty_map.view(), zero.view()); });
+}
+
 TEST_CASE("prepared generic publications reconcile recursive values without registry access", "[ordinary][publication]") {
     using namespace hgraph;
     using hgl::ordinary::PreparedValuePlan;

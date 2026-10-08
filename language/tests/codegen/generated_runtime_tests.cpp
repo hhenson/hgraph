@@ -1,4 +1,5 @@
 #include <runtime.h>
+#include <hgl/execution_error.h>
 #include <sources.h>
 #include <hgraph/runtime/logger.h>
 #include <hgraph/util/scope.h>
@@ -33,6 +34,57 @@ TEST_CASE("direct compiled scalar signatures prepare aggregate locals and helper
     CHECK_OUTPUT(eval_node<runtime::scalar_tuple_local>(values<Int>(7, 8)), values<Int>(7, 8));
     CHECK_OUTPUT(eval_node<runtime::scalar_list_local>(values<Int>(7, 8)), values<Int>(1, 1));
     CHECK_OUTPUT(eval_node<runtime::scalar_list_helper>(values<Int>(7, 8)), values<Int>(1, 1));
+}
+
+TEST_CASE("required unset scalar reads preserve their code and run normal stop cleanup", "[codegen][runtime][unset-read]") {
+    session();
+    using Number = runtime::UnsetObservedNumber::time_series;
+    using Flag = runtime::UnsetObservedFlag::time_series;
+    using Samples = runtime::UnsetObservedSamples::time_series;
+    const auto expect_unset = [](auto invoke) {
+        try { invoke(); FAIL("required absent payload unexpectedly produced a result"); }
+        catch (const std::exception &error) { CHECK(hgl::execution_error_code(error) == "value.unset_read"); }
+    };
+    expect_unset([&] { (void)eval_node<runtime::unset_number>(values<Value>(tsb_delta<Number>(Int{1}, std::nullopt))); });
+    expect_unset([&] { (void)eval_node<runtime::unset_flag>(values<Value>(tsb_delta<Flag>(Int{1}, std::nullopt))); });
+    expect_unset([&] { (void)eval_node<runtime::unset_length>(values<Value>(tsb_delta<Samples>(Int{1}, std::nullopt))); });
+    expect_unset([&] { (void)eval_node<runtime::unset_native_text>(values<Value>(tsb_delta<Number>(Int{1}, std::nullopt))); });
+    CHECK_OUTPUT(eval_node<runtime::unset_number>(values<Value>(tsb_delta<Number>(Int{1}, Int{0}))), values<Int>(1));
+    CHECK_OUTPUT(eval_node<runtime::unset_flag>(values<Value>(tsb_delta<Flag>(Int{1}, Bool{false}))), values<Int>(0));
+    CHECK_OUTPUT(eval_node<runtime::unset_native_text>(values<Value>(tsb_delta<Number>(Int{1}, Int{0}))), values<Str>(Str{"0"}));
+    using Pair = UnNamedTSB<Field<"0", TS<Int>>, Field<"1", TS<Bool>>>;
+    CHECK_OUTPUT(eval_node<runtime::unset_retain_partial>(values<Value>(tsb_delta<Pair>(Int{1}, std::nullopt))),
+                 values<Value>(tsb_delta<Pair>(Int{1}, std::nullopt)));
+    CHECK_OUTPUT(eval_node<runtime::unset_retain_partial>(values<Value>(tsb_delta<Pair>(Int{1}, Bool{false}))),
+                 values<Value>(tsb_delta<Pair>(Int{1}, Bool{false})));
+    CHECK_OUTPUT(eval_node<runtime::unset_rebuild_number>(values<Value>(tsb_delta<Number>(Int{1}, std::nullopt))),
+                 values<Value>(tsb_delta<Number>(Int{1}, std::nullopt)));
+    CHECK_OUTPUT(eval_node<runtime::unset_rebuild_number>(values<Value>(tsb_delta<Number>(Int{1}, Int{0}))),
+                 values<Value>(tsb_delta<Number>(Int{1}, Int{0})));
+    std::ostringstream captured;
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(captured);
+    auto logger = std::make_shared<spdlog::logger>("unset-read-test", sink);
+    logger->set_pattern("%v");
+    log::set_logger(logger);
+    const auto restore = make_scope_exit([]() noexcept { log::set_logger(nullptr); });
+    expect_unset([&] { (void)eval_node<runtime::unset_error_cleanup>(values<Value>(tsb_delta<Number>(Int{1}, std::nullopt))); });
+    auto trace = captured.str();
+    for (auto pos = trace.find("\r\n"); pos != std::string::npos; pos = trace.find("\r\n", pos)) { trace.erase(pos, 1); }
+    CHECK(trace == "before\nstopped\n");
+    captured.str("");
+    captured.clear();
+    expect_unset([&] { (void)eval_node<runtime::unset_generator_retention>(); });
+    trace = captured.str();
+    for (auto pos = trace.find("\r\n"); pos != std::string::npos; pos = trace.find("\r\n", pos)) { trace.erase(pos, 1); }
+    CHECK(trace == "retained\nresumed\n");
+    CHECK_OUTPUT(eval_node<runtime::unset_generator_present>(), values<Int>(none, 1, 1));
+    try { (void)eval_node<runtime::unset_global_field>(values<Int>(1)); FAIL("global absent field unexpectedly produced a result"); }
+    catch (const std::exception &error) {
+        CHECK(hgl::execution_error_code(error).empty());
+        CHECK_THAT(error.what(), Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
+    }
+    CHECK_OUTPUT(eval_node<runtime::unset_temporal_delta>(values<Value>(tsb_delta<Number>(Int{1}, std::nullopt))), values<Int>(none));
+    CHECK_OUTPUT(eval_node<runtime::unset_temporal_delta>(values<Value>(tsb_delta<Number>(Int{1}, Int{0}))), values<Int>(0));
 }
 
 TEST_CASE("aggregate helper specializations keep bindings independent across nodes and runs", "[codegen][runtime][prepared-locals]") {

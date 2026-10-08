@@ -209,6 +209,12 @@ hgl_apply_warnings(hgl_descriptor_reader_tests)
 
 add_test(NAME hgraph_language_descriptor_reader COMMAND hgl_descriptor_reader_tests)
 
+add_executable(hgl_ordinary_read_allocations wiring/ordinary_read_allocations.cpp)
+target_compile_features(hgl_ordinary_read_allocations PRIVATE cxx_std_23)
+target_link_libraries(hgl_ordinary_read_allocations PRIVATE hgl::wiring_types)
+hgl_apply_warnings(hgl_ordinary_read_allocations)
+add_test(NAME hgraph_language_ordinary_read_allocations COMMAND hgl_ordinary_read_allocations)
+
 add_executable(hgl_native_scalar_descriptor_fixture driver/native_scalar_descriptor_fixture.cpp)
 target_compile_features(hgl_native_scalar_descriptor_fixture PRIVATE cxx_std_23)
 target_link_libraries(hgl_native_scalar_descriptor_fixture PRIVATE hgl::native_package)
@@ -852,7 +858,7 @@ if(UNIX)
         PASS_REGULAR_EXPRESSION "8 tests, 0 failed"
         ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     set_tests_properties(hgraph_language_test_runtime PROPERTIES
-        PASS_REGULAR_EXPRESSION "26 tests, 0 failed"
+        PASS_REGULAR_EXPRESSION "28 tests, 0 failed"
     )
 
     add_test(NAME hgraph_language_tuple_written_order
