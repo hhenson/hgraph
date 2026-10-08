@@ -2592,7 +2592,9 @@ namespace hgl::codegen
                 return "hgraph::wire<hgraph::stdlib::const_, " + s + ">(w, " + converted + ")";
             }
             if (!value.is_port()) { fail(Category::Type, range, "a time-series value is required"); }
-            if (temporal.kind == HType::Kind::Generic ||
+            // A symbolic target is a wiring pattern, not concrete metadata
+            // that Port::as can validate. Let wire infer its exact schema.
+            if (symbolic(temporal) ||
                 (value.type.kind != HType::Kind::Unknown && same_type(value.type, temporal))) { return value.code; }
             return value.code + ".as<" + s + ">()";
         }

@@ -2384,6 +2384,10 @@ Concrete held plans join
 the installer-prepared value plans; retained generic held plans bind the
 matched temporal value schema in node preparation. Evaluation neither aliases
 the two parent schemas nor discovers a child's type from its current value.
+Composition arguments with symbolic composite targets retain their concrete
+ports for wiring inference. A symbolic target is a signature pattern whose
+metadata is unresolved, so it cannot serve as a `Port::as` validation schema.
+Concrete target casts continue to use the existing schema validation.
 
 Direct ordinary assignment and `push` share a writable-place resolver. It walks
 field and index projections back to the mutable local owner, realizes writable

@@ -74,6 +74,9 @@ TEST_CASE("generated runtime tuple results publish complete values and sparse po
     CHECK_OUTPUT((eval_node<runtime::operators::tuple_observed_generic, Result>(complete_input)),
                  values<Value>(tsb_delta<Result>(Int{7}, Bool{false}), tsb_delta<Result>(Int{7}, Bool{true}),
                                tsb_delta<Result>(Int{9}, Bool{true})));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_observed_generic_int, Result>(complete_input)),
+                 values<Value>(tsb_delta<Result>(Int{7}, Bool{false}), tsb_delta<Result>(Int{7}, Bool{true}),
+                               tsb_delta<Result>(Int{9}, Bool{true})));
 
     using List = TSL<Result, 2>;
     using ListTuple = UnNamedTSB<Field<"0", List>, Field<"1", TS<Bool>>>;
