@@ -23,6 +23,62 @@ export fn nested_tuple_result(value: i64) -> tuple<tuple<i64, bool>, i64> {
     when { return ((value, value > 0), value) }
 }
 
+export fn tuple_complete_forward(value: tuple<i64, bool>) -> tuple<i64, bool> {
+    when { return value }
+}
+
+export fn tuple_first(value: tuple<i64, bool>) -> i64 {
+    when modified(value[0]) && valid(value[0]) { return value[0] }
+}
+
+export fn tuple_second(value: tuple<i64, bool>) -> bool {
+    when modified(value[1]) && valid(value[1]) { return value[1] }
+}
+
+export fn tuple_local_read(value: i64) -> bool {
+    when {
+        let pair = (value, value > 0)
+        return pair[1]
+    }
+}
+
+export fn nested_tuple_first(value: tuple<tuple<i64, bool>, i64>) -> i64 {
+    when modified(value[0][0]) && valid(value[0][0]) { return value[0][0] }
+}
+
+export fn tuple_observation_copy(value: tuple<i64, bool>) -> i64 {
+    when all_valid(value) {
+        let copy = value
+        return copy[0]
+    }
+}
+
+export fn tuple_embed_input(value: tuple<i64, bool>) -> tuple<tuple<i64, bool>, i64> {
+    when all_valid(value) { return (value, 1) }
+}
+
+export fn tuple_embed_copy(value: tuple<i64, bool>) -> tuple<tuple<i64, bool>, i64> {
+    when all_valid(value) {
+        let copy = value
+        return (copy, 1)
+    }
+}
+
+export fn nested_tuple_observation_copy(value: tuple<tuple<i64, bool>, i64>) -> bool {
+    when all_valid(value) {
+        let copy = value
+        return copy[0][1]
+    }
+}
+
+export fn tuple_observed_generic<T>(value: tuple<T, bool>) -> tuple<T, bool> {
+    when all_valid(value) {
+        let copy = value
+        return copy
+    }
+}
+export fn tuple_observed_generic_int(value: tuple<i64, bool>) -> tuple<i64, bool> => tuple_observed_generic(value)
+
 test structural_tuple_complete_and_sparse_results {
     assert eval(tuple_result, [1, 1, _, 2]) == [(1, true), (1, true), _, (2, true)]
     assert eval(tuple_patch, [1, 2, 2, 1]) == [(1, _), (_, true), (_, true), (1, _)]
@@ -31,6 +87,22 @@ test structural_tuple_complete_and_sparse_results {
 
 test concrete_tuple_delta_forwarding {
     assert eval(tuple_forward, [(1, _), (_, true), (1, _), _]) == [(1, _), (_, true), (1, _), _]
+}
+
+test tuple_input_complete_returns_and_guarded_reads {
+    assert eval(tuple_complete_forward, [(7, false), (_, true), (9, _)]) == [(7, false), (7, true), (9, true)]
+    assert eval(tuple_first, [(_, false), (7, _), (_, true), (9, _), _]) == [_, 7, _, 9, _]
+    assert eval(tuple_second, [(_, false), (7, _), (_, true), (9, _), _]) == [false, _, true, _, _]
+    assert eval(tuple_local_read, [1, -1, 0]) == [true, false, false]
+    assert eval(nested_tuple_first, [((_, false), _), ((7, _), _), (_, 9)]) == [_, 7, _]
+}
+
+test tuple_observations_become_owned_ordinary_values {
+    assert eval(tuple_observation_copy, [(7, false), (_, true), (9, _)]) == [7, 7, 9]
+    assert eval(tuple_embed_input, [(7, false), (_, true), (9, _)]) == [((7, false), 1), ((7, true), 1), ((9, true), 1)]
+    assert eval(tuple_embed_copy, [(7, false), (_, true), (9, _)]) == [((7, false), 1), ((7, true), 1), ((9, true), 1)]
+    assert eval(nested_tuple_observation_copy, [((7, false), 1), ((_, true), _), (_, 2)]) == [false, true, true]
+    assert eval(tuple_observed_generic_int, [(7, false), (_, true), (9, _)]) == [(7, false), (7, true), (9, true)]
 }
 
 cpp include <hgraph/types/metadata/ts_value_type_meta_data.h>

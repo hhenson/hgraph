@@ -2367,6 +2367,19 @@ Nested tuples recurse through those child projections: ordinary tuple storage
 and temporal unnamed bundles keep their distinct parent value schemas. Sparse
 tuple returns and `delta_value` forwarding apply the prepared positional delta
 instead, preserving omitted children and repeated equal child publications.
+Complete tuple input returns preserve the endpoint's borrowed Bundle value and
+copy it through the matching output transaction. Guarded temporal tuple indices
+lower to constant typed field selectors, preserving each position's exact child
+schema and its independent validity and modification observations.
+Ordinary tuple indices use the prepared scalar tuple plan instead, selecting
+their exact child type at the checked constant position.
+An ordinary retention boundary, including a node local or a tuple constructor
+element, projects a temporal tuple observation through its prepared held Bundle
+plan and independently retains the children into the ordinary scalar Tuple
+plan. Nested tuple observations convert recursively. Concrete held plans join
+the installer-prepared value plans; retained generic held plans bind the
+matched temporal value schema in node preparation. Evaluation neither aliases
+the two parent schemas nor discovers a child's type from its current value.
 
 Direct ordinary assignment and `push` share a writable-place resolver. It walks
 field and index projections back to the mutable local owner, realizes writable

@@ -46,6 +46,34 @@ TEST_CASE("generated runtime tuple results publish complete values and sparse po
                  values<Value>(tsb_delta<Nested>(tsb_delta<Result>(Int{1}, Bool{true}), Int{1}),
                                tsb_delta<Nested>(tsb_delta<Result>(Int{1}, Bool{true}), Int{1}), none,
                                tsb_delta<Nested>(tsb_delta<Result>(Int{-2}, Bool{false}), Int{-2})));
+    const auto complete_input = values<Value>(tsb_delta<Result>(Int{7}, Bool{false}),
+                                             tsb_delta<Result>(std::nullopt, Bool{true}), tsb_delta<Result>(Int{9}, std::nullopt));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_complete_forward, Result>(complete_input)),
+                 values<Value>(tsb_delta<Result>(Int{7}, Bool{false}), tsb_delta<Result>(Int{7}, Bool{true}),
+                               tsb_delta<Result>(Int{9}, Bool{true})));
+    const auto partial_input = values<Value>(tsb_delta<Result>(std::nullopt, Bool{false}), tsb_delta<Result>(Int{7}, std::nullopt),
+                                            tsb_delta<Result>(std::nullopt, Bool{true}), tsb_delta<Result>(Int{9}, std::nullopt), none);
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_first, Result>(partial_input)), values<Int>(none, 7, none, 9, none));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_second, Result>(partial_input)), values<Bool>(false, none, true, none, none));
+    CHECK_OUTPUT(eval_node<runtime::operators::tuple_local_read>(values<Int>(1, -1, 0)), values<Bool>(true, false, false));
+    const auto nested_input = values<Value>(tsb_delta<Nested>(tsb_delta<Result>(std::nullopt, Bool{false}), std::nullopt),
+                                           tsb_delta<Nested>(tsb_delta<Result>(Int{7}, std::nullopt), std::nullopt),
+                                           tsb_delta<Nested>(std::nullopt, Int{9}));
+    CHECK_OUTPUT((eval_node<runtime::operators::nested_tuple_first, Nested>(nested_input)), values<Int>(none, 7, none));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_observation_copy, Result>(complete_input)), values<Int>(7, 7, 9));
+    const auto embedded = values<Value>(tsb_delta<Nested>(tsb_delta<Result>(Int{7}, Bool{false}), Int{1}),
+                                       tsb_delta<Nested>(tsb_delta<Result>(Int{7}, Bool{true}), Int{1}),
+                                       tsb_delta<Nested>(tsb_delta<Result>(Int{9}, Bool{true}), Int{1}));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_embed_input, Result>(complete_input)), embedded);
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_embed_copy, Result>(complete_input)), embedded);
+    const auto nested_complete_input = values<Value>(tsb_delta<Nested>(tsb_delta<Result>(Int{7}, Bool{false}), Int{1}),
+                                                    tsb_delta<Nested>(tsb_delta<Result>(std::nullopt, Bool{true}), std::nullopt),
+                                                    tsb_delta<Nested>(std::nullopt, Int{2}));
+    CHECK_OUTPUT((eval_node<runtime::operators::nested_tuple_observation_copy, Nested>(nested_complete_input)),
+                 values<Bool>(false, true, true));
+    CHECK_OUTPUT((eval_node<runtime::operators::tuple_observed_generic, Result>(complete_input)),
+                 values<Value>(tsb_delta<Result>(Int{7}, Bool{false}), tsb_delta<Result>(Int{7}, Bool{true}),
+                               tsb_delta<Result>(Int{9}, Bool{true})));
 }
 
 TEST_CASE("generated module registration owns a removable provider generation", "[codegen][runtime][lifecycle]")

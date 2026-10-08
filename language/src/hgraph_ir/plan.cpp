@@ -420,6 +420,15 @@ namespace hgl::hgraph_ir
                 check_runtime_selector(index->target, decl, valid);
                 check_runtime_expr(index->index, decl, valid);
                 const gir::Type target = graph_type(planned_value(index->target, expression.range).type, expression.range);
+                if (target.kind == hir::TypeKind::Tuple) {
+                    const auto position = runtime_integer_constant(index->index, decl);
+                    if (!position) { backend(expression.range, "runtime tuple indexing requires a checked constant position"); }
+                    if (*position < 0 || static_cast<std::size_t>(*position) >= target.children.size()) {
+                        fail(Category::Type, planned_value(index->index, expression.range).range,
+                             "a tuple index is outside its valid range");
+                    }
+                    return;
+                }
                 if (target.kind != hir::TypeKind::List || target.unbounded || !target.size.valid()) {
                     backend(expression.range, "safe runtime indexing currently requires a fixed-size list input");
                 }

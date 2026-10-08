@@ -682,6 +682,7 @@ namespace hgl::codegen
             std::optional<std::unordered_set<std::uint32_t>> shape_parameters_{};
             std::unordered_set<std::string_view> ordinary_only_structures_{};
             [[nodiscard]] std::string ordinary_plan(const HType &type, SourceRange range);
+            [[nodiscard]] std::string ordinary_held_plan(const HType &type, SourceRange range);
             [[nodiscard]] bool family_plan(const HType &type, SourceRange range);
             std::unordered_set<std::size_t> family_plan_helpers_{};
             [[nodiscard]] std::string delta_plan(const HType &type, SourceRange range, bool used = true);
@@ -790,6 +791,7 @@ namespace hgl::codegen
             bool                         uses_output_mutations_{false};
             std::vector<std::pair<std::string, std::string>> ordinary_plans_{};
             std::vector<std::pair<HType, std::string>> ordinary_node_plans_{};
+            std::vector<std::pair<HType, std::string>> ordinary_held_node_plans_{};
             std::vector<std::pair<std::string, std::string>> delta_plans_{};
             std::vector<std::pair<HType, std::string>> delta_node_plans_{};
             gir::CallableId ordinary_callable_{};
@@ -2219,6 +2221,24 @@ namespace hgl::codegen
             return namespace_ + "::" + name;
         }
 
+        std::string Emitter::ordinary_held_plan(const HType &type, SourceRange range) {
+            if (symbolic(type)) {
+                for (const auto &[existing, name] : ordinary_held_node_plans_) {
+                    if (same_type(existing, type)) { use("hgl_cache"); return "hgl_cache.ref()." + name; }
+                }
+                const std::string name = "hgl_held_plan_" + std::to_string(ordinary_held_node_plans_.size());
+                ordinary_held_node_plans_.emplace_back(type, name);
+                use("hgl_cache");
+                return "hgl_cache.ref()." + name;
+            }
+            const std::string marker = "hgl::ordinary::Held<" + schema(type, range) + ">";
+            const auto existing = std::ranges::find(ordinary_plans_, marker, &std::pair<std::string, std::string>::first);
+            if (existing != ordinary_plans_.end()) { return namespace_ + "::" + existing->second; }
+            const std::string name = "hgl_value_plan_" + std::to_string(ordinary_plans_.size());
+            ordinary_plans_.emplace_back(marker, name);
+            return namespace_ + "::" + name;
+        }
+
         std::string Emitter::delta_plan(const HType &type, SourceRange range, bool used) {
             const bool family = family_plan(type, range);
             const bool runtime = literal_callable_.valid() && callable(literal_callable_).kind == gir::CallableKind::RuntimeNode;
@@ -2446,6 +2466,7 @@ namespace hgl::codegen
 
         std::string Emitter::ordinary_view(const Value &value) {
             if (value.raw_delta) { return "(" + delta_plan(value.type.children.front(), value.range) + ".capture(" + value.code + ")).view()"; }
+            if (value.borrowed_value) { return value.code; }
             if (value.ordinary_value) { return value.borrowed_value ? value.code : "(" + value.code + ").view()"; }
             // The temporary scalar remains alive for the complete retention
             // expression. No view returned here may itself escape that expression.
@@ -2455,6 +2476,30 @@ namespace hgl::codegen
 
         std::string Emitter::ordinary_retain(const Value &value) {
             if (value.raw_delta) { return delta_plan(value.type.children.front(), value.range) + ".capture(" + value.code + ")"; }
+            if (value.type.kind == HType::Kind::Tuple && !value.ordinary_value && value.borrowed_value) {
+                const std::string source_plan = ordinary_held_plan(value.type, value.range);
+                const std::string base = "hgl_observed_tuple";
+                std::string observed = base;
+                while (local_names_.contains(observed)) { observed = base + "_" + std::to_string(++local_counts_[base]); }
+                local_names_.insert(observed);
+                // First normalize the live observation's physical strategy
+                // into the exact held-schema plan. Its prepared index ops then
+                // read their own storage, including projected input surfaces.
+                std::string code = "[&]() { auto " + observed + " = " + source_plan + ".retain(" + ordinary_view(value) + "); ";
+                std::vector<std::string> fields;
+                for (std::size_t index = 0; index < value.type.children.size(); ++index) {
+                    const std::string local = "hgl_observed_child_" + std::to_string(index);
+                    Value child = make_runtime(source_plan + ".index(" + observed + ".view(), " + std::to_string(index) + ")",
+                                               value.type.children[index], value.range);
+                    child.borrowed_value = true;
+                    code += "auto " + local + " = " + ordinary_retain(child) + "; ";
+                    fields.push_back("std::pair<std::size_t, hgraph::ValueView>{" + std::to_string(index) + ", " + local + ".view()}");
+                }
+                code += "const std::array<std::pair<std::size_t, hgraph::ValueView>, " + std::to_string(fields.size()) +
+                        "> hgl_fields{" + join(fields, ", ") + "}; return " + ordinary_plan(value.type, value.range) +
+                        ".bundle(hgl_fields); }()";
+                return code;
+            }
             return ordinary_plan(value.type, value.range) + ".retain(" + ordinary_view(value) + ")";
         }
 
@@ -3281,8 +3326,16 @@ namespace hgl::codegen
                     } else if constexpr (std::is_same_v<T, gir::Index>) {
                         const Value target = eval_planned_expr(node.target, frame);
                         const Value index  = eval_planned_expr(node.index, frame);
-                        if (target.ordinary_value && target.type.kind == HType::Kind::List) {
-                            const HType item = target.type.children.front();
+                        if (target.ordinary_value && (target.type.kind == HType::Kind::List || target.type.kind == HType::Kind::Tuple)) {
+                            std::size_t position = 0;
+                            if (target.type.kind == HType::Kind::Tuple) {
+                                const auto checked = integer_value(index);
+                                if (!checked || *checked < 0 || static_cast<std::size_t>(*checked) >= target.type.children.size()) {
+                                    backend(expression.range, "ordinary tuple indexing requires a checked constant position");
+                                }
+                                position = static_cast<std::size_t>(*checked);
+                            }
+                            const HType item = target.type.children[position];
                             std::string code = ordinary_plan(target.type, expression.range) +
                                                (target.ordinary_writable && ordinary_aggregate(item) ? ".index_mutable(" : ".index(") +
                                                ordinary_view(target) + ", " + index.code + ")";
@@ -3295,6 +3348,24 @@ namespace hgl::codegen
                             return result;
                         }
                         if (frame.runtime) {
+                            if (target.type.kind == HType::Kind::Tuple) {
+                                const auto position = integer_value(index);
+                                if (!target.is_runtime() || target.selector.empty() || !position || *position < 0 ||
+                                    static_cast<std::size_t>(*position) >= target.type.children.size()) {
+                                    backend(expression.range, "hgraph IR runtime tuple index has no checked input position");
+                                }
+                                const HType item = target.type.children[static_cast<std::size_t>(*position)];
+                                const std::string selector = target.selector + ".template field<" + quote(std::to_string(*position)) + ">()";
+                                Value result = make_runtime(selector + ".value()", item, expression.range, selector);
+                                result.borrowed_value = ordinary_aggregate(item);
+                                if (item.kind == HType::Kind::Enum ||
+                                    (item.kind == HType::Kind::Atomic && ordinary_aggregate(item.children.front()))) {
+                                    result.code = selector + ".base().value()";
+                                    result.ordinary_value = true;
+                                    result.borrowed_value = true;
+                                }
+                                return result;
+                            }
                             if (!target.is_runtime() || target.selector.empty() || target.type.kind != HType::Kind::List ||
                                 target.type.children.size() != 1U ||
                                 (target.type.children.front().kind != HType::Kind::Reference &&
@@ -5442,9 +5513,11 @@ namespace hgl::codegen
                         }
                         value.code = as_runtime(value, declared, value.range, "'" + binding.name + "'");
                         value.type = declared;
-                        if (value.ordinary_value && !value.global_borrow && !value.raw_delta) {
+                        if ((value.ordinary_value || (declared.kind == HType::Kind::Tuple && value.borrowed_value)) &&
+                            !value.global_borrow && !value.raw_delta) {
                             value.code = ordinary_retain(value);
                             value.borrowed_value = false;
+                            value.ordinary_value = true;
                         }
                         out.line((binding.kind == gir::BindingKind::LocalVar ? "auto " : "const auto ") + local + " = " +
                                  value.code + ";");
@@ -6062,6 +6135,11 @@ namespace hgl::codegen
                 } else {
                     frame.params[index] = parameter.is_const ? make_const(name + ".value()", type, binding.range)
                                                              : make_runtime(name + ".value()", type, binding.range, name);
+                    if (!parameter.is_const && type.kind == HType::Kind::Tuple) {
+                        // A temporal tuple's complete observation remains a
+                        // Bundle view; ordinary scalar tuple plans do not own it.
+                        frame.params[index].borrowed_value = true;
+                    }
                     if (!parameter.is_const && (type.kind == HType::Kind::Enum ||
                         (type.kind == HType::Kind::Atomic && ordinary_aggregate(type.children.front())))) {
                         // Atomic composite payloads use the existing erased value
@@ -6410,13 +6488,18 @@ namespace hgl::codegen
                 static_cast<void>(type);
                 fields += "hgl::ordinary::PreparedValuePlan " + name + "{}; ";
             }
+            for (const auto &[type, name] : ordinary_held_node_plans_) {
+                static_cast<void>(type);
+                fields += "hgl::ordinary::PreparedValuePlan " + name + "{}; ";
+            }
             for (const auto &[type, name] : delta_node_plans_) {
                 static_cast<void>(type);
                 fields += "hgl::ordinary::PreparedDeltaPlan " + name + "{}; ";
             }
             for (const auto &entry : ordinary_entries_) { fields += "hgraph::PreparedGlobalEntry " + entry.name + "{}; "; }
             out.replace_first(fields_placeholder, fields);
-            if (ordinary_node_plans_.empty() && ordinary_entries_.empty() && delta_node_plans_.empty() && aggregate_arguments.empty()) { return; }
+            if (ordinary_node_plans_.empty() && ordinary_held_node_plans_.empty() && ordinary_entries_.empty() &&
+                delta_node_plans_.empty() && aggregate_arguments.empty()) { return; }
             out.open("static void prepare(const hgraph::NodeView &view)");
             out.line("auto &hgl_prepared = hgraph::State<hgl_cache_fields>{view.state()}.modify();");
             for (const auto &[index, scalar_index] : aggregate_arguments) {
@@ -6439,6 +6522,9 @@ namespace hgl::codegen
             }
             for (const auto &[type, name] : delta_node_plans_) {
                 out.line("hgl_prepared." + name + " = hgl::ordinary::PreparedDeltaPlan{" + temporal_schema(type, fn.range) + "};");
+            }
+            for (const auto &[type, name] : ordinary_held_node_plans_) {
+                out.line("hgl_prepared." + name + " = hgl::ordinary::PreparedValuePlan{" + temporal_schema(type, fn.range) + "->value_schema};");
             }
             if (!ordinary_entries_.empty()) {
                 std::size_t scalar_index = 0;
@@ -6491,6 +6577,7 @@ namespace hgl::codegen
             const gir::Callable &planned = callable(decl);
             ordinary_callable_ = decl;
             ordinary_node_plans_.clear();
+            ordinary_held_node_plans_.clear();
             ordinary_entries_.clear();
             delta_node_plans_.clear();
             if (planned.generator) {
