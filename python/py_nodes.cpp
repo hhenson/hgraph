@@ -1374,6 +1374,14 @@ struct PyGenHandle {
   bool exhausted{false};
   PyTsLease lease{};
   PyStateRef local_state{};
+  /// The last ``timedelta`` object this generator yielded and its converted
+  /// value. Generators overwhelmingly yield the same module-level delta
+  /// (``MIN_TD``) every tick; holding a reference keeps the identity check
+  /// sound (the object cannot be freed and its address reused) and a hit
+  /// skips the stable-ABI attribute unpacking entirely. ``timedelta`` is
+  /// immutable, so identity implies an identical value.
+  nb::object cached_delta_object;
+  TimeDelta cached_delta{};
 };
 
 struct PyGenStateRef {
@@ -1400,13 +1408,19 @@ void py_gen_advance(PyGenHandle &handle, Scheduler &sched) {
         "a Python generator must yield (datetime, value) pairs");
   }
   DateTime when;
-  if (!nb::try_cast<DateTime>(pair[0], when)) {
+  nb::object time_object = pair[0];
+  if (handle.cached_delta_object.is_valid() &&
+      time_object.is(handle.cached_delta_object)) {
+    when = sched.now() + handle.cached_delta;
+  } else if (!nb::try_cast<DateTime>(time_object, when)) {
     TimeDelta delay;
-    if (!nb::try_cast<TimeDelta>(pair[0], delay)) {
+    if (!nb::try_cast<TimeDelta>(time_object, delay)) {
       throw nb::type_error(
           "a Python generator time must be a datetime or timedelta");
     }
     when = sched.now() + delay;
+    handle.cached_delta_object = std::move(time_object);
+    handle.cached_delta = delay;
   }
   if (handle.last_time.has_value() && when <= *handle.last_time) {
     throw std::invalid_argument(

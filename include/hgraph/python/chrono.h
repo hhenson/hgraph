@@ -35,6 +35,143 @@
     return value >= min_value && value < max_value;
 }
 
+// hgraph fast path for the stable-ABI datetime unpackers.
+//
+// nanobind's limited-API ``unpack_timedelta`` / ``unpack_datetime`` read each
+// field with ``PyObject_GetAttrString``, which decodes the attribute name
+// from UTF-8, hashes it and allocates a temporary ``str`` on every call. A
+// generator yielding ``(timedelta, value)`` paid that three times per tick,
+// about a fifth of the tick in the engine bake-off profiles. These helpers
+// keep the attribute names as interned ``str`` objects and look them up with
+// ``PyObject_GetAttr``, which hits the type's method cache. Type checks,
+// results and overflow errors are identical to nanobind's versions. Outside
+// the limited API nanobind already uses the ``datetime`` C API macros, so the
+// helpers simply forward.
+namespace hgraph_chrono_detail {
+
+#if defined(Py_LIMITED_API) || defined(PYPY_VERSION)
+
+inline bool int_attr(int *dest, PyObject *o, PyObject *&key,
+                     const char *name) noexcept {
+    if (key == nullptr) {
+        key = PyUnicode_InternFromString(name);
+        if (key == nullptr)
+            return false;
+    }
+    PyObject *value = PyObject_GetAttr(o, key);
+    if (value == nullptr)
+        return false;
+    const long lval = PyLong_AsLong(value);
+    if (lval == -1 && PyErr_Occurred()) {
+        Py_DECREF(value);
+        return false;
+    }
+    if (lval < std::numeric_limits<int>::min() ||
+        lval > std::numeric_limits<int>::max()) {
+        PyErr_Format(PyExc_OverflowError,
+                     "%R attribute '%s' (%R) does not fit in an int",
+                     o, name, value);
+        Py_DECREF(value);
+        return false;
+    }
+    Py_DECREF(value);
+    *dest = static_cast<int>(lval);
+    return true;
+}
+
+struct TimedeltaKeys {
+    PyObject *days{nullptr};
+    PyObject *seconds{nullptr};
+    PyObject *microseconds{nullptr};
+};
+
+struct DatetimeKeys {
+    PyObject *year{nullptr};
+    PyObject *month{nullptr};
+    PyObject *day{nullptr};
+    PyObject *hour{nullptr};
+    PyObject *minute{nullptr};
+    PyObject *second{nullptr};
+    PyObject *microsecond{nullptr};
+};
+
+inline TimedeltaKeys &timedelta_keys() noexcept {
+    static TimedeltaKeys keys;
+    return keys;
+}
+
+inline DatetimeKeys &datetime_keys() noexcept {
+    static DatetimeKeys keys;
+    return keys;
+}
+
+inline bool unpack_timedelta(PyObject *o, int *days, int *secs, int *usecs) {
+    datetime_types.ensure_ready();
+    if (!PyType_IsSubtype(Py_TYPE(o),
+                          (PyTypeObject *) datetime_types.timedelta.ptr()))
+        return false;
+    TimedeltaKeys &keys = timedelta_keys();
+    if (!int_attr(days, o, keys.days, "days") ||
+        !int_attr(secs, o, keys.seconds, "seconds") ||
+        !int_attr(usecs, o, keys.microseconds, "microseconds"))
+        raise_python_error();
+    return true;
+}
+
+inline bool unpack_datetime(PyObject *o, int *year, int *month, int *day,
+                            int *hour, int *minute, int *second, int *usec) {
+    datetime_types.ensure_ready();
+    PyTypeObject *tp = Py_TYPE(o);
+    DatetimeKeys &keys = datetime_keys();
+    if (PyType_IsSubtype(tp, (PyTypeObject *) datetime_types.datetime.ptr())) {
+        if (!int_attr(usec, o, keys.microsecond, "microsecond") ||
+            !int_attr(second, o, keys.second, "second") ||
+            !int_attr(minute, o, keys.minute, "minute") ||
+            !int_attr(hour, o, keys.hour, "hour") ||
+            !int_attr(day, o, keys.day, "day") ||
+            !int_attr(month, o, keys.month, "month") ||
+            !int_attr(year, o, keys.year, "year"))
+            raise_python_error();
+        return true;
+    }
+    if (PyType_IsSubtype(tp, (PyTypeObject *) datetime_types.date.ptr())) {
+        *usec = *second = *minute = *hour = 0;
+        if (!int_attr(day, o, keys.day, "day") ||
+            !int_attr(month, o, keys.month, "month") ||
+            !int_attr(year, o, keys.year, "year"))
+            raise_python_error();
+        return true;
+    }
+    if (PyType_IsSubtype(tp, (PyTypeObject *) datetime_types.time.ptr())) {
+        *day = 1;
+        *month = 1;
+        *year = 1970;
+        if (!int_attr(usec, o, keys.microsecond, "microsecond") ||
+            !int_attr(second, o, keys.second, "second") ||
+            !int_attr(minute, o, keys.minute, "minute") ||
+            !int_attr(hour, o, keys.hour, "hour"))
+            raise_python_error();
+        return true;
+    }
+    return false;
+}
+
+#else
+
+inline bool unpack_timedelta(PyObject *o, int *days, int *secs, int *usecs) {
+    return ::nanobind::detail::unpack_timedelta(o, days, secs, usecs);
+}
+
+inline bool unpack_datetime(PyObject *o, int *year, int *month, int *day,
+                            int *hour, int *minute, int *second, int *usec) {
+    return ::nanobind::detail::unpack_datetime(o, year, month, day, hour,
+                                               minute, second, usec);
+}
+
+#endif
+
+}  // namespace hgraph_chrono_detail
+
 // Casts a std::chrono type (either a duration or a time_point) to/from
 // Python timedelta objects, or from a Python float representing seconds.
 template<typename type>
@@ -55,7 +192,7 @@ public:
         // If invoked with datetime.delta object, unpack it
         int dd, ss, uu;
         try {
-            if (unpack_timedelta(src.ptr(), &dd, &ss, &uu)) {
+            if (hgraph_chrono_detail::unpack_timedelta(src.ptr(), &dd, &ss, &uu)) {
                 value = type(ch::duration_cast<duration_t>(
                     days(dd) + ch::seconds(ss) + ch::microseconds(uu)));
                 return true;
@@ -137,8 +274,8 @@ public:
 
         int yy, mon, dd, hh, min, ss, uu;
         try {
-            if (!unpack_datetime(src.ptr(), &yy, &mon, &dd,
-                                 &hh, &min, &ss, &uu)) {
+            if (!hgraph_chrono_detail::unpack_datetime(src.ptr(), &yy, &mon, &dd,
+                                                       &hh, &min, &ss, &uu)) {
                 return false;
             }
         } catch (python_error &e) {
@@ -177,8 +314,8 @@ public:
             object offset = borrow<object>(src).attr("utcoffset")();
             if (!offset.is_none()) {
                 int offset_days, offset_seconds, offset_micros;
-                if (!unpack_timedelta(offset.ptr(), &offset_days, &offset_seconds,
-                                      &offset_micros)) {
+                if (!hgraph_chrono_detail::unpack_timedelta(
+                        offset.ptr(), &offset_days, &offset_seconds, &offset_micros)) {
                     return false;
                 }
                 total_us -= std::chrono::duration_cast<std::chrono::microseconds>(
@@ -275,8 +412,8 @@ public:
 
         int yy, mon, dd, hh, min, ss, uu;
         try {
-            if (!unpack_datetime(src.ptr(), &yy, &mon, &dd,
-                                 &hh, &min, &ss, &uu)) {
+            if (!hgraph_chrono_detail::unpack_datetime(src.ptr(), &yy, &mon, &dd,
+                                                       &hh, &min, &ss, &uu)) {
                 return false;
             }
         } catch (python_error &e) {
