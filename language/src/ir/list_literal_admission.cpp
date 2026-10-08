@@ -205,14 +205,31 @@ namespace hgl::ir {
                     } else if constexpr (std::is_same_v<T, Lambda>) {
                         auto body_facts = facts;
                         for (const auto parameter : node.parameters) { body_facts[parameter.value] = false; }
-                        // Inspect the deferred body for invalid literals, but
-                        // constructing a callback does not execute its effects.
+                        // Deferred recursion is independent of the immediate
+                        // invocation stack. Re-enter a callback when captured
+                        // facts differ, but stop revisiting the same scan state.
+                        std::vector<std::pair<std::uint32_t, bool>> captures{body_facts.begin(), body_facts.end()};
+                        std::ranges::sort(captures);
+                        std::string scan = std::to_string(id.value) + ":";
+                        for (const auto &[symbol, cold] : captures) {
+                            scan += std::to_string(symbol) + (cold ? "=1;" : "=0;");
+                        }
+                        if (!deferred_active_.insert(scan).second) { return recipe_(id); }
+                        // Inspect the body for invalid literals without executing
+                        // its effects or treating its caller as active recursion.
                         auto caller_effects = std::move(effect_facts_);
+                        auto caller_active = std::move(active_);
+                        auto caller_recursive = std::move(recursive_);
                         effect_facts_.clear();
+                        active_.clear();
+                        recursive_.clear();
                         return_facts_.push_back(true);
                         (void)expression(node.body, body_facts);
                         return_facts_.pop_back();
                         effect_facts_ = std::move(caller_effects);
+                        active_ = std::move(caller_active);
+                        recursive_ = std::move(caller_recursive);
+                        deferred_active_.erase(scan);
                         return recipe_(id);
                     } else if constexpr (std::is_same_v<T, Eval>) {
                         if (const auto *fn = function(value.operation.target); fn && fn->is_const) {
@@ -279,6 +296,7 @@ namespace hgl::ir {
             std::unordered_set<const Expr *> reported_;
             std::unordered_set<std::string> active_;
             std::unordered_set<std::string> recursive_;
+            std::unordered_set<std::string> deferred_active_;
             struct InvocationResult { bool value; bool effects; };
             std::unordered_map<std::string, InvocationResult> results_;
             std::vector<bool> effect_facts_;

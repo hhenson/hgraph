@@ -2302,9 +2302,12 @@ locals and control flow; it admits constant invocations without treating a
 `const fn` declaration as a promise of purity. Runtime capability dependencies
 remain nonconstant. Nominal operator results are temporal even with constant
 configuration. The pass checks lambda bodies with their runtime or wiring
-parameters without treating a deferred body scan as callback execution. It
-binds lifted call and `eval` inputs as runtime payloads while retaining scalar
-configuration facts. Harness sequences and constructor entry lists retain their
+parameters without treating a deferred body scan as callback execution. Each
+scan isolates immediate invocation recursion as well as effects. A separate
+callback-and-capture-facts guard terminates recursive deferred scans, while
+changed capture facts are checked again and genuine immediate recursion keeps
+its conservative admission rule. The pass binds lifted call and `eval` inputs
+as runtime payloads while retaining scalar configuration facts. Harness sequences and constructor entry lists retain their
 separate admission paths. Nonempty constant list literals initialize elements in source order:
 unbounded lists use prepared append, while fixed lists initialize their checked
 positions without changing their extent. An ordinary global-entry local keeps

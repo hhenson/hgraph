@@ -4386,3 +4386,55 @@ TEST_CASE("deferred lambda admission does not evaluate its native body", "[ir][t
         }) == (runtime_literal ? 1 : 0));
     }
 }
+
+TEST_CASE("deferred lambda scans isolate immediate recursion and retain capture facts", "[ir][typed][list-literal]") {
+    for (const std::string argument : {"unused", "item"}) {
+        Lowered unit{"module checks.deferred_recursion\n"
+            "const fn fixed(unused: i64) -> i64 {\n"
+            "let callback = fn(item: i64) -> list<i64> => [fixed(" + argument + ")]\nreturn 42 }\n"
+            "fn observe(value: i64) -> i64 { when { let result = [fixed(value)]\nreturn len(result) } }\n"};
+        require_clean(unit);
+        CHECK(complete(unit));
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK_FALSE(unit.diagnostics.has_errors());
+    }
+    // The same callback reached with different capture facts must be scanned
+    // again. The inner fixed(item) invocation makes its captured unused hot.
+    Lowered captured{R"(module checks.deferred_captures
+const fn fixed(unused: i64) -> i64 {
+    let callback = fn(item: i64) -> list<i64> => [fixed(item), unused]
+    return 42
+}
+fn observe(value: i64) -> i64 { when { let result = [fixed(1)]
+return len(result) } }
+)"};
+    require_clean(captured);
+    CHECK_FALSE(complete(captured));
+    INFO(captured.diagnostics.render(captured.file));
+    CHECK(std::ranges::any_of(captured.diagnostics.diagnostics(), [](const auto &diagnostic) {
+        return diagnostic.message == "a nonempty ordinary list literal requires constant elements";
+    }));
+
+    for (const std::string body : {
+        "const fn recurse(x: i64) -> i64 => recurse(x)",
+        "const fn other(x: i64) -> i64 => recurse(x)\nconst fn recurse(x: i64) -> i64 => other(x)"
+    }) {
+        Lowered recursive{"module checks.immediate_recursion\n" + body +
+            "\nfn observe(value: i64) -> i64 { when { let result = [recurse(value)]\nreturn len(result) } }\n"};
+        require_clean(recursive);
+        CHECK_FALSE(complete(recursive));
+        INFO(recursive.diagnostics.render(recursive.file));
+        CHECK(std::ranges::any_of(recursive.diagnostics.diagnostics(), [](const auto &diagnostic) {
+            return diagnostic.message == "a nonempty ordinary list literal requires constant elements";
+        }));
+        Lowered deferred_recursive{"module checks.recursion_in_callback\n" + body +
+            "\nconst fn make() -> i64 { let callback = fn(item: i64) -> list<i64> => [recurse(item)]\nreturn 42 }\n"
+            "fn observe(value: i64) -> i64 { when { let result = [make()]\nreturn len(result) } }\n"};
+        require_clean(deferred_recursive);
+        CHECK_FALSE(complete(deferred_recursive));
+        INFO(deferred_recursive.diagnostics.render(deferred_recursive.file));
+        CHECK(std::ranges::any_of(deferred_recursive.diagnostics.diagnostics(), [](const auto &diagnostic) {
+            return diagnostic.message == "a nonempty ordinary list literal requires constant elements";
+        }));
+    }
+}
