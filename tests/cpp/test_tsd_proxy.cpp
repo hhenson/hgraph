@@ -1493,6 +1493,15 @@ TEST_CASE("TSDProxy all_valid checks live projected children and excludes remove
     }
     REQUIRE_FALSE(proxy.view().all_valid());
     {
+        auto proxy_data = proxy.view();
+        auto held = proxy_data.as_dict().value();
+        REQUIRE(held.as_map().contains(key.view()));
+        REQUIRE_FALSE(held.as_map().at(key.view()).has_value());
+        Value snapshot{held};
+        REQUIRE(snapshot.view().as_map().contains(key.view()));
+        REQUIRE_FALSE(snapshot.view().as_map().at(key.view()).has_value());
+    }
+    {
         auto root = source.view();
         auto mutation = root.as_dict().begin_mutation(t2);
         REQUIRE(mutation.erase(key.view()));

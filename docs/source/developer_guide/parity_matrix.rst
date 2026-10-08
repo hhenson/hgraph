@@ -1137,3 +1137,18 @@ serialization value kinds, trace/profiling, Python engine-control syntax, and
 richer error-result compatibility. Dynamic-TSL mesh is not included: both the
 upstream Python contract and this runtime's authoritative :doc:`mesh` design
 define mesh as a TSD-only operator.
+
+Held dictionary value observations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The normative time-series value contract includes every live dictionary key.
+A live member with an invalid child is exported as ``None`` in Python and as a
+bound, unset child value in C++. Child invalidation keeps membership; key
+removal changes it. Consumers expecting invalid members to disappear from the
+aggregate ``value`` observe an intentional compatibility difference. Sparse
+``delta_value`` still omits children without a valid modified payload, and
+membership and removal observations retain their existing contracts.
+
+This follows ``hgraph_spec/runtime/time_series.md`` (TS-24 and the child
+invalidation rules). Public native graph tests and Python graph tests sample
+``value``, child validity and membership using an independent step input.

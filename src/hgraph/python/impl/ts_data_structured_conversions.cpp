@@ -600,9 +600,9 @@ namespace hgraph::python_bridge
             {
                 if (!seams::tsd_slot_in_surface(memory, slot, seams::MapSurface::live)) { continue; }
                 const auto *child = seams::tsd_child_at_slot(memory, slot);
-                if (!child_ops.has_current_value_impl(child_ops.context, child)) { continue; }
                 result[to_python(key_ops, seams::tsd_key_at_slot(memory, slot))] =
-                    take(child_ops.to_python_impl(child_ops.context, child));
+                    child_ops.has_current_value_impl(child_ops.context, child)
+                        ? take(child_ops.to_python_impl(child_ops.context, child)) : nb::none();
             }
             return result;
         }
@@ -785,8 +785,8 @@ namespace hgraph::python_bridge
                 if (!seams::proxy_slot_live(memory, slot) || !seams::proxy_has_child(memory, slot)) { continue; }
                 const auto  key   = seams::proxy_key_at_slot(memory, slot);
                 const auto *child = seams::proxy_child_at_slot(memory, slot);
-                if (!child_ops.has_current_value_impl(child_ops.context, child)) { continue; }
-                result[to_python(key.binding(), key.data())] = take(child_ops.to_python_impl(child_ops.context, child));
+                result[to_python(key.binding(), key.data())] = child_ops.has_current_value_impl(child_ops.context, child)
+                    ? take(child_ops.to_python_impl(child_ops.context, child)) : nb::none();
             }
             return result;
         }

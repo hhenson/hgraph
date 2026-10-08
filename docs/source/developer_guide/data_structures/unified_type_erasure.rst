@@ -841,3 +841,23 @@ The main design decision still requiring validation is the exact family and
 role vocabulary.  It should be tested against values, all time-series roles,
 native and Python nodes, graph builders, graph instances, executors, clocks,
 services, and nested graph slot stores before the numeric ABI is fixed.
+
+Held collection child validity
+------------------------------
+
+A live collection value projects each child's current validity, independently
+of the child's retained payload storage. An invalid fixed or growing list
+position remains present as a typed hole. An invalid live dictionary member
+keeps its key and exposes a typed hole; only removal changes membership.
+``MapView::at`` therefore distinguishes an absent key from a present unset
+value.
+
+Fixed-list observations use the existing compact sequence ownership strategy
+with the exact fixed List schema and element binding. Dense scalar array
+storage cannot preserve position validity. The live view projects the child
+endpoints, and retention copies their values or unset bits into independent
+compact storage. The element binding is prepared with the TSData context;
+retention does not discover a representation from the observed payload.
+Growing-list and dictionary snapshot builders likewise preserve unset entries.
+This source observation contract does not apply an output delta or copy source
+endpoint timestamps.
