@@ -823,6 +823,18 @@ validated against the lock-free ``TypeRegistry::reset_generation()``
 counter — the same invalidation discipline as the table codec's layout
 cache.
 
+**Attribute lookup on the runtime views is native.** ``TimeSeries`` exposes
+``value`` / ``delta_value`` / ``modified`` / ``valid`` as raw ``tp_getset``
+slots, and serves bundle-field access by name (and ``as_schema``) from a
+``tp_getattro`` slot that runs ``PyObject_GenericGetAttr`` first and falls
+back to the TSB child lookup only on an ``AttributeError``. It is
+deliberately **not** a Python-level ``__getattr__``: declaring one makes
+CPython route *every* attribute read on the type through
+``slot_tp_getattr_hook``, which cost about 7% of a Python node tick on
+``ts.value`` alone (2026-10-07 bake-off profile). Semantics are unchanged: a
+missing bundle field, or any unknown attribute on a non-bundle view, raises
+``AttributeError``.
+
 Platform notes
 --------------
 
@@ -845,6 +857,20 @@ Platform notes
   ``uv pip install -e . --reinstall`` — a plain ``-e .`` silently reuses the
   cached extension, and the symptom is Python tests failing against *old*
   native behaviour.
+- **Stable-ABI datetime conversion**: the wheel targets the limited API, so
+  nanobind cannot use the ``datetime`` C-API macros and reads ``timedelta`` /
+  ``datetime`` fields through attribute lookups. ``include/hgraph/python/chrono.h``
+  therefore keeps the field names as interned ``str`` objects and uses
+  ``PyObject_GetAttr`` (type method cache) instead of ``PyObject_GetAttrString``
+  (UTF-8 decode, hash and a temporary ``str`` per field per call); the generator
+  trampoline additionally caches the last yielded ``timedelta`` object and its
+  value by identity, since generators overwhelmingly re-yield one module-level
+  delta. Only an *exact* ``datetime.timedelta`` is cached: the caster also
+  accepts subclasses, which can expose ``days`` / ``seconds`` /
+  ``microseconds`` as properties over mutable instance state, so those are
+  converted on every yield (``test_python_generator_timedelta_cache.py``).
+  Profiles of a generator-driven tick showed the per-field string path at
+  about a fifth of the tick before this change (bake-off, 2026-10-07).
 
 When it looks wrong but isn't
 -----------------------------

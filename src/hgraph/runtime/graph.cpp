@@ -28,11 +28,6 @@ namespace hgraph {
 namespace {
 constexpr std::size_t invalid_cursor = std::numeric_limits<std::size_t>::max();
 
-[[nodiscard]] DateTime current_wall_time() noexcept {
-  return std::chrono::time_point_cast<std::chrono::microseconds>(
-      engine_clock::now());
-}
-
 [[nodiscard]] GlobalState initial_graph_builder_state() {
   if (const GlobalState *state = GlobalContext::active_state()) {
     return *state;
@@ -166,7 +161,6 @@ struct GraphRuntimeBaseStorage {
 
   DateTime next_scheduled_time{MAX_DT};
   DateTime evaluation_time{MIN_DT};
-  DateTime cycle_wall_start{current_wall_time()};
   std::size_t evaluation_cursor{invalid_cursor};
   bool started{false};
   bool starting{false};
@@ -773,13 +767,19 @@ void nested_schedule_node_impl(const void *context, const GraphView &graph,
   const auto &runtime = graph_context(context);
   auto &state = graph_header<NestedGraphRuntimeStorage>(runtime, graph.data());
   auto parent = state.parent_node();
+  // Resolved once: this runs on every notification that reaches an idle
+  // nested node (each child tick of a keyed map), and NodeView::graph() goes
+  // through the node ops table each time. The bake-off profile of a 200-key
+  // dense map put this function at about 17% of the run; it used to resolve
+  // the parent graph twice (clamp, then schedule).
+  const GraphView parent_graph = parent.graph();
 
   // An idle child retains the time of its last evaluation while its
   // parent may already be processing a later cycle. A cross-boundary
   // notification (notably a REF rebind that samples an older target)
   // must run in the parent's current cycle, never schedule either
   // graph back at the child's stale clock.
-  when = std::max(when, parent.graph().evaluation_time());
+  when = std::max(when, parent_graph.evaluation_time());
   schedule_node_impl<NestedGraphRuntimeStorage>(context, graph, node_index,
                                                 when);
 
@@ -798,7 +798,7 @@ void nested_schedule_node_impl(const void *context, const GraphView &graph,
   if (state.child_schedule_observer != nullptr) {
     state.child_schedule_observer(state.child_schedule_observer_context, when);
   }
-  parent.graph().schedule_node(parent.node_index(), when);
+  parent_graph.schedule_node(parent.node_index(), when);
 }
 
 void nested_set_child_schedule_observer_impl(const void *context, void *memory,
@@ -827,7 +827,6 @@ void start_impl(const void *context, const GraphView &graph,
   state.lifecycle_observers->notify_before_start_graph(graph);
 
   state.evaluation_time = start_time;
-  state.cycle_wall_start = current_wall_time();
   std::size_t started_nodes = 0;
   auto rollback = UnwindCleanupGuard([&] {
     for (std::size_t index = started_nodes; index > 0; --index) {
@@ -1067,7 +1066,6 @@ bool evaluate_impl(const void *context, const GraphView &graph,
 
   if (!resuming) {
     state.lifecycle_observers->notify_before_graph_evaluation(graph);
-    state.cycle_wall_start = current_wall_time();
     state.next_scheduled_time = MAX_DT;
 
     if constexpr (std::is_same_v<Storage, RootGraphRuntimeStorage>) {

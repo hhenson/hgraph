@@ -1374,6 +1374,17 @@ struct PyGenHandle {
   bool exhausted{false};
   PyTsLease lease{};
   PyStateRef local_state{};
+  /// The last ``timedelta`` object this generator yielded and its converted
+  /// value. Generators overwhelmingly yield the same module-level delta
+  /// (``MIN_TD``) every tick; holding a reference keeps the identity check
+  /// sound (the object cannot be freed and its address reused) and a hit
+  /// skips the stable-ABI attribute unpacking entirely. Only an EXACT
+  /// ``datetime.timedelta`` is cached: it is immutable, so identity implies
+  /// an identical value. The caster also accepts subclasses, which may
+  /// expose ``days`` / ``seconds`` / ``microseconds`` as properties over
+  /// mutable instance state, so those are converted on every yield.
+  nb::object cached_delta_object;
+  TimeDelta cached_delta{};
 };
 
 struct PyGenStateRef {
@@ -1381,6 +1392,14 @@ struct PyGenStateRef {
   friend bool operator==(const PyGenStateRef &,
                          const PyGenStateRef &) noexcept = default;
 };
+
+/** True for an exact ``datetime.timedelta`` (never a subclass). The type
+    cache is populated by the timedelta cast that precedes every call; while
+    it is unset the comparison is false and nothing is cached. */
+inline bool is_exact_timedelta(nb::handle object) noexcept {
+  return Py_TYPE(object.ptr()) ==
+         reinterpret_cast<PyTypeObject *>(nb::detail::datetime_types.timedelta.ptr());
+}
 
 /** Pull the next (datetime, value) pair; schedules it or marks exhaustion. */
 template <typename Scheduler>
@@ -1400,13 +1419,21 @@ void py_gen_advance(PyGenHandle &handle, Scheduler &sched) {
         "a Python generator must yield (datetime, value) pairs");
   }
   DateTime when;
-  if (!nb::try_cast<DateTime>(pair[0], when)) {
+  nb::object time_object = pair[0];
+  if (handle.cached_delta_object.is_valid() &&
+      time_object.is(handle.cached_delta_object)) {
+    when = sched.now() + handle.cached_delta;
+  } else if (!nb::try_cast<DateTime>(time_object, when)) {
     TimeDelta delay;
-    if (!nb::try_cast<TimeDelta>(pair[0], delay)) {
+    if (!nb::try_cast<TimeDelta>(time_object, delay)) {
       throw nb::type_error(
           "a Python generator time must be a datetime or timedelta");
     }
     when = sched.now() + delay;
+    if (is_exact_timedelta(time_object)) {
+      handle.cached_delta_object = std::move(time_object);
+      handle.cached_delta = delay;
+    }
   }
   if (handle.last_time.has_value() && when <= *handle.last_time) {
     throw std::invalid_argument(
@@ -1423,6 +1450,17 @@ struct py_generator_node {
       "hgraph.python.generator";
   static constexpr bool uses_python_values = true;
   static constexpr bool requires_phase_runner = true;
+  // The node contract (scalar schema, state, output) is declared here so the
+  // per-tick ``eval`` can take only what it reads. Every declared hook
+  // parameter is materialised per call by the invocation frame; the seven
+  // lifecycle scalars cost a scalar-bundle projection each on every tick when
+  // ``eval`` listed them (RFC 0008 frame; bake-off profile 2026-10-07).
+  using signature_args =
+      std::tuple<Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,
+                 Scalar<"scalars", ScalarVar<"SV">>, Scalar<"stop_fn", PyNodeRef>,
+                 Scalar<"stop_enabled", Bool>, Scalar<"stop_config", Str>,
+                 Scalar<"stop_scalars", ScalarVar<"XSV">>, State<PyGenStateRef>,
+                 NodeScheduler, Out<TsVar<"O">>>;
 
   static void start(Scalar<"fn", PyNodeRef> fn, Scalar<"config", Str> config,
                     Scalar<"scalars", ScalarVar<"SV">> scalars,
@@ -1462,21 +1500,8 @@ struct py_generator_node {
     });
   }
 
-  static void eval(Scalar<"fn", PyNodeRef> fn, Scalar<"config", Str> config,
-                   Scalar<"scalars", ScalarVar<"SV">> scalars,
-                   Scalar<"stop_fn", PyNodeRef> stop_fn,
-                   Scalar<"stop_enabled", Bool> stop_enabled,
-                   Scalar<"stop_config", Str> stop_config,
-                   Scalar<"stop_scalars", ScalarVar<"XSV">> stop_scalars,
-                   State<PyGenStateRef> state, NodeScheduler sched,
+  static void eval(State<PyGenStateRef> state, NodeScheduler sched,
                    Out<TsVar<"O">> out) {
-    static_cast<void>(fn);
-    static_cast<void>(config);
-    static_cast<void>(scalars);
-    static_cast<void>(stop_fn);
-    static_cast<void>(stop_enabled);
-    static_cast<void>(stop_config);
-    static_cast<void>(stop_scalars);
     translate_python_error([&] {
       PyGenHandle *handle = state.get().handle;
       if (handle == nullptr || handle->exhausted) {

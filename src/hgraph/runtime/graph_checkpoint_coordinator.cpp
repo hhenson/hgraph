@@ -882,7 +882,7 @@ namespace hgraph
             if (node.has_scheduler())
             {
                 auto &scheduler = node.scheduler_state();
-                scheduler.events.clear();
+                scheduler.clear_events();
                 scheduler.tags.clear();
             }
         }

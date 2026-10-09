@@ -101,6 +101,7 @@ namespace hgraph
             std::size_t error_output_offset{npos};
             std::size_t recordable_state_offset{npos};
             std::size_t prepared_inputs_offset{npos};
+            std::size_t runtime_cache_offset{npos};
 
             [[nodiscard]] bool has_input() const noexcept { return input_offset != npos; }
             [[nodiscard]] bool has_output() const noexcept { return output_offset != npos; }
@@ -535,6 +536,7 @@ namespace hgraph
                 {"error_output", &NodeRuntimeLayout::error_output_offset},
                 {"recordable_state", &NodeRuntimeLayout::recordable_state_offset},
                 {node_prepared_inputs_field.data(), &NodeRuntimeLayout::prepared_inputs_offset},
+                {node_runtime_cache_field.data(), &NodeRuntimeLayout::runtime_cache_offset},
             };
             for (const auto &[name, member] : optional_components)
             {
@@ -946,8 +948,8 @@ namespace hgraph
             const auto         &runtime      = runtime_context(context);
             const bool          has_scheduler = runtime.layout.has_scheduler();
             NodeSchedulerState *scheduler     = has_scheduler ? &node_scheduler_state(runtime, view.data()) : nullptr;
-            const bool          scheduled_now = scheduler != nullptr && !scheduler->events.empty() &&
-                                       scheduler->events.begin()->first == evaluation_time;
+            const bool          scheduled_now = scheduler != nullptr && !scheduler->pending_events().empty() &&
+                                       scheduler->pending_events().front().first == evaluation_time;
 
             const bool do_eval = callbacks(context).input_validity_in_evaluate ||
                                  !runtime.layout.has_input() ||
@@ -1374,6 +1376,27 @@ namespace hgraph
         }
     }
 
+    namespace
+    {
+        /** The generic planned extra fields a derived-type rebuild (error
+            capture, passive inputs, structural SIGNAL) relays from the origin
+            plan: the prepared-slot array and the runtime cache. Their offsets
+            are resolved through the rebuilt node's own layout. */
+        std::vector<NodeStorageField> relayed_extra_fields(const MemoryUtils::StoragePlan *origin_plan)
+        {
+            std::vector<NodeStorageField> fields;
+            if (origin_plan == nullptr) { return fields; }
+            for (const std::string_view name : {node_prepared_inputs_field, node_runtime_cache_field})
+            {
+                if (const auto *component = origin_plan->find_component(name); component != nullptr)
+                {
+                    fields.push_back(NodeStorageField{name, component->plan});
+                }
+            }
+            return fields;
+        }
+    }  // namespace
+
     const MemoryUtils::StoragePlan &node_storage_plan_for(
         const NodeTypeMetaData &schema,
         std::span<const NodeStorageField> extra_fields,
@@ -1458,6 +1481,16 @@ namespace hgraph
         const auto &context = *static_cast<const NodeRuntimeContext *>(table.context);
         if (context.layout.prepared_inputs_offset == NodeRuntimeLayout::npos) { return nullptr; }
         return MemoryUtils::advance(data(), context.layout.prepared_inputs_offset);
+    }
+
+    void *NodeView::runtime_cache() const noexcept
+    {
+        if (!valid()) { return nullptr; }
+        const NodeOps &table = ops();
+        if (table.context == nullptr) { return nullptr; }
+        const auto &context = *static_cast<const NodeRuntimeContext *>(table.context);
+        if (context.layout.runtime_cache_offset == NodeRuntimeLayout::npos) { return nullptr; }
+        return MemoryUtils::advance(data(), context.layout.runtime_cache_offset);
     }
 
     std::string_view NodeView::label() const noexcept
@@ -1901,13 +1934,7 @@ namespace hgraph
                 NodeTypeMetaData rebound_schema = *node_schema;
                 rebound_schema.input_schema = specialized;
 
-                std::vector<NodeStorageField> extra_fields;
-                if (const auto *prepared = origin.plan != nullptr
-                                               ? origin.plan->find_component(node_prepared_inputs_field)
-                                               : nullptr)
-                {
-                    extra_fields.push_back(NodeStorageField{node_prepared_inputs_field, prepared->plan});
-                }
+                const std::vector<NodeStorageField> extra_fields = relayed_extra_fields(origin.plan);
                 const auto &plan = node_storage_plan_for(rebound_schema, extra_fields);
                 type_ = node_runtime_registry().make_type(
                     std::move(rebound_schema), origin.callbacks, plan, NodeOps{},
@@ -1988,16 +2015,10 @@ namespace hgraph
         schema.captures_errors     = true;
         schema.error_capture       = options;
 
-        // Preserve non-standard planned fields (the prepared-slot array):
-        // callbacks resolve the field's offset through the rebuilt layout,
-        // never from the origin plan.
-        std::vector<NodeStorageField> extra_fields;
-        if (const auto *prepared = origin.plan != nullptr
-                                       ? origin.plan->find_component(node_prepared_inputs_field)
-                                       : nullptr)
-        {
-            extra_fields.push_back(NodeStorageField{node_prepared_inputs_field, prepared->plan});
-        }
+        // Preserve the generic planned fields (prepared-slot array, runtime
+        // cache): callbacks resolve each field's offset through the rebuilt
+        // layout, never from the origin plan.
+        const std::vector<NodeStorageField> extra_fields = relayed_extra_fields(origin.plan);
         const auto &plan = node_storage_plan_for(schema, extra_fields);
         const auto type = node_runtime_registry().make_type(
             std::move(schema), origin.callbacks, plan, NodeOps{},
@@ -2057,13 +2078,7 @@ namespace hgraph
         schema.active_inputs = std::move(active);
 
         // Preserve non-standard planned fields (see with_error_capture).
-        std::vector<NodeStorageField> extra_fields;
-        if (const auto *prepared = origin.plan != nullptr
-                                       ? origin.plan->find_component(node_prepared_inputs_field)
-                                       : nullptr)
-        {
-            extra_fields.push_back(NodeStorageField{node_prepared_inputs_field, prepared->plan});
-        }
+        const std::vector<NodeStorageField> extra_fields = relayed_extra_fields(origin.plan);
         const auto &plan = node_storage_plan_for(schema, extra_fields);
         const auto type = node_runtime_registry().make_type(
             std::move(schema), origin.callbacks, plan, node_ops,

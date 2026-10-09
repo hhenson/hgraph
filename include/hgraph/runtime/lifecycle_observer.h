@@ -105,8 +105,14 @@ namespace hgraph
         /** True when no observers are registered. */
         [[nodiscard]] bool empty() const noexcept { return m_observers.empty(); }
 
+        // Every ``notify_*`` returns before constructing its re-entrancy guard
+        // when the list is empty. The per-node evaluation hooks fire twice per
+        // scheduled node per cycle, so the common unobserved run must not pay
+        // the guard bookkeeping or the loop setup for them.
+
         void notify_before_start_graph(const GraphView &graph) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto  limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -117,6 +123,7 @@ namespace hgraph
 
         void notify_after_start_graph(const GraphView &graph) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto  limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -127,6 +134,7 @@ namespace hgraph
 
         void notify_start_graph_failed(const GraphView &graph) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -140,6 +148,7 @@ namespace hgraph
 
         void notify_before_start_node(const NodeView &node) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto  limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -150,6 +159,7 @@ namespace hgraph
 
         void notify_after_start_node(const NodeView &node) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto  limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -160,6 +170,7 @@ namespace hgraph
 
         void notify_start_node_failed(const NodeView &node) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -173,6 +184,7 @@ namespace hgraph
 
         void notify_before_graph_evaluation(const GraphView &graph) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto  limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -183,6 +195,7 @@ namespace hgraph
 
         void notify_after_graph_evaluation(const GraphView &graph) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto  limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -193,6 +206,7 @@ namespace hgraph
 
         void notify_before_node_evaluation(const NodeView &node) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto  limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -203,6 +217,7 @@ namespace hgraph
 
         void notify_after_node_evaluation(const NodeView &node) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto  limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -213,6 +228,7 @@ namespace hgraph
 
         void notify_after_graph_push_nodes_evaluation(const GraphView &graph) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -226,6 +242,7 @@ namespace hgraph
 
         void notify_before_stop_node(const NodeView &node) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto  limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -236,6 +253,7 @@ namespace hgraph
 
         void notify_after_stop_node(const NodeView &node) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto  limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -246,6 +264,7 @@ namespace hgraph
 
         void notify_stop_node_failed(const NodeView &node) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -259,6 +278,7 @@ namespace hgraph
 
         void notify_before_stop_graph(const GraphView &graph) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto  limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -269,6 +289,7 @@ namespace hgraph
 
         void notify_after_stop_graph(const GraphView &graph) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto  limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)
@@ -279,6 +300,7 @@ namespace hgraph
 
         void notify_stop_graph_failed(const GraphView &graph) const
         {
+            if (m_observers.empty()) { return; }
             NotifyGuard guard{*this};
             const auto limit = m_observers.size();
             for (std::size_t index = 0; index < limit; ++index)

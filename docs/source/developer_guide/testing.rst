@@ -145,10 +145,16 @@ object remains readable while the run owns its observer copy.
 
 The profiler uses a monotonic clock and caches graph/node identities during
 start. Steady evaluation updates perform pointer lookup, timing, and aggregate
-updates without rebuilding paths. The recent window is a pre-grown circular
-vector, so it allocates only on its first sample and not while rotating.
-Without a registered profiler the observer list is empty and evaluation does
-not read a clock or call Python.
+updates without rebuilding paths. Phase intervals accumulate in the clock's
+own (nanosecond) resolution and convert to the microsecond ``TimeDelta`` only
+when a snapshot is taken; casting each sample first rounded every
+sub-microsecond native node evaluation to zero and under-reported a graph of
+cheap nodes by two orders of magnitude (bake-off finding, 2026-10-07).
+``python/tests/test_evaluation_profiler_resolution.py`` pins the accumulated
+total for a 20 000-cycle native node. The recent window is a pre-grown
+circular vector, so it allocates only on its first sample and not while
+rotating. Without a registered profiler the observer list is empty and
+evaluation does not read a clock or call Python.
 
 The canonical native overhead workloads are
 ``evaluation_profiler_disabled_cycle`` and

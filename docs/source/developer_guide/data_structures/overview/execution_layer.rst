@@ -165,6 +165,11 @@ above); revisit this split only if that proves insufficient.
 
 ``LifecycleObserverList``
     Ordered list of observer handles. Observers receive lifecycle events but do not own graph runtime state.
+    Every ``notify_*`` returns before touching its re-entrancy guard when the list is empty: the node-level
+    hooks fire twice per scheduled node per cycle, so an unobserved run pays only a size check for them.
+    Wall-clock time is read once per root cycle by the executor (``set_evaluation_time``); graph evaluation
+    itself, root or nested, does not sample the clock (the former per-graph ``cycle_wall_start`` stamp was
+    never read and cost one ``system_clock::now()`` per nested graph per cycle).
 
 ``EvaluationCallbackQueues``
     One-shot before-evaluation and after-evaluation callback queues. These queues are drained until complete.

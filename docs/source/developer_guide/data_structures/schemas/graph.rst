@@ -205,6 +205,8 @@ on the node schema and specialised node builder:
    |   +-- Notifiable identity for active input scheduling
    +-- input              TSInput                 optional
    +-- extra fields       specialised node data   optional
+   |   +-- prepared_inputs  prepared slot routes    static / lifted nodes (RFC 0008 stage 5)
+   |   +-- runtime_cache    front-end private record (e.g. the feedback sink)
    +-- output             TSOutput                optional
    +-- state              Value                   optional
    +-- scalars            Value                   optional
@@ -213,6 +215,16 @@ on the node schema and specialised node builder:
    +-- evaluation_clock   cached clock ref        optional
    +-- error_output       TSOutput                optional
    +-- recordable_state   TSOutput                optional
+
+Two generic extra fields are named by the runtime so every front-end plans
+them the same way through ``node_storage_plan_for``'s ``extra_fields``:
+``prepared_inputs`` (the per-slot route array, ``NodeView::prepared_input_routes``)
+and ``runtime_cache`` (a small, trivially relocatable record a system node
+front-end fills in its start callback and reads per tick instead of re-deriving
+topology facts, ``NodeView::runtime_cache``; the feedback sink keeps its source
+node's index and its delta input's prepared route there). Both offsets are
+cached in the node's own ``NodeRuntimeLayout``, so derived-type rebuilds
+resolve them from their own layout rather than inheriting a stale offset.
 
 The node's ``NodeTypeRef`` supplies both the storage plan and the
 ``NodeOps`` table through its common record. Graph evaluation therefore does not need to know the

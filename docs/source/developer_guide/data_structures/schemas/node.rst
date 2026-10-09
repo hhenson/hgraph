@@ -122,7 +122,18 @@ A ``NodeTypeMetaData`` carries:
 
 ``uses_scheduler``
     True when the node requests ``NodeScheduler`` injection. Runtime storage then
-    includes a per-node ``NodeSchedulerState`` component.
+    includes a per-node ``NodeSchedulerState`` component. Its pending events are
+    a sorted, unique ``std::vector`` of ``(time, tag)`` pairs rather than a
+    ``std::set``: a source that re-arms every tick inserts and pops one event
+    per cycle, and the vector keeps its capacity so steady-state scheduling
+    allocates nothing. A head index skips consumed events; the backing vector is
+    compacted only when the consumed prefix is at least as large as the pending
+    suffix. Earliest-event removal is amortized O(1), so draining N alarms takes
+    O(N) event moves. Increasing deadlines append in amortized O(1); arbitrary
+    ordered insertion and non-front cancellation still take O(N) moves.
+    ``pending_events()`` exposes only live events in time/tag order. Checkpoints
+    use that range, never the consumed prefix; the ``tag -> time`` map indexes
+    tagged events only. Draining or resetting retains the vector's capacity.
 
 ``schedule_on_start``
     Declarative self-scheduling flag. When true, the default start op schedules
