@@ -1,5 +1,5 @@
 RFC 0046: Exact held schemas for nominal bundles
-===============================================
+================================================
 
 :Status: Proposed
 :Created: 2026-10-08
