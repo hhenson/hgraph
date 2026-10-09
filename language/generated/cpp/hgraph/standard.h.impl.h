@@ -2296,7 +2296,7 @@ namespace hgraph_::std_
                  hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>                         ts,
                  hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::Bool>>, hgraph::InputValidity::Unchecked> default_value,
                  hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Bool>>>                                                   hgl_output) {
-                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
+                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && (ts.valid() && ts_ref.valid())) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
                     return;
@@ -2320,7 +2320,7 @@ namespace hgraph_::std_
                  hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>                         ts,
                  hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::Int>>, hgraph::InputValidity::Unchecked> default_value,
                  hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Int>>>                                                   hgl_output) {
-                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
+                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && (ts.valid() && ts_ref.valid())) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
                     return;
@@ -2344,7 +2344,7 @@ namespace hgraph_::std_
                 hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>                         ts,
                 hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::Float>>, hgraph::InputValidity::Unchecked> default_value,
                 hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Float>>>                                                   hgl_output) {
-                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
+                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && (ts.valid() && ts_ref.valid())) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
                     return;
@@ -2368,7 +2368,7 @@ namespace hgraph_::std_
                  hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>                         ts,
                  hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::Str>>, hgraph::InputValidity::Unchecked> default_value,
                  hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Str>>>                                                   hgl_output) {
-                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
+                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && (ts.valid() && ts_ref.valid())) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
                     return;
@@ -2392,7 +2392,7 @@ namespace hgraph_::std_
                  hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>                         ts,
                  hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::Date>>, hgraph::InputValidity::Unchecked> default_value,
                  hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Date>>>                                                   hgl_output) {
-                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
+                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && (ts.valid() && ts_ref.valid())) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
                     return;
@@ -2416,7 +2416,7 @@ namespace hgraph_::std_
                  hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>                         ts,
                  hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::Time>>, hgraph::InputValidity::Unchecked> default_value,
                  hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Time>>>                                                   hgl_output) {
-                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
+                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && (ts.valid() && ts_ref.valid())) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
                     return;
@@ -2441,7 +2441,7 @@ namespace hgraph_::std_
                  hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::DateTime>>, hgraph::InputValidity::Unchecked>
                                                                         default_value,
                  hgraph::Out<hgraph::REF<hgraph::TS<hgraph::DateTime>>> hgl_output) {
-                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
+                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && (ts.valid() && ts_ref.valid())) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
                     return;
@@ -2466,7 +2466,7 @@ namespace hgraph_::std_
                  hgraph::In<"default_value", hgraph::REF<hgraph::TS<hgraph::TimeDelta>>, hgraph::InputValidity::Unchecked>
                                                                          default_value,
                  hgraph::Out<hgraph::REF<hgraph::TS<hgraph::TimeDelta>>> hgl_output) {
-                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && ((ts.valid()) && (ts_ref.valid()))) {
+                if ((ts_ref.modified() || ts.modified() || default_value.modified()) && (ts.valid() && ts_ref.valid())) {
                     ts.make_passive();
                     hgl_output.set(ts_ref.value());
                     return;
@@ -5000,12 +5000,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Bool>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5023,12 +5022,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Int>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5046,12 +5044,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Float>>>                    hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5069,12 +5066,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Str>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5092,12 +5088,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Date>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5115,12 +5110,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Time>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5138,12 +5132,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::DateTime>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5161,12 +5154,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::TimeDelta>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5184,12 +5176,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Bool>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5207,12 +5198,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>>                       hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5230,12 +5220,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Float>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5253,12 +5242,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Str>>>                       hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5276,12 +5264,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Date>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5299,12 +5286,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Time>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5322,12 +5308,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::DateTime>>>                  hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5345,12 +5330,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::TimeDelta>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5368,12 +5352,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Bool>>>                    hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5391,12 +5374,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Int>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5414,12 +5396,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Float>>>                   hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5437,12 +5418,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Str>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5460,12 +5440,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Date>>>                    hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5483,12 +5462,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Time>>>                    hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5506,12 +5484,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::DateTime>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5529,12 +5506,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::TimeDelta>>>               hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5552,12 +5528,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Bool>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5575,12 +5550,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Int>>>                       hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5598,12 +5572,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5621,12 +5594,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Str>>>                       hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5644,12 +5616,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Date>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5667,12 +5638,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Time>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5690,12 +5660,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::DateTime>>>                  hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5713,12 +5682,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::TimeDelta>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5736,12 +5704,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Bool>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5759,12 +5726,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Int>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5782,12 +5748,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Float>>>                    hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5805,12 +5770,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Str>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5828,12 +5792,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Date>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5851,12 +5814,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Time>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5874,12 +5836,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::DateTime>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5897,12 +5858,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::TimeDelta>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5920,12 +5880,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Bool>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5943,12 +5902,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Int>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5966,12 +5924,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Float>>>                    hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -5989,12 +5946,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Str>>>                      hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6012,12 +5968,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Date>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6035,12 +5990,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Time>>>                     hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6058,12 +6012,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::DateTime>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6081,12 +6034,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::TimeDelta>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6104,12 +6056,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Bool>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6127,12 +6078,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Int>>>                  hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6150,12 +6100,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Float>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6173,12 +6122,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Str>>>                  hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6196,12 +6144,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Date>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6219,12 +6166,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Time>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6242,12 +6188,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::DateTime>>>             hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6265,12 +6210,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::TimeDelta>>>            hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6288,12 +6232,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Bool>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6311,12 +6254,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Int>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6334,12 +6276,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Float>>>               hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6357,12 +6298,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Str>>>                 hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6380,12 +6320,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Date>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6403,12 +6342,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Time>>>                hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6426,12 +6364,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::DateTime>>>            hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
@@ -6449,12 +6386,11 @@ namespace hgraph_::std_
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
                              hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::TimeDelta>>>           hgl_output) {
                 if (((key.valid()) && (key.modified() || value.modified() || remove_key.modified()))) {
-                    const auto remove =
-                        (((remove_key.valid()) && remove_key.value()) && ((key.modified()) || (remove_key.modified())));
+                    const auto remove = (((remove_key.valid()) && remove_key.value()) && (key.modified() || remove_key.modified()));
                     if (remove) {
                         hgraph::discard(hgl_output, key.value());
                     } else {
-                        if (((value.valid()) && ((key.modified()) || (value.modified())))) {
+                        if (((value.valid()) && (key.modified() || value.modified()))) {
                             hgraph::upsert(hgl_output, key.value(), value.value());
                         }
                     }
