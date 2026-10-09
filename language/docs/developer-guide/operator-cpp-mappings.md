@@ -34,7 +34,7 @@ signature determines the output. `use hgraph.std::{div_}` followed by an explici
 
 ```hgl
 export fn remainder(lhs: i64, rhs: i64) -> i64 {
-    when modified(lhs) || modified(rhs) { return lhs % rhs }
+    when modified(lhs, rhs) { return lhs % rhs }
 }
 ```
 

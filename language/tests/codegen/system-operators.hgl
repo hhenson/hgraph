@@ -12,16 +12,16 @@ export fn floor_ratio(lhs: i64, rhs: i64) -> i64 => lhs // rhs
 export fn floor_ratio_mixed(lhs: f64, rhs: i64) -> f64 => lhs // rhs
 
 export fn ratio_node(lhs: i64, rhs: i64) -> f64 {
-    when modified(lhs) || modified(rhs) { return lhs / rhs }
+    when modified(lhs, rhs) { return lhs / rhs }
 }
 export fn remainder_node(lhs: i64, rhs: i64) -> i64 {
-    when modified(lhs) || modified(rhs) { return lhs % rhs }
+    when modified(lhs, rhs) { return lhs % rhs }
 }
 export fn remainder_float_node(lhs: f64, rhs: f64) -> f64 {
-    when modified(lhs) || modified(rhs) { return lhs % rhs }
+    when modified(lhs, rhs) { return lhs % rhs }
 }
 export fn floor_ratio_node(lhs: i64, rhs: i64) -> i64 {
-    when modified(lhs) || modified(rhs) { return lhs // rhs }
+    when modified(lhs, rhs) { return lhs // rhs }
 }
 
 test numeric_semantics {

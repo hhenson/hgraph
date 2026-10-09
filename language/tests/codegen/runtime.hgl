@@ -115,56 +115,56 @@ export fn tuple_collection_result(value: i64) -> tuple<list<tuple<i64, bool>, 2>
 }
 
 export fn tuple_observed_present_field(value: tuple<i64, bool>) -> i64 {
-    when valid(value) && valid(value[0]) {
+    when valid(value, value[0]) {
         let copy = value
         return copy[0]
     }
 }
 
 export fn tuple_observed_partial_result(value: tuple<i64, bool>) -> tuple<i64, bool> {
-    when valid(value) && valid(value[0]) {
+    when valid(value, value[0]) {
         let copy = value
         return copy
     }
 }
 
 export fn tuple_list_observed_partial_result(value: tuple<list<tuple<i64, bool>, 2>, bool>) -> tuple<list<tuple<i64, bool>, 2>, bool> {
-    when valid(value) && valid(value[0]) && valid(at(value[0], 0)) {
+    when valid(value, value[0]) && valid(at(value[0], 0)) {
         let copy = value
         return copy
     }
 }
 
 export fn tuple_observed_absent_field(value: tuple<i64, bool>) -> bool {
-    when valid(value) && valid(value[0]) {
+    when valid(value, value[0]) {
         let copy = value
         return copy[1]
     }
 }
 
 export fn tuple_list_observed_absent_field(value: tuple<list<tuple<i64, bool>, 2>, bool>) -> bool {
-    when valid(value) && valid(value[0]) && valid(at(value[0], 0)) {
+    when valid(value, value[0]) && valid(at(value[0], 0)) {
         let copy = value
         return copy[0][0][1]
     }
 }
 
 export fn tuple_list_observed_absent_slot(value: tuple<list<tuple<i64, bool>, 2>, bool>) -> i64 {
-    when valid(value) && valid(value[0]) && valid(at(value[0], 0)) {
+    when valid(value, value[0]) && valid(at(value[0], 0)) {
         let copy = value
         return copy[0][1][0]
     }
 }
 
 export fn tuple_list_observed_absent_length(value: tuple<list<tuple<i64, bool>, 2>, bool>) -> i64 {
-    when valid(value) && valid(value[1]) {
+    when valid(value, value[1]) {
         let copy = value
         return len(copy[0])
     }
 }
 
 export fn tuple_map_observed_partial(value: tuple<map<i64, tuple<i64, bool>>, bool>) -> tuple<map<i64, tuple<i64, bool>>, bool> {
-    when valid(value) && valid(value[0]) {
+    when valid(value, value[0]) {
         let copy = value
         return copy
     }
@@ -939,7 +939,7 @@ export fn nominal_generic_copied<T>(value: NominalObservedGenericRecord<T>) -> N
 }
 export fn nominal_generic_int(value: NominalObservedGenericRecord<i64>) -> NominalObservedGenericRecord<i64> => nominal_generic_copied(value)
 export fn nominal_tuple_read(value: tuple<NominalObservedRecord, bool>) -> bool {
-    when valid(value) && valid(value[0]) && all_valid(value[0].pair) {
+    when valid(value, value[0]) && all_valid(value[0].pair) {
         let copy = value
         return copy[0].pair[1]
     }
@@ -992,7 +992,7 @@ struct NominalPublicationPair {
 
 
 export fn publication_select_value(step: i64, a: NominalPublicationPair, b: NominalPublicationPair) -> NominalPublicationPair {
-    when modified(step) && valid(step) && valid(a) && valid(b) {
+    when modified(step) && valid(step, a, b) {
         if step == 1 {
             let copy = a
             return copy
@@ -1004,7 +1004,7 @@ export fn publication_select_value(step: i64, a: NominalPublicationPair, b: Nomi
 }
 
 export fn publication_select_delta(step: i64, a: NominalPublicationPair, b: NominalPublicationPair) -> NominalPublicationPair {
-    when modified(step) && valid(step) && valid(a) && valid(b) {
+    when modified(step) && valid(step, a, b) {
         if step == 1 {
             if modified(a) { return delta_value(a) }
         } else {
@@ -1048,7 +1048,7 @@ export fn publication_invalidating_map(step: i64) -> map<i64, i64> {
     }
 }
 export fn publication_copy_map(step: i64, value: map<i64, i64>) -> map<i64, i64> {
-    when modified(step) && valid(step) && valid(value) {
+    when modified(step) && valid(step, value) {
         let copy = value
         return copy
     }
@@ -1057,7 +1057,7 @@ export fn publication_delta_map(value: map<i64, i64>) -> map<i64, i64> {
     when { return delta_value(value) }
 }
 export fn publication_has_second(step: i64, watched: map<i64, i64>) -> bool {
-    when modified(step) && valid(step) && valid(watched) { return contains(watched, 8) }
+    when modified(step) && valid(step, watched) { return contains(watched, 8) }
 }
 export fn publication_map_validity(step: i64, watched: map<i64, i64>) -> bool {
     when modified(step) && valid(step) { return all_valid(watched) }
@@ -1077,7 +1077,7 @@ test complete_map_copy_reconciles_membership_and_child_validity {
 }
 
 export fn publication_select_tuple(step: i64, a: tuple<i64, bool>, b: tuple<i64, bool>) -> tuple<i64, bool> {
-    when modified(step) && valid(step) && valid(a) && valid(b) {
+    when modified(step) && valid(step, a, b) {
         if step == 1 {
             let copy = a
             return copy
@@ -1099,7 +1099,7 @@ test complete_tuple_copy_clears_a_previously_valid_child {
 }
 
 export fn publication_select_list(step: i64, a: list<i64, 2>, b: list<i64, 2>) -> list<i64, 2> {
-    when modified(step) && valid(step) && valid(a) && valid(b) {
+    when modified(step) && valid(step, a, b) {
         if step == 1 {
             let copy = a
             return copy
@@ -1122,7 +1122,7 @@ test complete_fixed_list_copy_clears_a_previously_valid_child {
 }
 
 export fn publication_generic_select<T>(step: i64, a: T, b: T) -> T {
-    when modified(step) && valid(step) && valid(a) && valid(b) {
+    when modified(step) && valid(step, a, b) {
         if step == 1 {
             let copy = a
             return copy
@@ -1139,7 +1139,7 @@ export fn publication_generic_list_validity(step: i64, a: list<i64, 2>, b: list<
 export fn publication_generic_pair_validity(step: i64, a: NominalPublicationPair, b: NominalPublicationPair) -> bool =>
     publication_pair_validity(step, publication_generic_select(step, a, b))
 export fn publication_generic_map_copy<T>(step: i64, value: T) -> T {
-    when modified(step) && valid(step) && valid(value) {
+    when modified(step) && valid(step, value) {
         let copy = value
         return copy
     }
@@ -1232,7 +1232,7 @@ export fn specialized_float_helper_node(value: f64) -> tuple<f64, bool> {
     when { return specialized_pair_helper(value) }
 }
 fn specialized_pair_check(integer: tuple<i64, bool>, floating: tuple<f64, bool>) -> bool {
-    when valid(integer[0]) && valid(integer[1]) && valid(floating[0]) && valid(floating[1]) {
+    when valid(integer[0], integer[1], floating[0], floating[1]) {
         return !integer[1] && !floating[1] && ((integer[0] == 7 && floating[0] == 1.5) || (integer[0] == 8 && floating[0] == 2.5))
     }
 }

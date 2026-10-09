@@ -1,12 +1,12 @@
 module hgl.codegen.held_source_retention
 fn nested_list(value: tuple<list<list<tuple<i64, bool>, 2>, 2>, bool>) -> tuple<list<list<tuple<i64, bool>, 2>, 2>, bool> {
-    when valid(value) && valid(value[1]) {
+    when valid(value, value[1]) {
         let copy = value
         return copy
     }
 }
 fn nested_map(value: tuple<list<map<i64, tuple<i64, bool>>, 2>, bool>) -> i64 {
-    when valid(value) && valid(value[1]) {
+    when valid(value, value[1]) {
         let copy = value
         return len(copy[0])
     }
