@@ -1439,7 +1439,12 @@ do not use the slot stores.
     Standalone parallel value memory keyed off externally supplied slot
     ids. As a reusable utility it owns per-slot constructed state
     so it can be used independently and still destroy its payloads
-    correctly. A TSD-specific value side should not treat that bit as a
+    correctly. Valid zero-byte composite plans retain their exact lifecycle
+    and type identity; the store allocates a minimal aligned physical slot
+    so each constructed empty value has a distinct non-null address. This
+    keeps empty Bundle ticks present in typed dense recording buffers while
+    an unset slot still represents a silent cycle.
+    A TSD-specific value side should not treat that bit as a
     second source of truth: TSD key construction and value construction
     happen together, so ``KeySlotStore.constructed`` is authoritative
     and any reused value-store constructed state is only a derived mirror.

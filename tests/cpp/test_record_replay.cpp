@@ -250,3 +250,35 @@ TEST_CASE("testing: native Any dense recording replays complete boxes without lo
     absent.view().run();
     CHECK_FALSE(absent.view().graph().global_state().get("out").valid());
 }
+
+TEST_CASE("testing: typed empty Bundle recording retains present ticks through copies and prepared reads") {
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    const auto *schema  = TypeRegistry::instance().bundle("EmptyRecordedBundle", {});
+    const auto  binding = ValuePlanFactory::instance().type_for(schema);
+    REQUIRE(binding.checked_plan().layout.size == 0);
+    Value empty{binding};
+    Value buffer  = make_dense_buffer(binding);
+    auto  entries = buffer.as_list().begin_mutation();
+    entries.push_back(empty.view());
+    entries.push_back_unset();
+    entries.push_back(empty.view());
+    Value       copied{buffer.view()};
+    GlobalState stored;
+    stored.view().set("empty", copied);
+    GlobalState restored;
+    restored.view().copy_from(stored.view());
+    const auto saved = restored.view().get("empty");
+    REQUIRE(dense_buffer_layout(saved.binding()) == DenseBufferLayout::Typed);
+    const auto reader = dense_entry_reader(saved.binding());
+    const auto locks  = type_system_lock_count();
+    for (std::size_t i = 0; i < 3; ++i) {
+        const auto tick = reader(saved.as_list(), i);
+        REQUIRE(tick.has_value() == (i != 1));
+        if (tick) {
+            CHECK(tick->schema() == schema);
+            CHECK(tick->equals(empty));
+        }
+    }
+    CHECK(type_system_lock_count() == locks);
+}

@@ -197,13 +197,13 @@ namespace hgraph
                                       DebugDynamicFlags::SlotIndexIsIndirect;
             if (slots.pointers_tagged) { flags = flags | DebugDynamicFlags::DataPointersAreTagged; }
             return DebugDynamicLayout{
-                .magic = DEBUG_DYNAMIC_LAYOUT_MAGIC,
-                .abi_version = DEBUG_DYNAMIC_LAYOUT_ABI_VERSION,
-                .kind = DebugDynamicKind::StableSlots,
-                .flags = flags,
-                .size_offset = offset_of(&size_),
-                .data_offset = offset_of(slots.implementation_pointer),
-                .stride = element_binding_.checked_plan().layout.size,
+                .magic            = DEBUG_DYNAMIC_LAYOUT_MAGIC,
+                .abi_version      = DEBUG_DYNAMIC_LAYOUT_ABI_VERSION,
+                .kind             = DebugDynamicKind::StableSlots,
+                .flags            = flags,
+                .size_offset      = offset_of(&size_),
+                .data_offset      = offset_of(slots.implementation_pointer),
+                .stride           = slots_.stride(),
                 .auxiliary_offset = slots.pointer_table_offset,
             };
         }
@@ -711,19 +711,18 @@ inline std::string list_to_string(const void *, const void *memory)
             if (key_slots.pointers_tagged) { flags = flags | DebugDynamicFlags::KeyPointersAreTagged; }
             if (key_slots.state_tagged) { flags = flags | DebugDynamicFlags::SlotStateIsTaggedPointer; }
             return DebugDynamicLayout{
-                .magic = DEBUG_DYNAMIC_LAYOUT_MAGIC,
-                .abi_version = DEBUG_DYNAMIC_LAYOUT_ABI_VERSION,
-                .kind = DebugDynamicKind::StableSlots,
-                .flags = flags,
-                .key_auxiliary_offset =
-                    static_cast<std::uint32_t>(key_slots.pointer_table_offset),
-                .size_offset = key_slots.slot_count_offset,
-                .data_offset = offset_of(value_slots.implementation_pointer),
-                .stride = value_binding_.checked_plan().layout.size,
-                .key_data_offset = offset_of(key_slots.implementation_pointer),
-                .key_stride = key_binding_.checked_plan().layout.size,
-                .state_offset = key_slots.state_offset,
-                .auxiliary_offset = value_slots.pointer_table_offset,
+                .magic                = DEBUG_DYNAMIC_LAYOUT_MAGIC,
+                .abi_version          = DEBUG_DYNAMIC_LAYOUT_ABI_VERSION,
+                .kind                 = DebugDynamicKind::StableSlots,
+                .flags                = flags,
+                .key_auxiliary_offset = static_cast<std::uint32_t>(key_slots.pointer_table_offset),
+                .size_offset          = key_slots.slot_count_offset,
+                .data_offset          = offset_of(value_slots.implementation_pointer),
+                .stride               = values_.stride(),
+                .key_data_offset      = offset_of(key_slots.implementation_pointer),
+                .key_stride           = key_binding_.checked_plan().layout.size,
+                .state_offset         = key_slots.state_offset,
+                .auxiliary_offset     = value_slots.pointer_table_offset,
             };
         }
 

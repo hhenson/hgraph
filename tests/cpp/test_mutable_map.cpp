@@ -8,6 +8,7 @@
 
 #include <cstdint>
 
+#include <hgraph/types/metadata/debug_descriptor.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/value/value.h>
@@ -226,4 +227,32 @@ TEST_CASE("mutable map: every missing mutation hook fails before invocation")
         require_missing_map_hook(map, [](auto &ops) { ops.clear = nullptr; },
                                  [](auto &view) { view.clear(); });
     }
+}
+
+TEST_CASE("mutable map: empty Bundle values retain valid physical debug layout and ownership") {
+    using namespace hgraph;
+    auto       &registry      = TypeRegistry::instance();
+    const auto *empty_schema  = registry.bundle("EmptyMutableMapValue", {});
+    const auto  empty_binding = ValuePlanFactory::instance().type_for(empty_schema);
+    REQUIRE(empty_binding.checked_plan().layout.size == 0);
+    Value       empty{empty_binding};
+    Value       key{std::int32_t{7}};
+    Value       map   = make_mutable_map(key.schema(), empty_schema);
+    const auto *debug = map.binding().record()->debug;
+    REQUIRE(debug != nullptr);
+    REQUIRE(debug->valid());
+    REQUIRE(debug->dynamic_layout != nullptr);
+    REQUIRE(debug->dynamic_layout->valid());
+    CHECK(debug->dynamic_layout->stride > 0);
+    map.as_map().begin_mutation().set_item(key.view(), empty.view());
+    REQUIRE(map.as_map().contains(key.view()));
+    const auto value = map.as_map().at(key.view());
+    CHECK(value.has_value());
+    CHECK(value.binding() == empty_binding);
+    CHECK(value.equals(empty.view()));
+    Value copied{map.view()};
+    map.as_map().begin_mutation().clear();
+    CHECK(map.as_map().size() == 0);
+    REQUIRE(copied.as_map().size() == 1);
+    CHECK(copied.as_map().at(key.view()).equals(empty.view()));
 }

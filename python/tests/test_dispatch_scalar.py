@@ -819,6 +819,23 @@ def test_compound_scalar_downcast_rejects_the_wrong_active_leaf():
         eval_node(app, [Cat()])
 
 
+def test_empty_compound_scalar_downcast_records_present_and_silent_cycles():
+    class Animal(CompoundScalar): ...
+
+    class Dog(Animal): ...
+
+    @graph
+    def app(animal: TS[Animal]) -> TS[Dog]:
+        return downcast_[TS[Dog]](animal)
+
+    samples = [Dog(), None, Dog()]
+    result = eval_node(app, samples)
+    assert len(result) == len(samples)
+    assert isinstance(result[0], Dog)
+    assert result[1] is None
+    assert isinstance(result[2], Dog)
+
+
 def test_compound_scalar_downcast_accepts_compatible_and_output_selected_syntax():
     @dataclass(frozen=True)
     class Animal(CompoundScalar):
