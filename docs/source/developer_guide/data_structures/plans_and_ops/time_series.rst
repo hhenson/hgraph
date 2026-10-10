@@ -1663,7 +1663,7 @@ flag: the earlier eager-sweep apparatus has been removed in favour of this
 read-gated, mutation-driven model.
 
 Explicit empty sparse deltas
----------------------------
+----------------------------
 
 The ``empty-delta-validity`` language contract and
 ``runtime/cases_empty_delta_validity.md`` in the specification define application
