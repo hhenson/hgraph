@@ -1378,6 +1378,7 @@ TEST_CASE("ts_delta: sampled rebinds retain previously empty fixed and bundle pu
     const auto sample_time = MIN_ST + MIN_TD;
     input.view(nullptr, sample_time).bind_output(first.view(sample_time));
     CHECK_FALSE(input.view(nullptr, sample_time).modified());
+    CHECK_FALSE(input.view(nullptr, MIN_DT).delta_is_sampled_rebind());
     input.view(nullptr, sample_time).bind_output_sampled(second.view(sample_time), sample_time);
     auto sampled = input.view(nullptr, sample_time);
     REQUIRE(sampled.valid());
@@ -1394,4 +1395,42 @@ TEST_CASE("ts_delta: sampled rebinds retain previously empty fixed and bundle pu
     CHECK_FALSE(input.view(nullptr, later).valid());
     CHECK_FALSE(delta_is_observable(input.view(nullptr, later), captured.view()));
   }
+}
+
+TEST_CASE("ts_delta: sampling an invalidated child notification publishes the valid empty parent", "[empty-delta][sampled]") {
+  const auto verify = [&](const TSValueTypeMetaData *schema, const Value &patch) {
+    TSOutput output{schema};
+    TSInput ordinary{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+    TSInput sample{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+    ordinary.view(nullptr, MIN_ST).bind_output(output.view(MIN_ST));
+    apply_delta(output.view(MIN_ST), patch.view());
+    const auto now = MIN_ST + MIN_TD;
+    auto producer = output.view(now);
+    auto child = producer.data_view().indexed_child_at(0);
+    REQUIRE(child.begin_mutation(now).invalidate());
+    REQUIRE(producer.valid());
+    REQUIRE(producer.modified());
+    auto direct = ordinary.view(nullptr, now);
+    const auto empty = capture_delta(direct);
+    CHECK_FALSE(delta_is_observable(direct, empty.view()));
+    sample.view(nullptr, now).bind_output_sampled(producer, now);
+    auto sampled = sample.view(nullptr, now);
+    REQUIRE(sampled.valid());
+    REQUIRE(sampled.modified());
+    REQUIRE(sampled.last_modified_time() == producer.last_modified_time());
+    CHECK(sampled.delta_is_sampled_rebind());
+    const auto captured = capture_delta(sampled);
+    CHECK((captured.view() == empty.view()));
+    CHECK(delta_is_observable(sampled, captured.view()));
+    CHECK_FALSE(delta_is_observable(direct, empty.view()));
+    apply_delta(output.view(now), patch.view());
+    REQUIRE(child.begin_mutation(now).invalidate());
+    const auto after_update = capture_delta(sampled);
+    CHECK((after_update.view() == empty.view()));
+    CHECK(delta_is_observable(sampled, after_update.view()));
+    CHECK_FALSE(delta_is_observable(direct, empty.view()));
+    CHECK_FALSE(delta_is_observable(sample.view(nullptr, now + MIN_TD), captured.view()));
+  };
+  verify(schema_descriptor<TSL<TS<Int>, 1>>::ts_meta(), list_delta<TS<Int>>({{0, 1}}));
+  verify(schema_descriptor<Quote>::ts_meta(), tsb_delta<Quote>(Int{1}, std::nullopt));
 }

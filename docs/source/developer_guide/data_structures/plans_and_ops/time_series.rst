@@ -161,7 +161,8 @@ TSW intentionally uses ``all_valid`` for minimum-window readiness instead.
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
     ``TS_DATA_OPS_ABI_VERSION`` is 24. ABI 24 adds an explicit empty-publication
-    timestamp to ``TSDataTracking``; native extensions must be rebuilt. ABI 23 adds ``membership`` to
+    timestamp to ``TSDataTracking`` and a sampled-bind timestamp to target-link
+    storage; native extensions must be rebuilt. ABI 23 adds ``membership`` to
     ``TSCurrentReconcileOptions``, which the current-state ops take by value:
     an exact mirror keeps a dictionary key whose child is invalid, for a
     ``convert`` entry that stands in for a reference (runtime spec,
@@ -1682,7 +1683,9 @@ explicit empty List or bundle publication from a scheduling-only child
 invalidation notification. The observability policy accepts the former without
 changing the latter. A sampled input rebind also publishes the valid source's
 current empty state at the input's sampling time, without changing its producer's
-timestamp. The marker uses evaluation time, so no cleanup allocation
+timestamp. Target links retain this sampling identity separately from source
+modification, including equal timestamps after child invalidation; moves preserve
+it and detaching or silently rebinding clears it. The markers use evaluation time, so no cleanup allocation
 or registry lookup is required. Atomic complete payloads and
 rolling arrivals retain their existing per-arrival publication behavior.
 
