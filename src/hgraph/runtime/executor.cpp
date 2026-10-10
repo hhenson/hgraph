@@ -187,7 +187,27 @@ namespace hgraph
             void set_evaluation_time(DateTime value) noexcept
             {
                 evaluation_time = value;
-                cycle_wall_start = current_wall_time();
+                // The per-cycle wall stamp feeds only ``now()`` and
+                // ``cycle_time()``. Until a run asks for either, no cycle
+                // samples the clock: one ``system_clock::now()`` per cycle was
+                // 5-10% of small-cycle simulation graphs (bake-off profile,
+                // 2026-10-10). The first request arms the stamp for the rest
+                // of the run, so every later cycle keeps the documented
+                // "elapsed since cycle start" meaning.
+                if (wall_time_requested) { cycle_wall_start = current_wall_time(); }
+            }
+
+            /** The cycle's wall start for a clock request, arming per-cycle
+                sampling on first use (that first cycle measures from the
+                request itself). */
+            [[nodiscard]] DateTime wall_cycle_start() const noexcept
+            {
+                if (!wall_time_requested)
+                {
+                    wall_time_requested = true;
+                    cycle_wall_start    = current_wall_time();
+                }
+                return cycle_wall_start;
             }
 
             ExecutorActivities activities{};
@@ -198,7 +218,8 @@ namespace hgraph
             DateTime         start_time{MIN_ST};
             DateTime         end_time{MAX_ET};
             DateTime         evaluation_time{MIN_ST};
-            DateTime         cycle_wall_start{current_wall_time()};
+            mutable DateTime cycle_wall_start{current_wall_time()};
+            mutable bool     wall_time_requested{false};
             std::uint32_t    immediate_cycle_limit{0};
             std::uint32_t    consecutive_immediate_cycles{0};
             ErrorCaptureOptions error_capture_options{};
@@ -339,12 +360,12 @@ namespace hgraph
         [[nodiscard]] DateTime simulation_clock_now_impl(const void *, const void *memory) noexcept
         {
             const auto &state = simulation_storage(memory);
-            return state.evaluation_time + elapsed_since(state.cycle_wall_start);
+            return state.evaluation_time + elapsed_since(state.wall_cycle_start());
         }
 
         [[nodiscard]] TimeDelta simulation_clock_cycle_time_impl(const void *, const void *memory) noexcept
         {
-            return elapsed_since(simulation_storage(memory).cycle_wall_start);
+            return elapsed_since(simulation_storage(memory).wall_cycle_start());
         }
 
         [[nodiscard]] DateTime simulation_clock_next_cycle_evaluation_time_impl(const void *,

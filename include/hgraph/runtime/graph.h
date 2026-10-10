@@ -164,7 +164,7 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
             idle — so the parent can track WHICH child is due without
             scanning its slots. */
         void (*set_child_schedule_observer_impl)(const void *context, void *memory,
-                                                 void (*observer)(void *, DateTime),
+                                                 void (*observer)(void *, DateTime, bool),
                                                  void *observer_context) = nullptr;
         /** Cached pointer to the shared (executor-owned) lifecycle observer list; never null once constructed. */
         LifecycleObserverList *(*lifecycle_observers_impl)(const void *context, const void *memory) noexcept = nullptr;
@@ -260,7 +260,12 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
         /** Install the keyed-parent OUT-OF-BAND schedule observer on this
             NESTED child graph (see GraphOps). Pass nullptrs to clear.
             Throws for root graphs, which have no parent to notify. */
-        void set_child_schedule_observer(void (*observer)(void *, DateTime),
+        /** Install the keyed-parent hook a nested child graph calls when a
+            schedule lands while it is idle. ``due_now`` is true when the
+            schedule is for the parent's current cycle (the nested push has
+            already clamped the time to it), so a keyed parent can mark the
+            child due without a heap entry or a clock lookup. */
+        void set_child_schedule_observer(void (*observer)(void *, DateTime, bool due_now),
                                          void *observer_context) const;
 
         /** The graph-schedule entry for one node (``MIN_DT`` = not scheduled). */
