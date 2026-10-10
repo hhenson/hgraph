@@ -564,6 +564,13 @@ namespace hgraph
 
         void register_overload(OperatorImpl impl);
 
+        /** Monotonic count of registration changes (an overload added, a
+            provider's candidates erased, a reset). A caller that caches a
+            per-name fact derived from the candidates (the Python wiring's
+            carrier / WiredFn parameter roles) keys the cache on it, so an
+            overload registered later in the same process is seen. */
+        [[nodiscard]] std::uint64_t registration_generation() const noexcept { return registration_generation_; }
+
         /**
          * Registration installers — the reset-and-rebuild contract
          * (RFC 0025, checkpoint 3).
@@ -780,6 +787,7 @@ namespace hgraph
         std::vector<Installer>                                     installers_{};
         std::shared_ptr<operator_dispatch_detail::OperatorProviderState> active_provider_{};
         std::unordered_map<std::string, std::string>               display_names_{};
+        std::uint64_t                                              registration_generation_{0};
     };
 
     namespace operator_dispatch_detail

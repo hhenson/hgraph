@@ -1160,6 +1160,7 @@ namespace hgraph
 
     void OperatorRegistry::register_overload(OperatorImpl impl)
     {
+        ++registration_generation_;
         if (!impl.positional_pack_cardinality.valid() || !impl.keyword_pack_cardinality.valid()) {
             throw std::invalid_argument("operator pack cardinality has its maximum below its minimum");
         }
@@ -1301,6 +1302,7 @@ namespace hgraph
     void OperatorRegistry::erase_provider_candidates(
         const std::shared_ptr<operator_dispatch_detail::OperatorProviderState> &provider) noexcept
     {
+        ++registration_generation_;
         for (auto entry = overloads_.begin(); entry != overloads_.end();)
         {
             auto &overloads = entry->second;
@@ -1705,6 +1707,7 @@ namespace hgraph
 
     void OperatorRegistry::reset() noexcept
     {
+        ++registration_generation_;
         overloads_.clear();
         suffix_min_ranks_.clear();
         mesh_scopes_.clear();
