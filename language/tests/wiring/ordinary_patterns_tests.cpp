@@ -175,3 +175,20 @@ TEST_CASE("ordinary delta scalar selectors borrow reduced and structural payload
         CHECK(bindings.ts("T") == shape);
     }
 }
+
+TEST_CASE("ordinary generic held inference preserves bytes leaves and nested shapes", "[ordinary][patterns][bytes]") {
+    using namespace hgraph;
+    auto       &registry = TypeRegistry::instance();
+    const auto *bytes    = scalar_descriptor<Bytes>::value_meta();
+    const auto *leaf     = registry.ts(bytes);
+    const auto *list     = registry.tsl(leaf, 2);
+    const auto *bundle   = registry.un_named_tsb({{"value", leaf}, {"items", list}});
+    const auto  pattern  = to_scalar_pattern<hgl::ordinary::Held<TsVar<"T">>>();
+    for (const auto *shape : {leaf, list, bundle}) {
+        ResolutionMap bindings;
+        REQUIRE(scalar_pattern_match(pattern, shape->value_schema, bindings));
+        CHECK(bindings.ts("T") == shape);
+        CHECK(scalar_pattern_resolve(pattern, bindings) == shape->value_schema);
+        CHECK(scalar_resolver<hgl::ordinary::Held<TsVar<"T">>>::resolve(bindings) == shape->value_schema);
+    }
+}

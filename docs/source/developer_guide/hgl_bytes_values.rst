@@ -8,7 +8,10 @@ The frontend, canonical types, native package descriptors and both execution
 backends preserve that identity. The native-package scalar enum appends its
 new entry to preserve the existing package ABI ordinals. Scalar atomic and delta normalization,
 publication plans, collection key admission and rolling arrivals admit bytes
-recursively alongside the existing scalar leaves.
+recursively alongside the existing scalar leaves. The wiring-only held-shape
+projection includes the Bytes descriptor, so generic ``Held<TsVar<...>>``
+inference reconstructs scalar and nested structural byte shapes from ordinary
+value metadata without inspecting payloads.
 
 ``bytes()`` constructs a present empty value. ``bytes(octets)`` consumes one
 ordinary fixed or unbounded i64 list, once, in the call's ordinary phase.
