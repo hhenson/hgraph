@@ -493,3 +493,72 @@ TEST_CASE("forwarding checkpoint quietly restores historical aliases including e
     fresh.view(MIN_ST).restore_checkpoint_forwarding({}, empty.view(MIN_ST).checkpoint_forwarding());
     CHECK_FALSE(fresh.view(MIN_ST).forwarding_bound());
 }
+
+namespace
+{
+    // Rewrite the saved reduce image's version field (metadata[0]) to ``version``.
+    void set_reduce_image_version(ComponentCheckpoint &checkpoint, Int version)
+    {
+        bool changed{};
+        for (auto &node : checkpoint.graph.nodes)
+        {
+            if (!node.custom.payload.has_value() || !node.custom.payload.view().is_tuple()) { continue; }
+            const auto tuple = node.custom.payload.as_tuple();
+            if (tuple.size() != 2 || !tuple.at(0).is_list() || !tuple.at(1).is_list()) { continue; }
+            const auto old_metadata = tuple.at(1).as_list();
+            if (old_metadata.size() < 7) { continue; }
+            REQUIRE(old_metadata.at(0).checked_as<Int>() == 2);
+            ListBuilder metadata{TypeRegistry::instance().scalar_type<Int>()};
+            metadata.push_back(version);
+            for (std::size_t i = 1; i < old_metadata.size(); ++i) { metadata.push_back(old_metadata.at(i)); }
+            BundleBuilder payload{ValuePlanFactory::instance().type_for(node.custom.payload.schema())};
+            payload.set(0, Value{tuple.at(0)});
+            payload.set(1, metadata.build());
+            node.custom.payload = payload.build();
+            changed = true;
+            break;
+        }
+        REQUIRE(changed);
+    }
+}  // namespace
+
+TEST_CASE("reduce checkpoint rejects a version-1 image of a lifted reduce and still restores one of a graph reduce",
+          "[checkpoint][reduce]")
+{
+    stdlib::register_standard_operators();
+    const auto initial = dict_delta<Int, TS<Int>>({{0, 1}, {1, 2}});
+    const auto next    = dict_delta<Int, TS<Int>>({{0, 10}});
+    const auto check = []<typename Component>(const Value &first_input, const Value &second_input,
+                                               Int first, std::optional<Int> second) {
+        GlobalContext context;
+        std::optional<ComponentCheckpoint> completed;
+        configure_component_recovery(context.state().view(), {
+            .component_id = "strategy", .load = [&] { return completed; },
+            .commit = [&](const auto &image) { completed = image; }});
+        CHECK_OUTPUT(eval_node_with_options<Component>(interval(0, 1), values<Value>(first_input), values<Int>(0)),
+                     values<Int>(first));
+        REQUIRE(completed);
+        set_reduce_image_version(*completed, Int{1});
+        if (second.has_value())
+        {
+            CHECK_OUTPUT(eval_node_with_options<Component>(interval(1, 2), values<Value>(second_input),
+                                                           values<Int>(none)),
+                         values<Int>(*second));
+            return;
+        }
+        // A version-1 lifted image carried one endpoint per combiner output;
+        // the cell layout has no counterpart for a locator recorded against
+        // one, so the image is refused by name (RFC 0047).
+        CHECK_THROWS_WITH(eval_node_with_options<Component>(interval(1, 2), values<Value>(second_input),
+                                                            values<Int>(none)),
+                          Catch::Matchers::ContainsSubstring("image version 1 predates partial-sum cells"));
+    };
+    SECTION("lifted kernel")
+    {
+        check.template operator()<ReduceComponent<TSD<Int, TS<Int>>, false, true>>(initial, next, 3, std::nullopt);
+    }
+    SECTION("graph combiner")
+    {
+        check.template operator()<ReduceComponent<TSD<Int, TS<Int>>>>(initial, next, 112, 302);
+    }
+}

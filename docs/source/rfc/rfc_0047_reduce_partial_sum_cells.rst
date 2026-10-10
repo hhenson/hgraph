@@ -1,9 +1,48 @@
 RFC 0047: Plain partial-sum cells for lifted reduce combiners
 =============================================================
 
-:Status: Proposed
+:Status: Implemented (stage 1, 2026-10-10; stage 2 deferred)
 :Created: 2026-10-10
 :Target: ``reduce_node.cpp`` (keyed and list reduce over a lifted scalar kernel), reduce checkpoint image
+
+Implementation notes (2026-10-10)
+---------------------------------
+
+* The cells are a ``std::vector<Value>`` of ``capacity - 1`` values planned
+  from the kernel's result schema (``ValuePlanFactory::type_for``), with a
+  live byte and a valid byte per position; ``Value`` keeps a scalar payload
+  inline, so the vector is the contiguous array the contract asks for
+  without a hand-rolled lifecycle. The ``combiners`` vector keeps the tree
+  width (every entry null) so the heap arithmetic is shared with the graph
+  form; ``combiner_live`` is the one predicate both forms answer.
+* ``LiftedKernel`` gained ``eval_assign`` (a typed store into a writable
+  cell view) beside ``eval_into``; the kernel table is built at one site
+  with designated initialisers, so the new slot is source compatible.
+* The root store resolves the snapshot's native slot and tracking once,
+  when the snapshot is constructed (``acquire_lifted_publication_route``,
+  the stage-6 route over a field-held output), and falls back to the
+  erased copy when the representations differ. A root whose identity
+  changed publishes its current value at the end of the cycle (sampled
+  re-point); an unbound empty root invalidates the snapshot.
+* Checkpoint: the image version is ``2`` for both forms; a version-1 image
+  of a graph-combiner reduce still restores, a version-1 image of a lifted
+  reduce is refused by node name. ``visit_reduce_checkpoint_endpoints``
+  now visits the snapshot only (the per-combiner ordinals are gone), and
+  ``start_restored_reduce`` recomputes the live cells deepest first
+  without publishing.
+* On the identity contract: a reference taken from an input bound to a
+  reduce output (the to-``REF`` alternative, or ``reference()`` on the
+  plain input) designates the node's forwarding endpoint in both forms, so
+  it is stable either way and cannot tell them apart; what the snapshot
+  changes is the identity seen by consumers that resolve the forwarding
+  chain (nested bindings, a reduce's leaf tracking), and the node's own
+  publication path, which is now one store instead of the alias, the keyed
+  transition and the stable output.
+* Tests: ``tests/cpp/test_reduce.cpp`` (cells not graphs, a string kernel
+  through the tree, one designated source through every key count
+  including the empty one), ``tests/cpp/test_reduce_checkpoint.cpp``
+  (version-1 rejection and the graph form's version-1 acceptance); the
+  existing reduce suites pass unchanged.
 
 Problem
 -------

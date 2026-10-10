@@ -243,6 +243,33 @@ namespace hgraph
         }
 
         template <typename F, std::size_t... I>
+        void eval_assign_impl(ValueView &destination, std::span<const ValueView> args,
+                              std::index_sequence<I...>)
+        {
+            using R     = result_t<F>;
+            using tuple = arg_tuple_t<F>;
+            if (args.size() != sizeof...(I))
+            {
+                throw std::invalid_argument("lifted function argument count does not match the kernel arity");
+            }
+            // The cell is planned from the kernel's own result schema (RFC
+            // 0047), so a mismatch is a caller error, not a representation
+            // variant to fall back from.
+            R *slot = destination.template try_mutable_as<R>();
+            if (slot == nullptr)
+            {
+                throw std::logic_error("lifted kernel cell does not hold the kernel's result type");
+            }
+            *slot = invoke<F>(args[I].template checked_as<tuple_arg_t<tuple, I>>()...);
+        }
+
+        template <typename F>
+        void eval_assign(ValueView &destination, std::span<const ValueView> args)
+        {
+            eval_assign_impl<F>(destination, args, std::make_index_sequence<arity_v<F>>{});
+        }
+
+        template <typename F, std::size_t... I>
         [[nodiscard]] const TSValueTypeMetaData *input_schema_impl(std::size_t index, std::index_sequence<I...>)
         {
             using tuple = arg_tuple_t<F>;
@@ -392,6 +419,7 @@ namespace hgraph
                 .eval_values_fn    = &eval_values<F>,
                 .eval_bound_values_fn = &eval_bound_values<F>,
                 .eval_into_fn      = &eval_into<F>,
+                .eval_assign_fn    = &eval_assign<F>,
                 .identity_value_fn = identity_value_thunk<F, Identity>(),
                 .associative       = associative<F>(),
                 .commutative       = commutative<F>(),

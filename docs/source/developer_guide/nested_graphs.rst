@@ -362,17 +362,44 @@ slots: compacting the leaves is what keeps the live combiner count at ``n-1``.
   non-empty → alias that child's aggregate, both → ``Node`` (the combiner).
 - **Kernel combiners.** When the combiner resolves to a binary lifted scalar
   kernel (every standard arithmetic/min/max/and/or operator over scalar
-  elements), internal combine points evaluate the kernel directly on the two
-  child aggregates (``evaluate_lifted_combiner``) and no combiner child graph
-  is instantiated, bound or scheduled. The tree shape and the deepest-first
-  order are exactly those of the child-graph form, so the kernel's own
-  ``associative`` flag does not gate the selection: that flag only guards the
-  re-associating single-node fixed-``TSL`` fast path above, while this tree is
-  already the caller's ``is_associative=True`` contract. Before 2026-10-07 the
-  gate also required the flag, which ``scalar_add``/``scalar_mul`` deliberately
-  leave false for signed and floating types; a ``reduce(add_, tsd, 0)`` over
-  ``TS[int]`` therefore ran one nested graph per combiner and cost the same as a
-  user-written graph combiner (bake-off: 0.22 µs per key tick).
+  elements), the internal combine points are **plain partial-sum cells**
+  (RFC 0047): one value of the kernel's result type per position plus a
+  live byte (the combiner inventory) and a valid byte (the cell holds a
+  computed partial), and no combiner child graph is constructed, bound,
+  started or scheduled — the combiner banks stay empty. A due cell reads
+  its two child aggregates as values (a leaf's element, a child cell's
+  partial, or the zero) and assigns the kernel's result into its own cell
+  (``evaluate_lifted_cell`` → ``LiftedKernel::eval_assign``): no mutation
+  scope, no tracking and no observers below the root. The tree shape and
+  the deepest-first order are exactly those of the child-graph form, so the
+  kernel's own ``associative`` flag does not gate the selection: that flag
+  only guards the re-associating single-node fixed-``TSL`` fast path above,
+  while this tree is already the caller's ``is_associative=True`` contract.
+  Before 2026-10-07 the gate also required the flag, which
+  ``scalar_add``/``scalar_mul`` deliberately leave false for signed and
+  floating types; a ``reduce(add_, tsd, 0)`` over ``TS[int]`` therefore ran
+  one nested graph per combiner and cost the same as a user-written graph
+  combiner (bake-off: 0.22 µs per key tick). Until 2026-10-10 each kernel
+  combiner still owned an unstarted nested graph whose lifted output was
+  the partial-sum cell, written through a mutation scope per evaluation.
+- **Kernel root publication: one identity for every shape.** A lifted
+  reduce publishes through the field-held ``publication_snapshot`` from its
+  first publication on: the node's forwarding output targets the snapshot
+  for the rest of its lifetime, and the tree root (its cell on the cell's
+  write), the single element (on the element's tick) and the empty root
+  (the zero on its tick, or an invalidation without one) are **copied** into
+  it rather than aliased. A root whose identity changed — another element,
+  a re-pointed zero, a tree in place of an element — publishes its current
+  value at the end of that cycle even when nothing ticked, which is the
+  sampled re-point contract the forwarding alias used to express. The
+  store is the ``Out<TS<T>>::set`` commit (typed native store plus
+  ``record_modified``) when the snapshot's representation matches, the
+  erased copy otherwise. A consumer that resolves the forwarding chain (a
+  nested binding, a reduce's own leaf tracking) therefore sees one source
+  identity for a lifted reduce through every key count instead of a
+  re-point per shape change, and the node itself has one publication path
+  instead of the alias, the keyed transition and the stable output; the
+  graph-combiner form keeps the direct aliasing described below.
 
 **Binding discipline (the map_ lesson, restated):** value ticks normally flow
 through standing bindings: a leaf tick notifies its combiner's child node
@@ -412,8 +439,10 @@ heap allocations. At final node disposal the previous generation is destroyed
 before the active generation: a stopped retired parent can still retain a target
 handle to a surviving current child output, so the retired subscriber must die
 before that producer.
-When a keyed root first changes source, publication moves to one stable output
-owned for the remaining lifetime of the reduce node. The old root is copied
+When a keyed root of a graph-combiner reduce first changes source, publication
+moves to one stable output owned for the remaining lifetime of the reduce node
+(a lifted reduce publishes through that output from the start, see *Kernel
+root publication* above). The old root is copied
 before stop and the stable value is reconciled after the new root evaluates.
 This lifetime is required because downstream ``REF`` values can retain child
 endpoint identities after the transition cycle; recycling a temporary
