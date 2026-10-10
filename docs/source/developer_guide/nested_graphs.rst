@@ -347,7 +347,16 @@ slots: compacting the leaves is what keeps the live combiner count at ``n-1``.
   mappings; erasing a key moves the **last** live leaf into the vacated
   position (bounded rebalancing). Internal nodes are heap-indexed
   (``0`` = root, children of ``i`` at ``2i+1`` / ``2i+2``), so deeper nodes
-  have higher indices.
+  have higher indices. Alongside ``dense leaf → source slot`` the storage
+  keeps the inverse ``source slot → dense leaf`` array: a TSD slot is stable
+  while its key lives and a TSL index is its own slot, so a modified source
+  slot names its leaf without hashing its key (a key equality check guards a
+  slot reused between visits; the key index remains the fallback). The
+  per-tick reconcile walks the modified slots once, resolving each leaf
+  through that array and recording it for the evaluation paths, where the
+  position pass previously walked the same slots a second time with a hash
+  lookup each; together those were two hash probes per ticking key per cycle
+  (2026-10-10 profile).
 - **Aggregate resolution** (per position): empty leaf → ``Empty``; live leaf
   → ``Leaf``; internal: both children empty → ``Empty``, exactly one
   non-empty → alias that child's aggregate, both → ``Node`` (the combiner).
