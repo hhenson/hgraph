@@ -27,6 +27,8 @@
 
 #include <cstddef>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -604,9 +606,16 @@ namespace hgraph
             a mutex and a hash probe per node, 5-6% of Python-node and
             ``switch_`` construction (2026-10-10 profile). Keyed on the
             realization so a nested graph built inside an evaluate scope
-            resolves its own realized types. Refreshed lazily by the const
-            construction path; builders are constructed from on one thread
-            at a time (graph construction is serialized per graph). */
+            resolves its own realized types.
+
+            A record is immutable once published. The builder keeps the
+            record for the realization it last resolved under a mutex; a
+            construction takes a shared reference to it for its own
+            duration, so a thread constructing from the same builder under
+            another realization (the realization is thread-local) publishes
+            its own record without disturbing a reader. Resolution runs
+            outside the lock, and the uncontended lock is the cost that
+            replaced three factory lookups per node. */
         struct ResolvedOutputTypes
         {
             const TypeRealizationSnapshot *snapshot{nullptr};
@@ -615,12 +624,23 @@ namespace hgraph
             TSOutputTypeRef                output{};
             TSOutputTypeRef                error_output{};
             TSOutputTypeRef                recordable_state{};
-            bool                           resolved{false};
         };
-        [[nodiscard]] const ResolvedOutputTypes &resolved_output_types() const;
+        [[nodiscard]] std::shared_ptr<const ResolvedOutputTypes> resolved_output_types() const;
 
       private:
-        mutable ResolvedOutputTypes resolved_outputs_{};
+        /** The published record and its lock. Copies and moves of a builder
+            start with no record: the cache describes one builder object. */
+        struct ResolvedOutputCache
+        {
+            ResolvedOutputCache() = default;
+            ResolvedOutputCache(const ResolvedOutputCache &) noexcept {}
+            ResolvedOutputCache(ResolvedOutputCache &&) noexcept {}
+            ResolvedOutputCache &operator=(const ResolvedOutputCache &) noexcept { return *this; }
+            ResolvedOutputCache &operator=(ResolvedOutputCache &&) noexcept { return *this; }
+            std::mutex                                 mutex{};
+            std::shared_ptr<const ResolvedOutputTypes> record{};
+        };
+        mutable ResolvedOutputCache resolved_outputs_{};
     };
 
     /** Clear node schema/ops contexts after their common TypeRecords are reset. */

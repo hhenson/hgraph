@@ -235,8 +235,13 @@ realization and value-storage variant (``NodeBuilder::resolved_output_types``,
 ``TSOutput::resolved_type_for``): the factory lookup behind each
 ``TSOutput(schema)`` constructor is a mutex and a hash probe, 5-6% of
 Python-node and ``switch_`` construction before this (2026-10-10 profile).
-Endpoint-shaped outputs (nested-graph forwarding, map elements) keep their
-endpoint constructor.
+The record is immutable once published: the builder keeps the one for the
+realization it last resolved under its own mutex, each construction holds a
+shared reference for its duration, and a thread constructing from the same
+builder under another realization (the realization is thread-local)
+publishes its own record without disturbing a reader. Endpoint-shaped
+outputs (nested-graph forwarding, map elements) keep their endpoint
+constructor.
 
 The node's ``NodeTypeRef`` supplies both the storage plan and the
 ``NodeOps`` table through its common record. Graph evaluation therefore does not need to know the

@@ -2163,40 +2163,50 @@ namespace hgraph
         return *this;
     }
 
-    const NodeBuilder::ResolvedOutputTypes &NodeBuilder::resolved_output_types() const
+    std::shared_ptr<const NodeBuilder::ResolvedOutputTypes> NodeBuilder::resolved_output_types() const
     {
         const TypeRealizationSnapshot *snapshot    = active_type_realization();
         const bool                     graph_value = active_graph_value_realization();
-        ResolvedOutputTypes           &cache       = resolved_outputs_;
-        if (cache.resolved && cache.snapshot == snapshot && cache.graph_value == graph_value &&
-            cache.storage == output_value_storage_)
         {
-            return cache;
+            const std::lock_guard lock{resolved_outputs_.mutex};
+            if (const auto &current = resolved_outputs_.record;
+                current && current->snapshot == snapshot && current->graph_value == graph_value &&
+                current->storage == output_value_storage_)
+            {
+                return current;
+            }
         }
-        cache             = ResolvedOutputTypes{};
-        cache.snapshot    = snapshot;
-        cache.graph_value = graph_value;
-        cache.storage     = output_value_storage_;
+        // Resolve outside the lock: the factory takes its own mutex, and a
+        // thread under another realization must not wait on this one.
+        auto record         = std::make_shared<ResolvedOutputTypes>();
+        record->snapshot    = snapshot;
+        record->graph_value = graph_value;
+        record->storage     = output_value_storage_;
         if (const auto *schema = type_.schema(); schema != nullptr)
         {
             // The plain output only: an endpoint-shaped output (nested graph
             // forwarding, map elements) keeps its endpoint constructor.
             if (schema->output_schema != nullptr && schema->output_endpoint_schema.empty() && output_endpoint_.empty())
             {
-                cache.output = TSOutput::resolved_type_for(schema->output_schema, output_value_storage_);
+                record->output = TSOutput::resolved_type_for(schema->output_schema, output_value_storage_);
             }
             if (schema->error_output_schema != nullptr)
             {
-                cache.error_output = TSOutput::resolved_type_for(schema->error_output_schema, ValueStorageVariant::Native);
+                record->error_output =
+                    TSOutput::resolved_type_for(schema->error_output_schema, ValueStorageVariant::Native);
             }
             if (schema->recordable_state_schema != nullptr)
             {
-                cache.recordable_state =
+                record->recordable_state =
                     TSOutput::resolved_type_for(schema->recordable_state_schema, ValueStorageVariant::Native);
             }
         }
-        cache.resolved = true;
-        return cache;
+        std::shared_ptr<const ResolvedOutputTypes> published = std::move(record);
+        {
+            const std::lock_guard lock{resolved_outputs_.mutex};
+            resolved_outputs_.record = published;
+        }
+        return published;
     }
 
     ValueStorageVariant NodeBuilder::output_value_storage() const noexcept
@@ -2215,12 +2225,15 @@ namespace hgraph
         {
             input_builder = &input_builder_for(*type.schema()->input_schema, input_endpoint());
         }
+        // Held for the construction: the builder may publish another
+        // realization's record meanwhile without invalidating this one.
+        const auto resolved_outputs = resolved_output_types();
         construct_node_storage_impl(runtime,
                                     *type.schema(),
                                     input_builder,
                                     output_endpoint(),
                                     output_value_storage(),
-                                    &resolved_output_types(),
+                                    resolved_outputs.get(),
                                     std::string{label()},
                                     scalars(),
                                     memory);
