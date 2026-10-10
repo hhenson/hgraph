@@ -794,6 +794,66 @@ TEST_CASE("static node: EvaluationClockView is injected as a read-only clock vie
     CHECK(cycle_time_us >= Int{0});
 }
 
+namespace
+{
+    // Re-arms itself every cycle and checks the simulation clock invariants on
+    // each visit: the first request arms the lazily sampled per-cycle wall
+    // stamp, the later cycles read a stamp taken at their cycle start.
+    struct ArmedClockProbe
+    {
+        static constexpr auto name              = "armed_clock_probe";
+        static constexpr bool schedule_on_start = true;
+
+        static void start(hgraph::State<hgraph::Int> visits) { visits.set(hgraph::Int{0}); }
+
+        static void eval(hgraph::EvaluationClockView clock, hgraph::NodeScheduler sched,
+                         hgraph::State<hgraph::Int> visits, hgraph::Out<hgraph::TS<hgraph::Int>> out)
+        {
+            using namespace hgraph;
+            const DateTime  evaluation_time = clock.evaluation_time();
+            const DateTime  first_now       = clock.now();
+            const TimeDelta first_cycle     = clock.cycle_time();
+            const DateTime  second_now      = clock.now();
+            if (first_now < evaluation_time || second_now < first_now)
+            {
+                throw std::logic_error("simulation now() must not run backwards within a cycle");
+            }
+            if (first_cycle < TimeDelta{0} || clock.cycle_time() < first_cycle)
+            {
+                throw std::logic_error("simulation cycle_time() must be monotonic within a cycle");
+            }
+            if (second_now - evaluation_time < first_cycle)
+            {
+                throw std::logic_error("now() and cycle_time() must share the cycle's wall start");
+            }
+            Int &count = visits.modify();
+            count += 1;
+            out.set(count);
+            if (count < 3) { sched.schedule(MIN_TD); }
+        }
+    };
+}  // namespace
+
+TEST_CASE("static node: simulation wall clock is consistent across cycles after its first request")
+{
+    using namespace hgraph;
+
+    GraphBuilder graph_builder;
+    graph_builder.label("armed_clock_probe_graph")
+        .add_node(NodeBuilder{}.label("clock").implementation<ArmedClockProbe>());
+
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(std::move(graph_builder)).start_time(MIN_ST).end_time(MIN_ST + TimeDelta{10});
+
+    GraphExecutorValue executor = executor_builder.make_executor();
+    executor.view().run();
+
+    auto graph = executor.view().graph();
+    REQUIRE(graph.node_count() == 1);
+    const auto output = graph.node_at(0).output(MIN_ST + 2 * MIN_TD);
+    CHECK(output.value().checked_as<Int>() == Int{3});
+}
+
 TEST_CASE("static node: EvaluationClockView cache storage is allocated only when injected")
 {
     using namespace hgraph;
