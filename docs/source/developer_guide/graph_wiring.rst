@@ -249,6 +249,22 @@ by index through the sink's own graph pointer, with no bound-output or
 owner-node resolution. A sink whose cache is unset (or whose source turned out
 not to be a node of the same graph) takes the original per-tick resolution.
 
+**A native atomic feedback pair copies bytes.** When the source's planned
+delta state is a trivially copyable atomic (``TS[int]``, ``TS[float]``,
+``TS[bool]``, ``TS[datetime]``, ...), the delta the sink observes and the
+value the source publishes are the same bytes. Both nodes resolve that once
+per start from the state's binding (``NativeDeltaPlan``); the source also
+caches its output's native value memory and tracking record, which are
+embedded in its node storage. Per tick the sink then copies the delta's
+native memory (``try_native_value_memory`` against the planned ops keeps the
+step exact: a sampled rebind or a polymorphic delta exposes other memory and
+falls back) into the state, and the source copies the state into its output
+and calls ``record_modified``, the same step ``Out<TS<T>>::set`` performs,
+instead of opening a mutation scope and running the erased
+``copy_value_from``. Structured and non-native deltas keep the binding-aware
+copy and ``apply_delta``. The source and sink pair was about 28% of the
+native feedback-loop cell before this (2026-10-10 profile).
+
 **A delayed binding changes compose order, not evaluation order.**
 ``delayed_binding<S>(w)`` owns shared control state. Atomic and dynamically
 shaped schemas expose one ``DelayedSource``. Fixed ``TSL`` and ``TSB`` schemas
