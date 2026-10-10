@@ -1076,18 +1076,22 @@ hgl_add_module(hgl_negative_execution_fixture STATIC HGL negative/execution.hgl)
 hgl_add_module(hgl_negative_cleanup_fixture STATIC HGL negative/cleanup.hgl)
 hgl_add_module(hgl_delta_positive_fixture STATIC HGL ${_delta_positive})
 hgl_add_module(hgl_eval_profile_fixture STATIC HGL ${HGRAPH_SPEC}/language/examples/eval-profile-errors.hgl)
+hgl_add_module(hgl_empty_delta_fixture STATIC HGL ${HGRAPH_SPEC}/language/examples/empty-delta-validity.hgl)
 add_executable(hgl_negative_tests negative/generated_tests.cpp wiring/standard_library_fixture.cpp)
 target_compile_features(hgl_negative_tests PRIVATE cxx_std_23)
 target_compile_definitions(hgl_negative_tests PRIVATE
     HGL_NEGATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/negative"
     HGL_DELTA_POSITIVE_FILE="${_delta_positive}"
-    HGL_EVAL_PROFILE_FILE="${HGRAPH_SPEC}/language/examples/eval-profile-errors.hgl")
+    HGL_EVAL_PROFILE_FILE="${HGRAPH_SPEC}/language/examples/eval-profile-errors.hgl"
+    HGL_EMPTY_DELTA_FILE="${HGRAPH_SPEC}/language/examples/empty-delta-validity.hgl")
 target_link_libraries(hgl_negative_tests PRIVATE hgl_negative_execution_fixture hgl_negative_cleanup_fixture
-    hgl_delta_positive_fixture hgl_eval_profile_fixture
+    hgl_delta_positive_fixture hgl_eval_profile_fixture hgl_empty_delta_fixture
     hgl::wiring hgl::standard_library Catch2::Catch2WithMain)
 hgl_link_runtime_executable(hgl_negative_tests)
 hgl_apply_warnings(hgl_negative_tests)
 add_test(NAME hgraph_language_negative_generated COMMAND hgl_negative_tests)
+add_test(NAME hgraph_language_empty_delta_validity
+    COMMAND hgl_negative_tests "generated empty sparse delta validity contract")
 
 add_test(NAME hgraph_language_eval_profile_errors
     COMMAND hgl_negative_tests "generated shared eval admission and delta positive controls")

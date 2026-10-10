@@ -172,25 +172,6 @@ namespace hgraph
 
         [[nodiscard]] Value empty_delta_value(const TSValueTypeMetaData &schema, ValueTypeRef binding);
 
-        /** A TSB delta pre-fills every collection child with its EMPTY delta
-            (an applied empty delta validates a fresh set, so replaying a
-            bundle delta validates its collections); scalar children stay
-            absent. The child delta types are the bundle's field bindings. */
-        void initialize_tsb_delta_defaults(const TSValueTypeMetaData &schema, BundleBuilder &builder)
-        {
-            if (schema.kind != TSTypeKind::TSB)
-            {
-                throw std::logic_error("empty_delta_tsb: binding is not a TSB schema");
-            }
-            for (std::size_t index = 0; index < schema.field_count(); ++index)
-            {
-                const TSValueTypeMetaData *child_schema = schema.fields()[index].type;
-                if (child_schema == nullptr) { throw std::logic_error("empty_delta_tsb: TSB field schema is null"); }
-                if (!child_schema->is_collection()) { continue; }
-                builder.set(index, empty_delta_value(*child_schema, builder.field_binding(index)));
-            }
-        }
-
         /** Assign an EMPTY compact set / map to bundle field ``index``: built
             through the builders (a default-constructed compact storage has no
             element binding), copied into the field, nothing interned. */
@@ -220,8 +201,8 @@ namespace hgraph
 
         /** The empty delta of ``schema`` built as ``binding`` (its canonical
             delta type): a keyed collection's surfaces are empty sets / maps,
-            a fixed TSL is an empty modified map, a TSB pre-fills its
-            collection children, and an atomic delta is a typed null. */
+            a fixed TSL is an empty modified map, a TSB has no present
+            children, and an atomic delta is a typed null. */
         Value empty_delta_value(const TSValueTypeMetaData &schema, ValueTypeRef binding)
         {
             if (!binding) { throw std::logic_error("empty_delta: canonical delta binding is unresolved"); }
@@ -250,7 +231,6 @@ namespace hgraph
                 case TSTypeKind::TSB:
                 {
                     BundleBuilder builder{binding};
-                    initialize_tsb_delta_defaults(schema, builder);
                     return builder.build();
                 }
                 default: return Value::typed_null(binding);
@@ -663,9 +643,7 @@ namespace hgraph
 
         [[nodiscard]] Value capture_current_bundle(const TSInputView &input)
         {
-            const auto &schema = require_schema(input.schema(), "capture_current_delta");
             BundleBuilder builder{canonical_delta_binding(input, "capture_current_delta")};
-            initialize_tsb_delta_defaults(schema, builder);
             auto bundle = input.as_bundle();
             for (std::size_t index = 0; index < bundle.size(); ++index)
             {
@@ -719,7 +697,11 @@ namespace hgraph
         {
             if (!input.modified() || !delta.has_value()) { return false; }
             const auto &schema = require_schema(input.schema(), "delta_is_observable");
-            if (!schema.is_unbounded_tsl()) { return delta.as_map().size() != 0; }
+            if (!schema.is_unbounded_tsl())
+            {
+                return delta.as_map().size() != 0 || (input.valid() &&
+                    input.data_view().tracking().last_empty_delta_time == input.evaluation_time());
+            }
             // A dynamic TSL delta is Bundle{removed, modified} (RFC 0031): a
             // truncation is an observable event in its own right, and a valid
             // list still reports its structural ticks.
@@ -733,6 +715,7 @@ namespace hgraph
                                              const ValueView &delta)
         {
             if (!input.modified() || !delta.has_value()) { return false; }
+            if (input.valid() && input.data_view().tracking().last_empty_delta_time == input.evaluation_time()) { return true; }
             const auto bundle = delta.as_bundle();
             auto children = input.as_bundle();
             for (std::size_t index = 0; index < children.size(); ++index)
@@ -1675,7 +1658,7 @@ namespace hgraph
             const auto *schema = out.schema();
             if (schema == nullptr || !schema->is_unbounded_tsl())
             {
-                return delta.as_map().size() != 0;
+                return delta.as_map().size() != 0 || !out.valid();
             }
             // Dynamic TSL: either a child change or a truncation (RFC 0031).
             const auto bundle = delta.as_bundle();
@@ -1683,7 +1666,7 @@ namespace hgraph
             assert(delta_field_is(delta, tsl_delta_modified, "modified"));
             if (bundle.at(tsl_delta_modified).as_map().size() != 0) { return true; }
             const auto removed = bundle.at(tsl_delta_removed).as_indexed_view();
-            if (removed.size() == 0) { return false; }
+            if (removed.size() == 0) { return !out.valid(); }
             // Lenient: a removal below the current length truncates, one at or
             // above it is already satisfied.
             const auto list_out = out.as_list();
@@ -1701,13 +1684,16 @@ namespace hgraph
 
             auto       bundle_out = out.as_bundle();
             const auto bundle     = delta.as_bundle();
+            bool has_entry = false;
             for (std::size_t index = 0; index < bundle.size(); ++index)
             {
+                if (!bundle.element_valid(index)) { continue; }
+                has_entry = true;
                 auto        child     = bundle_out.at(index);
                 const auto &child_ops = child.data_view().ops();
                 if (child_ops.delta_has_effect_impl(child, bundle.at(index))) { return true; }
             }
-            return false;
+            return !has_entry && !out.valid();
         }
 
         void apply_delta_atomic(const TSOutputView &out, const ValueView &delta)
@@ -1788,7 +1774,9 @@ namespace hgraph
                 auto child = mutation.at(key);
                 apply_delta(TSOutputView{out.output(), child, out.evaluation_time()}, child_delta);
             }
-            mutation.touch();   // LAST - the empty-tick validation rule (see apply_delta_tss)
+            // Existing child updates notify the parent themselves. An empty
+            // patch validates only the parent, without creating child ticks.
+            if (modified.size() == 0 && removed.size() == 0 && !out.valid()) { mutation.touch(); }
         }
 
         void apply_delta_tsl(const TSOutputView &out, const ValueView &delta)
@@ -1822,15 +1810,30 @@ namespace hgraph
             };
             if (dynamic) { apply_modified(delta.as_bundle().at(tsl_delta_modified)); }
             else { apply_modified(delta); }
+            const bool empty = dynamic
+                ? delta.as_bundle().at(tsl_delta_modified).as_map().size() == 0 &&
+                  delta.as_bundle().at(tsl_delta_removed).as_indexed_view().size() == 0
+                : delta.as_map().size() == 0;
+            if (empty && !out.valid())
+            {
+                out.data_view().begin_mutation(out.evaluation_time()).mark_empty_delta();
+            }
         }
 
         void apply_delta_tsb(const TSOutputView &out, const ValueView &delta)
         {
             auto       bundle_out = out.as_bundle();
             const auto bundle     = delta.as_bundle();
+            bool has_entry = false;
             for (std::size_t index = 0; index < bundle.size(); ++index)
             {
+                if (!bundle.element_valid(index)) { continue; }
+                has_entry = true;
                 apply_delta(bundle_out.at(index), bundle.at(index));
+            }
+            if (!has_entry && !out.valid())
+            {
+                out.data_view().begin_mutation(out.evaluation_time()).mark_empty_delta();
             }
         }
     }  // namespace ts_data_detail

@@ -3889,6 +3889,13 @@ namespace hgl::codegen
                 value = make_port("hgl::ordinary::preflight_wire<" + callable_cpp_name(id) + ">(w" +
                                   (args.empty() ? "" : ", " + join(args, ", ")) + ")", result, range);
             } else { value = wire(callable_cpp_name(id), args, range, result); }
+            // Native generic nodes return an erased port even when their
+            // declared result is independently concrete. Recover that exact
+            // schema at wiring time before a typed composition returns it.
+            if (target.kind == gir::CallableKind::RuntimeNode && !target.generics.empty() &&
+                has_planned_result(target.result, target.range) && !symbolic(result)) {
+                value.code += ".as<" + schema(result, range) + ">()";
+            }
             value.code = prepared_call(std::move(value.code));
             if (!has_planned_result(target.result, target.range)) { value.kind = Value::Kind::Void; }
             return value;

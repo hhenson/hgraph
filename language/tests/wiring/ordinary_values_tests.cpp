@@ -520,7 +520,7 @@ TEST_CASE("eval trace admission keeps membership across sparse nested updates", 
     CHECK_NOTHROW(trace.accept(shape, update.view()));
     auto empty = set_delta({}, {});
     update = map_delta(&empty, false);
-    CHECK_THROWS_WITH(trace.accept(shape, update.view()), "empty set publication");
+    CHECK_NOTHROW(trace.accept(shape, update.view()));
     auto remove = map_delta(nullptr, true);
     CHECK_NOTHROW(trace.accept(shape, remove.view()));
     CHECK_THROWS_WITH(trace.accept(shape, remove.view()), "removal of an absent map key");

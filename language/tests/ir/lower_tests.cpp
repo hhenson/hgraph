@@ -4438,3 +4438,21 @@ return len(result) } }
         }));
     }
 }
+
+TEST_CASE("empty sparse delta constructors retain exact shapes", "[ir][typed][empty-delta]") {
+    for (const std::string shape : {"set<i64>", "map<i64, i64>", "list<i64>",
+                                    "list<i64, 0>", "list<i64, 2>", "tuple<i64, bool>", "Unit"}) {
+        Lowered unit{"module checks.empty_delta\nstruct Unit {}\nconst fn empty() -> delta<" + shape +
+                     "> => delta<" + shape + ">()\n"};
+        require_clean(unit);
+        CHECK(complete(unit));
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK_FALSE(unit.diagnostics.has_errors());
+    }
+    Lowered invalid{"module checks.empty_delta_bounds\nconst fn bad() -> delta<list<i64, 0>> => delta<list<i64, 0>>(items: [0: 1])\n"};
+    require_clean(invalid);
+    CHECK_FALSE(complete(invalid));
+    CHECK(std::ranges::any_of(invalid.diagnostics.diagnostics(), [](const auto &diagnostic) {
+        return diagnostic.code == "delta.index_bounds";
+    }));
+}

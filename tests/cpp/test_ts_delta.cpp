@@ -1218,3 +1218,144 @@ TEST_CASE("ts_delta: capture_delta acquires no type-system lock per tick") {
   static_cast<void>(run());  // warm: the first capture may publish once
   CHECK(run() == 0);
 }
+
+TEST_CASE("ts_delta: explicit empty sparse patches validate only their target", "[empty-delta]") {
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.register_scalar<Int>("int");
+  const auto *scalar = registry.ts(integer);
+  const std::vector<const TSValueTypeMetaData *> schemas{
+      registry.tss(integer), registry.tsd(integer, scalar),
+      registry.tsl(scalar, 2), registry.tsl(scalar), registry.tsl(scalar, 0),
+      registry.tsb("EmptyDeltaUnit", {}),
+      registry.tsb("EmptyDeltaChildren", {{"list", registry.tsl(scalar, 2)}, {"scalar", scalar}})};
+  for (const auto *schema : schemas) {
+    CAPTURE(schema->name());
+    TSOutput output{schema};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+    input.view(nullptr, MIN_ST).bind_output(output.view(MIN_ST));
+    const auto type = TSDataPlanFactory::instance().data_type_for(schema).as_role();
+    const auto empty = type.ops_ref().empty_delta_impl(type);
+    REQUIRE(empty.has_value());
+    CHECK_FALSE(output.view(MIN_ST).valid());
+    const auto before = type_system_lock_count();
+    apply_delta(output.view(MIN_ST), empty.view());
+    CHECK(type_system_lock_count() == before);
+    CHECK(output.view(MIN_ST).valid());
+    CHECK(output.view(MIN_ST).modified());
+    auto captured = capture_delta(input.view(nullptr, MIN_ST));
+    CHECK((captured.view() == empty.view()));
+    CHECK(delta_is_observable(input.view(nullptr, MIN_ST), captured.view()));
+    apply_delta(output.view(MIN_ST), empty.view());
+    CHECK(output.view(MIN_ST).modified());
+    const auto later = MIN_ST + MIN_TD;
+    apply_delta(output.view(later), empty.view());
+    CHECK(output.view(later).valid());
+    CHECK_FALSE(output.view(later).modified());
+    CHECK(output.view(later).last_modified_time() == MIN_ST);
+    auto later_view = output.view(later);
+    if (schema->kind == TSTypeKind::TSB) {
+      auto bundle = later_view.as_bundle();
+      for (std::size_t index = 0; index < schema->field_count(); ++index) {
+        CHECK_FALSE(bundle.at(index).valid());
+      }
+      CHECK(output.view(later).all_valid() == (schema->field_count() == 0));
+    } else if (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl()) {
+      auto list = later_view.as_list();
+      for (std::size_t index = 0; index < schema->fixed_size(); ++index) {
+        CHECK_FALSE(list.at(index).valid());
+      }
+      CHECK(output.view(later).all_valid() == (schema->fixed_size() == 0));
+    } else {
+      CHECK(output.view(later).all_valid());
+    }
+    CHECK(output.view(later).data_view().begin_mutation(later).invalidate());
+    const auto again = later + MIN_TD;
+    apply_delta(output.view(again), empty.view());
+    CHECK(output.view(again).valid());
+    CHECK(output.view(again).modified());
+    CHECK((capture_delta(input.view(nullptr, again)).view() == empty.view()));
+  }
+}
+
+TEST_CASE("ts_delta: nested empty patches publish only effective children", "[empty-delta]") {
+  using Child = TSL<TS<Int>, 2>;
+  using Bundle = TSB<"EmptyNestedBundle", Field<"child", Child>, Field<"other", TS<Int>>>;
+  const Value empty = list_delta<TS<Int>>(std::initializer_list<std::pair<std::size_t, Int>>{});
+  const auto verify = [&](const TSValueTypeMetaData *schema, const Value &patch) {
+    TSOutput output{schema};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+    input.view(nullptr, MIN_ST).bind_output(output.view(MIN_ST));
+    apply_delta(output.view(MIN_ST), patch.view());
+    CHECK(output.view(MIN_ST).valid());
+    CHECK(output.view(MIN_ST).modified());
+    CHECK((capture_delta(input.view(nullptr, MIN_ST)).view() == patch.view()));
+    const auto later = MIN_ST + MIN_TD;
+    apply_delta(output.view(later), patch.view());
+    CHECK_FALSE(output.view(later).modified());
+    CHECK(output.view(later).last_modified_time() == MIN_ST);
+  };
+  verify(schema_descriptor<Bundle>::ts_meta(), tsb_delta<Bundle>(Value{empty.view()}, std::nullopt));
+  verify(schema_descriptor<TSD<Int, Child>>::ts_meta(), dict_delta<Int, Child>({{7, empty}}));
+  verify(schema_descriptor<TSL<Child, 2>>::ts_meta(), list_delta<Child>({{0, empty}}));
+  verify(schema_descriptor<TSL<Child>>::ts_meta(), dynamic_list_delta<Child>({{0, empty}}));
+}
+
+TEST_CASE("ts_delta: cancelled producer tick is applied by consumer validity", "[empty-delta]") {
+  const auto *schema = schema_descriptor<TSS<Int>>::ts_meta();
+  TSOutput producer{schema}, fresh{schema}, held{schema};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+  input.view(nullptr, MIN_ST).bind_output(producer.view(MIN_ST));
+  const auto first = set_delta<Int>({9}, {});
+  apply_delta(held.view(MIN_ST), first.view());
+  const auto now = MIN_ST + MIN_TD;
+  {
+    auto producer_view = producer.view(now);
+    auto mutation = producer_view.as_set().begin_mutation(now);
+    const Value member{Int{7}};
+    CHECK(mutation.add(member.view()));
+    CHECK(mutation.remove(member.view()));
+  }
+  REQUIRE(producer.view(now).modified());
+  const auto cancelled = capture_delta(input.view(nullptr, now));
+  const auto empty = set_delta<Int>({}, {});
+  CHECK((cancelled.view() == empty.view()));
+  apply_delta(fresh.view(now), cancelled.view());
+  CHECK(fresh.view(now).valid());
+  CHECK(fresh.view(now).modified());
+  apply_delta(held.view(now), cancelled.view());
+  CHECK_FALSE(held.view(now).modified());
+  CHECK(held.view(now).last_modified_time() == MIN_ST);
+  auto held_view = held.view(now);
+  CHECK(held_view.as_set().contains(Value{Int{9}}.view()));
+}
+
+TEST_CASE("ts_delta: empty publication markers preserve same-cycle ticks without exposing invalidations", "[empty-delta]") {
+  const auto verify = [&](const TSValueTypeMetaData *schema, const Value &patch) {
+    TSOutput output{schema};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+    input.view(nullptr, MIN_ST).bind_output(output.view(MIN_ST));
+    const auto type = TSDataPlanFactory::instance().data_type_for(schema).as_role();
+    const auto empty = type.ops_ref().empty_delta_impl(type);
+    apply_delta(output.view(MIN_ST), empty.view());
+    apply_delta(output.view(MIN_ST), patch.view());
+    const auto invalidate_child = [&](DateTime time) {
+      auto view = output.view(time);
+      auto child = view.data_view().indexed_child_at(0);
+      CHECK(child.begin_mutation(time).invalidate());
+    };
+    invalidate_child(MIN_ST);
+    auto delta = capture_delta(input.view(nullptr, MIN_ST));
+    CHECK((delta.view() == empty.view()));
+    CHECK(delta_is_observable(input.view(nullptr, MIN_ST), delta.view()));
+    const auto later = MIN_ST + MIN_TD;
+    apply_delta(output.view(later), patch.view());
+    invalidate_child(later);
+    delta = capture_delta(input.view(nullptr, later));
+    CHECK((delta.view() == empty.view()));
+    CHECK_FALSE(delta_is_observable(input.view(nullptr, later), delta.view()));
+    apply_delta(output.view(later), empty.view());
+    CHECK_FALSE(delta_is_observable(input.view(nullptr, later), delta.view()));
+  };
+  verify(schema_descriptor<TSL<TS<Int>, 1>>::ts_meta(), list_delta<TS<Int>>({{0, 1}}));
+  verify(schema_descriptor<Quote>::ts_meta(), tsb_delta<Quote>(Int{1}, std::nullopt));
+}

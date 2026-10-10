@@ -450,6 +450,16 @@ bool TSDataMutationView::modified(DateTime evaluation_time) const {
 
 void TSDataMutationView::mark_modified() { mark_modified(ops()); }
 
+void TSDataMutationView::mark_empty_delta() {
+  require_active_mutation();
+  const auto &table = ops();
+  auto &state = *table.mutable_tracking_impl(table.context, storage_.data());
+  state.last_empty_delta_time = mutation_time_;
+  if (state.record_modified(mutation_time_)) {
+    state.parent.notify_child_modified(mutation_time_);
+  }
+}
+
 bool TSDataMutationView::copy_value_from(const ValueView &source) {
   require_active_mutation();
 
@@ -540,6 +550,7 @@ bool TSDataMutationView::invalidate() {
   state.observers.notify(mutation_time_);
   state.parent.notify_child_modified(mutation_time_);
   state.last_modified_time = MIN_DT;
+  state.last_empty_delta_time = MIN_DT;
   return true;
 }
 
