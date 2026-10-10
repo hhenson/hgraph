@@ -13,6 +13,7 @@
 #include <hgraph/util/date_time.h>
 
 #include <array>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -51,6 +52,44 @@ namespace hgraph
             return true;
         }
 
+        /**
+         * The native delta plan of a feedback pair: when the feedback source's
+         * planned delta state is a trivially copyable atomic (TS[int],
+         * TS[float], TS[bool], TS[datetime], ...), the delta the sink
+         * observes and the value the source publishes are the same bytes.
+         * Resolved once per start from the state's binding; a per-tick
+         * ``try_native_value_memory`` against ``ops`` keeps the path exact (a
+         * sampled rebind or a polymorphic delta falls back to the general
+         * binding-aware copy below, as before).
+         */
+        struct NativeDeltaPlan
+        {
+            const ValueOps *ops{nullptr};
+            std::size_t     size{0};
+
+            [[nodiscard]] bool ready() const noexcept { return ops != nullptr && size != 0; }
+        };
+
+        [[nodiscard]] NativeDeltaPlan native_delta_plan_for(const ValueView &state) noexcept
+        {
+            if (!state.has_value()) { return {}; }
+            const ValueTypeRef binding = state.binding();
+            const auto *plan = binding ? binding.plan() : nullptr;
+            if (plan == nullptr || !plan->trivially_copyable ||
+                plan->composite_kind_tag != MemoryUtils::CompositeKind::None || plan->layout.size == 0)
+            {
+                return {};
+            }
+            return NativeDeltaPlan{binding.ops(), plan->layout.size};
+        }
+
+        /** True when ``state`` still carries the planned native binding (the
+            general path may replace it with captured compact storage). */
+        [[nodiscard]] bool state_matches(const ValueView &state, const NativeDeltaPlan &plan) noexcept
+        {
+            return state.has_value() && state.binding().ops() == plan.ops && state.can_begin_mutation();
+        }
+
         void start_feedback_source_with_initial_delta(const NodeView &view, DateTime start_time)
         {
             const ValueView state = view.state();
@@ -65,8 +104,82 @@ namespace hgraph
             }
         }
 
+        /**
+         * Node-private runtime cache of the feedback source. Its output is
+         * embedded in the node's storage, so for a native atomic output the
+         * value memory and the tracking record are start-time facts; the
+         * per-tick publish is then a copy of the planned delta state plus
+         * ``record_modified``, exactly what ``Out<TS<T>>::set`` does, instead
+         * of a mutation scope and the erased ``copy_value_from``.
+         */
+        struct FeedbackSourceCache
+        {
+            NativeDeltaPlan plan{};
+            void           *value_memory{nullptr};
+            TSDataTracking *tracking{nullptr};
+
+            [[nodiscard]] bool ready() const noexcept { return value_memory != nullptr && tracking != nullptr; }
+        };
+
+        [[nodiscard]] FeedbackSourceCache *feedback_source_cache(const NodeView &view) noexcept
+        {
+            return static_cast<FeedbackSourceCache *>(view.runtime_cache());
+        }
+
+        void resolve_feedback_source_cache(const NodeView &view, DateTime evaluation_time)
+        {
+            FeedbackSourceCache *cache = feedback_source_cache(view);
+            if (cache == nullptr) { return; }
+            *cache = FeedbackSourceCache{};
+            const NativeDeltaPlan plan = native_delta_plan_for(view.state());
+            if (!plan.ready()) { return; }
+            const TSOutputView output = view.output(evaluation_time);  // owns the data view below
+            const TSDataView  &data   = output.data_view();
+            const void *memory = data.try_native_value_memory(plan.ops);
+            if (memory == nullptr) { return; }
+            const auto &ops = data.ops();
+            TSDataTracking *tracking = ops.mutable_tracking_impl(ops.context, data.mutable_data());
+            if (tracking == nullptr) { return; }
+            cache->plan         = plan;
+            cache->value_memory = const_cast<void *>(memory);
+            cache->tracking     = tracking;
+        }
+
+        void start_feedback_source(const NodeView &view, DateTime start_time)
+        {
+            resolve_feedback_source_cache(view, start_time);
+        }
+
+        void start_feedback_source_with_initial_delta_cached(const NodeView &view, DateTime start_time)
+        {
+            start_feedback_source_with_initial_delta(view, start_time);
+            resolve_feedback_source_cache(view, start_time);
+        }
+
+        void stop_feedback_source(const NodeView &view, DateTime)
+        {
+            if (FeedbackSourceCache *cache = feedback_source_cache(view); cache != nullptr)
+            {
+                *cache = FeedbackSourceCache{};
+            }
+        }
+
         void evaluate_feedback_source(const NodeView &view, DateTime evaluation_time)
         {
+            if (const FeedbackSourceCache *cache = feedback_source_cache(view);
+                cache != nullptr && cache->ready())
+            {
+                const ValueView state = view.state();
+                if (state_matches(state, cache->plan))
+                {
+                    std::memcpy(cache->value_memory, state.data(), cache->plan.size);
+                    if (cache->tracking->record_modified(evaluation_time))
+                    {
+                        cache->tracking->parent.notify_child_modified(evaluation_time);
+                    }
+                    return;
+                }
+            }
             apply_delta(view.output(evaluation_time), view.state());
         }
 
@@ -88,11 +201,28 @@ namespace hgraph
             detail::PreparedInputSlotRoute ts_route{};
             std::size_t                    source_index{0};
             bool                           source_resolved{false};
+            NativeDeltaPlan                plan{};
         };
 
         [[nodiscard]] FeedbackSinkCache *feedback_sink_cache(const NodeView &view) noexcept
         {
             return static_cast<FeedbackSinkCache *>(view.runtime_cache());
+        }
+
+        /** The native sink step: the observed delta's bytes into the planned
+            state, when the input exposes native memory of the planned ops and
+            the state still carries that binding. False means take the
+            general path. */
+        [[nodiscard]] bool try_copy_native_feedback_delta(const NodeView &source_node, const TSInputView &ts,
+                                                          const NativeDeltaPlan &plan)
+        {
+            if (!plan.ready()) { return false; }
+            const void *delta = ts.try_native_value_memory(plan.ops);
+            if (delta == nullptr) { return false; }
+            const ValueView state = source_node.state();
+            if (!state_matches(state, plan)) { return false; }
+            std::memcpy(state.begin_mutation().mutable_data(), delta, plan.size);
+            return true;
         }
 
         void copy_feedback_delta(const NodeView &source_node, const TSInputView &ts)
@@ -146,6 +276,7 @@ namespace hgraph
             {
                 cache->source_index    = source_node.node_index();
                 cache->source_resolved = true;
+                cache->plan            = native_delta_plan_for(source_node.state());
             }
         }
 
@@ -171,7 +302,11 @@ namespace hgraph
                         auto bundle = root.as_bundle();  // lvalue: the bundle accessor is &-qualified
                         return bundle[0];
                     }();
-                    copy_feedback_delta(graph->view().node_at(cache->source_index), ts);
+                    const NodeView source_node = graph->view().node_at(cache->source_index);
+                    if (!try_copy_native_feedback_delta(source_node, ts, cache->plan))
+                    {
+                        copy_feedback_delta(source_node, ts);
+                    }
                     graph->schedule_node(cache->source_index, evaluation_time + MIN_TD);
                     return;
                 }
@@ -225,10 +360,20 @@ namespace hgraph
         schema.node_kind     = NodeKind::PullSource;
 
         NodeCallbacks callbacks;
-        if (has_initial_delta) { callbacks.start = &start_feedback_source_with_initial_delta; }
+        callbacks.start    = has_initial_delta ? &start_feedback_source_with_initial_delta_cached
+                                               : &start_feedback_source;
         callbacks.evaluate = &evaluate_feedback_source;
+        callbacks.stop     = &stop_feedback_source;
 
-        return NodeBuilder::native(std::move(schema), std::move(callbacks));
+        const std::array cache_field{NodeStorageField{
+            .name = node_runtime_cache_field,
+            .plan = &MemoryUtils::plan_for<FeedbackSourceCache>(),
+        }};
+        NodeTypeDescriptor descriptor;
+        descriptor.storage_plan = &node_storage_plan_for(schema, cache_field);
+        descriptor.schema       = std::move(schema);
+        descriptor.callbacks    = std::move(callbacks);
+        return NodeBuilder::from_descriptor(std::move(descriptor));
     }
 
     NodeBuilder make_feedback_sink_node(const TSValueTypeMetaData &schema)
