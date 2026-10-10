@@ -1,4 +1,6 @@
 #include <hgraph/lib/testing/runtime_support.h>
+#include <hgraph/runtime/node.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/runtime.h>
@@ -8,6 +10,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -17,6 +20,7 @@
 #include <span>
 #include <stdexcept>
 #include <string_view>
+#include <thread>
 #include <typeindex>
 #include <utility>
 #include <vector>
@@ -175,4 +179,52 @@ TEST_CASE("distinct native graph engines progress independently on different thr
           std::vector<std::optional<Int>>{Int{201}, Int{202}, Int{203}});
     CHECK(blocked_view.graph().global_state().get_as<Int>("progress") == Int{1});
     CHECK(independent_view.graph().global_state().get_as<Int>("progress") == Int{3});
+}
+
+namespace
+{
+    struct ResolvedOutputProbe
+    {
+        static constexpr auto name              = "concurrent_resolved_output_probe";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(Out<TS<Int>> out) { out.set(Int{1}); }
+    };
+}  // namespace
+
+TEST_CASE("a node builder publishes one immutable output type record per realization to concurrent constructors",
+          "[node][builder][concurrency]")
+{
+    // The active type realization is thread-local, so two engines sharing a
+    // wired graph can construct from one builder under different
+    // realizations at once. Each must see a record for its own realization,
+    // and the record it holds must not change under it.
+    NodeBuilder builder{};
+    builder.label("probe").implementation<ResolvedOutputProbe>();
+    const auto snapshot = TypeRealizationSnapshot::capture(TypeRegistry::instance());
+    REQUIRE(snapshot);
+
+    constexpr std::size_t rounds = 4000;
+    std::atomic<bool>     mismatched{false};
+    const auto            worker = [&](const TypeRealizationSnapshot *scope_snapshot) {
+        const TypeRealizationScope scope{scope_snapshot};
+        const auto                 first = builder.resolved_output_types();
+        if (!first || !first->output.bound()) { mismatched = true; return; }
+        for (std::size_t i = 0; i < rounds && !mismatched; ++i)
+        {
+            const auto record = builder.resolved_output_types();
+            if (!record || record->snapshot != scope_snapshot || record->output.record() != first->output.record())
+            {
+                mismatched = true;
+            }
+            // The first record stays what it was however often the other
+            // thread republishes its own.
+            if (first->snapshot != scope_snapshot) { mismatched = true; }
+        }
+    };
+    std::thread plain{worker, nullptr};
+    std::thread realized{worker, snapshot.get()};
+    plain.join();
+    realized.join();
+    CHECK_FALSE(mismatched);
 }

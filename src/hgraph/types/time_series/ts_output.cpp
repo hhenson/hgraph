@@ -292,16 +292,20 @@ TSData TSOutput::checked_data_for(const TSValueTypeMetaData *schema) {
   return checked_data_for(schema, ValueStorageVariant::Native);
 }
 
-TSData TSOutput::checked_data_for(const TSValueTypeMetaData *schema,
-                                  ValueStorageVariant value_storage) {
+TSOutputTypeRef TSOutput::resolved_type_for(const TSValueTypeMetaData *schema,
+                                            ValueStorageVariant value_storage) {
   if (schema == nullptr) {
     throw std::invalid_argument("TSOutput requires a time-series schema");
   }
   if (const auto *snapshot = active_type_realization(); snapshot != nullptr) {
-    return TSData{realized_output_type_for(schema, *snapshot, value_storage)};
+    return realized_output_type_for(schema, *snapshot, value_storage);
   }
-  return TSData{
-      TSDataPlanFactory::instance().output_type_for(schema, value_storage)};
+  return TSDataPlanFactory::instance().output_type_for(schema, value_storage);
+}
+
+TSData TSOutput::checked_data_for(const TSValueTypeMetaData *schema,
+                                  ValueStorageVariant value_storage) {
+  return TSData{resolved_type_for(schema, value_storage)};
 }
 
 TSData TSOutput::checked_data_for(const TSEndpointSchema &endpoint_schema) {

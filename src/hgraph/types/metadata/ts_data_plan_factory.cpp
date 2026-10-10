@@ -311,6 +311,7 @@ namespace hgraph
         data_type_cache_.clear();
         output_type_cache_.clear();
         realized_output_type_cache_.clear();
+        requested_output_type_cache_.clear();
         plan_detail::clear_atomic_ts_data_ops();
         plan_detail::clear_fixed_ts_data_contexts();
         plan_detail::clear_dynamic_list_ts_data_contexts();
@@ -428,10 +429,26 @@ namespace hgraph
         {
             return output_type_for(schema);
         }
-        return output_type_for(
+        // Answer a repeated (schema, requested) from the front cache before
+        // resolving the canonical value binding and the storage selection:
+        // both are lookups of their own, and construction asked them per
+        // node instance (5% of Python-node construction, 2026-10-10
+        // profile) although the answer is a per-type fact.
+        const RealizedOutputKey requested_key{schema, ValueTypeRef{}, requested};
+        {
+            std::lock_guard lock(mutex_);
+            if (const auto found = requested_output_type_cache_.find(requested_key);
+                found != requested_output_type_cache_.end())
+            {
+                return found->second;
+            }
+        }
+        const auto type = output_type_for(
             schema,
             ValuePlanFactory::instance().type_for(schema->value_schema),
             requested);
+        std::lock_guard lock(mutex_);
+        return requested_output_type_cache_.try_emplace(requested_key, type).first->second;
     }
 
     TSOutputTypeRef TSDataPlanFactory::output_type_for(const TSValueTypeMetaData *schema,
