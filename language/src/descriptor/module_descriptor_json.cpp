@@ -144,6 +144,7 @@ namespace hgl::descriptor
                 case ConstantExpressionCategory::Sequence: return "sequence";
                 case ConstantExpressionCategory::Tuple: return "tuple";
                 case ConstantExpressionCategory::Construct: return "construct";
+                case ConstantExpressionCategory::Call: return "call";
             }
             std::unreachable();
         }
@@ -419,6 +420,21 @@ namespace hgl::descriptor
                 quote_json(out, type.cpp_type);
                 out << ",\n        \"public_header\": ";
                 quote_json(out, type.public_header);
+                if (!type.canonical_identity.empty()) {
+                    out << ",\n        \"canonical_identity\": ";
+                    quote_json(out, type.canonical_identity);
+                }
+                if (type.exported) { out << ",\n        \"exported\": true"; }
+                if (type.value_contract) {
+                    const auto &contract = *type.value_contract;
+                    out << ",\n        \"value_contract\": {\n"
+                        << "          \"owning_copy\": " << (contract.owning_copy ? "true" : "false")
+                        << ",\n          \"text\": " << (contract.text ? "true" : "false")
+                        << ",\n          \"equality\": " << (contract.equality ? "true" : "false")
+                        << ",\n          \"hash\": " << (contract.hash ? "true" : "false")
+                        << ",\n          \"order\": " << (contract.order ? "true" : "false")
+                        << ",\n          \"serialization\": " << (contract.serialization ? "true" : "false") << "\n        }";
+                }
                 out << "\n      }" << (index + 1U == descriptor.native_types.size() ? "\n" : ",\n");
             }
             if (!descriptor.native_types.empty()) { out << "    "; }
@@ -519,6 +535,7 @@ namespace hgl::descriptor
                     schema_reference(out, record.min_size);
                 }
                 if (record.unbounded) { out << ",\n        \"unbounded\": true"; }
+                if (record.native_atomic) { out << ",\n        \"native_atomic\": true"; }
                 out << "\n      }" << (index + 1U == records.size() ? "\n" : ",\n");
             }
             if (!records.empty()) { out << "    "; }
@@ -532,6 +549,10 @@ namespace hgl::descriptor
                 const ConstantExpressionRecord &record = records[index];
                 out << "      {\n        \"id\": " << index << ",\n        \"kind\": ";
                 quote_json(out, constant_category_name(record.category));
+                if (!record.callable_identity.empty()) {
+                    out << ",\n        \"callee\": ";
+                    quote_json(out, record.callable_identity);
+                }
                 if (record.literal) {
                     out << ",\n        \"literal\": ";
                     literal(out, *record.literal);

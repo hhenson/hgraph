@@ -69,6 +69,7 @@ namespace hgl::descriptor
                 case ConstExprKind::Sequence: return ConstantExpressionCategory::Sequence;
                 case ConstExprKind::Tuple: return ConstantExpressionCategory::Tuple;
                 case ConstExprKind::Construct: return ConstantExpressionCategory::Construct;
+                case ConstExprKind::Call: return ConstantExpressionCategory::Call;
             }
             std::unreachable();
         }
@@ -90,7 +91,11 @@ namespace hgl::descriptor
         class SchemaBuilder
         {
           public:
-            SchemaBuilder(const hgraph_ir::Module &source, ModuleDescriptor &result) : source_{source}, result_{result} {}
+            SchemaBuilder(const hgraph_ir::Module &source, ModuleDescriptor &result) : source_{source}, result_{result} {
+                for (const auto &native : source.native_types) {
+                    if (native.atomic_value) { native_types_.emplace(native.canonical_identity, &native); }
+                }
+            }
 
             [[nodiscard]] Signature signature(const std::vector<hgraph_ir::GenericParameter> &generics,
                                               const std::vector<hgraph_ir::Parameter> &parameters, hgraph_ir::TypeId result,
@@ -249,6 +254,11 @@ namespace hgl::descriptor
                                               ? std::string{ir::hir::scalar_type_name(source.scalar)}
                                               : std::string{};
                 record.nominal_identity = source.nominal_identity;
+                if (const auto native = native_types_.find(source.nominal_identity);
+                    source.kind == ir::hir::TypeKind::Symbol && !source.binding.valid() && native != native_types_.end()) {
+                    record.nominal_identity = native->second->identity;
+                    record.native_atomic    = true;
+                }
                 if (source.binding.valid()) { record.binding_identity = binding_identity(source.binding, source.nominal_identity); }
                 record.unbounded = source.unbounded;
                 for (hgraph_ir::TypeId child : source.children) { record.children.push_back(type(child, bindings)); }
@@ -296,6 +306,7 @@ namespace hgl::descriptor
                 ConstantExpressionRecord record;
                 record.category           = constant_category(source.kind);
                 record.literal            = source.literal;
+                record.callable_identity  = source.callable_identity;
                 record.parameter_identity = binding_identity(source.parameter_binding, source.parameter);
                 if (source.kind == hgraph_ir::ConstExprKind::Unary) {
                     record.operator_spelling = unary_spelling(source.unary);
@@ -389,6 +400,7 @@ namespace hgl::descriptor
 
             const hgraph_ir::Module                    &source_;
             ModuleDescriptor                           &result_;
+            std::unordered_map<std::string_view, const NativeTypeContract *> native_types_{};
             std::unordered_map<std::uint32_t, SchemaId> types_{};
             std::unordered_map<std::uint32_t, SchemaId> constants_{};
             std::unordered_map<std::uint32_t, SchemaId> constraints_{};
@@ -411,6 +423,23 @@ namespace hgl::descriptor
         result.build.lifecycle           = std::move(options.lifecycle);
 
         SchemaBuilder schema{module, result};
+        for (const auto &native : module.native_types) {
+            if (!native.atomic_value) { continue; }
+            result.native_types.push_back(NativeTypeDeclaration{
+                .category           = NativeTypeCategory::AtomicValue,
+                .identity           = native.identity,
+                .cpp_type           = native.cpp_type,
+                .public_header      = native.public_header,
+                .canonical_identity = native.canonical_identity,
+                .value_contract     = native.capabilities,
+                .exported           = native.module_identity == module.path && native.exported,
+            });
+            // Every declaration alias has its own inventory entry, even when
+            // canonical type interning collapsed all uses into one symbol.
+            result.types.push_back(
+                TypeRecord{.category = TypeCategory::Symbol, .nominal_identity = native.identity, .native_atomic = true});
+            result.build.public_headers.push_back(native.public_header);
+        }
 
         std::vector<const hgraph_ir::StructContract *> structures;
         for (const hgraph_ir::StructContract &structure : module.structures) {
@@ -495,7 +524,7 @@ namespace hgl::descriptor
         }
 
         for (const hgraph_ir::NativeFunction &function : module.native_functions) {
-            if (!function.source_defined) { continue; }
+            if (!function.source_defined && !function.source_declared) { continue; }
             const auto        symbol = std::ranges::find(options.source_native_symbols, function.candidate_identity,
                                                          &std::pair<std::string, std::string>::first);
             NativeDeclaration declaration;

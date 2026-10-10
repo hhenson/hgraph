@@ -48,6 +48,11 @@ namespace hgraph
      */
     class Value
     {
+        [[nodiscard]] static bool same_representation(ValueTypeRef lhs, ValueTypeRef rhs) noexcept {
+            return lhs.schema() == rhs.schema() && lhs.plan() == rhs.plan() && lhs.ops() == rhs.ops() &&
+                   lhs.record()->ops_abi_version == rhs.record()->ops_abi_version;
+        }
+
       public:
         using storage_type = MemoryUtils::ErasedOwner<MemoryUtils::InlineStoragePolicy<>, TypeRecord>;
 
@@ -101,9 +106,8 @@ namespace hgraph
                 throw std::invalid_argument(
                     "Value(binding, source): binding and source must be live");
             }
-            if (owning_type == binding)
-            {
-                storage_ = storage_type::owning_copy(*binding.record(), src);
+            if (owning_type == binding || same_representation(owning_type, binding)) {
+                storage_ = storage_type::owning_copy(*owning_type.record(), src);
                 return;
             }
             storage_ = storage_type::owning_constructed(
@@ -163,6 +167,10 @@ namespace hgraph
                 throw std::invalid_argument(
                     "Value(binding, view): destination and source must be bound");
             }
+            if (source.has_value() && same_representation(owning_type, source.binding())) {
+                storage_ = storage_type::owning_copy(*owning_type.record(), source.data());
+                return;
+            }
             storage_ = storage_type::owning_constructed(
                 *owning_type.record(), [&](void *dst) {
                     owning_type.default_construct_at(dst);
@@ -195,8 +203,7 @@ namespace hgraph
             }
 
             storage_ = storage_type::owning_constructed(*owning_type.record(), [&](void *dst) {
-                if (owning_type == natural_owning_type)
-                {
+                if (owning_type == natural_owning_type || same_representation(owning_type, natural_owning_type)) {
                     ops.copy_construct_view(owning_type, dst, view.data());
                     return;
                 }

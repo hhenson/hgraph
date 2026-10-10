@@ -1947,3 +1947,41 @@ TEST_CASE("enum constants round trip with their nominal identity and signed endp
     REQUIRE(decoded);
     CHECK(*decoded.value == source);
 }
+
+TEST_CASE("required default source calls remain data-only descriptor records", "[descriptor][reader][defaults]") {
+    auto source                 = minimal_descriptor();
+    source.constant_expressions = {
+        {.literal = hgl::ir::hir::Constant{std::int64_t{7}}},
+        {.category          = descriptor::ConstantExpressionCategory::Call,
+         .callable_identity = "checks.reader.seed$value",
+         .arguments         = {{"value", 0U}}},
+    };
+    const auto result = descriptor::read_json(descriptor::to_json(source));
+    REQUIRE(result);
+    CHECK(result.value->constant_expressions == source.constant_expressions);
+    source.constant_expressions[1].callable_identity.clear();
+    const auto invalid = descriptor::read_json(descriptor::to_json(source));
+    REQUIRE(invalid.error);
+    CHECK(invalid.error->path == "$.schema.constant_expressions[1].callee");
+}
+
+TEST_CASE("mapped native C++ types are names rather than executable fragments", "[descriptor][reader][native]") {
+    auto source  = minimal_descriptor();
+    source.types = {
+        {.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader::Token", .native_atomic = true}};
+    source.build.public_headers = {"provider/token.h"};
+    source.native_types         = {{.category           = descriptor::NativeTypeCategory::AtomicValue,
+                                    .identity           = "checks.reader::Token",
+                                    .cpp_type           = "::provider::TokenAlias",
+                                    .public_header      = "provider/token.h",
+                                    .canonical_identity = "provider.Token",
+                                    .value_contract     = descriptor::NativeAtomicValueContract{.owning_copy = true, .text = true}}};
+    REQUIRE(descriptor::read_json(descriptor::to_json(source)));
+    for (const std::string type :
+         {"provider::Token*", "provider::Token<int>", "decltype(provider::create())", "Token>())) ; injected(); //"}) {
+        source.native_types.front().cpp_type = type;
+        const auto result                    = descriptor::read_json(descriptor::to_json(source));
+        REQUIRE(result.error);
+        CHECK(result.error->path == "$.native.types[0].cpp_type");
+    }
+}

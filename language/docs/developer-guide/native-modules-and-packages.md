@@ -241,8 +241,14 @@ option adds one explicitly named module to the import catalog. The compiler can
 currently lower exact canonical-value functions and overloaded collection-view
 functions used during runtime evaluation. For example, `len(value)` can select
 a native list, set, or map overload and read the live collection size.
-Unsupported ownership, effects, nominal native types, or phases are diagnosed
-at the import or call boundary rather than silently approximated.
+Unsupported ownership, effects, resource-state temporal use, or phases are
+diagnosed at the import or call boundary rather than silently approximated.
+Declared native atomic values follow NVAL-1–5: `native type Token` is local,
+`export native type Token` participates in ordinary selective/qualified imports,
+and aliases with one canonical scalar identity retain one value type.
+Descriptor-permitted ordinary helpers also run during executed setup and cold
+materialization without runtime-only capabilities. Required defaults exclude
+native helper dependencies, including source `const fn` wrappers.
 
 Native libraries create descriptors with the installed C++ target
 `hgl::native_package` and `<hgl/native_package.h>`. Its public model is narrower
@@ -252,6 +258,22 @@ or `rolling` input-view pattern. `descriptor_json(package)`
 returns canonical sealed JSON; `write_descriptor(package, path)` additionally
 writes it for installation. Both reject the same unsafe phase, effect,
 ownership, borrow, and lifecycle combinations as `hgl check`.
+
+A native atomic mapping uses `TypeCategory::AtomicValue`, its existing
+`canonical_identity`, the provider's `cpp_type` and public header, and
+`AtomicValueContract`. The C++ mapping is an exact public qualified type name;
+use a public alias for an instantiated template or other composite C++ spelling.
+The reader and independent GIR emission reject executable fragments in this
+data field. Owning copy and text are mandatory; equality, hash,
+order and context-required serialization are explicit flags. Source checking
+reads these flags without inspecting or executing C++ definitions. Physical
+operations may be a superset, while the checked owning binding narrows the
+capabilities exposed to HGL, including boxes and empty aggregates. Preparation
+rejects missing operations or incompatible identity, layout and lifecycle before
+installing that binding. The current raw scalar storage ABI requires physical
+default-construction and copy-assignment hooks; these are provider compatibility
+checks rather than additional HGL capability flags. Opaque resource state keeps
+its separate admission and lifetime rules.
 
 The package names either an exact public C++ function family or its own reviewed
 normalizing wrapper in each declaration's `cpp_symbol`. Declarations sharing an

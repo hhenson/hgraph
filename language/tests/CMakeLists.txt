@@ -58,9 +58,14 @@ add_test(
 file(GLOB _hgl_examples CONFIGURE_DEPENDS ${HGRAPH_SPEC}/language/examples/*.hgl)
 foreach(_example IN LISTS _hgl_examples)
     get_filename_component(_name ${_example} NAME_WE)
+    set(_example_contract_args)
+    if(_name STREQUAL "native-atomic-values")
+        list(APPEND _example_contract_args --module-descriptor
+            "${CMAKE_CURRENT_BINARY_DIR}/native-atomic-values.hgl-module.json")
+    endif()
     add_test(
         NAME hgraph_language_example_${_name}
-        COMMAND $<TARGET_FILE:hgl> check ${_example}
+        COMMAND $<TARGET_FILE:hgl> check ${_example} ${_example_contract_args}
     )
 endforeach()
 unset(_hgl_examples)
@@ -219,6 +224,19 @@ add_executable(hgl_native_scalar_descriptor_fixture driver/native_scalar_descrip
 target_compile_features(hgl_native_scalar_descriptor_fixture PRIVATE cxx_std_23)
 target_link_libraries(hgl_native_scalar_descriptor_fixture PRIVATE hgl::native_package)
 hgl_apply_warnings(hgl_native_scalar_descriptor_fixture)
+
+add_executable(hgl_native_atomic_descriptor_fixture driver/native_atomic_descriptor_fixture.cpp)
+target_compile_features(hgl_native_atomic_descriptor_fixture PRIVATE cxx_std_23)
+target_link_libraries(hgl_native_atomic_descriptor_fixture PRIVATE hgl::native_package)
+hgl_apply_warnings(hgl_native_atomic_descriptor_fixture)
+set(_hgl_native_atomic_descriptor "${CMAKE_CURRENT_BINARY_DIR}/native-atomic-values.hgl-module.json")
+set(_hgl_native_atomic_std_descriptor "${CMAKE_CURRENT_BINARY_DIR}/native-atomic-standard.hgl-module.json")
+add_custom_command(OUTPUT "${_hgl_native_atomic_descriptor}" "${_hgl_native_atomic_std_descriptor}"
+    COMMAND hgl_native_atomic_descriptor_fixture "${_hgl_native_atomic_descriptor}" examples.native_atomic_values
+    COMMAND hgl_native_atomic_descriptor_fixture "${_hgl_native_atomic_std_descriptor}" hgraph.std
+    DEPENDS hgl_native_atomic_descriptor_fixture
+    COMMENT "Author native atomic value fixture contracts"
+    VERBATIM)
 
 set(_hgl_native_scalar_descriptor "${CMAKE_CURRENT_BINARY_DIR}/native-scalar-import.hgl-module.json")
 add_custom_command(
@@ -435,6 +453,44 @@ hgl_add_module(hgl_native_scalar_import_fixture STATIC
     LINK_LIBRARIES hgl_native_scalar_dependency
 )
 hgl_apply_warnings(hgl_native_scalar_import_fixture)
+add_library(hgl_native_atomic_dependency INTERFACE)
+target_include_directories(hgl_native_atomic_dependency INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/driver/include")
+set_property(TARGET hgl_native_atomic_dependency PROPERTY HGL_MODULE_DESCRIPTORS "${_hgl_native_atomic_descriptor}")
+hgl_add_module(hgl_native_atomic_fixture STATIC
+    HGL ${HGRAPH_SPEC}/language/examples/native-atomic-values.hgl
+    PARTS codegen/native-atomic-values.hgl
+    LINK_LIBRARIES hgl_native_atomic_dependency)
+hgl_apply_warnings(hgl_native_atomic_fixture)
+add_library(hgl_native_atomic_std_dependency INTERFACE)
+target_include_directories(hgl_native_atomic_std_dependency INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/driver/include")
+set_property(TARGET hgl_native_atomic_std_dependency PROPERTY HGL_MODULE_DESCRIPTORS "${_hgl_native_atomic_std_descriptor}")
+set(_hgl_native_atomic_shared_parts
+    ${HGRAPH_STD}/control.hgl ${HGRAPH_STD}/stream.hgl ${HGRAPH_STD}/temporal.hgl
+    ${HGRAPH_STD}/impl/standard.hgl ${HGRAPH_STD}/impl/control.hgl ${HGRAPH_STD}/impl/stream.hgl
+    ${HGRAPH_STD}/impl/temporal.hgl ${HGRAPH_STD}/replay_record.hgl ${HGRAPH_STD}/impl/replay_record.hgl
+    ${HGRAPH_STD}/native/atomic_values_fixture.hgl ${HGRAPH_STD}/tests/native_atomic_values.hgl)
+hgl_add_module(hgl_native_atomic_shared_fixture STATIC
+    HGL ${HGRAPH_STD}/standard.hgl
+    PARTS ${_hgl_native_atomic_shared_parts}
+    INCLUDE_TEST_CONTEXTS
+    LINK_LIBRARIES hgl_native_atomic_std_dependency hgl::core_native)
+hgl_apply_warnings(hgl_native_atomic_shared_fixture)
+add_executable(hgl_native_atomic_test_driver driver/native_atomic_test_driver.cpp)
+target_link_libraries(hgl_native_atomic_test_driver PRIVATE hgl::driver hgl_native_atomic_shared_fixture)
+hgl_link_runtime_executable(hgl_native_atomic_test_driver)
+hgl_stage_runtime_dlls(hgl_native_atomic_test_driver)
+hgl_apply_warnings(hgl_native_atomic_test_driver)
+set(_hgl_native_atomic_shared_args)
+foreach(_part IN LISTS _hgl_native_atomic_shared_parts)
+    list(APPEND _hgl_native_atomic_shared_args --part ${_part})
+endforeach()
+add_test(NAME hgraph_language_native_atomic_precompiled_shared
+    COMMAND hgl_native_atomic_test_driver test ${HGRAPH_STD}/standard.hgl ${_hgl_native_atomic_shared_args}
+        --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json
+        --module-descriptor ${_hgl_native_atomic_std_descriptor})
+set_tests_properties(hgraph_language_native_atomic_precompiled_shared PROPERTIES
+    PASS_REGULAR_EXPRESSION "15 tests?, 0 failed"
+    ENVIRONMENT "HGL_CXX=hgl-scripted-compiler-must-not-run;HGL_DISABLE_CACHE=1")
 hgl_add_module(hgl_inline_native_fixture STATIC HGL codegen/native-functions.hgl)
 hgl_apply_warnings(hgl_inline_native_fixture)
 
@@ -568,6 +624,7 @@ set(_hgl_generated_test_sources
     codegen/generated_runtime_tests.cpp
     codegen/generated_value_function_tests.cpp
     codegen/generated_native_tests.cpp
+    codegen/generated_native_atomic_tests.cpp
     codegen/generated_inline_native_tests.cpp
     codegen/generated_lifecycle_tests.cpp
     codegen/generated_core_native_tests.cpp
@@ -596,6 +653,7 @@ set(_hgl_generated_test_libraries
     hgl_lifecycle_fixture
     hgl_reference_fixture
     hgl_native_scalar_import_fixture
+    hgl_native_atomic_fixture
     hgl_inline_native_consumer_fixture
     hgl_core_native_consumer_fixture
     hgl_module_parts_fixture
@@ -880,6 +938,26 @@ if(UNIX)
     set_tests_properties(hgraph_language_test_any_shared PROPERTIES
         ENVIRONMENT_MODIFICATION "CPLUS_INCLUDE_PATH=path_list_prepend:${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/include"
         ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
+    add_test(NAME hgraph_language_test_native_atomic_shared
+        COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${HGRAPH_STD}/standard.hgl
+            --part ${HGRAPH_STD}/control.hgl
+            --part ${HGRAPH_STD}/stream.hgl
+            --part ${HGRAPH_STD}/temporal.hgl
+            --part ${HGRAPH_STD}/impl/standard.hgl
+            --part ${HGRAPH_STD}/impl/control.hgl
+            --part ${HGRAPH_STD}/impl/stream.hgl
+            --part ${HGRAPH_STD}/impl/temporal.hgl
+            --part ${HGRAPH_STD}/replay_record.hgl
+            --part ${HGRAPH_STD}/impl/replay_record.hgl
+            --part ${HGRAPH_STD}/native/atomic_values_fixture.hgl
+            --part ${HGRAPH_STD}/tests/native_atomic_values.hgl
+            --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json
+            --module-descriptor ${_hgl_native_atomic_std_descriptor})
+    set_tests_properties(hgraph_language_test_native_atomic_shared PROPERTIES
+        PASS_REGULAR_EXPRESSION "15 tests?, 0 failed"
+        ENVIRONMENT_MODIFICATION
+            "CPLUS_INCLUDE_PATH=path_list_prepend:${CMAKE_CURRENT_SOURCE_DIR}/driver/include;CPLUS_INCLUDE_PATH=path_list_prepend:${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/include"
+        ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     add_test(NAME hgraph_language_test_operator_bodies
         COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${HGRAPH_STD}/operators.hgl
             --part ${HGRAPH_STD}/impl/operators.hgl
@@ -946,10 +1024,18 @@ if(UNIX)
         get_filename_component(_name ${_example} NAME_WE)
         file(STRINGS ${_example} _test_lines REGEX "^[ \t]*test [A-Za-z_][A-Za-z_0-9]*[ \t]*\\{")
         list(LENGTH _test_lines _test_count)
+        set(_example_provider_args)
+        if(_name STREQUAL "native-atomic-values")
+            list(APPEND _example_provider_args --module-descriptor ${_hgl_native_atomic_descriptor})
+        endif()
         add_test(
             NAME hgraph_language_test_${_name}
-            COMMAND $<TARGET_FILE:hgl> test ${_example}
+            COMMAND $<TARGET_FILE:hgl> test ${_example} ${_example_provider_args}
         )
+        if(_name STREQUAL "native-atomic-values")
+            set_tests_properties(hgraph_language_test_${_name} PROPERTIES ENVIRONMENT_MODIFICATION
+                "CPLUS_INCLUDE_PATH=path_list_prepend:${CMAKE_CURRENT_SOURCE_DIR}/driver/include")
+        endif()
         set_tests_properties(hgraph_language_test_${_name} PROPERTIES
             PASS_REGULAR_EXPRESSION "${_test_count} tests?, 0 failed"
             ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache"
@@ -1103,6 +1189,9 @@ add_test(NAME hgraph_language_negative_rejection
         -DHGL=$<TARGET_FILE:hgl>
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/negative/rejection
         -P ${CMAKE_CURRENT_SOURCE_DIR}/negative/rejection.cmake)
+add_test(NAME hgraph_language_default_binding_scope_rejection
+    COMMAND $<TARGET_FILE:hgl> check ${HGRAPH_SPEC}/language/examples/reject/default-binding-scope.hgl)
+set_tests_properties(hgraph_language_default_binding_scope_rejection PROPERTIES WILL_FAIL TRUE)
 add_test(NAME hgraph_language_negative_mixed
     COMMAND ${CMAKE_COMMAND}
         -DHGL=$<TARGET_FILE:hgl>
@@ -1179,7 +1268,8 @@ add_test(NAME hgraph_language_eval_profile_errors
 # Compile the entire shared standard-library test module, including helpers
 # declared in test contexts, so Windows runs the same source assertions as Unix.
 file(GLOB _std_matrix_candidates CONFIGURE_DEPENDS
-    "${HGRAPH_STD}/*.hgl" "${HGRAPH_STD}/impl/*.hgl" "${HGRAPH_STD}/tests/*.hgl")
+    "${HGRAPH_STD}/*.hgl" "${HGRAPH_STD}/impl/*.hgl" "${HGRAPH_STD}/tests/*.hgl"
+    "${HGRAPH_STD}/native/atomic_values_fixture.hgl")
 set(_std_matrix_parts)
 set(_std_matrix_args)
 set(_std_matrix_count 0)
@@ -1199,7 +1289,7 @@ foreach(_source IN LISTS _std_matrix_candidates)
 endforeach()
 hgl_add_module(hgl_std_matrix_fixture STATIC INCLUDE_TEST_CONTEXTS SOURCE_PARTS 8
     HGL ${HGRAPH_STD}/standard.hgl PARTS ${_std_matrix_parts}
-    LINK_LIBRARIES hgl::core_native)
+    LINK_LIBRARIES hgl::core_native hgl_native_atomic_std_dependency)
 add_executable(hgl_std_matrix_tests negative/stdlib_generated_driver.cpp)
 target_link_libraries(hgl_std_matrix_tests PRIVATE hgl_std_matrix_fixture hgl::driver)
 hgl_link_runtime_executable(hgl_std_matrix_tests)
@@ -1207,7 +1297,8 @@ hgl_stage_runtime_dlls(hgl_std_matrix_tests)
 hgl_apply_warnings(hgl_std_matrix_tests)
 add_test(NAME hgraph_language_generated_standard_matrix
     COMMAND hgl_std_matrix_tests test ${HGRAPH_STD}/standard.hgl ${_std_matrix_args}
-        --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
+        --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json
+        --module-descriptor ${_hgl_native_atomic_std_descriptor})
 set_tests_properties(hgraph_language_generated_standard_matrix PROPERTIES
     PASS_REGULAR_EXPRESSION "${_std_matrix_count} tests?, 0 failed"
     FAIL_REGULAR_EXPRESSION "FAILED"

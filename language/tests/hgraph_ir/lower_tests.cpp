@@ -26,6 +26,43 @@ namespace
 
     bool has_operator(std::string_view name) { return name != "map"; }
 
+    hgl::semantics::ModuleCatalog guide_native_catalog() {
+        using namespace hgl::semantics;
+        ImportableModule module;
+        module.identity = "examples.native_atomic_values";
+        module.native_types.push_back(hgl::NativeTypeContract{
+            .module_identity    = module.identity,
+            .identity           = module.identity + "::Token",
+            .name               = "Token",
+            .canonical_identity = "hgraph.std::Token",
+            .cpp_type           = "native::Token",
+            .public_header      = "native/values.h",
+            .capabilities =
+                {.owning_copy = true, .text = true, .equality = true, .hash = true, .order = true, .serialization = true},
+            .atomic_value = true,
+        });
+        ImportedType token;
+        token.kind             = ImportedTypeKind::NativeAtomic;
+        token.nominal_identity = module.identity + "::Token";
+        for (const bool observer : {false, true}) {
+            const std::string name = observer ? "token_text" : "token";
+            module.functions.push_back(ImportedFunction{
+                .module_identity = module.identity,
+                .name            = name,
+                .identity        = module.identity + "::" + name,
+                .cpp_symbol      = "native::" + name,
+                .parameters      = {{observer ? "value" : "text", observer ? token : ImportedType{ImportedScalarType::Str}, false}},
+                .result          = observer ? ImportedType{ImportedScalarType::Str} : token,
+                .phases = {NativeCallPhase::Wiring, NativeCallPhase::Start, NativeCallPhase::Evaluation, NativeCallPhase::Stop},
+                .execution_role = hgl::NativeExecutionRole::Value,
+                .public_headers = {"native/values.h"},
+            });
+        }
+        ModuleCatalog catalog;
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
+
     struct Lowered
     {
         hgl::syntax::SourceFile               file;
@@ -306,8 +343,10 @@ TEST_CASE("every guide example lowers complete hgraph IR bodies", "[hgraph-ir][e
         ++count;
         std::ifstream input{entry.path()};
         REQUIRE(input.good());
-        Lowered lowered{std::string{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}},
-                        entry.path().string()};
+        const auto text    = std::string{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
+        Lowered    lowered = entry.path().filename() == "native-atomic-values.hgl"
+                                 ? Lowered{text, guide_native_catalog(), entry.path().string()}
+                                 : Lowered{text, entry.path().string()};
         INFO(entry.path().filename().string());
         INFO(lowered.diagnostics.render(lowered.file));
         REQUIRE_FALSE(lowered.diagnostics.has_errors());
@@ -1299,4 +1338,26 @@ TEST_CASE("ordinary local field mutation is admitted in test value code", "[hgra
     hgl::hgraph_ir::plan(*unit.graph, unit.diagnostics);
     INFO(unit.diagnostics.render(unit.file));
     CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
+TEST_CASE("required defaults retain checked source const-function calls", "[hgraph-ir][defaults]") {
+    Lowered lowered{R"(module checks.defaults
+const fn choose(seed: i64, value: i64 = seed()) -> i64 => seed + value
+struct Defaults { seed: i64 = 99
+    value: i64 = seed() }
+const fn seed() -> i64 => 7
+)"};
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph.has_value());
+    std::size_t calls = 0;
+    for (const auto &constant : lowered.graph->const_exprs) {
+        if (constant.kind != hgl::hgraph_ir::ConstExprKind::Call) { continue; }
+        ++calls;
+        REQUIRE(constant.call.valid());
+        const auto &value = lowered.graph->values.at(constant.call.value);
+        REQUIRE(value.operation.callable.valid());
+        CHECK(lowered.graph->callables.at(value.operation.callable.value).identity == "checks.defaults.seed$value");
+        CHECK(constant.callable_identity == "checks.defaults.seed$value");
+    }
+    CHECK(calls == 2);
 }

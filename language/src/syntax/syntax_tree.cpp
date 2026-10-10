@@ -92,6 +92,7 @@ namespace hgl::syntax
             KindName{SyntaxKind::CppImplementation, "cpp_implementation"},
             KindName{SyntaxKind::CppIncludeDecl, "cpp_include_decl"},
             KindName{SyntaxKind::NativeFunctionDecl, "native_function_decl"},
+            KindName{SyntaxKind::NativeTypeDecl, "native_type_decl"},
             KindName{SyntaxKind::OperatorDecl, "operator_decl"},
             KindName{SyntaxKind::OperatorProperty, "operator_property"},
             KindName{SyntaxKind::OperatorProperties, "operator_properties"},

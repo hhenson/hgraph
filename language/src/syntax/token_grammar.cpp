@@ -21,6 +21,7 @@ namespace hgl::syntax
         enum class ContextToken : std::uint8_t {
             In = 0x80,
             Native,
+            Type,
             Include,
             Atomic,
             Tuple,
@@ -49,12 +50,12 @@ namespace hgl::syntax
         inline constexpr auto identifier = token<TokenKind::Identifier>;
         inline constexpr auto newline    = token<TokenKind::Newline>;
         inline constexpr auto contextual_name =
-            contextual<ContextToken::In> / contextual<ContextToken::Native> / contextual<ContextToken::Include> /
-            contextual<ContextToken::Atomic> / contextual<ContextToken::Tuple> / contextual<ContextToken::List> /
-            contextual<ContextToken::Set> / contextual<ContextToken::Map> / contextual<ContextToken::Rolling> /
-            contextual<ContextToken::Ref> / contextual<ContextToken::Signal> / contextual<ContextToken::Schema> /
-            contextual<ContextToken::Unbounded> / contextual<ContextToken::Delta> / contextual<ContextToken::Properties> /
-            contextual<ContextToken::AppliedConstructor> / contextual<ContextToken::Each> /
+            contextual<ContextToken::In> / contextual<ContextToken::Native> / contextual<ContextToken::Type> /
+            contextual<ContextToken::Include> / contextual<ContextToken::Atomic> / contextual<ContextToken::Tuple> /
+            contextual<ContextToken::List> / contextual<ContextToken::Set> / contextual<ContextToken::Map> /
+            contextual<ContextToken::Rolling> / contextual<ContextToken::Ref> / contextual<ContextToken::Signal> /
+            contextual<ContextToken::Schema> / contextual<ContextToken::Unbounded> / contextual<ContextToken::Delta> /
+            contextual<ContextToken::Properties> / contextual<ContextToken::AppliedConstructor> / contextual<ContextToken::Each> /
             contextual<ContextToken::Throws> / contextual<ContextToken::Raises>;
         inline constexpr auto reserved_name = token_choice<
             TokenKind::KwModule, TokenKind::KwPart, TokenKind::KwUse, TokenKind::KwAs, TokenKind::KwExport, TokenKind::KwAbstract,
@@ -695,6 +696,14 @@ namespace hgl::syntax
         struct throws_clause
         { static constexpr auto rule = contextual<ContextToken::Throws>; };
 
+        struct native_type_decl
+        {
+            static constexpr auto rule = dsl::peek(dsl::opt(token<TokenKind::KwExport>) + contextual<ContextToken::Native> +
+                                                   contextual<ContextToken::Type>) >>
+                                         dsl::opt(token<TokenKind::KwExport>) + contextual<ContextToken::Native> +
+                                             contextual<ContextToken::Type> + dsl::p<name>;
+        };
+
         struct native_function_decl
         {
             static constexpr auto start =
@@ -831,9 +840,10 @@ namespace hgl::syntax
 
         struct declaration
         {
-            static constexpr auto rule = dsl::p<use_decl> | dsl::p<cpp_include_decl> | dsl::p<native_function_decl> |
-                                         dsl::p<function_decl> | dsl::p<operator_decl> | dsl::p<instantiate_decl> |
-                                         dsl::p<struct_decl> | dsl::p<enum_decl> | dsl::p<test_context> | dsl::p<test_decl>;
+            static constexpr auto rule = dsl::p<use_decl> | dsl::p<cpp_include_decl> | dsl::p<native_type_decl> |
+                                         dsl::p<native_function_decl> | dsl::p<function_decl> | dsl::p<operator_decl> |
+                                         dsl::p<instantiate_decl> | dsl::p<struct_decl> | dsl::p<enum_decl> | dsl::p<test_context> |
+                                         dsl::p<test_decl>;
         };
 
         inline constexpr auto declaration_start =
@@ -969,6 +979,7 @@ namespace hgl::syntax
             if (token.kind == TokenKind::Identifier) {
                 if (token.text == "in") { return static_cast<std::uint8_t>(grammar::ContextToken::In); }
                 if (token.text == "native") { return static_cast<std::uint8_t>(grammar::ContextToken::Native); }
+                if (token.text == "type") { return static_cast<std::uint8_t>(grammar::ContextToken::Type); }
                 if (token.text == "include") { return static_cast<std::uint8_t>(grammar::ContextToken::Include); }
                 if (token.text == "atomic") { return static_cast<std::uint8_t>(grammar::ContextToken::Atomic); }
                 if (token.text == "tuple") { return static_cast<std::uint8_t>(grammar::ContextToken::Tuple); }

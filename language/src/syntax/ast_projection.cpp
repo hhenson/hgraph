@@ -1144,6 +1144,7 @@ namespace hgl::syntax
                     case SyntaxKind::CppIncludeDecl: return project_cpp_include_decl(declaration);
                     case SyntaxKind::FunctionDecl: return project_function_decl(declaration);
                     case SyntaxKind::NativeFunctionDecl: return project_native_function_decl(declaration);
+                    case SyntaxKind::NativeTypeDecl: return project_native_type_decl(declaration);
                     case SyntaxKind::OperatorDecl: return project_operator_decl(declaration);
                     case SyntaxKind::InstantiateDecl: return project_instantiate_decl(declaration);
                     case SyntaxKind::StructDecl: return project_struct_decl(declaration);
@@ -1199,6 +1200,15 @@ namespace hgl::syntax
                 } else {
                     result.block_body = project_block(only_child(id, SyntaxKind::Block));
                 }
+                return ast::Decl{node(id).range, std::move(result)};
+            }
+
+            [[nodiscard]] ast::Decl project_native_type_decl(SyntaxNodeId id) {
+                ast::NativeTypeDecl result;
+                result.exported  = !child_tokens(id, TokenKind::KwExport).empty();
+                const auto names = direct_names(id, "a native type name");
+                require(names.size() == 1, "native type declaration has no unique name");
+                result.name = names.front();
                 return ast::Decl{node(id).range, std::move(result)};
             }
 
