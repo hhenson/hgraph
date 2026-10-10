@@ -19,8 +19,33 @@ DEFAULT_IMAGE = (
 )
 
 
+CONTAINER_PREFIX = "hgraph-fabric-redpanda-"
+
+
 def run(*command: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=check, text=True, capture_output=True)
+    completed = subprocess.run(command, check=False, text=True, capture_output=True)
+    if check and completed.returncode != 0:
+        # Docker's reason (a port already published, a name in use, no
+        # daemon) is on stderr; surface it instead of only the exit status.
+        detail = (completed.stderr or completed.stdout or "").strip()
+        raise RuntimeError(f"{' '.join(command[:2])} exited with {completed.returncode}: {detail}")
+    return completed
+
+
+def remove_stale_brokers() -> None:
+    """Remove broker containers left behind by an interrupted run.
+
+    A cancelled job kills this script before its ``finally`` runs, the
+    container keeps the published port, and every later run on the same
+    runner then fails at ``docker run``. Only one conformance run happens
+    per runner at a time, so any container with our prefix is stale.
+    """
+    listing = run("docker", "ps", "--all", "--quiet", "--filter", f"name=^{CONTAINER_PREFIX}", check=False)
+    stale = listing.stdout.split()
+    for identifier in stale:
+        run("docker", "rm", "--force", identifier, check=False)
+    if stale:
+        print(f"removed {len(stale)} stale broker container(s) left by an interrupted run", file=sys.stderr)
 
 
 def wait_until(predicate, process: subprocess.Popen[str] | None, timeout: float) -> None:
@@ -61,13 +86,14 @@ def main() -> int:
         parser.error(f"test executable does not exist: {executable}")
 
     suffix = secrets.token_hex(4)
-    container = f"hgraph-fabric-redpanda-{suffix}"
+    container = f"{CONTAINER_PREFIX}{suffix}"
     topic = f"hgraph-fabric-conformance-{suffix}"
     with tempfile.TemporaryDirectory(prefix="hgraph-fabric-kafka-") as directory:
         control = Path(directory)
         output_path = control / "test-output.log"
         test_process: subprocess.Popen[str] | None = None
         try:
+            remove_stale_brokers()
             run(
                 "docker",
                 "run",
