@@ -49,7 +49,6 @@ struct MeshNodeStorage;
 struct MeshChildScheduleContext {
   MeshNodeStorage *storage{nullptr};
   std::size_t slot{0};
-  NodePtr parent_node{};
   // Coalesce repeated pull observations of the same retained child deadline.
   // Push observations remain distinct because one child graph may schedule
   // multiple internal nodes.
@@ -83,6 +82,8 @@ struct MeshEntry {
   runtime_detail::MappedKeySource key_source{};
   MeshChildScheduleContext schedule_context{};
   GraphValue graph{};
+  // Cached dict slot of this instance's output element (see MapKeyEntry).
+  std::size_t output_slot{runtime_detail::mapped_output_slot_unknown};
   int rank{0};
   // Pause/resume settle state, per cycle:
   bool paused{false};            // paused this cycle, awaiting a dependency
@@ -210,13 +211,12 @@ struct MeshNodeStorage final : SlotObserver {
                    std::greater<>{});
   }
 
-  void push_observed_child_schedule(DateTime when,
+  void push_observed_child_schedule(DateTime when, bool due_now,
                                     const MeshChildScheduleContext &schedule) {
     if (schedule.storage != this) {
       return;
     }
-    const NodeView parent{schedule.parent_node};
-    if (parent.valid() && when <= parent.graph().evaluation_time()) {
+    if (due_now) {
       // Current-cycle notifications already identify their slot. Recording
       // them directly avoids two heap operations per child on broadcast
       // ticks while future deadlines still use the priority queue.
@@ -973,12 +973,12 @@ MeshEntry &create_instance(const NodeView &view, const MeshNodeContext &context,
   bind_instance_inputs(view, context, entry, evaluation_time, true);
   bind_instance_output(view, context, entry, evaluation_time);
   entry.schedule_context =
-      MeshChildScheduleContext{&storage, slot, view.pointer()};
+      MeshChildScheduleContext{&storage, slot};
   entry.graph.view().set_child_schedule_observer(
-      [](void *raw_context, DateTime when) {
+      [](void *raw_context, DateTime when, bool due_now) {
         auto *schedule = static_cast<MeshChildScheduleContext *>(raw_context);
         if (schedule->storage != nullptr) {
-          schedule->storage->push_observed_child_schedule(when, *schedule);
+          schedule->storage->push_observed_child_schedule(when, due_now, *schedule);
         }
       },
       &entry.schedule_context);
@@ -1303,7 +1303,7 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
         runtime_detail::finalize_mapped_child_output(
             view, evaluation_time, spec.child.output_binding,
             context.access.output,
-            entry->key.view());
+            entry->key.view(), &entry->output_slot);
       } else {
         entry->paused = true;
         // Park on the dependency it asked for, if that dependency is going to
@@ -1860,11 +1860,11 @@ void prepare_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &im
     const auto key_source = entry.key_source.bound() ? entry.key_source.view(time) : TSOutputView{};
     runtime_detail::bind_mapped_child_output(view, entry.graph.view(), time, context.spec.child.output_binding,
         context.access, entry.key.view(), key_source, context.spec.output_binding_mode, true);
-    entry.schedule_context = MeshChildScheduleContext{&storage, child.slot, view.pointer()};
+    entry.schedule_context = MeshChildScheduleContext{&storage, child.slot};
     entry.graph.view().set_child_schedule_observer(
-        [](void *raw, DateTime when) {
+        [](void *raw, DateTime when, bool due_now) {
           auto &schedule = *static_cast<MeshChildScheduleContext *>(raw);
-          schedule.storage->push_observed_child_schedule(when, schedule);
+          schedule.storage->push_observed_child_schedule(when, due_now, schedule);
         }, &entry.schedule_context);
   }
   storage.instance_keys->restore_free_slots(free);
