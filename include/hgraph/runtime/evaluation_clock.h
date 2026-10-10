@@ -32,6 +32,11 @@ namespace hgraph
         TimeDelta (*cycle_time_impl)(const void *context, const void *memory) noexcept = nullptr;
         DateTime (*next_cycle_evaluation_time_impl)(const void *context,
                                                                   const void *memory) noexcept = nullptr;
+        /** True for a clock whose ``now()`` is wall time (the real-time
+            executor), so a scheduler may arm wall-clock alarms. A per-mode
+            fact of the ops table, read by the scheduler injection instead of
+            walking node -> graph -> executor -> schema on every tick. */
+        bool supports_wall_clock{false};
     };
 
     namespace detail
@@ -88,6 +93,9 @@ namespace hgraph
             const auto &table = ops();
             return table.next_cycle_evaluation_time_impl(table.context, pointer_.data());
         }
+
+        /** Whether ``now()`` is wall time (real-time executor). */
+        [[nodiscard]] bool supports_wall_clock() const noexcept { return valid() && ops().supports_wall_clock; }
 
       private:
         [[nodiscard]] const EvaluationClockOps &ops() const noexcept

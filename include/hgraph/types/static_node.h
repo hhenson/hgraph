@@ -2358,11 +2358,12 @@ namespace hgraph
                 // ``started()`` is false while the node's ``start`` hook runs, which
                 // is what lets a source schedule its first evaluation at the start
                 // time (schedule(now())); during ``eval`` it is true (future only).
-                auto       executor            = view.graph().executor();
-                const bool supports_wall_clock = executor.valid() &&
-                                                 executor.schema()->mode == GraphExecutorMode::RealTime;
+                // The clock already knows whether it is wall time: one cached
+                // clock pointer instead of node -> graph -> executor -> schema
+                // per injection (3.5% of the generator-boundary bake-off cell).
+                const EvaluationClockView clock = view.evaluation_clock();
                 return NodeScheduler{view.scheduler_state(), view.graph_value(), view.node_index(), evaluation_time,
-                                     view.started(), view.evaluation_clock(), supports_wall_clock};
+                                     view.started(), clock, clock.supports_wall_clock()};
             }
         };
 

@@ -122,7 +122,11 @@ A ``NodeTypeMetaData`` carries:
 
 ``uses_scheduler``
     True when the node requests ``NodeScheduler`` injection. Runtime storage then
-    includes a per-node ``NodeSchedulerState`` component. Its pending events are
+    includes a per-node ``NodeSchedulerState`` component and, because the
+    scheduler view carries the evaluation clock, the cached clock-pointer
+    component a clock-injecting node gets (the injection reads whether the
+    clock is wall time from the clock's own ops table rather than from the
+    executor schema). Its pending events are
     a sorted, unique ``std::vector`` of ``(time, tag)`` pairs rather than a
     ``std::set``: a source that re-arms every tick inserts and pops one event
     per cycle, and the vector keeps its capacity so steady-state scheduling

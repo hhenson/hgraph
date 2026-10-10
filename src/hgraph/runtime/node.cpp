@@ -1467,7 +1467,11 @@ namespace hgraph
         {
             builder.add_field("global_state", MemoryUtils::plan_for<std::optional<GlobalStateView>>());
         }
-        if (schema.uses_evaluation_clock)
+        // A scheduler view carries the clock, so a scheduling node caches
+        // the clock pointer as a clock-injecting node does; without the
+        // component every injection re-derived it through the graph and
+        // executor ops tables.
+        if (schema.uses_evaluation_clock || schema.uses_scheduler)
         {
             builder.add_field("evaluation_clock", MemoryUtils::plan_for<ClockPtr>());
         }
