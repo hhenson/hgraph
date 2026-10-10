@@ -208,7 +208,7 @@ struct NestedGraphRuntimeStorage : GraphRuntimeBaseStorage {
   NodePtr parent_node_ptr{};
   /** Keyed-parent hook: out-of-band child schedules report (context, when)
       so the parent can track WHICH child is due without scanning slots. */
-  void (*child_schedule_observer)(void *, DateTime) = nullptr;
+  void (*child_schedule_observer)(void *, DateTime, bool) = nullptr;
   void *child_schedule_observer_context = nullptr;
 };
 
@@ -779,7 +779,8 @@ void nested_schedule_node_impl(const void *context, const GraphView &graph,
   // notification (notably a REF rebind that samples an older target)
   // must run in the parent's current cycle, never schedule either
   // graph back at the child's stale clock.
-  when = std::max(when, parent_graph.evaluation_time());
+  const DateTime parent_time = parent_graph.evaluation_time();
+  when = std::max(when, parent_time);
   schedule_node_impl<NestedGraphRuntimeStorage>(context, graph, node_index,
                                                 when);
 
@@ -796,13 +797,16 @@ void nested_schedule_node_impl(const void *context, const GraphView &graph,
     return;
   }
   if (state.child_schedule_observer != nullptr) {
-    state.child_schedule_observer(state.child_schedule_observer_context, when);
+    // A keyed parent learns for free whether this child is due in the
+    // parent's current cycle: the clamp above already compared the times.
+    state.child_schedule_observer(state.child_schedule_observer_context, when,
+                                  when == parent_time);
   }
   parent_graph.schedule_node(parent.node_index(), when);
 }
 
 void nested_set_child_schedule_observer_impl(const void *context, void *memory,
-                                             void (*observer)(void *, DateTime),
+                                             void (*observer)(void *, DateTime, bool),
                                              void *observer_context) {
   auto &state =
       graph_header<NestedGraphRuntimeStorage>(graph_context(context), memory);
@@ -1740,7 +1744,7 @@ void GraphView::schedule_node(std::size_t node_index, DateTime when) const {
   ops().schedule_node_impl(ops().context, *this, node_index, when);
 }
 
-void GraphView::set_child_schedule_observer(void (*observer)(void *, DateTime),
+void GraphView::set_child_schedule_observer(void (*observer)(void *, DateTime, bool),
                                             void *observer_context) const {
   if (ops().set_child_schedule_observer_impl == nullptr) {
     throw std::logic_error(

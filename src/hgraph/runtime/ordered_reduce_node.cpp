@@ -168,7 +168,7 @@ namespace hgraph
             {
                 entry.schedule = OrderedReduceLinkSchedule{this, index};
                 entry.graph.view().set_child_schedule_observer(
-                    [](void *raw, DateTime when) {
+                    [](void *raw, DateTime when, bool) {
                         auto &link = *static_cast<OrderedReduceLinkSchedule *>(raw);
                         link.storage->note_schedule(link.index, when);
                     },

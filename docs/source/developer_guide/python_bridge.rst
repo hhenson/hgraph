@@ -826,13 +826,24 @@ cache.
 **Attribute lookup on the runtime views is native.** ``TimeSeries`` exposes
 ``value`` / ``delta_value`` / ``modified`` / ``valid`` as raw ``tp_getset``
 slots, and serves bundle-field access by name (and ``as_schema``) from a
-``tp_getattro`` slot that runs ``PyObject_GenericGetAttr`` first and falls
-back to the TSB child lookup only on an ``AttributeError``. It is
-deliberately **not** a Python-level ``__getattr__``: declaring one makes
-CPython route *every* attribute read on the type through
-``slot_tp_getattr_hook``, which cost about 7% of a Python node tick on
-``ts.value`` alone (2026-10-07 bake-off profile). Semantics are unchanged: a
-missing bundle field, or any unknown attribute on a non-bundle view, raises
+``tp_getattro`` slot. It is deliberately **not** a Python-level
+``__getattr__``: declaring one makes CPython route *every* attribute read on
+the type through ``slot_tp_getattr_hook``, which cost about 7% of a Python
+node tick on ``ts.value`` alone (2026-10-07 bake-off profile). The slot
+decides **before** the generic lookup whether a name can only be a bundle
+field: the four hot getset names short-circuit by interned identity, every
+other name is probed against a frozenset of the type's MRO attribute names
+(built per type and rebuilt when the length of the type's own ``__dict__``
+changes, so an attribute added to or removed from ``TimeSeries`` after first
+use is seen before the next lookup; instances carry no ``__dict__``, so a
+name absent from the set can never be satisfied generically), and only then
+is a bundle view asked for the field. Letting ``PyObject_GenericGetAttr`` fail first is not an option
+in the limited API: the failure materialises an ``AttributeError`` with a
+formatted message per read, which made ``bundle.field`` 1.7x slower than
+the old hook (2026-10-10 micro-benchmark; CPython's own hook suppresses
+that exception, and the suppressing lookup is public only from 3.13).
+Semantics are unchanged: a type attribute still wins, and a missing bundle
+field or any unknown attribute on a non-bundle view raises the generic
 ``AttributeError``.
 
 Platform notes
