@@ -277,62 +277,97 @@ namespace hgraph::python_bridge
 
     namespace
     {
-    /** Native ``tp_getattro`` for TimeSeries: generic lookup first (the raw
-        getset slots and every def'd property), then the bundle-field
-        fallback that ``__getattr__`` used to provide. A Python-level
-        ``__getattr__`` makes CPython route EVERY attribute read through
-        ``slot_tp_getattr_hook``, which cost about 7% of a Python node tick on
-        ``ts.value`` alone (bake-off profile 2026-10-07); a C slot keeps the
-        fast path at one generic lookup. Semantics are unchanged: a missing
-        bundle field, or any attribute on a non-bundle view, is an
-        ``AttributeError``; ``as_schema`` returns the view itself. */
+    /** Attribute names defined on the TimeSeries type and its bases, as a
+        frozenset, built once from the first instance's ``__mro__``. A name
+        absent from it cannot be satisfied by the generic lookup (instances
+        carry no ``__dict__``), so a bundle view resolves such a name as a
+        field directly instead of letting ``PyObject_GenericGetAttr`` fail
+        first. Keyed on the type object so a re-created type rebuilds it. */
+    PyObject *py_ts_type_attribute_names(PyTypeObject *type)
+    {
+        static PyTypeObject *cached_type  = nullptr;
+        static PyObject     *cached_names = nullptr;
+        if (cached_type == type && cached_names != nullptr) { return cached_names; }
+        nb::handle type_handle{reinterpret_cast<PyObject *>(type)};
+        nb::object names = nb::steal(PySet_New(nullptr));
+        for (nb::handle base : nb::tuple(type_handle.attr("__mro__")))
+        {
+            for (nb::handle key : nb::iter(base.attr("__dict__")))
+            {
+                if (PySet_Add(names.ptr(), key.ptr()) != 0) { throw nb::python_error(); }
+            }
+        }
+        nb::object frozen = nb::steal(PyFrozenSet_New(names.ptr()));
+        if (!frozen.is_valid()) { throw nb::python_error(); }
+        Py_XDECREF(cached_names);
+        cached_names = frozen.release().ptr();
+        cached_type  = type;
+        return cached_names;
+    }
+
+    /** Native ``tp_getattro`` for TimeSeries. A Python-level ``__getattr__``
+        makes CPython route EVERY attribute read through
+        ``slot_tp_getattr_hook`` (about 7% of a Python node tick on
+        ``ts.value`` alone, bake-off profile 2026-10-07); a C slot keeps the
+        raw getset reads at one generic lookup.
+
+        Bundle fields are served BEFORE the generic lookup when the name is
+        not an attribute of the type: letting ``PyObject_GenericGetAttr`` fail
+        first materialises an ``AttributeError`` with a formatted message per
+        field read, which made ``bundle.field`` 1.7x slower than the old hook
+        (CPython's hook suppresses that exception; the limited API offers no
+        such entry point before 3.13). Semantics are unchanged: a type
+        attribute still wins, a missing bundle field or any unknown attribute
+        on a non-bundle view raises the generic ``AttributeError``, and
+        ``as_schema`` returns the view itself. */
     PyObject *py_ts_getattro(PyObject *self, PyObject *name) noexcept
     {
-        PyObject *found = PyObject_GenericGetAttr(self, name);
-        if (found != nullptr || !PyErr_ExceptionMatches(PyExc_AttributeError)) { return found; }
-        // Run the fallback with no exception pending (as CPython does before a
-        // ``__getattr__``); the generic AttributeError is re-raised when the
-        // fallback does not apply.
-        PyObject *generic_error = PyErr_GetRaisedException();
+        // The hot getset names are interned by the compiler, so an identity
+        // match sends ``ts.value`` / ``ts.modified`` straight to the generic
+        // lookup at the cost of four pointer compares; every other name pays
+        // one frozenset probe before the view's kind is consulted.
+        static PyObject *const hot_names[] = {
+            PyUnicode_InternFromString("value"), PyUnicode_InternFromString("delta_value"),
+            PyUnicode_InternFromString("modified"), PyUnicode_InternFromString("valid")};
+        for (PyObject *hot : hot_names)
+        {
+            if (hot == name) { return PyObject_GenericGetAttr(self, name); }
+        }
         try
         {
-            auto &view = nb::cast<PyTimeSeries &>(nb::handle(self));
-            if (view.kind() == TSTypeKind::TSB)
+            auto *view = PySet_Contains(py_ts_type_attribute_names(Py_TYPE(self)), name) == 0
+                             ? nb::inst_ptr<PyTimeSeries>(self)
+                             : nullptr;
+            if (view != nullptr && view->kind() == TSTypeKind::TSB)
             {
                 // hgraph's TSB.as_schema: typed field access (the same view).
                 if (PyUnicode_CompareWithASCIIString(name, "as_schema") == 0)
                 {
-                    Py_XDECREF(generic_error);
                     Py_INCREF(self);
                     return self;
                 }
                 try
                 {
-                    nb::object child = nb::cast(view.child_at(nb::borrow(name)));
-                    Py_XDECREF(generic_error);
-                    return child.release().ptr();
+                    return nb::cast(view->child_at(nb::borrow(name))).release().ptr();
                 }
                 catch (const std::out_of_range &)
                 {
-                    // hgraph parity: an absent bundle field is an ATTRIBUTE error
-                    // (the same exception a TSL attribute probe raises).
+                    // hgraph parity: an absent bundle field is an ATTRIBUTE error,
+                    // raised by the generic lookup below with its usual message.
                 }
             }
         }
         catch (nb::python_error &error)
         {
-            Py_XDECREF(generic_error);
             error.restore();
             return nullptr;
         }
         catch (const std::exception &error)
         {
-            Py_XDECREF(generic_error);
             PyErr_SetString(PyExc_RuntimeError, error.what());
             return nullptr;
         }
-        PyErr_SetRaisedException(generic_error);  // steals the reference
-        return nullptr;
+        return PyObject_GenericGetAttr(self, name);
     }
     }  // namespace
 
