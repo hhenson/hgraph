@@ -43,6 +43,20 @@ Implementation notes (2026-10-10)
   including the empty one), ``tests/cpp/test_reduce_checkpoint.cpp``
   (version-1 rejection and the graph form's version-1 acceptance); the
   existing reduce suites pass unchanged.
+* Follow-up (same day, after profiling the cells): the branch profile split
+  the dense keyed-reduce cell into operand resolution (12%: the collection
+  input projection, ``leaf_output`` → ``at_slot`` → forwarding resolution,
+  ``valid()``, ``value()`` per leaf read), the per-tick reconcile walk
+  (11%: a slot view, a forwarding walk and an alive-at chain per modified
+  slot) and the evaluation-position pass (11%: eight ancestor bits per
+  modified leaf when every leaf ticks). Each dense leaf now records a
+  **leaf route** beside its source handle — the element's native value
+  memory and tracking record when it is a direct native atomic of the
+  operand type, plus whether the slot is that element itself — so an
+  operand read is a validity test and a load, a direct element's value
+  tick skips the slot resolution in the reconcile walk, and a dense tick
+  takes the full descending position list instead of marking ancestors.
+  See *Nested Graphs > Associative reduce runtime*.
 
 Problem
 -------
