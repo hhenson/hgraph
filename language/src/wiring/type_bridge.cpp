@@ -1,7 +1,8 @@
 #include "wiring/type_bridge.h"
-#include <hgl/temporal_literals.h>
 #include "hgraph_ir/shape_parameters.h"
 #include <hgl/ordinary_values.h>
+
+#include <hgl/temporal_literals.h>
 
 #include <hgraph/lib/std/standard_types.h>
 #include <hgraph/util/date_time.h>
@@ -31,6 +32,7 @@ namespace hgl::wiring
                 case hir::ScalarType::F64: return types.float_type;
                 case hir::ScalarType::Str: return types.str_type;
                 case hir::ScalarType::Bytes: return types.bytes_type;
+                case hir::ScalarType::Any: return hgraph::TypeRegistry::instance().any();
                 case hir::ScalarType::Date: return types.date_type;
                 case hir::ScalarType::Time: return types.time_type;
                 case hir::ScalarType::DateTime: return types.datetime_type;

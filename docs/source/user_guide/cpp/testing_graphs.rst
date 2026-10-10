@@ -222,7 +222,7 @@ target explicit ``NamedPort<"name", S>`` parameters and scalar keywords target
 The cycle-aligned buffer
 ------------------------
 
-A replay/record buffer is a value-layer **mutable** ``List<Any>`` stored in the
+A seeded replay buffer is a value-layer **mutable** ``List<Any>`` stored in the
 ``GlobalState`` under a string key. The list is **cycle-aligned**:
 
 * index ``i`` corresponds to evaluation time ``MIN_ST + i * MIN_TD`` (the simulation
@@ -231,10 +231,11 @@ A replay/record buffer is a value-layer **mutable** ``List<Any>`` stored in the
 * element ``i`` is an ``Any``: an **empty** ``Any`` means *no tick* on that cycle,
   and a **non-empty** ``Any`` wrapping a scalar means *tick with that value*.
 
-Using ``Any`` for the element type is what lets a single list express both "no
-value this cycle" and "a value of type ``T``", the same role ``None`` plays in the
-Python list-of-values. Because both the input and the output use this one shape,
-comparing them is an element-wise list compare.
+The seed envelope distinguishes silence from a payload of any ordinary type.
+An empty Any payload is retained inside a populated envelope and remains a tick.
+Dense recordings instead use ``List<delta_schema>`` with unset elements for
+silence. ``eval_node`` reads this typed layout automatically, retaining each
+complete delta, including canonical Any boxes.
 
 .. note::
 
@@ -277,11 +278,11 @@ before running (``gs.set("in", buffer)``). A cycle whose element is an empty
 node** over a deferred input type (``In<"ts", TsVar<"S">>``); its type resolves from
 the connected port, so it is wired without a type argument:
 ``wire<stdlib::dense_record_impl>(w, port, key)``. On ``start`` it creates a fresh
-cycle-aligned ``List<Any>`` in the ``GlobalState`` under its ``key``; on each
+cycle-aligned ``List<delta_schema>`` in the ``GlobalState`` under its ``key``; on each
 evaluation where the input ticks it captures the per-tick **delta** (via the runtime
 ``capture_delta`` — the per-tick event, not the cumulative ``value``; they coincide
 for scalar time-series but differ for compound types) at the current cycle offset
-(padding any skipped cycles with empty ``Any`` entries). After the run the buffer is
+(padding any skipped cycles with unset entries). After the run the buffer is
 the recorded output, readable from the ``GlobalState``.
 
 .. code-block:: cpp
@@ -319,9 +320,18 @@ Wiring ``replay → add_one → record`` and reading the result back:
    auto out = testing::get_recorded_values<Int>(executor.view().graph().global_state(), "out");
    // out == { 2, std::nullopt, 4 }
 
-``set_replay_values`` / ``get_recorded_values`` are convenience helpers that build
-a cycle-aligned ``List<Any>`` from a ``std::vector<std::optional<T>>`` and read one
-back, so tests deal in ordinary C++ vectors rather than value-layer containers.
+``set_replay_values`` / ``get_recorded_values`` let tests exchange ordinary
+C++ vectors. For a dense record sink, use ``DenseBufferLayout::Typed`` when
+reading the raw buffer, especially when its delta schema is canonical Any:
+
+.. code-block:: cpp
+
+   auto out = testing::get_recorded_deltas(gs, "out", testing::DenseBufferLayout::Typed);
+
+This retains the actual box and its contained type; an empty Any box is a
+present value and ``nullopt`` is silence. ``TS<AnyValue>`` uses owning ``Value``
+elements in ``eval_node``. The default raw-read layout keeps the seeded envelope
+convention for existing seed/read round trips.
 
 Standard helpers (``lib/std``)
 ------------------------------

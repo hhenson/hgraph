@@ -6,6 +6,7 @@
 // out of the graph's GlobalState.
 
 #include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
+#include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
@@ -22,6 +23,11 @@
 namespace
 {
     using namespace hgraph;
+
+    struct ForwardAny
+    {
+        static void eval(In<"in", TS<AnyValue>> in, Out<TS<AnyValue>> out) { out.apply(in.base().value()); }
+    };
 
     struct AddOne
     {
@@ -120,4 +126,44 @@ TEST_CASE("testing: SingleShotScheduler schedules a delayed first tick with no s
 
     // SingleShotScheduler is stateless: the source carries no scheduler component.
     CHECK_FALSE(view.graph().node_at(0).has_scheduler());
+}
+
+TEST_CASE("testing: typed TS<AnyValue> recording preserves empty mixed equal and silent cycles") {
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    const auto                              empty   = empty_any();
+    const auto                              integer = make_any(Value{Int{0}});
+    const auto                              boolean = make_any(Value{false});
+    const std::vector<std::optional<Value>> input{empty, integer, boolean, std::nullopt, boolean, empty};
+    const auto                              output = eval_node<ForwardAny>(input);
+    REQUIRE(output.size() == input.size());
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        REQUIRE(output[i].has_value() == input[i].has_value());
+        if (input[i]) {
+            CHECK(output[i]->schema() == TypeRegistry::instance().any());
+            CHECK(output[i]->equals(*input[i]));
+        }
+    }
+    CHECK_FALSE(output[0]->as_any().has_value());
+    CHECK(output[1]->as_any().get().checked_as<Int>() == 0);
+    CHECK_FALSE(output[2]->as_any().get().checked_as<bool>());
+}
+
+TEST_CASE("testing: schema-free seeded envelopes retain canonical Any payloads and silence") {
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    GlobalState gs;
+    const auto  empty   = empty_any();
+    const auto  integer = make_any(Value{Int{7}});
+    set_replay_deltas(gs.view(), "buf", {empty, integer, std::nullopt, empty});
+    const auto output = get_recorded_deltas(gs.view(), "buf");
+    REQUIRE(output.size() == 4);
+    REQUIRE(output[0]);
+    CHECK(output[0]->schema() == TypeRegistry::instance().any());
+    CHECK_FALSE(output[0]->as_any().has_value());
+    REQUIRE(output[1]);
+    CHECK(output[1]->equals(integer));
+    CHECK_FALSE(output[2]);
+    REQUIRE(output[3]);
+    CHECK_FALSE(output[3]->as_any().has_value());
 }

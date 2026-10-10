@@ -85,13 +85,16 @@ namespace hgraph::testing
         return make_dense_buffer(recording_binding_for(delta_schema));
     }
 
+    enum class DenseBufferLayout { Seeded, Typed };
+
     /** The delta at ``index`` of a dense buffer, either layout: the seeded
         ``List<Any>`` (empty box = no tick) or the typed recorded list
         (UNSET element = no tick). nullopt = no tick. */
-    [[nodiscard]] inline std::optional<Value> dense_entry_delta(const ListView &list, std::size_t index)
-    {
+    [[nodiscard]] inline std::optional<Value> dense_entry_delta(const ListView &list, std::size_t index,
+                                                                DenseBufferLayout layout = DenseBufferLayout::Seeded) {
         const auto element = list.at(index);
         if (!element.has_value()) { return std::nullopt; }   // typed hole
+        if (layout == DenseBufferLayout::Typed) { return Value{element}; }
         // Only the schema-free seeded layout uses List<Any> as an envelope.
         // A typed recording may itself have an Any-kind delta schema (JSON is
         // the important nominal example); unboxing that would erase its type.

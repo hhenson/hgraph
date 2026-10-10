@@ -1070,8 +1070,8 @@ export fn make_outer() -> Outer => Outer()
 
     const auto emitted = unit.emit();
     REQUIRE(emitted);
-    CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::getattr_>"));
-    CHECK(contains(emitted->source, "hgraph::Str{\"amount\"}"));
+    CHECK(contains(emitted->source, ".field_observation("));
+    CHECK(contains(emitted->source, "hgl::ordinary::required_scalar<hgraph::Float>"));
 }
 
 TEST_CASE("emit-cpp preserves outer bindings in nested hgraph IR struct defaults", "[codegen][hgraph-ir][structs][defaults]") {

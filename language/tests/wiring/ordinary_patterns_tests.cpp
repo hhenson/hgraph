@@ -192,3 +192,17 @@ TEST_CASE("ordinary generic held inference preserves bytes leaves and nested sha
         CHECK(scalar_resolver<hgl::ordinary::Held<TsVar<"T">>>::resolve(bindings) == shape->value_schema);
     }
 }
+
+TEST_CASE("ordinary generic projections infer canonical Any scalar identity", "[ordinary][patterns][any]") {
+    using namespace hgraph;
+    const auto *value = scalar_descriptor<hgl::ordinary::Any>::value_meta();
+    const auto *shape = schema_descriptor<TS<hgl::ordinary::Any>>::ts_meta();
+    const auto  held  = to_scalar_pattern<hgl::ordinary::Held<TsVar<"T">>>();
+    const auto  delta = to_scalar_pattern<hgl::ordinary::Delta<TsVar<"T">>>();
+    for (const auto &pattern : {held, delta}) {
+        ResolutionMap bindings;
+        REQUIRE(scalar_pattern_match(pattern, value, bindings));
+        CHECK(bindings.ts("T") == shape);
+        CHECK(scalar_pattern_resolve(pattern, bindings) == value);
+    }
+}

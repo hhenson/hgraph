@@ -62,10 +62,19 @@ per-cycle value sequences — one element per engine cycle, ``none`` meaning "no
 tick this cycle".
 
 **Buffers.** ``replay``/``record`` move data through a cycle-aligned
-``List<Any>`` buffer stored in ``GlobalState`` (seeded at wiring via
+buffer stored in ``GlobalState`` (seeded at wiring via
 ``Wiring::global_state()`` / read and written at runtime through the
-``GlobalStateView`` injectable). ``set_replay_values`` /
-``get_recorded_values`` are the raw access points the harness uses.
+``GlobalStateView`` injectable). Schema-free replay seeds use ``List<Any>``
+envelopes, where an empty envelope marks silence. Dense recordings use
+``List<delta_schema>`` and unset elements mark silence. The harness retains the
+typed recording layout selected by its dense record sink and supplies
+``DenseBufferLayout::Typed`` to ``get_recorded_deltas`` /
+``get_recorded_values`` at the read boundary. That explicit recipe retains the
+actual stored delta binding, including normalized REF results and canonical
+Any boxes. An empty Any box remains a valid tick. The reader never guesses the
+layout from an individual value or accesses an unresolved generic output
+schema. Reads using the default layout retain the seeded envelope convention. ``TS<AnyValue>`` uses
+owning canonical ``Value`` harness elements.
 
 **Type erasure.** ``replay`` and ``record`` are *single erased nodes*, not
 per-schema templates: capture uses the runtime, type-erased ``capture_delta``

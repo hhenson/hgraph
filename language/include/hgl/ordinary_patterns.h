@@ -18,7 +18,7 @@ namespace hgl::ordinary
                                 scalar_descriptor<Float>::value_meta(),    scalar_descriptor<Str>::value_meta(),
                                 scalar_descriptor<Date>::value_meta(),     scalar_descriptor<Time>::value_meta(),
                                 scalar_descriptor<DateTime>::value_meta(), scalar_descriptor<TimeDelta>::value_meta(),
-                                scalar_descriptor<Bytes>::value_meta()};
+                                scalar_descriptor<Bytes>::value_meta(),    scalar_descriptor<hgl::ordinary::Any>::value_meta()};
         if (std::ranges::find(leaves, value) != leaves.end()) { return registry.ts(value); }
         switch (value->value_kind()) {
             case ValueTypeKind::Set:
@@ -70,7 +70,9 @@ namespace hgl::ordinary
         }
         // Composite payloads do not identify an atomic source. Only scalar
         // leaves have an unambiguous inverse without an already bound shape.
-        if (value->try_value_kind() != hgraph::ValueTypeKind::Atomic) { return nullptr; }
+        if (value->try_value_kind() != hgraph::ValueTypeKind::Atomic && value->try_value_kind() != hgraph::ValueTypeKind::Any) {
+            return nullptr;
+        }
         const auto *source = held_source(value);
         return source && source->kind == hgraph::TSTypeKind::TS ? source : nullptr;
     }

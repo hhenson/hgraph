@@ -6,10 +6,10 @@
 #include "syntax/temporal.h"
 
 #include <cstdint>
-#include <ostream>
 #include <deque>
 #include <limits>
 #include <optional>
+#include <ostream>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -56,6 +56,7 @@ namespace hgl::ir::hir
         F64,
         Str,
         Bytes,
+        Any,
         Date,
         Time,
         DateTime,

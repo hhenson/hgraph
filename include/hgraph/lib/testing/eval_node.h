@@ -68,6 +68,11 @@ namespace hgraph::testing
     };
     template <> struct harness_element<SIGNAL> { using type = bool; };
 
+    template <> struct harness_element<TS<AnyValue>>
+    {
+        using type = Value;
+    };
+
     template <typename S>
     struct ts_harness
     {
@@ -92,8 +97,11 @@ namespace hgraph::testing
 
         static std::vector<std::optional<element>> read(const GlobalStateView &gs, std::string_view key)
         {
-            if constexpr (is_scalar) { return get_recorded_values<element>(gs, key); }
-            else { return get_recorded_deltas(gs, key); }
+            if constexpr (is_scalar) {
+                return get_recorded_values<element>(gs, key, DenseBufferLayout::Typed);
+            } else {
+                return get_recorded_deltas(gs, key, DenseBufferLayout::Typed);
+            }
         }
     };
 
@@ -125,9 +133,12 @@ namespace hgraph::testing
         static std::vector<std::optional<Value>> read(const GlobalStateView &gs,
                                                       std::string_view key)
         {
-            return get_recorded_deltas(gs, key);
+            return get_recorded_deltas(gs, key, DenseBufferLayout::Typed);
         }
     };
+
+    template <> struct ts_harness<TS<AnyValue>> : bundle_ts_harness<TS<AnyValue>>
+    {};
 
     template <fixed_string Name, typename... Fields>
     struct ts_harness<TS<Bundle<Name, Fields...>>>
@@ -581,7 +592,11 @@ namespace hgraph::testing
                 auto out_port = [&]<std::size_t... I>(std::index_sequence<I...>) {
                     return GraphT::compose(w, wire_arg.template operator()<I>()...);
                 }(std::make_index_sequence<sig::param_count()>{});
-                ts_harness<out_schema>::wire_record(w, out_port, std::string{"eval_node::out"});
+                if constexpr (std::is_void_v<out_schema>) {
+                    wire<stdlib::dense_record_impl>(w, out_port, std::string{"eval_node::out"});
+                } else {
+                    ts_harness<out_schema>::wire_record(w, out_port, std::string{"eval_node::out"});
+                }
                 return std::move(w).finish();
             }();
             label_if_named<GraphT>(gb);
@@ -593,7 +608,11 @@ namespace hgraph::testing
             view.run();
             copy_completed_global_state(view.graph());
 
-            return ts_harness<out_schema>::read(view.graph().global_state(), "eval_node::out");
+            if constexpr (std::is_void_v<out_schema>) {
+                return get_recorded_deltas(view.graph().global_state(), "eval_node::out", DenseBufferLayout::Typed);
+            } else {
+                return ts_harness<out_schema>::read(view.graph().global_state(), "eval_node::out");
+            }
         }
 
         template <typename GraphT, typename... Args>
@@ -710,7 +729,7 @@ namespace hgraph::testing
                 }
                 if constexpr (std::is_void_v<out_schema>)
                 {
-                    return get_recorded_deltas(view.graph().global_state(), "eval_node::out");
+                    return get_recorded_deltas(view.graph().global_state(), "eval_node::out", DenseBufferLayout::Typed);
                 }
                 else
                 {
@@ -898,7 +917,7 @@ namespace hgraph::testing
 
         // Type-erased per-cycle deltas, read at the wiring-resolved output schema; pad to
         // the longest input, never truncate.
-        auto out = get_recorded_deltas(view.graph().global_state(), "eval_node::out");
+        auto out = get_recorded_deltas(view.graph().global_state(), "eval_node::out", DenseBufferLayout::Typed);
         if (out.size() < max_len) { out.resize(max_len); }
         return out;
     }
@@ -928,7 +947,7 @@ namespace hgraph::testing
         view.run();
         eval_node_detail::copy_completed_global_state(view.graph());
 
-        return get_recorded_deltas(view.graph().global_state(), "eval_node::out");
+        return get_recorded_deltas(view.graph().global_state(), "eval_node::out", DenseBufferLayout::Typed);
     }
 
     template <typename Op, typename OutSchema, typename... Args>
@@ -950,7 +969,7 @@ namespace hgraph::testing
         view.run();
         eval_node_detail::copy_completed_global_state(view.graph());
 
-        return get_recorded_deltas(view.graph().global_state(), "eval_node::out");
+        return get_recorded_deltas(view.graph().global_state(), "eval_node::out", DenseBufferLayout::Typed);
     }
 
     /**

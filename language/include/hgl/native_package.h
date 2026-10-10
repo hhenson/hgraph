@@ -37,6 +37,7 @@ namespace hgl::native
         ZonedTime,
         TimeZone,
         Bytes,
+        Any,
     };
 
     enum class ValueTypeCategory : std::uint8_t {
@@ -104,7 +105,7 @@ namespace hgl::native
         [[nodiscard]] static ValueType delta(ValueType shape) {
             if (shape.category == ValueTypeCategory::Scalar &&
                 (shape.scalar <= ScalarType::ZonedTime || shape.scalar == ScalarType::TimeZone ||
-                 shape.scalar == ScalarType::Bytes)) {
+                 shape.scalar == ScalarType::Bytes || shape.scalar == ScalarType::Any)) {
                 return shape;
             }
             return ValueType{.category = ValueTypeCategory::Delta, .children = {std::move(shape)}};

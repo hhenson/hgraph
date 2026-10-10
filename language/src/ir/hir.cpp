@@ -40,6 +40,7 @@ namespace hgl::ir::hir
             std::string_view{"f64"},
             std::string_view{"str"},
             std::string_view{"bytes"},
+            std::string_view{"any"},
             std::string_view{"date"},
             std::string_view{"time"},
             std::string_view{"datetime"},

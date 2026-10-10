@@ -46,6 +46,7 @@ namespace hgl::syntax::ast
         F64,
         Str,
         Bytes,
+        Any,
         Date,
         Time,
         DateTime,

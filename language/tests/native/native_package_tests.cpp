@@ -311,3 +311,27 @@ TEST_CASE("native bytes signatures retain scalar delta identity and existing enu
     CHECK(parsed.value->types[signature.result].scalar_name == "bytes");
     CHECK(signature.parameters.front().type == signature.result);
 }
+
+TEST_CASE("native any signatures preserve scalar identity and existing enum ordinals", "[native][any]") {
+    using namespace hgl::native;
+    static_assert(static_cast<unsigned>(ScalarType::Bytes) == 12);
+    const auto any = ValueType::canonical(ScalarType::Any);
+    CHECK(ValueType::delta(any) == any);
+    const Package source{
+        .module_identity  = "checks.any_package",
+        .language_version = "0.1-test",
+        .declarations     = {Declaration{
+            .identity    = "checks.any_package::identity",
+            .cpp_symbol  = "checks::any_identity",
+            .parameters  = {Parameter{.name = "value", .type = any}},
+            .result_type = any,
+            .phases      = {Phase::Wiring, Phase::Evaluation},
+        }},
+    };
+    const auto parsed = hgl::descriptor::read_json(descriptor_json(source));
+    REQUIRE(parsed);
+    REQUIRE(parsed.value->native_declarations.size() == 1);
+    const auto &signature = parsed.value->native_declarations.front().signature;
+    CHECK(parsed.value->types[signature.result].scalar_name == "any");
+    CHECK(signature.parameters.front().type == signature.result);
+}

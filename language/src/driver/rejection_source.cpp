@@ -46,9 +46,12 @@ namespace hgl::driver
         syntax::DiagnosticSink                        lexical_diagnostics;
         const auto                                    lexed = syntax::lex(file, lexical_diagnostics);
         const std::map<std::string, syntax::Category> codes{
-            {"syntax.expected_token", syntax::Category::Parse}, {"rolling.size_kind", syntax::Category::Type},
-            {"rolling.size_bounds", syntax::Category::Type},    {"yield.time_type", syntax::Category::Type},
-            {"test.raises_code", syntax::Category::Type},       {"test.statement_phase", syntax::Category::Phase},
+            {"syntax.expected_token", syntax::Category::Parse},
+            {"rolling.size_kind", syntax::Category::Type},
+            {"rolling.size_bounds", syntax::Category::Type},
+            {"yield.time_type", syntax::Category::Type},
+            {"test.raises_code", syntax::Category::Type},
+            {"test.statement_phase", syntax::Category::Phase},
             {"delta.unsupported_shape", syntax::Category::Shape},
             {"delta.type_mismatch", syntax::Category::Type},
             {"delta.argument_name", syntax::Category::Name},
@@ -58,6 +61,7 @@ namespace hgl::driver
             {"delta.duplicate_entry", syntax::Category::Type},
             {"delta.index_bounds", syntax::Category::Type},
             {"delta.overlap", syntax::Category::Type},
+            {"value.constant_capability", syntax::Category::Type},
         };
         const std::regex pattern{
             R"re(^#[ \t]*expect-error[ \t]*\([ \t]*([a-z]+(?:-[a-z]+)*)[ \t]*,[ \t]*("(?:[^"\\]|\\.)*")[ \t]*\)[ \t\r]*$)re"};

@@ -1,25 +1,27 @@
 #ifndef HGL_ORDINARY_VALUES_H
 #define HGL_ORDINARY_VALUES_H
 
-#include <hgl/execution_error.h>
-#include <hgraph/types/static_schema.h>
-#include <hgraph/types/temporal.h>
-#include <hgraph/types/metadata/type_realization.h>
-#include <hgraph/types/value/mutable_container_ops.h>
-#include <hgraph/types/value/value_builder.h>
-#include <hgraph/types/time_series/ts_output.h>
-#include <hgraph/types/time_series/ts_input.h>
 #include <ankerl/unordered_dense.h>
-
-#include <cstdint>
 #include <charconv>
 #include <cmath>
-#include <limits>
+#include <cstdint>
 #include <functional>
+#include <hgl/execution_error.h>
+#include <hgraph/types/metadata/type_realization.h>
+#include <hgraph/types/static_node.h>
+#include <hgraph/types/static_schema.h>
+#include <hgraph/types/temporal.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/utils/intern_table.h>
+#include <hgraph/types/value/mutable_container_ops.h>
+#include <hgraph/types/value/value_builder.h>
+#include <limits>
 #include <span>
+
 #include <stdexcept>
-#include <utility>
 #include <unordered_set>
+#include <utility>
 
 namespace hgl::ordinary
 {
@@ -69,6 +71,8 @@ namespace hgl::ordinary
     };
 
     template <typename Element, std::int64_t Size = -1> struct List {};
+    struct Any
+    {};
     template <typename Shape> struct Delta {};
     template <typename Shape> struct Held {};
     template <typename Shape> struct Origin {};
@@ -114,6 +118,7 @@ namespace hgl::ordinary
 
     inline void validate_key_schema(const hgraph::ValueTypeMetaData *schema,
                                     std::unordered_set<const hgraph::ValueTypeMetaData *> &visiting) {
+        if (schema->try_value_kind() == hgraph::ValueTypeKind::Any) { return; }
         if (schema->is_owned() || schema->is_abstract_bundle() || !schema->is_hashable() || !schema->is_equatable()) {
             throw std::invalid_argument("unsupported collection key type");
         }
@@ -149,6 +154,7 @@ namespace hgl::ordinary
 
     inline void validate_atomic_schema(const hgraph::ValueTypeMetaData *schema,
                                        std::unordered_set<const hgraph::ValueTypeMetaData *> &visiting) {
+        if (schema->try_value_kind() == hgraph::ValueTypeKind::Any) { return; }
         const std::array leaves{hgraph::scalar_descriptor<hgraph::Bool>::value_meta(),
                                 hgraph::scalar_descriptor<hgraph::Int>::value_meta(),
                                 hgraph::scalar_descriptor<hgraph::Float>::value_meta(),
@@ -189,20 +195,161 @@ namespace hgl::ordinary
         visiting.erase(schema);
     }
 
+    // Source structural deltas carry no ordinary capabilities. Their physical
+    // copy/hash machinery remains available to retained configuration storage.
+    // A prepared ops callback identifies that boundary without runtime names.
+    inline std::partial_ordering source_delta_compare(const void *, const void *, const void *) noexcept {
+        return std::partial_ordering::unordered;
+    }
+    inline std::partial_ordering source_unordered_compare(const void *, const void *, const void *) noexcept {
+        return std::partial_ordering::unordered;
+    }
+    inline bool source_delta(const hgraph::ValueView &value) noexcept {
+        return value.binding().ops()->compare_impl == &source_delta_compare;
+    }
+
     inline void validate_scalar_key(const hgraph::ValueView &key) {
-        if (key.schema() == hgraph::scalar_descriptor<hgraph::Float>::value_meta() && std::isnan(key.checked_as<hgraph::Float>())) {
+        if (!key.has_value()) { return; }
+        if (source_delta(key)) {
+            throw hgl::ExecutionError{"value.capability", "boxed key contains a value without equality and hash capabilities"};
+        }
+        if (key.is_any()) {
+            const auto box = key.as_any();
+            if (!box.has_value()) { return; }
+            const auto contents = box.get().concrete();
+            if (source_delta(contents) || !contents.schema()->is_hashable() || !contents.schema()->is_equatable() ||
+                contents.binding().ops()->hash_impl == nullptr || contents.binding().ops()->equals_impl == nullptr) {
+                throw hgl::ExecutionError{"value.capability", "boxed key requires equality and hash capabilities"};
+            }
+            validate_scalar_key(contents);
+            return;
+        }
+        if (const auto *floating = key.try_as<hgraph::Float>(); floating != nullptr && std::isnan(*floating)) {
             throw PublicationProfileError("NaN collection keys are outside the publication profile");
         }
         const auto kind = key.schema()->try_value_kind();
-        if (kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
+        if (kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::List) {
             const auto *ops = hgraph::checked_value_ops<hgraph::IndexedValueOps>(key.binding(), "collection key");
             for (std::size_t i = 0; i < ops->size(ops->context, key.data()); ++i) {
                 if (ops->element_valid && !ops->element_valid(ops->context, key.data(), i)) { continue; }
                 const hgraph::ValueView child{ops->element_binding(ops->context, key.data(), i), ops->element_at(ops->context, key.data(), i)};
                 if (child.valid()) { validate_scalar_key(child); }
             }
+        } else if (kind == hgraph::ValueTypeKind::Set) {
+            for (const auto member : key.as_set()) { validate_scalar_key(member); }
+        } else if (kind == hgraph::ValueTypeKind::Map) {
+            for (const auto [map_key, value] : key.as_map()) {
+                validate_scalar_key(map_key);
+                validate_scalar_key(value);
+            }
         }
     }
+
+    enum class BoxCapability { Equality, Order };
+    // Dispatch uses resolved metadata/ops, never registry or type-name lookup.
+    // Unequal contained types require no operation on their contents.
+    inline void validate_box_operation(const hgraph::ValueView &source_lhs, const hgraph::ValueView &source_rhs,
+                                       BoxCapability capability, bool contained = false) {
+        const auto lhs = source_lhs.concrete(), rhs = source_rhs.concrete();
+        if (!lhs.has_value() || !rhs.has_value()) { return; }
+        if (lhs.is_any() && rhs.is_any()) {
+            const auto a = lhs.as_any(), b = rhs.as_any();
+            if (!a.has_value() || !b.has_value()) { return; }
+            const auto first = a.get().concrete(), second = b.get().concrete();
+            if (first.schema() != second.schema()) { return; }
+            validate_box_operation(first, second, capability, true);
+            return;
+        }
+        if (lhs.schema() != rhs.schema()) { return; }
+        if (contained && (source_delta(lhs) || source_delta(rhs) ||
+                          (capability == BoxCapability::Equality
+                               ? !lhs.schema()->is_equatable() || !lhs.binding().ops()->equals_impl
+                               : !lhs.schema()->is_comparable() || !lhs.binding().ops()->compare_impl ||
+                                     lhs.binding().ops()->compare_impl == &source_unordered_compare ||
+                                     lhs.binding().ops()->compare_impl == hgraph::ops_for<hgraph::ZoneId>().compare_impl))) {
+            throw hgl::ExecutionError{"value.capability", "boxed value lacks the requested capability"};
+        }
+        const auto kind = lhs.schema()->try_value_kind();
+        if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
+            const auto *a     = hgraph::checked_value_ops<hgraph::IndexedValueOps>(lhs.binding(), "boxed comparison");
+            const auto *b     = hgraph::checked_value_ops<hgraph::IndexedValueOps>(rhs.binding(), "boxed comparison");
+            const auto  count = std::min(a->size(a->context, lhs.data()), b->size(b->context, rhs.data()));
+            for (std::size_t index = 0; index < count; ++index) {
+                validate_box_operation(
+                    {a->element_binding(a->context, lhs.data(), index), a->element_at(a->context, lhs.data(), index)},
+                    {b->element_binding(b->context, rhs.data(), index), b->element_at(b->context, rhs.data(), index)}, capability,
+                    contained);
+            }
+        } else if (kind == hgraph::ValueTypeKind::Map) {
+            const auto other = rhs.as_map();
+            for (const auto [key, value] : lhs.as_map()) {
+                if (other.contains(key)) { validate_box_operation(value, other.at(key), capability, contained); }
+            }
+        }
+    }
+    [[nodiscard]] inline bool checked_equals(const hgraph::ValueView &lhs, const hgraph::ValueView &rhs) {
+        validate_box_operation(lhs, rhs, BoxCapability::Equality);
+        if (lhs.is_any() && rhs.is_any()) {
+            const auto a = lhs.as_any(), b = rhs.as_any();
+            if (a.has_value() != b.has_value()) { return false; }
+            if (!a.has_value()) { return true; }
+            const auto first = a.get().concrete(), second = b.get().concrete();
+            return first.schema() == second.schema() && first.equals(second);
+        }
+        return lhs.equals(rhs);
+    }
+    [[nodiscard]] inline std::partial_ordering checked_compare(const hgraph::ValueView &lhs, const hgraph::ValueView &rhs) {
+        validate_box_operation(lhs, rhs, BoxCapability::Order);
+        if (lhs.is_any() && rhs.is_any()) {
+            const auto a = lhs.as_any(), b = rhs.as_any();
+            if (a.has_value() != b.has_value()) {
+                return a.has_value() ? std::partial_ordering::greater : std::partial_ordering::less;
+            }
+            if (!a.has_value()) { return std::partial_ordering::equivalent; }
+            const auto first = a.get().concrete(), second = b.get().concrete();
+            return first.schema() == second.schema() ? first.compare(second) : std::partial_ordering::unordered;
+        }
+        return lhs.compare(rhs);
+    }
+
+    template <int Operation> struct BoxComparison
+    {
+        static constexpr auto name = [] {
+            if constexpr (Operation == 0) {
+                return "hgl.any.equal";
+            } else if constexpr (Operation == 1) {
+                return "hgl.any.not_equal";
+            } else if constexpr (Operation == 2) {
+                return "hgl.any.less";
+            } else if constexpr (Operation == 3) {
+                return "hgl.any.less_equal";
+            } else if constexpr (Operation == 4) {
+                return "hgl.any.greater";
+            } else {
+                return "hgl.any.greater_equal";
+            }
+        }();
+        static void eval(hgraph::In<"lhs", hgraph::TS<Any>> lhs, hgraph::In<"rhs", hgraph::TS<Any>> rhs,
+                         hgraph::Out<hgraph::TS<hgraph::Bool>> out) {
+            const auto a = lhs.base().value(), b = rhs.base().value();
+            if constexpr (Operation == 0) {
+                out.set(checked_equals(a, b));
+            } else if constexpr (Operation == 1) {
+                out.set(!checked_equals(a, b));
+            } else {
+                const auto order = checked_compare(a, b);
+                if constexpr (Operation == 2) {
+                    out.set(order < 0);
+                } else if constexpr (Operation == 3) {
+                    out.set(order <= 0);
+                } else if constexpr (Operation == 4) {
+                    out.set(order > 0);
+                } else {
+                    out.set(order >= 0);
+                }
+            }
+        }
+    };
 
     // One owning hash set spans every argument in a delta recipe. This catches
     // duplicates and overlap after provider-dependent keys become real values.
@@ -403,6 +550,66 @@ namespace hgl::ordinary
             {}, false, "__type__", {origin_schema(shape)});
     }
 
+    struct SourceCapabilities
+    {
+        bool equality{true};
+        bool order{true};
+    };
+    inline SourceCapabilities source_capabilities(const hgraph::ValueTypeMetaData                       *schema,
+                                                  std::unordered_set<const hgraph::ValueTypeMetaData *> &visiting) {
+        // Any's capabilities dispatch on its actual contents; never descend
+        // through that dynamic boundary while preparing a containing type.
+        if (schema->try_value_kind() == hgraph::ValueTypeKind::Any) { return {}; }
+        SourceCapabilities result{schema->is_equatable(), schema->is_comparable()};
+        if (schema->bundle_namespace() == "hgl.delta") { return {false, false}; }
+        if (schema == hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta()) { result.order = false; }
+        if (!visiting.insert(schema).second) { return result; }
+        const auto append = [&](const hgraph::ValueTypeMetaData *child) {
+            if (!child) { return; }
+            const auto capabilities = source_capabilities(child, visiting);
+            result.equality         = result.equality && capabilities.equality;
+            result.order            = result.order && capabilities.order;
+        };
+        append(schema->key_type);
+        append(schema->element_type);
+        for (std::size_t index = 0; index < schema->field_count; ++index) { append(schema->fields[index].type); }
+        visiting.erase(schema);
+        return result;
+    }
+    template <typename Ops, bool MissingEquality> inline const Ops &source_profile_ops(hgraph::ValueTypeRef binding) {
+        static hgraph::InternTable<const hgraph::ValueOps *, Ops> profiles;
+        return profiles.intern(binding.ops(), [&] {
+            auto result         = *hgraph::checked_value_ops<Ops>(binding, "source capability profile");
+            result.compare_impl = MissingEquality ? &source_delta_compare : &source_unordered_compare;
+            return result;
+        });
+    }
+    inline hgraph::ValueTypeRef source_profile(hgraph::ValueTypeRef binding) {
+        std::unordered_set<const hgraph::ValueTypeMetaData *> visiting;
+        const auto                                            capabilities = source_capabilities(binding.schema(), visiting);
+        if (capabilities.equality && capabilities.order) { return binding; }
+        // Native flags already express most ordinary capabilities. Only
+        // stronger source restrictions need a distinct retained ops profile.
+        if (capabilities.equality == binding.schema()->is_equatable() && capabilities.order == binding.schema()->is_comparable()) {
+            return binding;
+        }
+        const auto profile = [&]<typename Ops>() {
+            const auto &ops =
+                capabilities.equality ? source_profile_ops<Ops, false>(binding) : source_profile_ops<Ops, true>(binding);
+            return hgraph::intern_value_type(*binding.schema(), binding.checked_plan(), ops);
+        };
+        switch (binding.ops()->kind) {
+            case hgraph::ValueOpsKind::MutableList: return profile.template operator()<hgraph::MutableListValueOps>();
+            case hgraph::ValueOpsKind::List: return profile.template operator()<hgraph::ListValueOps>();
+            case hgraph::ValueOpsKind::MutableSet: return profile.template operator()<hgraph::MutableSetValueOps>();
+            case hgraph::ValueOpsKind::Set: return profile.template operator()<hgraph::SetValueOps>();
+            case hgraph::ValueOpsKind::MutableMap: return profile.template operator()<hgraph::MutableMapValueOps>();
+            case hgraph::ValueOpsKind::Map: return profile.template operator()<hgraph::MapValueOps>();
+            case hgraph::ValueOpsKind::Indexed: return profile.template operator()<hgraph::IndexedValueOps>();
+            default: return binding;
+        }
+    }
+
     // Called only while preparing a concrete node, never from a hook.
     inline hgraph::ValueTypeRef storage_binding(const hgraph::ValueTypeMetaData *schema) {
         auto &factory = hgraph::ValuePlanFactory::instance();
@@ -411,19 +618,22 @@ namespace hgl::ordinary
         const auto kind = schema->try_value_kind();
         if (kind == hgraph::ValueTypeKind::List) {
             const auto element = storage_binding(schema->element_type);
-            return hgraph::intern_value_type(*schema, hgraph::mutable_list_plan(element), hgraph::mutable_list_ops());
+            return source_profile(
+                hgraph::intern_value_type(*schema, hgraph::mutable_list_plan(element), hgraph::mutable_list_ops()));
         }
         if (kind == hgraph::ValueTypeKind::Map) {
-            return hgraph::compact_map_type(factory.type_for(schema->key_type), storage_binding(schema->element_type));
+            return source_profile(
+                hgraph::compact_map_type(factory.type_for(schema->key_type), storage_binding(schema->element_type)));
         }
         if (kind == hgraph::ValueTypeKind::Set) {
-            return hgraph::compact_set_type(factory.type_for(schema->element_type));
+            return source_profile(hgraph::compact_set_type(factory.type_for(schema->element_type)));
         }
         if (kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) {
             std::vector<hgraph::ValueTypeRef> fields;
             fields.reserve(schema->field_count);
             for (std::size_t i = 0; i < schema->field_count; ++i) { fields.push_back(storage_binding(schema->fields[i].type)); }
-            return factory.realized_composite_type_for(schema, fields);
+            const auto binding = factory.realized_composite_type_for(schema, fields);
+            return source_profile(binding);
         }
         return factory.type_for(schema);
     }
@@ -474,6 +684,11 @@ namespace hgl::ordinary
             if (kind == hgraph::ValueTypeKind::List) { list_builder_binding_ = hgraph::compact_list_type(element_, *binding.schema()); }
         }
         [[nodiscard]] hgraph::ValueTypeRef binding() const noexcept { return binding_; }
+        [[nodiscard]] hgraph::Value        empty_box() const { return hgraph::Value{binding_}; }
+        [[nodiscard]] hgraph::Value        box(const hgraph::ValueView &value) const {
+            require_payload(value, true);
+            return hgraph::Value{binding_, value.concrete()};
+        }
         [[nodiscard]] hgraph::ValueTypeRef field_binding(std::size_t index) const { return field_bindings_.at(index); }
         [[nodiscard]] const PreparedValuePlan &field_plan(std::size_t index) const { return fields_.at(index); }
         [[nodiscard]] hgraph::ValueTypeRef element_binding() const noexcept { return element_; }
@@ -912,10 +1127,15 @@ namespace hgl::ordinary
         hgraph::ValueView (*payload_)(const PreparedValuePlan &, const hgraph::ValueView &){
             [](const PreparedValuePlan &, const hgraph::ValueView &) -> hgraph::ValueView { throw std::logic_error("unprepared delta plan"); }};
     };
-}
+}  // namespace hgl::ordinary
 
 namespace hgraph
 {
+    template <> struct scalar_descriptor<hgl::ordinary::Any>
+    {
+        static constexpr bool           is_concrete() noexcept { return true; }
+        static const ValueTypeMetaData *value_meta() { return TypeRegistry::instance().any(); }
+    };
     template <typename Shape> struct scalar_descriptor<hgl::ordinary::Origin<Shape>> {
         static constexpr bool is_concrete() noexcept { return schema_descriptor<Shape>::is_concrete(); }
         static const ValueTypeMetaData *value_meta() {
@@ -946,5 +1166,5 @@ namespace hgraph
             else { return nullptr; }
         }
     };
-}
+}  // namespace hgraph
 #endif
