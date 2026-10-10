@@ -29,6 +29,11 @@ Required byte defaults use the existing scalar ``Construct`` constant recipe
 and are checked before lowering; this does not add a parallel byte storage
 representation.
 
+Generated native coverage executes both parameter and field default recipes,
+including calls that omit the byte parameter. This coverage runs on every
+platform; the standalone scripted fixture is registered only where scripted
+native modules are supported.
+
 Construction remains an execution recipe rather than an optionally folded
 constant: calls in tests and runtime bodies retain their execution error even
 when their arguments are constant. Required constant evaluation validates the

@@ -1527,7 +1527,11 @@ namespace hgl::codegen
                 case gir::ConstExprKind::Field: unsupported(range, "a field-read generated constant expression");
                 case gir::ConstExprKind::Sequence: unsupported(range, "a generated list or map constant");
                 case gir::ConstExprKind::Tuple: unsupported(range, "a generated tuple constant");
-                case gir::ConstExprKind::Construct: unsupported(range, "a generated struct constant");
+                case gir::ConstExprKind::Construct:
+                    if (planned_type(expression.constructed_type, range).is(hir::ScalarType::Bytes)) {
+                        return planned_construct(expression, range, nullptr);
+                    }
+                    unsupported(range, "a generated struct constant");
                 case gir::ConstExprKind::Literal: break;
             }
             backend(range, "hgraph IR contains an incomplete constant expression");

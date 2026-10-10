@@ -621,8 +621,10 @@ hgl_add_module(hgl_bytes_fixture STATIC HGL codegen/bytes-values.hgl)
 hgl_apply_warnings(hgl_bytes_fixture)
 list(APPEND _hgl_generated_test_sources codegen/generated_bytes_tests.cpp)
 list(APPEND _hgl_generated_test_libraries hgl_bytes_fixture)
-add_test(NAME hgraph_language_bytes_values
-    COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/bytes-values.hgl)
+if(NOT WIN32)
+    add_test(NAME hgraph_language_bytes_values
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/bytes-values.hgl)
+endif()
 
 add_executable(hgl_generated_tests ${_hgl_generated_test_sources})
 target_compile_features(hgl_generated_tests PRIVATE cxx_std_23)

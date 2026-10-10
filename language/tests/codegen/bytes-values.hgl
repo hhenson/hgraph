@@ -8,6 +8,17 @@ const fn default_octets(value: bytes = bytes([0, 255])) -> bytes => value
 
 const fn byte_count(value: bytes) -> i64 => len(value)
 
+struct ByteDefaults {
+    empty: bytes = bytes()
+    octets: bytes = bytes([0, 255])
+}
+
+const fn defaults_valid() -> bool {
+    let fields: ByteDefaults = ByteDefaults()
+    return fields.empty == bytes() && fields.octets == bytes([0, 255]) &&
+        default_empty() == bytes() && default_octets() == bytes([0, 255])
+}
+
 export fn construct(value: atomic<list<i64>>) -> bytes {
     when { return bytes(value) }
 }
@@ -40,6 +51,7 @@ test ordinary_values {
     assert byte_count(a) == 2
     assert default_empty() == empty
     assert default_octets() == a
+    assert defaults_valid()
     assert raises("value.byte_range") { bytes([256]) }
     assert raises("value.byte_range") { bytes([-1]) }
 }
