@@ -112,7 +112,9 @@ namespace hgraph::testing
         return make_dense_buffer(recording_binding_for(delta_schema));
     }
 
-    /** The delta at ``index`` of a dense buffer, either layout: the seeded
+    /** Cold convenience read at ``index`` of a dense buffer, either layout.
+        Native operators cache ``dense_entry_reader`` during preparation.
+        The seeded
         ``List<Any>`` (empty box = no tick) or the typed recorded list
         (UNSET element = no tick). nullopt = no tick. */
     [[nodiscard]] inline std::optional<Value> dense_entry_delta(const ListView &list, std::size_t index,
@@ -134,13 +136,24 @@ namespace hgraph::testing
 
     using DenseEntryReader = std::optional<Value> (*)(const ListView &, std::size_t);
     [[nodiscard]] inline std::optional<Value> typed_dense_entry(const ListView &list, std::size_t index) {
-        return dense_entry_delta(list, index, DenseBufferLayout::Typed);
+        const auto element = list.at(index);
+        return element.has_value() ? std::optional<Value>{Value{element}} : std::nullopt;
     }
     [[nodiscard]] inline std::optional<Value> seeded_dense_entry(const ListView &list, std::size_t index) {
-        return dense_entry_delta(list, index, DenseBufferLayout::Seeded);
+        const auto element = list.at(index);
+        if (!element.has_value()) { return std::nullopt; }
+        const auto boxed = element.as_any();
+        return boxed.has_value() ? std::optional<Value>{Value{boxed.get()}} : std::nullopt;
     }
-    [[nodiscard]] inline DenseEntryReader dense_entry_reader(ValueTypeRef binding) noexcept {
-        return dense_buffer_layout(binding) == DenseBufferLayout::Typed ? &typed_dense_entry : &seeded_dense_entry;
+    // Resolve the legacy canonical-Any envelope distinction once, at the
+    // preparation/read boundary. The selected callbacks perform no lookup.
+    [[nodiscard]] inline DenseEntryReader dense_entry_reader(ValueTypeRef binding, DenseBufferLayout layout) {
+        if (layout == DenseBufferLayout::Typed) { return &typed_dense_entry; }
+        if (!binding || binding.schema()->element_type == TypeRegistry::instance().any()) { return &seeded_dense_entry; }
+        return &typed_dense_entry;  // ordinary legacy typed lists, including JSON
+    }
+    [[nodiscard]] inline DenseEntryReader dense_entry_reader(ValueTypeRef binding) {
+        return dense_entry_reader(binding, dense_buffer_layout(binding));
     }
 
     /** The cycle index for ``now`` (offset from ``MIN_ST`` in ``MIN_TD`` steps). */

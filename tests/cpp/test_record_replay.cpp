@@ -191,6 +191,7 @@ TEST_CASE("testing: native Any dense recording replays complete boxes without lo
     };
     auto first_builder = build_graph<ReplayAnyRecordGraph>();
     set_replay_deltas(first_builder.global_state(), "in", input);
+    const Value seeded{first_builder.global_state().get("in")};
     const auto  recording = run(std::move(first_builder));
     const Value copied{recording.view()};
     CHECK(dense_buffer_layout(copied.binding()) == DenseBufferLayout::Typed);
@@ -212,6 +213,7 @@ TEST_CASE("testing: native Any dense recording replays complete boxes without lo
         }
         CHECK(type_system_lock_count() == locks);
     };
+    check(seeded);     // the prepared seeded reader is also registry-free
     check(recording);  // schema-free seeded replay preserved every original box
     check(replayed);   // bare replay preserved the typed recording through copies
 
@@ -221,9 +223,25 @@ TEST_CASE("testing: native Any dense recording replays complete boxes without lo
     auto  entries = legacy.as_list().begin_mutation();
     for (const auto &value : input) { entries.push_back(value ? make_any(*value).view() : empty_any().view()); }
     CHECK(legacy.binding().record()->implementation_name().empty());
+    check(legacy);  // unlabelled envelopes use the same prepared reader
     auto legacy_builder = build_graph<ReplayAnyRecordGraph>();
     legacy_builder.global_state().set("in", legacy);
     check(run(std::move(legacy_builder)));
+
+    // Ordinary unlabelled typed lists retain their original scalar elements.
+    const auto  int_binding = ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta());
+    Value       plain{mutable_list_type(int_binding)};
+    const Value seven{Int{7}};
+    auto        plain_entries = plain.as_list().begin_mutation();
+    plain_entries.push_back(seven.view());
+    plain_entries.push_back_unset();
+    const auto plain_reader = dense_entry_reader(plain.binding());
+    const auto plain_locks  = type_system_lock_count();
+    const auto plain_value  = plain_reader(plain.as_list(), 0);
+    REQUIRE(plain_value);
+    CHECK(plain_value->equals(seven));
+    CHECK_FALSE(plain_reader(plain.as_list(), 1));
+    CHECK(type_system_lock_count() == plain_locks);
 
     auto                 missing_builder = build_graph<ReplayAnyRecordGraph>();
     GraphExecutorBuilder missing;

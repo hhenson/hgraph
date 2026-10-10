@@ -85,7 +85,8 @@ namespace hgraph::testing
                 "read it with get_recorded_sparse");
         }
         result.reserve(list.size());
-        for (std::size_t i = 0; i < list.size(); ++i) { result.emplace_back(dense_entry_delta(list, i, layout)); }
+        const auto reader = dense_entry_reader(buffer.binding(), layout);
+        for (std::size_t i = 0; i < list.size(); ++i) { result.emplace_back(reader(list, i)); }
         return result;
     }
 

@@ -78,7 +78,9 @@ existing ``TypeRecord`` metadata. Seed helpers mark the seeded envelope format;
 the dense record sink prepares the typed binding at start. Native bare
 ``replay(key)`` resolves that format once at start and caches a reader callback.
 Owning ``Value`` and ``GlobalState`` copies preserve the binding and recipe;
-replay performs no format-name lookup or payload-based inference per entry.
+unlabelled legacy buffers select envelope or ordinary typed storage from the
+list's element schema at preparation. The cached reader performs no registry
+lookup, format-name lookup, or payload-based inference per entry.
 Reads using the default raw-read layout retain the seeded envelope convention.
 ``TS<AnyValue>`` uses owning canonical ``Value`` harness elements.
 
