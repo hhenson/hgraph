@@ -28,6 +28,7 @@ namespace hgraph
         using EvalValuesThunk = Value (*)(std::span<const ValueView>);
         using EvalBoundValuesThunk = Value (*)(ValueTypeRef, std::span<const ValueView>);
         using EvalIntoThunk = void (*)(TSDataMutationView &, std::span<const ValueView>);
+        using EvalAssignThunk = void (*)(ValueView &, std::span<const ValueView>);
 
         const char *name{nullptr};
         const std::type_info *identity{nullptr};
@@ -39,6 +40,7 @@ namespace hgraph
         EvalValuesThunk eval_values_fn{nullptr};
         EvalBoundValuesThunk eval_bound_values_fn{nullptr};
         EvalIntoThunk eval_into_fn{nullptr};
+        EvalAssignThunk eval_assign_fn{nullptr};
         Value (*identity_value_fn)() = nullptr;
 
         bool associative{false};
@@ -91,6 +93,18 @@ namespace hgraph
         {
             if (eval_into_fn == nullptr) { throw std::logic_error("LiftedKernel has no in-place eval thunk"); }
             eval_into_fn(destination, args);
+        }
+
+        /**
+         * Assign the result into ``destination``, a writable view over a
+         * plain cell of the kernel's result type (a reduce partial-sum cell,
+         * RFC 0047): no mutation scope and no tracking, the typed store
+         * alone. The cell must have been planned from ``output_schema()``.
+         */
+        void eval_assign(ValueView &destination, std::span<const ValueView> args) const
+        {
+            if (eval_assign_fn == nullptr) { throw std::logic_error("LiftedKernel has no cell-assign eval thunk"); }
+            eval_assign_fn(destination, args);
         }
     };
 

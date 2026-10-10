@@ -19,6 +19,7 @@
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/lib/testing/runtime_support.h>
+#include <hgraph/runtime/reduce_node.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/static_node.h>
@@ -1474,4 +1475,133 @@ TEST_CASE("reduce: a distant ordered child timer uses bounded storage across inp
     {
         CHECK(OrderedTimerSum::retained_bytes[index] == steady);
     }
+}
+
+// RFC 0047: lifted reduces hold partial sums in plain cells and publish
+// every root shape through one snapshot identity.
+namespace
+{
+    using namespace hgraph;
+
+    // ``associative`` only selects the single-node fixed-TSL fast path; the
+    // tree is the caller's ``is_associative`` contract. Left false so a fixed
+    // list exercises the cells, with an order-sensitive kernel that shows the
+    // tree's operand order (lhs before rhs, deepest first).
+    struct ReduceLiftedStrCat
+    {
+        static constexpr const char *name = "reduce_lifted_str_cat";
+        static constexpr std::array<std::string_view, 2> parameter_names{"lhs", "rhs"};
+        static constexpr bool associative = false;
+
+        [[nodiscard]] static Str apply(Str lhs, Str rhs) { return lhs + rhs; }
+    };
+
+    // True on each reduce tick whose designated source differs from the
+    // previous tick's (``reference()`` on the plain input bound to the reduce).
+    struct ReduceIdentityProbe
+    {
+        static constexpr auto name = "reduce_identity_probe";
+        static inline std::optional<TimeSeriesReference> last{};
+
+        static void eval(In<"value", TS<Int>> value, Out<TS<Bool>> out)
+        {
+            TimeSeriesReference current = value.reference();
+            const bool changed = !last.has_value() || !(*last == current);
+            last = std::move(current);
+            out.set(changed);
+        }
+    };
+
+    struct LiftedReduceIdentityGraph
+    {
+        static constexpr auto name = "lifted_reduce_identity_graph";
+
+        static Port<TS<Bool>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> ts)
+        {
+            auto total = wire<stdlib::reduce_>(w, lift<stdlib::scalar_add<Int>>(), ts).as<TS<Int>>();
+            return wire<ReduceIdentityProbe>(w, total).as<TS<Bool>>();
+        }
+    };
+
+    struct LiftedReduceStorageGraph
+    {
+        static constexpr auto name = "lifted_reduce_storage_graph";
+
+        static void compose(Wiring &w)
+        {
+            auto dict = wire<stdlib::const_, TSD<Str, TS<Int>>>(
+                w, stdlib::make_map<Str, Int>({{Str{"a"}, Int{1}}, {Str{"b"}, Int{2}}, {Str{"c"}, Int{3}},
+                                               {Str{"d"}, Int{4}}, {Str{"e"}, Int{5}}}));
+            wire<stdlib::null_sink>(w, wire<stdlib::reduce_>(w, fn<stdlib::add_>(), dict));
+        }
+    };
+}  // namespace
+
+TEST_CASE("reduce: a lifted kernel holds partial sums in cells, not combiner graphs")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    GraphExecutorValue executor = run_graph(build_graph<LiftedReduceStorageGraph>());
+    auto graph = executor.view().graph();
+    bool seen = false;
+    for (std::size_t index = 0; index < graph.node_count(); ++index)
+    {
+        auto node = graph.node_at(index);
+        if (!node.is<ReduceNodeView>()) { continue; }
+        auto reduce = node.as<ReduceNodeView>();
+        CHECK(reduce.leaf_count() == 5);
+        CHECK(reduce.combiner_count() == 4);
+        CHECK(reduce.child_graphs_use_in_place_storage());
+        const NodeStorageMetrics metrics = node.storage_metrics();
+        CHECK(metrics.nested_graph_count == 0);
+        CHECK(metrics.nested_graph_capacity == 0);
+        CHECK(metrics.dynamic_live_bytes > 0);
+        seen = true;
+    }
+    CHECK(seen);
+}
+
+TEST_CASE("reduce: a lifted string kernel carries non-trivial cell values through the tree")
+{
+    using namespace hgraph;
+    using namespace std::string_literals;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<stdlib::reduce_, TSL<TS<Str>, 3>>(
+                     lift<ReduceLiftedStrCat>(),
+                     values<Value>(list_delta<TS<Str>>({"a"s, "b"s, "c"s}),
+                                   list_delta<TS<Str>>({{0, "x"s}}),
+                                   list_delta<TS<Str>>({{2, "yz"s}})))),
+                 values<Str>("abc"s, "xbc"s, "xbyz"s));
+
+    // Keys added over time grow the tree; a dense leaf keeps its position
+    // while the collection only grows.
+    CHECK_OUTPUT((eval_node<stdlib::reduce_, TSD<Int, TS<Str>>>(
+                     lift<ReduceLiftedStrCat>(),
+                     values<Value>(dict_delta<Int, TS<Str>>({{0, "a"s}, {1, "b"s}}),
+                                   dict_delta<Int, TS<Str>>({{2, "c"s}}),
+                                   dict_delta<Int, TS<Str>>({{1, "B"s}}),
+                                   dict_delta<Int, TS<Str>>({{3, "d"s}, {4, "e"s}})))),
+                 values<Str>("ab"s, "abc"s, "aBc"s, "aBcde"s));
+}
+
+TEST_CASE("reduce: a lifted reduce keeps one output identity through every key count")
+{
+    using namespace hgraph;
+    using namespace std::string_literals;
+    stdlib::register_standard_operators();
+
+    // t0 two keys (a tree root), t1 one key (the element itself), t2 no key
+    // (an invalid output: the probe does not evaluate), t3 three keys (a
+    // wider tree with a re-planned cell array), t4 a value tick. Every shape
+    // is copied into the one snapshot (RFC 0047), so the designated source
+    // is set once and never moves.
+    const auto input = values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}}),
+                                     dict_delta<Str, TS<Int>>({}, {"b"s}),
+                                     dict_delta<Str, TS<Int>>({}, {"a"s}),
+                                     dict_delta<Str, TS<Int>>({{"a"s, 1}, {"c"s, 5}, {"d"s, 7}}),
+                                     dict_delta<Str, TS<Int>>({{"a"s, 10}}));
+    ReduceIdentityProbe::last.reset();
+    CHECK_OUTPUT(eval_node<LiftedReduceIdentityGraph>(input), values<Bool>(true, false, none, false, false));
 }

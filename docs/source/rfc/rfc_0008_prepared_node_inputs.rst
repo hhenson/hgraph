@@ -628,10 +628,13 @@ the derived facts to the same write:
   does; otherwise it opens the mutation scope and, for a native slot whose
   realized ops match, assigns in place and commits through ``mark_modified``
   before falling back to the erased copy. The reduce tree's combiner
-  evaluation (``eval_into``) takes the same in-place tier. (Added
-  2026-10-10: the per-tick output view, mutation scope and erased
-  ``copy_value_from`` were 20-30% of the lifted node's evaluation in the
-  dense native cells and 68% of a fan-in of lifted adds.)
+  evaluation took the same in-place tier through ``eval_into`` until RFC
+  0047 replaced its combiner outputs with plain partial-sum cells
+  (``eval_assign``: a typed store with no mutation scope at all); its root
+  publishes through the same stage-6 route, resolved over the field-held
+  snapshot. (Added 2026-10-10: the per-tick output view, mutation scope and
+  erased ``copy_value_from`` were 20-30% of the lifted node's evaluation in
+  the dense native cells and 68% of a fan-in of lifted adds.)
 
 Memory: 32 bytes per active-trie node, 16 per prepared slot, 32 per static
 node or lifted kernel with an output. Semantics: the fast paths are exact subsets of the

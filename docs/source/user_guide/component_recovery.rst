@@ -183,7 +183,11 @@ combiner state, and hidden publication endpoints. Ordered reductions over
 dictionaries and dynamic lists retain their input order. Fixed-list ordered
 reductions can retain their internal reference selection as well. The component
 result still follows the closed value-boundary rule. Recovering these structures
-does not recompute old leaves.
+does not recompute old leaves. A reduction over a lifted scalar kernel (the
+standard arithmetic operators) saves its published root only: its partial sums
+are derived state, recomputed from the restored leaves on start. Its image
+format is version 2; a version-1 image of such a reduction, recorded before
+2026-10-10, is refused by node name and must be re-recorded (RFC 0047).
 
 Owned-output meshes preserve keyed instances, including dependency-created
 instances, dependency edges, ranks, and pending removals. Their private sibling

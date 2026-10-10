@@ -1,6 +1,7 @@
 #include "checkpoint_signature.h"
 #include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/runtime/nested_graph_storage.h>
+#include <hgraph/runtime/prepared_input_routes.h>
 #include <hgraph/runtime/reduce_node.h>
 #include <hgraph/runtime/node_checkpoint.h>
 #include <hgraph/manifest/canonical.h>
@@ -43,6 +44,14 @@ namespace hgraph
             TSOutputHandle output{};
         };
 
+        /** Where an aggregate currently comes from, without materialising it. */
+        struct Aggregate
+        {
+            enum class Kind : std::uint8_t { Empty, Leaf, Node };
+            Kind        kind{Kind::Empty};
+            std::size_t index{0};
+        };
+
         struct ReduceNodeStorage
         {
             ReduceNodeStorage()                                     = default;
@@ -61,8 +70,9 @@ namespace hgraph
                 destroy_combiners();
             }
 
-            void initialise(MemoryUtils::StorageLayout graph_layout)
+            void initialise(MemoryUtils::StorageLayout graph_layout, bool lifted_kernel)
             {
+                lifted = lifted_kernel;
                 for (auto &bank : combiner_banks) { bank.bind_graph_layout(graph_layout); }
             }
 
@@ -162,6 +172,24 @@ namespace hgraph
             std::vector<std::size_t> structural_positions{};
             std::size_t              resume_candidate_plus_one{0};
             bool                     has_future_combiner_schedule{false};
+
+            // RFC 0047: a lifted reduce keeps plain partial-sum cells in place
+            // of combiner graphs. ``combiners`` still carries the tree width
+            // (every entry null); the inventory is ``lifted_live`` and
+            // ``lifted_valid`` says which cells hold a computed partial. The
+            // banks stay empty. The root publishes through the always-active
+            // ``publication_snapshot``: ``lifted_publication`` is its native
+            // slot and tracking (the ``Out<TS<T>>::set`` commit route) and
+            // the root record tells a re-point from an unchanged root.
+            bool                      lifted{false};
+            std::vector<Value>        lifted_cells{};
+            std::vector<std::uint8_t> lifted_live{};
+            std::vector<std::uint8_t> lifted_valid{};
+            PreparedOutputRoute       lifted_publication{};
+            bool                      lifted_root_dirty{false};
+            bool                      lifted_root_recorded{false};
+            Aggregate::Kind           lifted_root_kind{Aggregate::Kind::Empty};
+            std::size_t               lifted_root_index{0};
         };
 
         struct ReduceCollectionOps
@@ -205,13 +233,16 @@ namespace hgraph
             MemoryUtils::StorageLayout graph_layout{};
             const ReduceCollectionOps *collection_ops{nullptr};
             const ReducePublicationOps *publication_ops{nullptr};
+            /** The lifted kernel's result value type: what each partial-sum cell holds (RFC 0047). */
+            ValueTypeRef cell_binding{};
         };
 
         using ReduceNodeContextPtr = std::shared_ptr<const ReduceNodeContext>;
 
         [[nodiscard]] ReduceNodeContextPtr make_reduce_node_context(
             ReduceNodeSpec spec, std::size_t storage_offset, MemoryUtils::StorageLayout graph_layout,
-            const ReduceCollectionOps &collection_ops, const ReducePublicationOps &publication_ops)
+            const ReduceCollectionOps &collection_ops, const ReducePublicationOps &publication_ops,
+            ValueTypeRef cell_binding)
         {
             return std::make_shared<ReduceNodeContext>(ReduceNodeContext{
                 .spec           = std::move(spec),
@@ -219,6 +250,7 @@ namespace hgraph
                 .graph_layout   = graph_layout,
                 .collection_ops = &collection_ops,
                 .publication_ops = &publication_ops,
+                .cell_binding   = cell_binding,
             });
         }
 
@@ -251,6 +283,11 @@ namespace hgraph
                 result.dynamic_live_bytes += bank.live_bytes();
                 result.dynamic_reserved_bytes += bank.reserved_bytes();
             }
+            // A lifted reduce's partial-sum cells and inventory bytes (RFC 0047).
+            result.dynamic_live_bytes += storage.lifted_cells.size() * sizeof(Value) +
+                                         storage.lifted_live.size() + storage.lifted_valid.size();
+            result.dynamic_reserved_bytes += storage.lifted_cells.capacity() * sizeof(Value) +
+                                             storage.lifted_live.capacity() + storage.lifted_valid.capacity();
             return result;
         }
 
@@ -270,14 +307,6 @@ namespace hgraph
                                                                : nullptr,
                                      });
         }
-
-        /** Where an aggregate currently comes from, without materialising it. */
-        struct Aggregate
-        {
-            enum class Kind : std::uint8_t { Empty, Leaf, Node };
-            Kind        kind{Kind::Empty};
-            std::size_t index{0};
-        };
 
         // Tree layout: internal nodes are heap positions 0..capacity-2 (root =
         // 0, children of i at 2i+1 / 2i+2); leaves are logical positions
@@ -437,6 +466,210 @@ namespace hgraph
                 }
                 else { bind_input_to_source(std::move(target), source); }
             }
+        }
+
+        /** Whether an internal position holds a live combiner: a cell for a
+            lifted reduce (RFC 0047), a combiner graph otherwise. */
+        [[nodiscard]] bool combiner_live(const ReduceNodeStorage &storage, std::size_t position) noexcept
+        {
+            return storage.lifted ? storage.lifted_live[position] != 0 : storage.combiners[position] != nullptr;
+        }
+
+        /** The operand sources one lifted evaluation pass resolves once: the
+            collection input projection and the collection output. */
+        struct LiftedOperands
+        {
+            TSInputView  collection_input;
+            TSOutputView collection;
+        };
+
+        [[nodiscard]] LiftedOperands lifted_operands(const NodeView &view, const ReduceNodeStorage &storage,
+                                                     DateTime evaluation_time)
+        {
+            return LiftedOperands{
+                .collection_input = view.input(evaluation_time).indexed_child_at(0),
+                .collection       = storage.collection_source.bound()
+                                        ? storage.collection_source.view(evaluation_time)
+                                        : TSOutputView{},
+            };
+        }
+
+        /** Resolve an aggregate to its current value for a lifted combiner:
+            a cell's partial once computed, a live leaf's element, or the zero. */
+        [[nodiscard]] ValueView lifted_aggregate_value(const ReduceNodeContext &context,
+                                                       const ReduceNodeStorage &storage,
+                                                       LiftedOperands &operands, const Aggregate &aggregate,
+                                                       DateTime evaluation_time)
+        {
+            switch (aggregate.kind)
+            {
+                case Aggregate::Kind::Node:
+                    return storage.lifted_valid[aggregate.index] != 0
+                               ? storage.lifted_cells[aggregate.index].view()
+                               : ValueView{};
+                case Aggregate::Kind::Leaf:
+                {
+                    TSOutputView leaf = context.collection_ops->leaf_output(
+                        operands.collection_input, operands.collection.borrowed_ref(), aggregate.index,
+                        storage.dense_to_key[aggregate.index], storage.dense_to_source_slot[aggregate.index]);
+                    return leaf.valid() ? leaf.value() : ValueView{};
+                }
+                case Aggregate::Kind::Empty:
+                {
+                    if (!storage.zero_source.bound()) { return ValueView{}; }
+                    TSOutputView zero = storage.zero_source.view(evaluation_time);
+                    return zero.valid() ? zero.value() : ValueView{};
+                }
+            }
+            return ValueView{};
+        }
+
+        /**
+         * Evaluate one lifted combiner into its cell (RFC 0047): read both
+         * operands as values and assign the kernel's result — no mutation
+         * scope, no tracking, no observers below the root. Live collection
+         * entries acquire a value when created, but an unset operand (a
+         * future collection kind could expose one) leaves the cell as it
+         * was, exactly as an unpublished combiner output would.
+         */
+        void evaluate_lifted_cell(const ReduceNodeContext &context, ReduceNodeStorage &storage,
+                                  LiftedOperands &operands, std::size_t position, DateTime evaluation_time)
+        {
+            std::array<ValueView, 2> args{
+                lifted_aggregate_value(context, storage, operands, resolve_aggregate(storage, 2 * position + 1),
+                                       evaluation_time),
+                lifted_aggregate_value(context, storage, operands, resolve_aggregate(storage, 2 * position + 2),
+                                       evaluation_time)};
+            if (!args[0].valid() || !args[1].valid()) { return; }
+            // The trusted re-tag is proved once per node type: reduce_node()
+            // checked that a cell of this binding can begin a mutation.
+            ValueView cell = storage.lifted_cells[position].view().begin_mutation_trusted();
+            context.spec.lifted_kernel->eval_assign(cell, std::span<const ValueView>{args.data(), args.size()});
+            storage.lifted_valid[position] = 1;
+            if (position == 0) { storage.lifted_root_dirty = true; }
+        }
+
+        /** The snapshot's native slot and tracking, resolved once when it is
+            constructed (the field-held output never moves). A non-native
+            representation keeps the output pointer and stores erased. */
+        void acquire_lifted_publication_route(ReduceNodeStorage &storage)
+        {
+            auto &route = storage.lifted_publication;
+            route       = {};
+            TSOutput &snapshot = *storage.publication_snapshot;
+            const TSDataView data = snapshot.data_view();
+            if (!data.valid()) { return; }
+            route.output = &snapshot;
+            const auto &table = data.ops();
+            if (table.direct_native_value && table.value_view_impl == nullptr)
+            {
+                const auto *layout  = table.layout_impl(table.context);
+                route.value_ops     = layout->value_binding.ops();
+                route.value_binding = layout->value_binding;
+                route.native_value  = table.mutable_value_memory_impl(table.context, data.mutable_data());
+                route.tracking      = table.mutable_tracking_impl(table.context, data.mutable_data());
+            }
+        }
+
+        /** Publish a root value into the snapshot: the typed store and
+            ``record_modified`` commit when the representations agree, the
+            erased copy otherwise. Either way the snapshot ticks. */
+        void store_lifted_root(ReduceNodeStorage &storage, const ValueView &value, DateTime evaluation_time)
+        {
+            const auto &route = storage.lifted_publication;
+            if (route.native() && value.binding() == route.value_binding)
+            {
+                route.value_binding.copy_assign_at(route.native_value, value.data());
+                if (route.tracking->record_modified(evaluation_time))
+                {
+                    route.tracking->parent.notify_child_modified(evaluation_time);
+                }
+                return;
+            }
+            auto mutation = storage.publication_snapshot->view(evaluation_time).begin_mutation(evaluation_time);
+            static_cast<void>(mutation.copy_value_from(value));
+        }
+
+        void invalidate_lifted_root(ReduceNodeStorage &storage, DateTime evaluation_time)
+        {
+            auto mutation = storage.publication_snapshot->view(evaluation_time).begin_mutation(evaluation_time);
+            static_cast<void>(mutation.invalidate());
+        }
+
+        /**
+         * Root publication of a lifted reduce (RFC 0047): one identity for
+         * every shape. The first publication constructs the snapshot and
+         * points the node's forwarding output at it for the rest of the
+         * node's lifetime; the empty, singleton and tree roots are all
+         * copied into it, never aliased, so a downstream ``REF`` keeps its
+         * target as the key count moves through zero and one. A root whose
+         * identity changed (another leaf, a re-pointed zero, a tree in place
+         * of a leaf) publishes its current value at the end of this cycle
+         * even if nothing ticked — the sampled re-point contract.
+         */
+        void begin_lifted_reduce_publication(const NodeView &view, const ReduceNodeContext &context,
+                                             ReduceNodeStorage &storage, const Aggregate &root,
+                                             DateTime evaluation_time, bool capacity_changed)
+        {
+            if (!storage.publication_snapshot_active)
+            {
+                auto output = view.output(evaluation_time);
+                storage.publication_snapshot.emplace(output.schema());
+                acquire_lifted_publication_route(storage);
+                // The snapshot is still invalid: binding it timelessly is not
+                // a transition and publishes nothing.
+                output.handle().view(MIN_DT).bind_forwarding_target(storage.publication_snapshot->view(MIN_DT));
+                storage.publication_snapshot_active = true;
+            }
+            TSOutputHandle source{};
+            if (root.kind != Aggregate::Kind::Node)
+            {
+                TSOutputView resolved = aggregate_output(view, context, storage, root, evaluation_time);
+                if (resolved.bound()) { source = resolved.handle(); }
+            }
+            const bool same_root = storage.lifted_root_recorded && storage.lifted_root_kind == root.kind &&
+                                   (root.kind == Aggregate::Kind::Node
+                                        ? storage.lifted_root_index == root.index
+                                        : source.same_as(storage.pending_publication_source));
+            storage.publication_full_reconcile =
+                storage.publication_full_reconcile || !same_root || capacity_changed;
+            storage.lifted_root_kind           = root.kind;
+            storage.lifted_root_index          = root.index;
+            storage.lifted_root_recorded       = true;
+            storage.pending_publication_source = source;
+        }
+
+        /** After the descending pass: the root cell on its write (or on an
+            identity change), a leaf or zero root on its tick (or on an
+            identity change), an unbound empty root as an invalidation. */
+        void finish_lifted_reduce_publication(ReduceNodeStorage &storage, DateTime evaluation_time)
+        {
+            const bool full  = std::exchange(storage.publication_full_reconcile, false);
+            const bool dirty = std::exchange(storage.lifted_root_dirty, false);
+            storage.publication_sample_all = false;
+            if (!storage.publication_snapshot_active) { return; }
+
+            if (storage.lifted_root_kind == Aggregate::Kind::Node)
+            {
+                const std::size_t index = storage.lifted_root_index;
+                const bool valid = index < storage.lifted_valid.size() && storage.lifted_valid[index] != 0;
+                if (valid && (full || dirty))
+                {
+                    store_lifted_root(storage, storage.lifted_cells[index].view(), evaluation_time);
+                }
+                else if (!valid && full) { invalidate_lifted_root(storage, evaluation_time); }
+                return;
+            }
+            if (storage.pending_publication_source.bound())
+            {
+                TSOutputView source = storage.pending_publication_source.view(evaluation_time);
+                if (source.valid())
+                {
+                    if (full || source.modified()) { store_lifted_root(storage, source.value(), evaluation_time); }
+                    return;
+                }
+            }
+            if (full) { invalidate_lifted_root(storage, evaluation_time); }
         }
 
         inline constexpr std::size_t no_leaf = static_cast<std::size_t>(-1);
@@ -1010,6 +1243,84 @@ namespace hgraph
             }
         }
 
+        /** The internal positions a structural event touches, deepest first:
+            every position for a full rebuild, the paths of the structural
+            leaves otherwise. */
+        void collect_structural_positions(ReduceNodeStorage &storage, bool full_structure)
+        {
+            storage.structural_positions.clear();
+            if (full_structure)
+            {
+                storage.structural_positions.reserve(storage.combiners.size());
+                for (std::size_t position = storage.combiners.size(); position-- > 0;)
+                {
+                    storage.structural_positions.push_back(position);
+                }
+                return;
+            }
+            for (const std::size_t leaf : storage.structural_leaves)
+            {
+                append_structural_leaf_path(storage, leaf, storage.structural_positions);
+            }
+            std::ranges::sort(storage.structural_positions, std::greater{});
+            const auto unique_end = std::ranges::unique(storage.structural_positions).begin();
+            storage.structural_positions.erase(unique_end, storage.structural_positions.end());
+        }
+
+        /**
+         * The lifted form of ``rebuild_structure`` (RFC 0047): the combiner
+         * inventory is a byte per position and the partial sums are plain
+         * cells, so there is nothing to construct, bind, start or retire and
+         * no bank generation to keep alive. Capacity growth re-plans the
+         * cells without copying: the full structural pass that follows
+         * recomputes every live partial. Nothing here leaves a link on dead
+         * storage, so the failure policy of the graph form (stop-safe after
+         * an unwind) holds without a rollback guard.
+         */
+        void rebuild_lifted_structure(const NodeView &view, const ReduceNodeContext &context,
+                                      ReduceNodeStorage &storage, DateTime evaluation_time,
+                                      bool full_structure, std::size_t capacity)
+        {
+            const std::size_t live             = storage.dense_to_key.size();
+            const bool        capacity_changed = capacity != storage.leaf_capacity;
+            if (capacity_changed)
+            {
+                full_structure = true;
+                const std::size_t  internals = capacity > 1 ? capacity - 1 : 0;
+                std::vector<Value> cells;
+                cells.reserve(internals);
+                for (std::size_t position = 0; position < internals; ++position)
+                {
+                    cells.emplace_back(context.cell_binding);
+                }
+                storage.lifted_cells = std::move(cells);
+                storage.lifted_live.assign(internals, 0);
+                storage.lifted_valid.assign(internals, 0);
+                storage.combiners.assign(internals, static_cast<CombinerEntry *>(nullptr));
+                storage.leaf_capacity = capacity;
+            }
+            collect_structural_positions(storage, full_structure);
+            for (const std::size_t position : storage.structural_positions)
+            {
+                const Aggregate left   = resolve_aggregate(storage, 2 * position + 1);
+                const Aggregate right  = resolve_aggregate(storage, 2 * position + 2);
+                const bool      needed = (position == 0 && context.spec.has_zero && live == 1) ||
+                                         (left.kind != Aggregate::Kind::Empty &&
+                                          right.kind != Aggregate::Kind::Empty);
+                auto &live_flag = storage.lifted_live[position];
+                if (needed != (live_flag != 0))
+                {
+                    // A fresh combiner's cell is unset until it evaluates; a
+                    // retired one must not be read back as a stale partial.
+                    live_flag                      = needed ? 1 : 0;
+                    storage.lifted_valid[position] = 0;
+                }
+            }
+            begin_lifted_reduce_publication(view, context, storage, root_aggregate(context, storage),
+                                            evaluation_time, capacity_changed);
+            storage.published = true;
+        }
+
         void rebuild_structure(const NodeView &view, const ReduceNodeContext &context, ReduceNodeStorage &storage,
                                DateTime evaluation_time, bool full_structure)
         {
@@ -1022,6 +1333,12 @@ namespace hgraph
             const std::size_t minimum_capacity = context.spec.has_zero ? 2U : 0U;
             capacity = std::max(
                 {capacity, minimum_capacity, live > 0 ? std::bit_ceil(live) : std::size_t{0}});
+
+            if (context.spec.lifted_kernel != nullptr)
+            {
+                rebuild_lifted_structure(view, context, storage, evaluation_time, full_structure, capacity);
+                return;
+            }
 
             const std::size_t old_bank = storage.current_bank;
             std::vector<CombinerEntry *> retired_shape{};
@@ -1054,25 +1371,7 @@ namespace hgraph
                 storage.combiner_banks[storage.current_bank].reserve_to(storage.combiners.size());
             }
 
-            storage.structural_positions.clear();
-            if (full_structure)
-            {
-                storage.structural_positions.reserve(storage.combiners.size());
-                for (std::size_t position = storage.combiners.size(); position-- > 0;)
-                {
-                    storage.structural_positions.push_back(position);
-                }
-            }
-            else
-            {
-                for (const std::size_t leaf : storage.structural_leaves)
-                {
-                    append_structural_leaf_path(storage, leaf, storage.structural_positions);
-                }
-                std::ranges::sort(storage.structural_positions, std::greater{});
-                const auto unique_end = std::ranges::unique(storage.structural_positions).begin();
-                storage.structural_positions.erase(unique_end, storage.structural_positions.end());
-            }
+            collect_structural_positions(storage, full_structure);
             auto rollback = UnwindCleanupGuard([&] {
                 auto &current_bank = storage.combiner_banks[storage.current_bank];
                 if (bank_changed)
@@ -1137,11 +1436,9 @@ namespace hgraph
                 }
             }
 
-            // Phase 2 — generic combiners need their child-graph inputs bound
-            // and graphs started. A lifted scalar capability reads aggregate
-            // outputs directly, so activating the otherwise-unused child
-            // inputs would only create redundant subscription/scheduler work.
-            if (context.spec.lifted_kernel == nullptr)
+            // Phase 2 — bind every live combiner's child-graph inputs and
+            // start the fresh graphs. (A lifted kernel never reaches this
+            // function: its combiners are cells, see rebuild_lifted_structure.)
             {
                 // Phase 1 appended to ``created`` while walking the same
                 // positions in the other direction, so it is an ordered
@@ -1273,7 +1570,7 @@ namespace hgraph
             while (position > 0)
             {
                 position = (position - 1) / 2;
-                if (position < storage.combiners.size() && storage.combiners[position] != nullptr)
+                if (position < storage.combiners.size() && combiner_live(storage, position))
                 {
                     positions.set(position);
                 }
@@ -1317,7 +1614,7 @@ namespace hgraph
             {
                 for (const std::size_t position : storage.structural_positions)
                 {
-                    if (position < storage.combiners.size() && storage.combiners[position] != nullptr)
+                    if (position < storage.combiners.size() && combiner_live(storage, position))
                     {
                         storage.evaluation_candidates.set(position);
                     }
@@ -1346,7 +1643,7 @@ namespace hgraph
             // The explicit zero is an operand only for a singleton. It must
             // neither schedule nor perturb a reduction containing 2+ values.
             if (!full_scan && zero_event && storage.dense_to_key.size() == 1 &&
-                !storage.combiners.empty() && storage.combiners[0] != nullptr)
+                !storage.combiners.empty() && combiner_live(storage, 0))
             {
                 storage.evaluation_candidates.set(0);
             }
@@ -1356,7 +1653,7 @@ namespace hgraph
                 storage.evaluation_positions.reserve(storage.combiners.size());
                 for (std::size_t position = storage.combiners.size(); position-- > 0;)
                 {
-                    if (storage.combiners[position] != nullptr)
+                    if (combiner_live(storage, position))
                     {
                         storage.evaluation_positions.push_back(position);
                     }
@@ -1367,38 +1664,6 @@ namespace hgraph
                 materialize_descending(storage.evaluation_candidates, storage.evaluation_positions);
             }
             storage.has_future_combiner_schedule = false;
-        }
-
-        [[nodiscard]] bool evaluate_lifted_combiner(const NodeView &view,
-                                                     const ReduceNodeContext &context,
-                                                     const ReduceNodeStorage &storage,
-                                                     std::size_t position,
-                                                     DateTime evaluation_time)
-        {
-            const LiftedKernel *kernel = context.spec.lifted_kernel;
-            if (kernel == nullptr) { return false; }
-
-            TSOutputView left = aggregate_output(
-                view, context, storage, resolve_aggregate(storage, 2 * position + 1), evaluation_time);
-            TSOutputView right = aggregate_output(
-                view, context, storage, resolve_aggregate(storage, 2 * position + 2), evaluation_time);
-            // Live dynamic collection entries acquire a value when created,
-            // but retain the generic sampled behavior if a future collection
-            // kind can expose an unset leaf: no output is published until
-            // both sides have a current value.
-            if (!left.valid() || !right.valid()) { return true; }
-
-            std::array<ValueView, 2> args{left.value(), right.value()};
-            TSOutputView destination = aggregate_output(
-                view, context, storage, Aggregate{Aggregate::Kind::Node, position}, evaluation_time);
-            if (!destination.bound())
-            {
-                throw std::logic_error("reduce lifted combiner output is unbound");
-            }
-            auto mutation = destination.begin_mutation(evaluation_time);
-            kernel->eval_into(mutation,
-                              std::span<const ValueView>{args.data(), args.size()});
-            return true;
         }
 
         // Evaluates the combiner tree, supporting pause/resume. A combiner that pauses (a
@@ -1413,7 +1678,7 @@ namespace hgraph
             auto        reduce_view = view.as<ReduceNodeView>();
             const auto &context     = *static_cast<const ReduceNodeContext *>(reduce_view.internal_context());
             auto       &storage     = *MemoryUtils::cast<ReduceNodeStorage>(reduce_view.internal_storage());
-            storage.initialise(context.graph_layout);
+            storage.initialise(context.graph_layout, context.spec.lifted_kernel != nullptr);
 
             const bool resuming = storage.resume_candidate_plus_one != 0;
             if (!resuming)
@@ -1421,6 +1686,23 @@ namespace hgraph
                 storage.destroy_previous_generation_before(evaluation_time);
                 const bool rebuilt = reduce_reconcile(view, context, storage, evaluation_time);
                 prepare_reduce_evaluation_positions(view, context, storage, evaluation_time, rebuilt);
+            }
+
+            if (storage.lifted)
+            {
+                // RFC 0047: the due cells deepest-first, then the root once.
+                // A cell never pauses, so there is no resume state to keep.
+                if (!storage.evaluation_positions.empty())
+                {
+                    LiftedOperands operands = lifted_operands(view, storage, evaluation_time);
+                    for (const std::size_t position : storage.evaluation_positions)
+                    {
+                        evaluate_lifted_cell(context, storage, operands, position, evaluation_time);
+                    }
+                }
+                storage.evaluation_positions.clear();
+                finish_lifted_reduce_publication(storage, evaluation_time);
+                return true;
             }
 
             // Evaluate due combiners deepest-first (descending heap index): a leaf tick
@@ -1436,11 +1718,6 @@ namespace hgraph
                 const std::size_t position = storage.evaluation_positions[candidate];
                 const auto &entry = storage.combiners[position];
                 if (entry == nullptr || !entry->graph.has_value()) { continue; }
-                if (!resuming && evaluate_lifted_combiner(
-                                     view, context, storage, position, evaluation_time))
-                {
-                    continue;
-                }
                 auto       child       = entry->graph.view();
                 const bool resume_this = resuming && candidate == start_candidate;
                 if ((child.next_scheduled_time() <= evaluation_time || resume_this) &&
@@ -1481,6 +1758,7 @@ namespace hgraph
             storage.structural_positions.clear();
             storage.resume_candidate_plus_one = 0;
             storage.has_future_combiner_schedule = false;
+            storage.lifted_root_dirty = false;
             errors.rethrow_if_any();
         }
 
@@ -1522,7 +1800,8 @@ namespace hgraph
             const auto &context = *static_cast<const ReduceNodeContext *>(typed.internal_context());
             const auto &storage = *MemoryUtils::cast<const ReduceNodeStorage>(typed.internal_storage());
             if (storage.resume_candidate_plus_one != 0 || storage.has_future_combiner_schedule ||
-                storage.publication_full_reconcile || storage.publication_sample_all)
+                storage.publication_full_reconcile || storage.publication_sample_all ||
+                storage.lifted_root_dirty)
             {
                 throw std::invalid_argument("component checkpoint: reduce has unfinished work");
             }
@@ -1543,7 +1822,9 @@ namespace hgraph
                 }
                 metadata.push_back(static_cast<Int>(size));
             };
-            metadata.push_back(Int{1});
+            // Image version 2 (RFC 0047): a lifted reduce stores no combiner
+            // endpoints; its partial sums are recomputed on restore.
+            metadata.push_back(Int{2});
             metadata.push_back(static_cast<Int>(storage.primed));
             metadata.push_back(static_cast<Int>(storage.published));
             metadata.push_back(static_cast<Int>(storage.source_handles_initialised));
@@ -1555,29 +1836,23 @@ namespace hgraph
             // and bounds allocation by the encoded image size on restore.
             for (std::size_t position = 0; position < storage.combiners.size(); ++position)
             {
+                const bool live = combiner_live(storage, position);
+                metadata.push_back(static_cast<Int>(live));
+                if (!live || context.spec.lifted_kernel != nullptr) { continue; }
                 const auto *entry = storage.combiners[position];
-                metadata.push_back(static_cast<Int>(entry != nullptr));
-                if (entry == nullptr) { continue; }
                 if (!entry->graph.has_value() || entry->graph.view().failed_node().valid())
                 {
                     throw std::invalid_argument("component checkpoint: reduce combiner is incomplete");
                 }
-                if (context.spec.lifted_kernel != nullptr)
+                if (!entry->graph.view().started() || !capture_graph)
                 {
-                    image.endpoints.push_back(capture_ts_checkpoint(entry->output.data_view()));
+                    throw std::invalid_argument("component checkpoint: reduce combiner has not started");
                 }
-                else
-                {
-                    if (!entry->graph.view().started() || !capture_graph)
-                    {
-                        throw std::invalid_argument("component checkpoint: reduce combiner has not started");
-                    }
-                    ChildGraphCheckpoint child;
-                    child.slot = position;
-                    child.key = Value{static_cast<Int>(position)};
-                    child.graph = capture_graph(entry->graph.view());
-                    image.children.push_back(std::move(child));
-                }
+                ChildGraphCheckpoint child;
+                child.slot = position;
+                child.key = Value{static_cast<Int>(position)};
+                child.graph = capture_graph(entry->graph.view());
+                image.children.push_back(std::move(child));
             }
             auto key_values = keys.build();
             auto meta_values = metadata.build();
@@ -1620,15 +1895,30 @@ namespace hgraph
                 if (value > 1) { throw std::invalid_argument("reduce checkpoint has an invalid flag"); }
                 return value != 0;
             };
+            const bool lifted  = context.spec.lifted_kernel != nullptr;
+            const auto version = size_at(0);
+            if (lifted && version == 1)
+            {
+                // A version-1 lifted image carries one endpoint per combiner
+                // output; a REF locator recorded against one has no
+                // counterpart in the cell layout (RFC 0047).
+                throw std::invalid_argument(
+                    "component checkpoint: reduce '" + std::string{view.schema()->name()} +
+                    "' image version 1 predates partial-sum cells and cannot be restored; re-record the checkpoint");
+            }
+            if (version != 1 && version != 2)
+            {
+                throw std::invalid_argument("reduce checkpoint image version is unknown");
+            }
             const bool primed = flag_at(1), published = flag_at(2), handles = flag_at(3), snapshot = flag_at(4);
             const auto capacity = size_at(5), leaf_count = size_at(6);
             const auto internals = capacity > 1 ? capacity - 1 : 0;
-            if (size_at(0) != 1 || leaf_count != keys.size() || leaf_count > capacity ||
+            if (leaf_count != keys.size() || leaf_count > capacity ||
                 (capacity != 0 && !std::has_single_bit(capacity)) ||
                 leaf_count > metadata.size() - 7 || internals != metadata.size() - 7 - leaf_count ||
                 (!primed && leaf_count != 0) || (!published && (capacity != 0 || leaf_count != 0)) ||
                 (!handles && (published || primed)) || (snapshot && !published) ||
-                image.endpoints.size() < (snapshot ? 2U : 1U))
+                (lifted && published && !snapshot) || image.endpoints.size() < (snapshot ? 2U : 1U))
             {
                 throw std::invalid_argument("reduce checkpoint topology is inconsistent");
             }
@@ -1660,11 +1950,9 @@ namespace hgraph
                 if (live != needed) { throw std::invalid_argument("reduce checkpoint combiner topology differs"); }
                 if (live) { positions.push_back(position); }
             }
-            const auto first_lifted = snapshot ? 2U : 1U;
-            if ((context.spec.lifted_kernel != nullptr &&
-                 (!image.children.empty() || image.endpoints.size() != first_lifted + positions.size())) ||
-                (context.spec.lifted_kernel == nullptr &&
-                 (image.children.size() != positions.size() || image.endpoints.size() != first_lifted)))
+            const auto owned_endpoints = snapshot ? 2U : 1U;
+            if (image.endpoints.size() != owned_endpoints ||
+                (lifted ? !image.children.empty() : image.children.size() != positions.size()))
             {
                 throw std::invalid_argument("reduce checkpoint combiner inventory differs");
             }
@@ -1677,43 +1965,57 @@ namespace hgraph
                     throw std::invalid_argument("reduce checkpoint combiner identity differs");
                 }
             }
-            storage.initialise(context.graph_layout);
-            auto &bank = storage.combiner_banks[storage.current_bank];
-            bank.reserve_to(internals);
-            storage.combiners.resize(internals, nullptr);
-            for (const auto position : positions)
+            storage.initialise(context.graph_layout, lifted);
+            if (lifted)
             {
-                auto &entry = bank.construct_at(position);
-                storage.combiners[position] = &entry;
-                entry.graph = context.spec.child.graph_builder.make_nested_graph(
-                    view.pointer(), bank.graph_memory(position), context.graph_layout);
-                if (context.spec.child.output_binding->kind != NestedGraphOutputBinding::Kind::ParentInput)
+                // Cells are derived state: planned here, recomputed from the
+                // restored leaves by start_restored_reduce (RFC 0047).
+                std::vector<Value> cells;
+                cells.reserve(internals);
+                for (std::size_t position = 0; position < internals; ++position)
                 {
-                    entry.output = walk_ts_path(entry.graph.view()
-                        .node_at(context.spec.child.output_binding->source.node).output(time),
-                        context.spec.child.output_binding->source.path).handle();
+                    cells.emplace_back(context.cell_binding);
                 }
+                storage.lifted_cells = std::move(cells);
+                storage.lifted_live.assign(internals, 0);
+                storage.lifted_valid.assign(internals, 0);
+                storage.combiners.assign(internals, static_cast<CombinerEntry *>(nullptr));
+                for (const auto position : positions) { storage.lifted_live[position] = 1; }
             }
-            // Producers first: child inputs see restored current values, but no
-            // sampled bootstrap evaluation is allowed to re-run their history.
-            for (std::size_t i = positions.size(); i-- > 0;)
+            else
             {
-                const auto position = positions[i];
-                auto &entry = *storage.combiners[position];
-                if (context.spec.lifted_kernel != nullptr)
+                auto &bank = storage.combiner_banks[storage.current_bank];
+                bank.reserve_to(internals);
+                storage.combiners.resize(internals, nullptr);
+                for (const auto position : positions)
                 {
-                    restore_ts_checkpoint(entry.output.data_view(), image.endpoints[first_lifted + i]);
+                    auto &entry = bank.construct_at(position);
+                    storage.combiners[position] = &entry;
+                    entry.graph = context.spec.child.graph_builder.make_nested_graph(
+                        view.pointer(), bank.graph_memory(position), context.graph_layout);
+                    if (context.spec.child.output_binding->kind != NestedGraphOutputBinding::Kind::ParentInput)
+                    {
+                        entry.output = walk_ts_path(entry.graph.view()
+                            .node_at(context.spec.child.output_binding->source.node).output(time),
+                            context.spec.child.output_binding->source.path).handle();
+                    }
                 }
-                else
+                // Producers first: child inputs see restored current values, but no
+                // sampled bootstrap evaluation is allowed to re-run their history.
+                if (!prepare_graph && !positions.empty())
                 {
-                    if (!prepare_graph) { throw std::logic_error("reduce checkpoint graph restore callback is missing"); }
-                    prepare_graph(entry.graph.view(), *image.children[i].graph, time);
+                    throw std::logic_error("reduce checkpoint graph restore callback is missing");
+                }
+                for (std::size_t i = positions.size(); i-- > 0;)
+                {
+                    prepare_graph(storage.combiners[positions[i]]->graph.view(), *image.children[i].graph, time);
                 }
             }
             if (snapshot)
             {
                 storage.publication_snapshot.emplace(view.schema()->output_schema);
                 restore_ts_checkpoint(storage.publication_snapshot->data_view(), image.endpoints[1]);
+                if (lifted) { acquire_lifted_publication_route(storage); }
             }
             storage.primed = primed;
             storage.published = published;
@@ -1763,6 +2065,27 @@ namespace hgraph
                     throw std::invalid_argument("reduce checkpoint leaf is missing");
                 storage.dense_to_source_handle[leaf] = source.handle();
             }
+            if (context.spec.lifted_kernel != nullptr)
+            {
+                // The snapshot is the published identity for every shape
+                // (RFC 0047); the root record lets the next rebuild tell a
+                // re-point from an unchanged root.
+                const Aggregate root = root_aggregate(context, storage);
+                TSOutputHandle  source{};
+                if (storage.published && root.kind != Aggregate::Kind::Node)
+                {
+                    TSOutputView resolved = aggregate_output(view, context, storage, root, time);
+                    if (resolved.bound()) { source = resolved.handle(); }
+                }
+                storage.lifted_root_kind           = root.kind;
+                storage.lifted_root_index          = root.index;
+                storage.lifted_root_recorded       = storage.published;
+                storage.pending_publication_source = source;
+                view.output(time).restore_checkpoint_forwarding(
+                    storage.publication_snapshot_active ? storage.publication_snapshot->view(time) : TSOutputView{},
+                    image.endpoints[0]);
+                return;
+            }
             // Fix the producer side of each chain before binding its consumer.
             for (std::size_t i = image.children.size(); i-- > 0;)
             {
@@ -1788,8 +2111,26 @@ namespace hgraph
         {
             const auto typed = view.as<ReduceNodeView>();
             const auto &context = *static_cast<const ReduceNodeContext *>(typed.internal_context());
-            if (context.spec.lifted_kernel != nullptr) { return; }
             auto &storage = *MemoryUtils::cast<ReduceNodeStorage>(typed.internal_storage());
+            if (context.spec.lifted_kernel != nullptr)
+            {
+                // Partial sums are derived state (RFC 0047): recompute every
+                // live cell from the restored leaves, deepest first, without
+                // publishing — the restored snapshot already holds the root.
+                if (!storage.combiners.empty())
+                {
+                    LiftedOperands operands = lifted_operands(view, storage, time);
+                    for (std::size_t position = storage.combiners.size(); position-- > 0;)
+                    {
+                        if (storage.lifted_live[position] != 0)
+                        {
+                            evaluate_lifted_cell(context, storage, operands, position, time);
+                        }
+                    }
+                }
+                storage.lifted_root_dirty = false;
+                return;
+            }
             for (std::size_t position = storage.combiners.size(); position-- > 0;)
                 if (auto *entry = storage.combiners[position]) { entry->graph.view().start(time); }
         }
@@ -1812,15 +2153,11 @@ namespace hgraph
         void visit_reduce_checkpoint_endpoints(const NodeView &view, const VisitCheckpointEndpoint &visit)
         {
             const auto typed = view.as<ReduceNodeView>();
-            const auto &context = *static_cast<const ReduceNodeContext *>(typed.internal_context());
             const auto &storage = *MemoryUtils::cast<ReduceNodeStorage>(typed.internal_storage());
+            // The snapshot is the one hidden endpoint: a lifted reduce's
+            // partial sums are cells, not outputs (RFC 0047), so nothing
+            // below the root carries a reference identity.
             if (storage.publication_snapshot) { visit(0, storage.publication_snapshot->view(MIN_DT).handle()); }
-            // Lifted combiners have endpoint images rather than graph images.
-            // Their outputs still need stable reference identities.
-            if (context.spec.lifted_kernel != nullptr)
-                for (std::size_t position = 0; position < storage.combiners.size(); ++position)
-                    if (const auto *entry = storage.combiners[position]; entry != nullptr && entry->output.bound())
-                        visit(position + 1, entry->output);
         }
 
         [[nodiscard]] const NodeCheckpointOps &reduce_checkpoint_ops() noexcept
@@ -1876,6 +2213,10 @@ namespace hgraph
                     throw std::invalid_argument(
                         "reduce_node parent-input combiner output must select lhs or rhs");
                 }
+                if (spec.lifted_kernel != nullptr)
+                {
+                    throw std::invalid_argument("reduce_node lifted combiner must publish its own output");
+                }
             }
             else if (output_binding.source.node >= child_node_count)
             {
@@ -1919,11 +2260,11 @@ namespace hgraph
 
     std::size_t ReduceNodeView::combiner_count() const noexcept
     {
-        const auto &combiners = MemoryUtils::cast<ReduceNodeStorage>(storage_)->combiners;
-        std::size_t count     = 0;
-        for (const auto *entry : combiners)
+        const auto &storage = *MemoryUtils::cast<ReduceNodeStorage>(storage_);
+        std::size_t count   = 0;
+        for (std::size_t position = 0; position < storage.combiners.size(); ++position)
         {
-            if (entry != nullptr) { ++count; }
+            if (combiner_live(storage, position)) { ++count; }
         }
         return count;
     }
@@ -1978,6 +2319,28 @@ namespace hgraph
             reduce_collection_ops_for(*descriptor.schema.input_schema->fields()[0].type);
         const ReducePublicationOps &publication_ops =
             reduce_publication_ops_for(*descriptor.schema.output_schema);
+        // RFC 0047: the partial-sum cells hold the kernel's result value
+        // type, planned once per node type.
+        ValueTypeRef cell_binding{};
+        if (spec.lifted_kernel != nullptr)
+        {
+            const auto *result_schema = spec.lifted_kernel->output_schema();
+            if (result_schema == nullptr || result_schema->value_type == nullptr)
+            {
+                throw std::invalid_argument("reduce_node lifted combiner has no scalar result schema");
+            }
+            cell_binding = ValuePlanFactory::instance().type_for(result_schema->value_type);
+            if (!cell_binding)
+            {
+                throw std::invalid_argument("reduce_node lifted combiner result type has no value plan");
+            }
+            // The per-evaluation cell write uses the trusted mutation re-tag;
+            // prove its precondition once here for every cell of this binding.
+            if (Value probe{cell_binding}; !probe.view().can_begin_mutation())
+            {
+                throw std::invalid_argument("reduce_node lifted combiner result type does not allow in-place mutation");
+            }
+        }
 
         descriptor.callbacks.stop            = &reduce_node_stop;
         descriptor.ops.evaluate_impl         = &reduce_evaluate_impl;
@@ -1986,7 +2349,7 @@ namespace hgraph
         descriptor.ops.checkpoint_ops = &reduce_checkpoint_ops();
         ReduceNodeContextPtr context = make_reduce_node_context(
             std::move(spec), descriptor.storage_plan->component(reduce_storage_field_name).offset,
-            graph_layout, collection_ops, publication_ops);
+            graph_layout, collection_ops, publication_ops, cell_binding);
         descriptor.ops.extended_view_context = descriptor.storage_plan;
         descriptor.ops.child_graph_inspection = ChildGraphInspectionOps{
             .visit_impl = &visit_reduce_child,
