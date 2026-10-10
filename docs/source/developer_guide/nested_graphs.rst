@@ -533,7 +533,17 @@ graph ops (no separate engine/clock object; see the recorded decision):
   per call (``NodeView::graph()`` goes through the node ops table); the
   2026-10-07 bake-off profile put this function at about 17% of a dense
   keyed-``map_`` run, and it used to resolve the parent graph twice (clamp,
-  then schedule).
+  then schedule). The child-schedule observer receives, besides the time, a
+  ``due_now`` flag that the push derives from the clamp it has already made
+  (``when == parent evaluation time``). A keyed parent uses it to record a
+  current-cycle child as a **bit in a due-now slot set** instead of a heap
+  entry: on a keyed source write every element notifies its child while the
+  map is idle, and the heap cost two ``O(log n)`` operations per child per
+  cycle (plus a clock lookup per push in ``mesh``) for a set whose order is
+  irrelevant. Future deadlines keep using the heap; the bit set is drained
+  into the evaluation candidates at the start of the next map evaluation,
+  bits raised during an evaluation are dropped exactly as the heap's stale
+  due entries were, and removal of an entry clears its bit.
 
 The push tells a keyed parent *when* but not *which child*. For ``map_`` and
 ``mesh_`` that identity matters: both operators keep sparse child worklists,
@@ -746,6 +756,15 @@ input(s) — an operator like the rest of the family
   publish the removed delta, but leaves the ``MapKeyEntry`` constructed in its
   stable slot. The key set's later ``on_erase`` callback runs the destructor;
   insertion before that callback resurrects the same stopped graph and slot.
+  The entry also caches the **dict slot of its parent output element**
+  (``MapKeyEntry::output_slot``, likewise ``MeshEntry``): the element is
+  allocated once per key and ``KeySlotStore`` never moves a live key, so after
+  the first lookup the per-tick finalisation of a child's output
+  (``finalize_mapped_child_output``) reaches the element by slot plus one key
+  equality check instead of a hash probe; a miss (the sentinel after a
+  rebuild, or a slot that no longer holds the key) falls back to the lookup
+  and refreshes the hint. This was about 10% of the dense keyed bake-off cells
+  (2026-10-10 profile).
   On node stop, ``map_`` stops every child, erases the owned TSD elements, and
   clears the output, while entry destruction remains part of node-storage
   disposal after graph-wide subscriptions have been released.

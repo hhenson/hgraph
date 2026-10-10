@@ -128,7 +128,7 @@ namespace hgraph
         }
 
         /** Parent kind encoded into the parent identity pointer. */
-        [[nodiscard]] TSParentLinkKind kind() const noexcept;
+        [[nodiscard]] TSParentLinkKind kind() const noexcept { return parent_.enum_value(); }
 
         /** True when this child has either a TSData parent or an endpoint parent. */
         [[nodiscard]] bool has_parent() const noexcept;
@@ -156,6 +156,8 @@ namespace hgraph
 
         /** Endpoint parent, or null when this link targets TSData or is empty. */
         [[nodiscard]] TSDataParent *parent_endpoint() const noexcept;
+        /** The TSData / endpoint-parent bubble behind ``notify_child_modified``. */
+        void notify_child_modified_slow(DateTime mutation_time) const;
 
         /** Input endpoint parent, or null when this link targets a different parent kind. */
         [[nodiscard]] TSInput *parent_input() const noexcept;
@@ -181,8 +183,19 @@ namespace hgraph
         /**
          * Record a child modification against the parent and bubble that
          * modification towards the root. No-op for a root link.
+         *
+         * Inline for the two terminal cases that end every bubble: no parent
+         * and a node-owned endpoint. Every write to a node's own output or
+         * input root reaches one of them, and the out-of-line walk used to
+         * decode the kind up to four times before returning (4.5% self time
+         * of a Python node tick in the 2026-10-10 bake-off profile).
          */
-        void notify_child_modified(DateTime mutation_time) const;
+        void notify_child_modified(DateTime mutation_time) const
+        {
+            const TSParentLinkKind parent_kind = kind();
+            if (parent_kind == TSParentLinkKind::None || parent_kind == TSParentLinkKind::NodeEndpoint) { return; }
+            notify_child_modified_slow(mutation_time);
+        }
 
         /**
          * Return parent-relative navigation ids from the root to this child.

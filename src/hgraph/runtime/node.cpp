@@ -81,9 +81,12 @@ namespace hgraph
         void schedule_node_from_storage(GraphValue *graph, std::size_t node_index, DateTime modified_time)
         {
             if (graph == nullptr) { return; }
-            const DateTime when =
-                modified_time != MIN_DT ? std::max(modified_time, graph->view().evaluation_time()) : graph->view().evaluation_time();
-            graph->schedule_node(node_index, when);
+            // One graph view for the clamp and the schedule: this is the
+            // tail of every input notification, and it used to build the
+            // view (an ops-table hop) twice, three times with a null time.
+            const GraphView view = graph->view();
+            const DateTime  now  = view.evaluation_time();
+            view.schedule_node(node_index, modified_time != MIN_DT ? std::max(modified_time, now) : now);
         }
 
         struct NodeRuntimeLayout
