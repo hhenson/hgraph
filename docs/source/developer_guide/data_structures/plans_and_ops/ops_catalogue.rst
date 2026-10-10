@@ -140,7 +140,7 @@ values below are the ones the headers declare.
      - 9
      - ``include/hgraph/types/value/value_ops.h``
    * - ``TS_DATA_OPS_ABI_VERSION``
-     - 21
+     - 24
      - ``include/hgraph/types/time_series/ts_type_ref.h``
    * - ``NODE_OPS_ABI_VERSION``
      - 8

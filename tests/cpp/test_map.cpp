@@ -3622,8 +3622,8 @@ TEST_CASE("map_ over a fixed-empty TSL validates the sink input schema") {
     using namespace hgraph;
     stdlib::register_standard_operators();
 
-    const auto input = values<Value>(list_delta<TS<Int>>({}));
-    CHECK_OUTPUT(eval_node<MapFixedEmptyTslSinkG>(input), values<Value>(none));
+    const auto input = values<Value>(list_delta<TS<Int>>({}), list_delta<TS<Int>>({}));
+    CHECK_OUTPUT(eval_node<MapFixedEmptyTslSinkG>(input), values<Value>(list_delta<TS<Int>>({}), none));
     REQUIRE_THROWS(eval_node<MapFixedEmptyTslMismatchedSinkG>(input));
 }
 

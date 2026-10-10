@@ -2,6 +2,7 @@
 #include <cleanup.h>
 #include <delta-positive.h>
 #include <eval-profile-errors.h>
+#include <empty-delta-validity.h>
 #include "syntax/parser.h"
 #include "semantics/resolve.h"
 #include "ir/lower.h"
@@ -76,4 +77,15 @@ TEST_CASE("generated shared eval admission and delta positive controls", "[negat
     REQUIRE(positives.size() == 1U);
     INFO(positives.front().message);
     CHECK(positives.front().passed);
+}
+
+TEST_CASE("generated empty sparse delta validity contract", "[generated][delta][empty-delta]") {
+    hgl::wiring::ensure_session();
+    examples::empty_delta_validity::register_operators();
+    const auto results = run("empty-delta-validity", HGL_EMPTY_DELTA_FILE);
+    REQUIRE(results.size() == 4U);
+    for (const auto &result : results) {
+        INFO(result.name << ": " << result.message);
+        CHECK(result.passed);
+    }
 }

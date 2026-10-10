@@ -934,6 +934,7 @@ namespace hgraph::detail
         TSInputTargetLinkStorage &&other,
         const TSInputTargetLinkStructuralOps &structural_ops) noexcept
         : tracking(std::move(other.tracking)),
+          last_sample_time(std::exchange(other.last_sample_time, MIN_DT)),
           state_(*this),
           structural_ops_(&structural_ops)
     {
@@ -952,6 +953,7 @@ namespace hgraph::detail
             // of the moved-from identity see that source disappear.
             other.structural_ops_->before_move_assignment_source(other);
             tracking = std::move(other.tracking);
+            last_sample_time = std::exchange(other.last_sample_time, MIN_DT);
             state_.move_from(other.state_);
             structural_ops_->resubscribe_after_move_assignment(*this);
         }
@@ -1120,6 +1122,7 @@ namespace hgraph::detail
         }
 
         auto &state = state_;
+        last_sample_time = MIN_DT;
         state.target = target;
         // RFC 0036: whether the bound endpoint can move is a property of the
         // handle chosen here, so it is recorded once per bind / rebind and
@@ -1144,6 +1147,7 @@ namespace hgraph::detail
             sampled && (output.valid() || previous_was_valid || previous_has_published_state);
         if (publish_sampled_transition)
         {
+            if (output.valid()) { last_sample_time = modified_time; }
             structural_ops_->publish_sampled_transition(*this, modified_time);
             record_target_modified(modified_time);
         }
@@ -1177,6 +1181,7 @@ namespace hgraph::detail
 
     void TSInputTargetLinkStorage::detach_target(bool retain_structural_target, DateTime modified_time)
     {
+        last_sample_time = MIN_DT;
         structural_ops_->detach_target(*this, retain_structural_target, modified_time);
         unsubscribe_active_target();
         if (state_.target.bound()) { state_.target.data_view().unsubscribe(&state_); }
@@ -1186,6 +1191,7 @@ namespace hgraph::detail
 
     void TSInputTargetLinkStorage::unbind_noexcept() noexcept
     {
+        last_sample_time = MIN_DT;
         structural_ops_->unbind_noexcept(*this);
         if (state_.active_root_node) { unsubscribe_tree_noexcept(*state_.active_root_node, state_.scheduling_notifier); }
         unsubscribe_handle_noexcept(state_.target, &state_);
@@ -1193,6 +1199,7 @@ namespace hgraph::detail
 
     void TSInputTargetLinkStorage::source_invalidated(const TSDataTracking *source) noexcept
     {
+        last_sample_time = MIN_DT;
         static_cast<void>(source);
         state_.clear_active_observed();
         state_.target.reset();

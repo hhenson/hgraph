@@ -11,6 +11,10 @@
 #include <hgraph/types/registry_reset.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/std/value_util.h>
+#include <hgraph/lib/testing/check_output.h>
+#include <hgraph/lib/testing/eval_node.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -65,7 +69,50 @@ namespace
             if (digits < 4 * 4 * 4 * 4) { sched.schedule(MIN_TD); }
         }
     };
+    // Lifted kernels wired through the operator syntax: an Int add (a
+    // trivially copyable native atomic result) and a Str add (a native
+    // atomic whose assignment is not trivial).
+    struct LiftedIntAddG
+    {
+        static constexpr auto name = "stage6_lifted_int_add_g";
+
+        static Port<TS<Int>> compose(Wiring &, Port<TS<Int>> lhs, Port<TS<Int>> rhs)
+        {
+            using namespace hgraph::stdlib::syntax;
+            return (lhs + rhs).as<TS<Int>>();
+        }
+    };
+
+    struct LiftedStrAddG
+    {
+        static constexpr auto name = "stage6_lifted_str_add_g";
+
+        static Port<TS<Str>> compose(Wiring &, Port<TS<Str>> lhs, Port<TS<Str>> rhs)
+        {
+            using namespace hgraph::stdlib::syntax;
+            return (lhs + rhs).as<TS<Str>>();
+        }
+    };
 }  // namespace
+
+TEST_CASE("prepared routes: lifted kernels write through the prepared output route", "[rfc0008][stage6]")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+
+    // One input ticking while the other is quiet re-evaluates the kernel
+    // with the retained value; a cycle where neither ticks produces no
+    // output tick (the route's record_modified is the same commit the
+    // mutation scope performs).
+    CHECK_OUTPUT((eval_node<LiftedIntAddG>(values<Int>(1, 2, none, none, 5),
+                                           values<Int>(10, none, 30, none, none))),
+                 values<Int>(11, 12, 32, none, 35));
+
+    CHECK_OUTPUT((eval_node<LiftedStrAddG>(values<Str>(Str{"a"}, none, Str{"ccc"}),
+                                           values<Str>(Str{"b"}, Str{"bb"}, none))),
+                 values<Str>(Str{"ab"}, Str{"abb"}, Str{"cccbb"}));
+}
 
 TEST_CASE("prepared routes: native input reads and output writes match the resolving paths", "[rfc0008][stage6]")
 {

@@ -204,9 +204,32 @@ def _type_argument_carrier(value):
     return value if carrier is None else _hgraph.type_carrier(carrier)
 
 
+_ROLE_CACHE = {}
+
+
+def _operator_roles(kind, name):
+    """The registry's answer for ``name``'s type-argument (``kind="carrier"``)
+    or ``WiredFn`` (``kind="wired_fn"``) parameters, cached on the registry
+    generation and the registry's registration generation (which moves with
+    every overload registered, erased or reset, so an overload added later
+    in the same process is seen): every wired Python node asked the registry
+    twice per call for facts that only change when the registry does."""
+    generation = (_hgraph._registry_generation(), _hgraph._operator_registration_generation())
+    key = (kind, name)
+    cached = _ROLE_CACHE.get(key)
+    if cached is None or cached[0] != generation:
+        if kind == "carrier":
+            answer = _hgraph.operator_carrier_parameters(name)
+        else:
+            answer = _hgraph.operator_wired_fn_parameters(name)
+        cached = (generation, answer)
+        _ROLE_CACHE[key] = cached
+    return cached[1]
+
+
 def _apply_type_argument_roles(name, args, kwargs):
     """Convert the arguments at the family's type-argument positions/names."""
-    names, positions = _hgraph.operator_carrier_parameters(name)
+    names, positions = _operator_roles("carrier", name)
     if not names:
         return args, kwargs
     if positions:
@@ -222,7 +245,7 @@ def _apply_type_argument_roles(name, args, kwargs):
 
 def _apply_wired_fn_roles(name, args, kwargs):
     """Erase callable objects only at parameters declared as ``WiredFn``."""
-    names, positions = _hgraph.operator_wired_fn_parameters(name)
+    names, positions = _operator_roles("wired_fn", name)
     if not names:
         return args, kwargs
     from ._graph import _as_wired
@@ -233,7 +256,7 @@ def _apply_wired_fn_roles(name, args, kwargs):
             return _as_wired(value)
         return value
 
-    _, carrier_positions = _hgraph.operator_carrier_parameters(name)
+    _, carrier_positions = _operator_roles("carrier", name)
 
     def fn_position(index, value):
         # Dispatch passes a non-type over a defaulted type argument onto the

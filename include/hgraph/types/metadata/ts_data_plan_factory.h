@@ -75,7 +75,11 @@ namespace hgraph
         [[nodiscard]] TSOutputTypeRef output_type_for(
             const TSValueTypeMetaData *schema,
             ValueStorageVariant requested);
-        /** Atomic or fixed-TSB output role using an explicitly realized value binding. */
+        /** Atomic or fixed-TSB output role using an explicitly realized value
+            binding. Answered from the front cache keyed on (schema, binding,
+            requested variant) before the storage selection runs: the
+            realized construction path (every graph is constructed under its
+            builder's type realization) asked the selection per node. */
         [[nodiscard]] TSOutputTypeRef output_type_for(const TSValueTypeMetaData *schema,
                                                       ValueTypeRef value_binding,
                                                       ValueStorageVariant requested =
@@ -99,6 +103,12 @@ namespace hgraph
         void reset() noexcept;
 
       private:
+        /** The resolution behind the realized ``output_type_for`` (storage
+            selection, realized cache, interning); the public overload fronts
+            it with the requested-variant cache. */
+        [[nodiscard]] TSOutputTypeRef resolve_realized_output_type_for(const TSValueTypeMetaData *schema,
+                                                                       ValueTypeRef value_binding,
+                                                                       ValueStorageVariant requested);
         TSDataPlanFactory() = default;
 
         const MemoryUtils::StoragePlan *synthesise(const TSValueTypeMetaData *schema);

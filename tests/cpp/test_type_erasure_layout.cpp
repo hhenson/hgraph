@@ -88,7 +88,8 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     // the Python-authoring table pointer is gone; a strategy records only its
     // family (python_family, ABI 14) and the bridge maps it to the table.
     // ABI 13 made the Python slots unconditional and opaque.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 23);
+    // ABI 24 distinguishes explicit empty sparse publications from child notifications.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 24);
     static_assert(std::is_same_v<decltype(TSDataLayout::canonical_delta_binding), ValueTypeRef>);
     static_assert(std::is_same_v<decltype(TSDataOps::python_family), PythonTSDataFamily>);
     static_assert(std::is_same_v<decltype(TSDataOps::to_python_impl), PyNewRef (*)(const void *, const void *)>);
@@ -102,7 +103,7 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(sizeof(TSDataObserverSet) == sizeof(void *));
     static_assert(sizeof(TSData) == sizeof(void *) * 3);
     static_assert(sizeof(TSParentLink) == sizeof(void *) * 3);
-    static_assert(sizeof(TSDataTracking) == sizeof(void *) * 5);
+    static_assert(sizeof(TSDataTracking) == sizeof(void *) * 6);
     static_assert(sizeof(TimeSeriesReference) == sizeof(void *) * 5);
 #if defined(__APPLE__) && defined(__aarch64__)
     // 272 -> 280: heterogeneous realized keys store the value binding
@@ -275,16 +276,19 @@ TEST_CASE("dynamic TSL and TSW physical plans retain their baseline layouts")
     const auto &dynamic = factory.data_type_for(dynamic_schema).checked_plan();
     const auto &tick = factory.data_type_for(tick_schema).checked_plan();
     const auto &duration = factory.data_type_for(duration_schema).checked_plan();
-    // 120 = the pre-RFC-0031 96, plus the two structural-delta lengths (live
+    // 128 = the pre-RFC-0031 96, plus the two structural-delta lengths (live
     // and previous) -- the window time reuses the modified-ring header -- plus
     // one pointer to the ordinal snapshot of the modified ring, which exists
     // only for a list that has been read by ordinal. Without it every such
     // read walked the ring from its head: m modified elements cost m * m.
-    REQUIRE(dynamic.layout.size == 120);
+    // ABI 24 adds the 8-byte explicit-empty timestamp to tracking in all
+    // three owned plans. The input link's sample timestamp is separate and
+    // does not contribute to these data-plan sizes.
+    REQUIRE(dynamic.layout.size == 128);
     REQUIRE(dynamic.layout.alignment == 8);
-    REQUIRE(tick.layout.size == 136);
+    REQUIRE(tick.layout.size == 144);
     REQUIRE(tick.layout.alignment == 8);
-    REQUIRE(duration.layout.size == 136);
+    REQUIRE(duration.layout.size == 144);
     REQUIRE(duration.layout.alignment == 8);
 #endif
 }

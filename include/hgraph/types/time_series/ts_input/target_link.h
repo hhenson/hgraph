@@ -175,6 +175,9 @@ namespace hgraph::detail
         [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
 
         TSDataTracking tracking{};
+        // Input sampling is distinct from source modification, including
+        // when both happen at the same time on a fixed collection.
+        DateTime last_sample_time{MIN_DT};
         TSInputTargetLinkState state_;
 
       private:

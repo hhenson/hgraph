@@ -1636,7 +1636,8 @@ TEST_CASE("growing list traces reject gaps and non-tail removals before evaluati
         "delta<list<i64>>(items: [0: 1, 1: 2, 2: 3]), delta<list<i64>>(remove: [0, 2])",
         "delta<list<i64>>(items: [0: 1]), delta<list<i64>>(remove: [1])",
         "delta<list<i64>>(items: [0: 1, 1: 2]), delta<list<i64>>(items: [2: 3], remove: [1])",
-        "delta<list<i64>>()"
+        "delta<list<i64>>(), delta<list<i64>>(items: [1: 1])",
+        "delta<list<i64>>(), delta<list<i64>>(remove: [0])"
     }) {
         Unit unit{"module checks.growing_list\nfn forward(value: list<i64>) -> list<i64> => value\n"
             "test bad { eval(forward, [" + trace + "]) }\n"};

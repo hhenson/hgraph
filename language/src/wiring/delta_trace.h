@@ -30,7 +30,6 @@ namespace hgl::wiring {
                     const auto parts = native.as_bundle();
                     const auto added = parts.at(0).as_set();
                     const auto removed = parts.at(1).as_set();
-                    require(!added.empty() || !removed.empty(), "empty set publication");
                     for (const auto key : added) { ordinary::validate_scalar_key(key); ordinary::validate_complete_value(key, optional); }
                     for (const auto key : removed) { ordinary::validate_scalar_key(key); ordinary::validate_complete_value(key, optional); }
                     for (const auto value : added) {
@@ -47,7 +46,6 @@ namespace hgl::wiring {
                         const auto parts = native.as_bundle();
                         const auto removed = parts.at(0).as_set();
                         const auto modified = parts.at(1).as_map();
-                        require(!removed.empty() || !modified.empty(), "empty growing-list publication");
                         std::size_t retained = length_;
                         for (const auto item : removed) {
                             const auto index = item.checked_as<Int>();
@@ -75,7 +73,6 @@ namespace hgl::wiring {
                         return;
                     }
                     const auto entries = native.as_map();
-                    require(!entries.empty(), "empty fixed-list publication");
                     for (const auto [key, child] : entries) {
                         const auto index = key.checked_as<Int>();
                         require(index >= 0 && static_cast<std::uint64_t>(index) < shape->value_schema->fixed_size,
@@ -86,20 +83,16 @@ namespace hgl::wiring {
                 }
                 case TSTypeKind::TSB: {
                     const auto entries = native.as_bundle();
-                    bool any = false;
                     for (std::size_t i = 0; i < shape->field_count(); ++i) {
                         if (!entries.element_valid(i)) { continue; }
-                        any = true;
                         children_[static_cast<Int>(i)].accept(shape->fields()[i].type, entries.at(i), optional);
                     }
-                    require(any, "empty bundle publication");
                     return;
                 }
                 case TSTypeKind::TSD: {
                     const auto parts = native.as_bundle();
                     const auto removed = parts.at(0).as_set();
                     const auto modified = parts.at(1).as_map();
-                    require(!removed.empty() || !modified.empty(), "empty map publication");
                     for (const auto key : removed) { ordinary::validate_scalar_key(key); ordinary::validate_complete_value(key, optional); }
                     for (const auto [key, child] : modified) { ordinary::validate_scalar_key(key); ordinary::validate_complete_value(key, optional); }
                     for (const auto key : removed) {

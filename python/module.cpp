@@ -183,6 +183,11 @@ NB_MODULE(_hgraph, m)
     bind_state_and_services(m);
 
     m.def("_registry_generation", [] { return python_registry_generation; });
+    // Changes with every operator registration, erase and reset (the Python
+    // wiring keys its per-name role cache on it together with the registry
+    // generation).
+    m.def("_operator_registration_generation",
+          [] { return OperatorRegistry::instance().registration_generation(); });
     m.def("_allocate_python_operator_id", [] {
         if (next_python_operator_id == std::numeric_limits<std::uint64_t>::max()) {
             throw std::overflow_error("Python operator registration identities exhausted");
