@@ -48,8 +48,12 @@ For a reduce whose spec resolved a binary ``lifted_kernel``:
   reduces. After the descending evaluation pass the root cell is copied into
   it with the typed native store and ``record_modified`` (the
   ``Out<TS<T>>::set`` commit), and the node's forwarding output targets that
-  snapshot exactly as it does today after a keyed root re-point. The
-  single-key and empty cases keep aliasing the element or the zero.
+  snapshot exactly as it does today after a keyed root re-point. **One
+  identity for every shape:** the single-key and empty cases are copied into
+  the same snapshot (the element's or the zero's value on their ticks)
+  rather than aliased, so a downstream ``REF`` to a lifted reduce always
+  designates the snapshot and never changes identity as the key count moves
+  through zero and one. The direct aliasing stays for generic combiners.
 * Emission semantics are unchanged: the root ticks on every cycle a live
   leaf ticks, whether or not the sum changed (no test pins this and the
   change is not made here).
@@ -61,13 +65,21 @@ Checkpoint
 
 The lifted image currently stores one endpoint image per combiner
 (``capture_ts_checkpoint(entry->output)``), validated against the exact
-combiner inventory on restore. With cells the image stores the leaf order
-(already present) and the publication snapshot's endpoint only; the cells are
-derived state and are **recomputed on restore** by a full evaluation pass
-over the live combiners, which is deterministic for the kernels in question.
-The reduce image format version moves from ``1`` to ``2``; a ``1`` image of a
-lifted reduce is restored by discarding its combiner endpoints and
-recomputing, so existing checkpoints remain loadable.
+combiner inventory on restore, and ``visit_reduce_checkpoint_endpoints``
+assigns every combiner output a stable ordinal because a downstream ``REF``
+image may locate its target through one. With cells the image stores the
+leaf order (already present) and the publication snapshot's endpoint only;
+the cells are derived state and are **recomputed on restore** by a full
+evaluation pass over the live combiners, which is deterministic for the
+kernels in question. The reduce image format version moves from ``1`` to
+``2``. A version ``1`` image of a lifted reduce is **not** loadable into the
+cell layout: its combiner-endpoint ordinals have no counterpart (a ``REF``
+locator recorded against a combiner output could not be fixed up), so
+restore rejects it with a message naming the node and the image version.
+Generic-combiner images are unaffected. Since the identity change above
+also moves the published endpoint of singleton lifted reduces, this is a
+checkpoint-incompatible change for lifted reduces and must be released as
+one; existing checkpoints of graphs containing them need re-recording.
 
 Invertible kernels (stage 2, optional)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

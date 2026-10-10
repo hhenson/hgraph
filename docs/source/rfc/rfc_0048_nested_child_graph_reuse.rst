@@ -61,6 +61,15 @@ Contract
    the pool instead of destroying, up to the bound (default a small constant
    such as 4; ``switch_`` keeps at most one per case). Destruction happens on
    owner teardown and when the bound is exceeded.
+   **Retirement precedes reset.** A graph enters the pool only when its
+   published endpoints are no longer exposed: ``switch_`` under ``RefCopy``
+   keeps the previous branch alive after stop until the new branch supplies
+   a valid token, and the map/mesh removal keeps a reference-bearing
+   forwarding tree until the key's removal delta has been consumed. Pooling
+   reuses that existing retirement step (the retired generation is reset and
+   pooled at the point where it is destroyed today), so a transition whose
+   replacement terminal is initially invalid still observes the old
+   reference until the new one is valid.
 3. **Semantics unchanged.** A reused graph is indistinguishable from a
    constructed one: same initial validity, same first-cycle behaviour, same
    checkpoint image (a pooled graph is not part of the image).
@@ -68,10 +77,21 @@ Contract
 Design notes
 ------------
 
-* ``InPlaceGraphSlotStore`` keeps graph memory inline in the owner's slot
-  store; pooled graphs stay in their slots (a slot in the pending-erase
-  state) rather than moving, so the pool is a list of slot indices and the
-  reuse path is the existing resurrect path plus ``reset_for_reuse``.
+* Graph storage must be **detached from key-slot lifetime**. Today
+  ``InPlaceGraphSlotStore`` keeps a child's graph memory inline in the key
+  slot; a pending-erase slot still holds and indexes its old key and is not
+  returned to the free list until ``erase_pending`` runs ``on_erase``, so a
+  graph parked there can only serve the same key again (the current
+  resurrect window) and keeping it parked would block the slot for new
+  keys. The pool therefore needs its own graph store: a slot store of graph
+  memory indexed from the key entry (one index per entry), with its own
+  free list. Key removal follows the documented protocol unchanged (stop,
+  unsubscribe, ``on_erase`` destroys the key entry), while the entry's graph
+  index is handed to the pool instead of the graph being destroyed; a new
+  key takes a pooled graph index or constructs into a fresh graph slot. The
+  reuse path is then bind-external-edges plus ``reset_for_reuse`` plus
+  start. ``switch_`` already owns its branch memory per case and needs no
+  indirection.
 * For ``switch_`` the branch graph memory is owned per case; pooling keeps
   the last graph of each case stopped and reset instead of destroying it.
 * The reset op is the risk: every node front-end (static, lifted, Python
