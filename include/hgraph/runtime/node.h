@@ -39,6 +39,8 @@
 namespace hgraph
 {
     class TypeRealizationSnapshot;
+    namespace node_runtime_detail { struct NodeRuntimeMetadata; }
+
     class GraphValue;
     class GraphView;
     class GraphBuilder;
@@ -594,8 +596,12 @@ namespace hgraph
         TSEndpointSchema       output_endpoint_{};
         ValueStorageVariant    output_value_storage_{
             ValueStorageVariant::Native};
-        std::string            label_{};
-        NodeCheckpointIdentity checkpoint_identity_{};
+        // Semantic field presence selects the cold snapshot payload. The tag
+        // fits beside the storage policy; no payload selection occurs per tick.
+        std::uint8_t           metadata_fields_{0};
+        // Runtime instances and builder copies share immutable diagnostics.
+        // Setters detach shared snapshots and may edit builder-exclusive ones.
+        std::shared_ptr<node_runtime_detail::NodeRuntimeMetadata> metadata_{};
         Value                  scalars_{};
 
       public:

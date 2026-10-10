@@ -554,3 +554,156 @@ TEST_CASE("GraphExecutorValue runs the graph through the type-erased executor vi
     REQUIRE(output.value().checked_as<std::int32_t>() == 10);
     REQUIRE_FALSE(graph.started());
 }
+
+TEST_CASE("node cold metadata snapshots survive builder mutation and destruction", "[node][metadata]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *ts_int = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    NodeValue first;
+    NodeValue second;
+    {
+        auto builder = source_node(ts_int, 41);
+        builder.label("a long runtime label that exceeds small string storage");
+        builder.checkpoint_identity(NodeCheckpointIdentity{
+            .component = "original_component", .id = "original_id", .signature = "original_signature",
+            .refusal = "original_refusal", .transient = true, .input_components = {"upstream"}});
+        first = builder.make_node();
+        auto copied = builder;
+        builder.label("replacement_label");
+        builder.checkpoint_identity(NodeCheckpointIdentity{.component = "replacement_component", .id = "replacement_id"});
+        second = builder.make_node();
+        REQUIRE(copied.label() == "a long runtime label that exceeds small string storage");
+        REQUIRE(copied.checkpoint_identity().id == "original_id");
+        auto duplicate = copied.make_node();
+        // The identities are immutable and have a single owner snapshot across
+        // runtime instances. This catches an accidental return to per-instance copies.
+        REQUIRE(&first.view().checkpoint_identity() == &duplicate.view().checkpoint_identity());
+        REQUIRE(first.view().label().data() == duplicate.view().label().data());
+    }
+    REQUIRE(first.view().label() == "a long runtime label that exceeds small string storage");
+    auto first_view = first.view();
+    const auto &identity = first_view.checkpoint_identity();
+    REQUIRE(identity.component == "original_component");
+    REQUIRE(identity.id == "original_id");
+    REQUIRE(identity.signature == "original_signature");
+    REQUIRE(identity.refusal == "original_refusal");
+    REQUIRE(identity.transient);
+    REQUIRE(identity.input_components == std::vector<std::string>{"upstream"});
+    REQUIRE(second.view().label() == "replacement_label");
+    REQUIRE(second.view().checkpoint_identity().component == "replacement_component");
+    REQUIRE(second.view().checkpoint_identity().id == "replacement_id");
+    REQUIRE_FALSE(second.view().checkpoint_identity().transient);
+    REQUIRE(second.view().checkpoint_identity().input_components.empty());
+    first_view.start(MIN_ST);
+    first_view.evaluate(MIN_ST);
+    REQUIRE(first_view.output(MIN_ST).value().checked_as<std::int32_t>() == 41);
+    first_view.stop(MIN_ST);
+}
+
+TEST_CASE("default node diagnostics and empty labels retain schema names", "[node][metadata]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *ts_int = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    auto builder = source_node(ts_int, 42);
+    REQUIRE(builder.label().empty());
+    auto original = builder.make_node();
+    REQUIRE(original.view().label() == "source");
+    REQUIRE(original.view().checkpoint_identity().component.empty());
+    REQUIRE(original.view().checkpoint_identity().id.empty());
+    REQUIRE_FALSE(original.view().checkpoint_identity().transient);
+    builder.label("custom");
+    builder.label("");
+    auto reset = builder.make_node();
+    REQUIRE(reset.view().label() == "source");
+    REQUIRE(reset.view().checkpoint_identity().id.empty());
+    auto captured = builder.with_error_capture(node_error_ts_meta()).make_node();
+    REQUIRE(captured.view().label() == "source");
+}
+
+
+TEST_CASE("empty schema fallback labels borrow registry-owned storage", "[node][metadata]")
+{
+    using namespace hgraph;
+    NodeValue node;
+    {
+        // Keep capacity so assigning below overwrites the exact caller buffer
+        // that supplied the empty name; a borrowed caller pointer is observable.
+        std::string caller_name{"reserved caller-owned schema name storage"};
+        caller_name.clear();
+        NodeTypeMetaData schema;
+        schema.display_name = caller_name.c_str();
+        auto builder = NodeBuilder::native(std::move(schema), NodeCallbacks{});
+        node = builder.make_node();
+        caller_name = "caller buffer changed";
+        REQUIRE(node.view().label().empty());
+        REQUIRE(std::string_view{node.view().schema()->display_name}.empty());
+    }
+    REQUIRE(node.view().label().empty());
+    REQUIRE(std::string_view{node.view().schema()->display_name}.empty());
+}
+
+TEST_CASE("node metadata edits preserve all earlier field combinations", "[node][metadata]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *ts_int = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    auto builder = source_node(ts_int, 43);
+    builder.label("label only");
+    auto label_only = builder.make_node();
+    builder.checkpoint_identity({.id = "checkpoint"});
+    auto both = builder.make_node();
+    builder.label("");
+    auto checkpoint_only = builder.make_node();
+    auto copied = builder;
+    builder.checkpoint_identity({});
+    auto neither = builder.make_node();
+    REQUIRE(label_only.view().label() == "label only");
+    REQUIRE(label_only.view().checkpoint_identity().id.empty());
+    REQUIRE(both.view().label() == "label only");
+    REQUIRE(both.view().checkpoint_identity().id == "checkpoint");
+    REQUIRE(checkpoint_only.view().label() == "source");
+    REQUIRE(checkpoint_only.view().checkpoint_identity().id == "checkpoint");
+    REQUIRE(neither.view().label() == "source");
+    REQUIRE(neither.view().checkpoint_identity().id.empty());
+    REQUIRE(copied.checkpoint_identity().id == "checkpoint");
+
+    // Exclusive builder edits use the same semantics before any runtime exists.
+    builder.checkpoint_identity({.id = "first", .transient = true});
+    builder.checkpoint_identity({.id = "second"});
+    builder.label("first label");
+    builder.label("second label");
+    builder.label("");
+    REQUIRE(builder.checkpoint_identity().id == "second");
+    REQUIRE_FALSE(builder.checkpoint_identity().transient);
+    builder.label("final label");
+    builder.checkpoint_identity({});
+    REQUIRE(builder.label() == "final label");
+    REQUIRE(builder.checkpoint_identity().id.empty());
+    builder.checkpoint_identity({});
+    auto final_node = builder.make_node();
+    REQUIRE(final_node.view().label() == "final label");
+    REQUIRE(final_node.view().checkpoint_identity().id.empty());
+}
+
+TEST_CASE("moved-from node builder metadata queries and edits remain safe", "[node][metadata]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *ts_int = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    auto builder = source_node(ts_int, 44);
+    builder.label("label").checkpoint_identity({.id = "checkpoint"});
+    auto moved = std::move(builder);
+    REQUIRE(builder.label().empty());
+    REQUIRE(builder.checkpoint_identity().id.empty());
+    builder.label("new label");
+    builder.checkpoint_identity({.id = "new checkpoint"});
+    REQUIRE(builder.label() == "new label");
+    REQUIRE(builder.checkpoint_identity().id == "new checkpoint");
+    REQUIRE(moved.label() == "label");
+    REQUIRE(moved.checkpoint_identity().id == "checkpoint");
+    auto captured = moved.with_error_capture(node_error_ts_meta()).make_node();
+    REQUIRE(captured.view().label() == "label");
+    REQUIRE(captured.view().checkpoint_identity().id == "checkpoint");
+}

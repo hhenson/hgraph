@@ -11,6 +11,26 @@ The C++ runtime should be organized around stable ownership boundaries:
 - lifecycle hooks,
 - optional Python integration.
 
+Node Metadata Ownership
+-----------------------
+
+Custom node labels and checkpoint identities live in shared snapshots outside
+the graph's fixed node storage. Runtime instances keep their snapshot after a
+wiring builder is edited or destroyed. Builder copies share it until a setter
+detaches; a builder that is the sole owner can update its existing payload.
+Builder mutation is a wiring-time operation and is not concurrent.
+
+Snapshots allocate only the semantic fields present: a label, a checkpoint
+identity, or both. Empty labels use the default name owned by the interned node
+context; an empty identity uses a canonical immutable value. Node evaluation
+does not select or copy these payloads. Diagnostic and checkpoint queries use
+the existing node operations.
+
+Fixed storage metrics exclude shared metadata and its ownership control block.
+Measure live allocation bytes with wiring builders released as well as retained:
+sharing saves copies across graph instances, but a single runtime with both
+custom fields can retain some extra bytes compared with embedding them.
+
 Global State Lifecycle
 ----------------------
 
