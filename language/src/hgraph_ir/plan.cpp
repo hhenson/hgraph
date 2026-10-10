@@ -18,7 +18,11 @@ namespace hgl::hgraph_ir
         class Planner
         {
           public:
-            Planner(gir::Module &graph, syntax::DiagnosticSink &diagnostics) : graph_(graph), diagnostics_(diagnostics) {}
+            Planner(gir::Module &graph, syntax::DiagnosticSink &diagnostics) : graph_(graph), diagnostics_(diagnostics) {
+                for (const auto &native : graph.native_types) {
+                    if (native.atomic_value) { native_types_.insert(native.canonical_identity); }
+                }
+            }
             void run() {
                 try {
                     graph_.callable_order = order_callables();
@@ -103,6 +107,7 @@ namespace hgl::hgraph_ir
                                     SourceRange fallback);
             RuntimeInfo     runtime_info(gir::CallableId decl);
             gir::CallableId current_callable_{};
+            std::unordered_set<std::string_view> native_types_{};
             void            validate_traversal(gir::ValueId id) {
                 const auto &iterator = planned_value(id, {});
                 if (iterator.phase != hir::Phase::Wiring) return;
@@ -635,14 +640,16 @@ namespace hgl::hgraph_ir
                 if (binding.kind != expected) { backend(binding.range, "hgraph IR runtime parameter has the wrong binding kind"); }
                 const gir::Type type               = graph_type(parameter.type, planned.range);
                 const bool      unresolved_generic = type.kind == hir::TypeKind::Symbol && type.binding.valid();
+                const bool declared_native = type.kind == hir::TypeKind::Symbol && native_types_.contains(type.nominal_identity);
                 const bool declared_enum = type.kind == hir::TypeKind::Symbol && std::ranges::any_of(graph_.enums, [&](const auto &item) { return item.identity == type.nominal_identity; });
                 const bool declared_struct = type.kind == hir::TypeKind::Symbol && std::ranges::any_of(graph_.structures, [&](const auto &item) {
                     return item.identity == type.nominal_identity && (parameter.is_const || !item.abstract);
                 });
                 if (type.kind != hir::TypeKind::Scalar && type.kind != hir::TypeKind::Atomic && type.kind != hir::TypeKind::Map &&
                     type.kind != hir::TypeKind::Set && type.kind != hir::TypeKind::List && type.kind != hir::TypeKind::Rolling &&
-                    type.kind != hir::TypeKind::Reference && type.kind != hir::TypeKind::Signal && type.kind != hir::TypeKind::Tuple &&
-                    !(parameter.is_const && type.kind == hir::TypeKind::Delta) && !unresolved_generic && !declared_enum && !declared_struct) {
+                    type.kind != hir::TypeKind::Reference && type.kind != hir::TypeKind::Signal &&
+                    type.kind != hir::TypeKind::Tuple && !(parameter.is_const && type.kind == hir::TypeKind::Delta) &&
+                    !unresolved_generic && !declared_enum && !declared_struct && !declared_native) {
                     backend(graph_type(parameter.type, planned.range).range,
                             "the runtime-node slice supports scalar, atomic, concrete struct, tuple, collection, ref, and signal parameters");
                 }

@@ -77,6 +77,8 @@ namespace hgl::descriptor
         SchemaId                  size{no_schema_id};
         SchemaId                  min_size{no_schema_id};
         bool                      unbounded{false};
+        /// A declared ordinary native scalar, rather than a generic/struct symbol.
+        bool native_atomic{false};
 
         friend bool operator==(const TypeRecord &, const TypeRecord &) = default;
     };
@@ -91,6 +93,7 @@ namespace hgl::descriptor
         Sequence,
         Tuple,
         Construct,
+        Call,
     };
 
     struct ConstantElement
@@ -117,6 +120,7 @@ namespace hgl::descriptor
         ConstantExpressionCategory       category{ConstantExpressionCategory::Literal};
         std::optional<ir::hir::Constant> literal{};
         std::string                      parameter_identity{};
+        std::string                      callable_identity{};
         std::string                      operator_spelling{};
         SchemaId                         lhs{no_schema_id};
         SchemaId                         rhs{no_schema_id};
@@ -272,6 +276,8 @@ namespace hgl::descriptor
         AtomicValue,
     };
 
+    using NativeAtomicValueContract = NativeValueCapabilities;
+
     /// A reviewed native type associated with a nominal HGL identity. Opaque
     /// state never crosses a temporal port; an atomic value additionally needs
     /// the hgraph value/storage operations described by the native interface.
@@ -281,6 +287,9 @@ namespace hgl::descriptor
         std::string        identity{};
         std::string        cpp_type{};
         std::string        public_header{};
+        std::string                              canonical_identity{};
+        std::optional<NativeAtomicValueContract> value_contract{};
+        bool                                     exported{false};
 
         friend bool operator==(const NativeTypeDeclaration &, const NativeTypeDeclaration &) = default;
     };

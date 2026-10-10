@@ -12,6 +12,182 @@
 #include <iostream>
 #include <type_traits>
 
+namespace native_binding_test
+{
+    struct CopyOnly
+    {
+        std::string text;
+        CopyOnly() = delete;
+        explicit CopyOnly(std::string value) : text{std::move(value)} {}
+        CopyOnly(const CopyOnly &)                               = default;
+        CopyOnly            &operator=(const CopyOnly &)         = delete;
+        auto                 operator<=>(const CopyOnly &) const = default;
+        friend std::ostream &operator<<(std::ostream &out, const CopyOnly &value) { return out << value.text; }
+    };
+    struct Retained
+    {
+        std::string          text;
+        auto                 operator<=>(const Retained &) const = default;
+        friend std::ostream &operator<<(std::ostream &out, const Retained &value) { return out << value.text; }
+    };
+    struct AssignmentMissing
+    {
+        AssignmentMissing()                                       = default;
+        AssignmentMissing(const AssignmentMissing &)              = default;
+        AssignmentMissing   &operator=(const AssignmentMissing &) = delete;
+        friend std::ostream &operator<<(std::ostream &out, const AssignmentMissing &) { return out << "value"; }
+    };
+    struct Ordered
+    {
+        std::string          text;
+        auto                 operator<=>(const Ordered &) const = default;
+        friend std::ostream &operator<<(std::ostream &out, const Ordered &value) { return out << value.text; }
+    };
+    struct TextOnly
+    {
+        std::string          text;
+        friend std::ostream &operator<<(std::ostream &out, const TextOnly &value) { return out << value.text; }
+    };
+}  // namespace native_binding_test
+template <> struct std::hash<native_binding_test::CopyOnly>
+{
+    std::size_t operator()(const native_binding_test::CopyOnly &value) const noexcept {
+        return std::hash<std::string>{}(value.text);
+    }
+};
+template <> struct std::hash<native_binding_test::Retained>
+{
+    std::size_t operator()(const native_binding_test::Retained &value) const noexcept {
+        return std::hash<std::string>{}(value.text);
+    }
+};
+template <> struct hgraph::static_schema_detail::scalar_name<native_binding_test::Retained>
+{
+    static constexpr std::string_view value{"native.binding.test::Retained"};
+};
+template <> struct hgraph::static_schema_detail::scalar_name<native_binding_test::AssignmentMissing>
+{
+    static constexpr std::string_view value{"native.binding.test::AssignmentMissing"};
+};
+template <> struct std::hash<native_binding_test::Ordered>
+{
+    std::size_t operator()(const native_binding_test::Ordered &value) const noexcept {
+        return std::hash<std::string>{}(value.text);
+    }
+};
+template <> struct hgraph::static_schema_detail::scalar_name<native_binding_test::Ordered>
+{
+    static constexpr std::string_view value{"native.binding.test::Ordered"};
+};
+template <> struct hgraph::static_schema_detail::scalar_name<native_binding_test::CopyOnly>
+{
+    static constexpr std::string_view value{"native.binding.test::CopyOnly"};
+};
+template <> struct hgraph::static_schema_detail::scalar_name<native_binding_test::TextOnly>
+{
+    static constexpr std::string_view value{"native.binding.test::TextOnly"};
+};
+
+TEST_CASE("native atomic bindings narrow physical operations and retain owning values", "[ordinary][native]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    using native_binding_test::Retained;
+    const auto native   = hgl::native_values::bind<Retained>("native.binding.test::Retained", false, false, false, false);
+    const auto physical = TypeRegistry::instance().scalar_type<Retained>();
+    CHECK(has_capability(physical.capabilities(),
+                         TypeCapabilities::Equatable | TypeCapabilities::Hashable | TypeCapabilities::Comparable));
+    CHECK_FALSE(has_capability(native.capabilities(), TypeCapabilities::Equatable));
+    CHECK_FALSE(has_capability(native.capabilities(), TypeCapabilities::Hashable));
+    CHECK_FALSE(has_capability(native.capabilities(), TypeCapabilities::Comparable));
+    CHECK(native.checked_plan().lifecycle.can_default_construct());
+    const Retained raw{"owning native payload"};
+    const Value    source{physical, &raw};
+    const Value    from_view{ValueView{physical, &raw}};
+    const Value    from_declared{native, ValueView{physical, &raw}};
+    const Value    copy{source};
+    CHECK(source.binding() == native);
+    CHECK(from_view.binding() == native);
+    CHECK(from_declared.binding() == native);
+    CHECK(copy.binding() == native);
+    CHECK(copy.view().checked_as<Retained>().text == raw.text);
+    CHECK(copy.view().data() != &raw);
+    CHECK(&native_argument<Retained>(copy.view()) == copy.view().data());
+    try {
+        (void)native_argument<Retained>(Value::typed_null(native).view());
+        FAIL("an unset Native argument unexpectedly succeeded");
+    } catch (const hgl::ExecutionError &error) { CHECK(error.code() == "value.unset_read"); }
+    CHECK(source.to_string() == raw.text);
+    const auto                   *shape = TypeRegistry::instance().ts(native.schema());
+    const PreparedPublicationPlan publications{shape, native.schema()};
+    TSOutput                      output{*shape};
+    publications.apply(output.view(MIN_ST), source.view());
+    CHECK(output.view(MIN_ST).value().checked_as<Retained>().text == raw.text);
+    publications.apply(output.view(MIN_ST + MIN_TD), source.view());
+    CHECK(output.view(MIN_ST + MIN_TD).modified());
+    std::unordered_set<const ValueTypeMetaData *> visiting;
+    validate_atomic_schema(native.schema(), visiting);
+    CHECK_THROWS_AS(validate_key_schema(native.schema()), std::invalid_argument);
+    CHECK_THROWS_AS(hgl::native_values::bind(physical, "wrong::identity", false, false, false, false), std::invalid_argument);
+    CHECK_THROWS_AS(hgl::native_values::bind(physical, "native.binding.test::Retained", true, true, true, false),
+                    std::invalid_argument);
+    const PreparedValuePlan boxes{scalar_descriptor<hgl::ordinary::Any>::value_meta()};
+    const auto              boxed = boxes.box(source.view());
+    CHECK(boxed.as_any().get().binding() == native);
+    const auto              empty_list_schema = TypeRegistry::instance().list(native.schema());
+    const PreparedValuePlan empty_lists{empty_list_schema};
+    const auto              boxed_empty = boxes.box(empty_lists.empty_list().view());
+    CHECK_FALSE(has_capability(empty_lists.binding().capabilities(), TypeCapabilities::Equatable));
+    const auto expect_capability = [](auto invoke) {
+        try {
+            invoke();
+            FAIL("hidden native capability unexpectedly succeeded");
+        } catch (const hgl::ExecutionError &error) { CHECK(error.code() == "value.capability"); }
+    };
+    const auto locks = type_system_lock_count();
+    expect_capability([&] { (void)checked_equals(boxed.view(), boxed.view()); });
+    expect_capability([&] { (void)checked_compare(boxed.view(), boxed.view()); });
+    expect_capability([&] { validate_scalar_key(boxed.view()); });
+    expect_capability([&] { (void)checked_equals(boxed_empty.view(), boxed_empty.view()); });
+    CHECK(type_system_lock_count() == locks);
+}
+
+TEST_CASE("prepared native publications and boxed content operations perform no registry lookup", "[ordinary][native]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    using native_binding_test::Ordered;
+    const auto              native = hgl::native_values::bind<Ordered>("native.binding.test::Ordered", true, true, true, false);
+    const Ordered           a{"a"}, b{"b"};
+    const Value             first{native, &a}, second{native, &b};
+    const PreparedValuePlan boxes{scalar_descriptor<Any>::value_meta()};
+    const auto              boxed_a = boxes.box(first.view()), boxed_b = boxes.box(second.view());
+    const auto             *shape = TypeRegistry::instance().ts(native.schema());
+    const PreparedPublicationPlan publications{shape, native.schema()};
+    TSOutput                      output{*shape};
+    validate_key_schema(native.schema());
+    const auto locks = type_system_lock_count();
+    for (std::size_t i = 0; i < 16; ++i) {
+        publications.apply(output.view(MIN_ST + MIN_TD * i), first.view());
+        CHECK(output.view(MIN_ST + MIN_TD * i).modified());
+        CHECK(output.view(MIN_ST + MIN_TD * i).value().checked_as<Ordered>().text == "a");
+        CHECK(checked_equals(boxed_a.view(), boxed_a.view()));
+        CHECK(checked_compare(boxed_a.view(), boxed_b.view()) == std::partial_ordering::less);
+        validate_scalar_key(boxed_a.view());
+    }
+    CHECK(type_system_lock_count() == locks);
+}
+
+TEST_CASE("native atomic binding rejects grants before publishing the provider contract", "[ordinary][native]") {
+    using namespace hgraph;
+    using native_binding_test::TextOnly;
+    const auto *schema = scalar_descriptor<TextOnly>::value_meta();
+    CHECK_THROWS_AS(hgl::native_values::bind<TextOnly>("native.binding.test::TextOnly", true, false, false, false),
+                    std::invalid_argument);
+    CHECK(hgl::native_values::contract(schema) == nullptr);
+    const auto binding = hgl::native_values::bind<TextOnly>("native.binding.test::TextOnly", false, false, false, false);
+    CHECK(binding.schema() == schema);
+    CHECK(hgl::native_values::contract(schema) == binding.record());
+}
+
 TEST_CASE("ordinary delta identities retain fixed extent and nominal origin", "[ordinary][delta]") {
     using namespace hgraph;
     using namespace hgl::ordinary;
@@ -834,4 +1010,28 @@ TEST_CASE("source capability records preserve empty containers and independent e
     expect_capability([&] { (void)checked_equals(delta_box.view(), delta_box.view()); });
     expect_capability([&] { validate_scalar_key(delta_box.view()); });
     CHECK(type_system_lock_count() == locks);
+}
+
+TEST_CASE("native provider rejects incompatible raw scalar storage lifecycle before publication", "[ordinary][native]") {
+    using namespace hgraph;
+    using native_binding_test::AssignmentMissing;
+    using native_binding_test::CopyOnly;
+    const auto physical = scalar_descriptor<CopyOnly>::value_meta();
+    CHECK_FALSE(TypeRegistry::instance().scalar_type<CopyOnly>().checked_plan().lifecycle.can_default_construct());
+    CHECK_THROWS_WITH(hgl::native_values::bind<CopyOnly>("native.binding.test::CopyOnly", false, false, false, false),
+                      "native atomic provider is incompatible with the scalar storage lifecycle");
+    CHECK(hgl::native_values::contract(physical) == nullptr);
+    const auto assigned = scalar_descriptor<AssignmentMissing>::value_meta();
+    CHECK(TypeRegistry::instance().scalar_type<AssignmentMissing>().checked_plan().lifecycle.can_default_construct());
+    CHECK_FALSE(TypeRegistry::instance().scalar_type<AssignmentMissing>().checked_plan().lifecycle.can_copy_assign());
+    CHECK_THROWS_WITH(
+        hgl::native_values::bind<AssignmentMissing>("native.binding.test::AssignmentMissing", false, false, false, false),
+        "native atomic provider is incompatible with the scalar storage lifecycle");
+    CHECK(hgl::native_values::contract(assigned) == nullptr);
+    // The ordinary physical value still supports independent owning copies;
+    // the failed mapping has not installed a partial exposed Native contract.
+    const CopyOnly raw{"retained physical value"};
+    const Value    retained{ValueView{TypeRegistry::instance().scalar_type<CopyOnly>(), &raw}};
+    CHECK(retained.view().checked_as<CopyOnly>().text == raw.text);
+    CHECK(retained.view().data() != &raw);
 }

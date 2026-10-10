@@ -128,6 +128,7 @@ namespace hgl::wiring
             hgraph::Value                                              value{};
             hgraph::WiringPortRef                                      port{};
             gir::CallableId                                            callable{};
+            gir::NativeFunctionId                                      native_function{};
             gir::TypeId                                                type{};
             std::string                                                name{};
             gir::ValueId                                               expression{};
@@ -766,7 +767,7 @@ namespace hgl::wiring
                             return type_error();
                         }
                         if (order == std::partial_ordering::unordered &&
-                            lhs.meta()->try_value_kind() != hgraph::ValueTypeKind::Any) {
+                            lhs.meta()->try_value_kind() != hgraph::ValueTypeKind::Any && !native_values::contract(lhs.meta())) {
                             return type_error();
                         }
                         const bool result = op == hir::BinaryOp::Less        ? order < 0
@@ -816,6 +817,7 @@ namespace hgl::wiring
             const gir::ConstExpr &expression = module_.const_exprs[id.value];
             if (expression.literal) { return constant(*expression.literal, expression.range); }
             switch (expression.kind) {
+                case gir::ConstExprKind::Call: return eval_value(expression.call, frame);
                 case gir::ConstExprKind::Parameter:
                     {
                         const auto found = frame.bindings.find(expression.parameter_binding.value);
@@ -1151,6 +1153,18 @@ namespace hgl::wiring
                 }
             }
             std::string name{registry_name};
+            const auto *left  = lhs.is_const() ? lhs.meta() : lhs.port.schema->value_schema;
+            const auto *right = rhs.is_const() ? rhs.meta() : rhs.port.schema->value_schema;
+            if (left == right && native_values::contract(left)) {
+                const int operation = op == hir::BinaryOp::Equal          ? 0
+                                      : op == hir::BinaryOp::NotEqual     ? 1
+                                      : op == hir::BinaryOp::Less         ? 2
+                                      : op == hir::BinaryOp::LessEqual    ? 3
+                                      : op == hir::BinaryOp::Greater      ? 4
+                                      : op == hir::BinaryOp::GreaterEqual ? 5
+                                                                          : -1;
+                if (operation >= 0) { name = "hgl.native.compare." + std::string{left->name()} + "." + std::to_string(operation); }
+            }
             if (name.empty()) { name = hir::system_operator_name(op); }
             return wire(name, {argument_of(lhs, {}), argument_of(rhs, {})}, range);
         }
@@ -1180,6 +1194,7 @@ namespace hgl::wiring
                         backend(range, "hgraph IR contains an invalid native function reference");
                     }
                     result.kind = Slot::Kind::NativeFunction;
+                    result.native_function = reference.native_function;
                     result.name = module_.native_functions[reference.native_function.value].identity;
                     return result;
                 case gir::ReferenceKind::Operator:
@@ -1929,9 +1944,24 @@ namespace hgl::wiring
             switch (callee.kind) {
                 case Slot::Kind::Function: return call_function(callee.callable, call.arguments, expression.range, frame, expression.operation.substitutions);
                 case Slot::Kind::NativeFunction:
-                    backend(expression.range,
-                            "native scalar function '" + callee.name +
-                                "' requires generated C++ execution; direct HGraph IR interpretation does not load C++ symbols");
+                    {
+                        const auto &native = module_.native_functions.at(callee.native_function.value);
+                        if (native.execution_role != NativeExecutionRole::Value || !native.capabilities.empty() ||
+                            std::ranges::find(native.phases, hir::NativePhase::Wiring) == native.phases.end()) {
+                            backend(expression.range, "native value helper does not permit capability-free cold materialization");
+                        }
+                        std::vector<hgraph::WiringArg> arguments;
+                        for (const auto &argument : call.arguments) {
+                            const auto supplied = eval_value(argument.value, frame);
+                            if (!supplied.is_const()) {
+                                backend(argument.range, "cold native value helper requires ordinary values");
+                            }
+                            arguments.push_back(scalar_arg(supplied.value, argument.name));
+                        }
+                        return make_const(hgraph::OperatorRegistry::instance().evaluate_const(
+                                              "hgl.native.value." + native.candidate_identity, arguments, schema(native.result)),
+                                          expression.range);
+                    }
                 case Slot::Kind::Operator:
                     {
                         std::string name =

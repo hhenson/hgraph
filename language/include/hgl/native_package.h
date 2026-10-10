@@ -126,6 +126,20 @@ namespace hgl::native
         AtomicValue,
     };
 
+    /// Data-only shared contract for an opaque ordinary scalar (NVAL-2).
+    /// Checking never infers these capabilities from a native class.
+    struct AtomicValueContract
+    {
+        bool owning_copy{false};
+        bool text{false};
+        bool equality{false};
+        bool hash{false};
+        bool order{false};
+        bool serialization{false};
+
+        friend bool operator==(const AtomicValueContract &, const AtomicValueContract &) = default;
+    };
+
     /// A nominal native type exposed by one package. OpaqueState is private
     /// node state; AtomicValue additionally requires public hgraph value and
     /// storage metadata supplied by the package.
@@ -135,6 +149,9 @@ namespace hgl::native
         std::string  identity{};
         std::string  cpp_type{};
         std::string  public_header{};
+        std::string                        canonical_identity{};
+        std::optional<AtomicValueContract> value_contract{};
+        bool                               exported{false};
     };
 
     enum class DeclarationCategory : std::uint8_t {

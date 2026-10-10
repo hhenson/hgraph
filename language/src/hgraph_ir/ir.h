@@ -45,6 +45,7 @@ namespace hgl::hgraph_ir
         Sequence,
         Tuple,
         Construct,
+        Call,
     };
 
     struct ConstElement
@@ -75,6 +76,9 @@ namespace hgl::hgraph_ir
         std::vector<ConstExprId>         items{};
         TypeId                           constructed_type{};
         std::vector<ConstArgument>       arguments{};
+        /// A checked source const-function call, evaluated only at materialization.
+        ValueId                          call{};
+        std::string                      callable_identity{};
         bool                             delta{false};
         syntax::SourceRange              range{};
     };
@@ -312,6 +316,7 @@ namespace hgl::hgraph_ir
         NativeImplementationKind implementation_kind{NativeImplementationKind::Declaration};
         std::vector<std::string> lifecycle{};
         bool                     source_defined{false};
+        bool                     source_declared{false};
         std::string              cpp_parameters{};
         std::string              cpp_body{};
         syntax::SourceRange      range{};
@@ -744,6 +749,7 @@ namespace hgl::hgraph_ir
         /// Local source-native C++ dependencies; never propagated by HGL imports.
         std::vector<std::string>                cpp_includes{};
         std::vector<EnumContract> enums{};
+        std::vector<NativeTypeContract>         native_types{};
         std::vector<StructContract>             structures{};
         std::vector<OperatorContract>           operators{};
         std::vector<NativeFunction>             native_functions{};

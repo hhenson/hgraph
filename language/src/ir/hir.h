@@ -92,6 +92,7 @@ namespace hgl::ir::hir
         /// A struct another module exports (ADR 0013). Its identity is the
         /// owner's qualified name; this module declares nothing for it.
         ImportedStruct,
+        NativeType,
         Intrinsic,
         ValueParameter,  ///< Invocation-scoped value, never a temporal endpoint.
     };
@@ -616,6 +617,7 @@ namespace hgl::ir::hir
         NativeImplementationKind implementation_kind{NativeImplementationKind::Declaration};
         std::vector<std::string> lifecycle{};
         bool                     source_defined{false};
+        bool                     source_declared{false};
         std::string              cpp_parameters{};
         std::string              cpp_body{};
         syntax::SourceRange      range{};
@@ -802,6 +804,7 @@ namespace hgl::ir::hir
         /// Exact local `<...>` or `"..."` C++ include spellings in first-use order.
         std::vector<std::string>      cpp_includes{};
         std::vector<NativeFunction>   native_functions{};
+        std::vector<NativeTypeContract> native_types{};
         std::vector<ImportedOperator> imported_operators{};
         /// Structs other modules export, re-described here so both backends
         /// register the owner's schema and the solver can check an applied

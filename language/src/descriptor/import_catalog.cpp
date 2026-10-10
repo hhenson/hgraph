@@ -83,6 +83,11 @@ namespace hgl::descriptor
             }
             switch (source.category) {
                 case TypeCategory::Symbol:
+                    if (source.native_atomic) {
+                        result.kind             = ImportedTypeKind::NativeAtomic;
+                        result.nominal_identity = source.nominal_identity;
+                        break;
+                    }
                     // A signature's Symbol is a generic parameter, which
                     // lowering resolves by binding identity. A nominal struct
                     // (ADR 0013) is a type to register, and only a layout can
@@ -489,6 +494,20 @@ namespace hgl::descriptor
         semantics::ImportableModule module;
         module.identity               = descriptor.module_identity;
         module.descriptor_fingerprint = descriptor.descriptor_fingerprint;
+        for (const auto &type : descriptor.native_types) {
+            module.native_types.push_back(NativeTypeContract{
+                .module_identity        = descriptor.module_identity,
+                .identity               = type.identity,
+                .name                   = short_name(descriptor.module_identity, type.identity),
+                .canonical_identity     = type.canonical_identity,
+                .cpp_type               = type.cpp_type,
+                .public_header          = type.public_header,
+                .capabilities           = type.value_contract.value_or(NativeAtomicValueContract{}),
+                .atomic_value           = type.category == NativeTypeCategory::AtomicValue && type.value_contract.has_value(),
+                .exported               = type.exported,
+                .descriptor_fingerprint = descriptor.descriptor_fingerprint,
+            });
+        }
         for (std::size_t index = 0; index < descriptor.interface.size(); ++index) {
             const InterfaceDeclaration &declaration = descriptor.interface[index];
             if (declaration.category != DeclarationCategory::Operator) { continue; }
@@ -576,17 +595,6 @@ namespace hgl::descriptor
             if (!declaration.effects.empty()) {
                 function.support_error = "native value calls with declared effects are not supported yet";
             }
-            // Temporal calls construct a graph or node at wiring time; value
-            // helpers run inside node hooks.
-            if (declaration.execution_role == NativeExecutionRole::Temporal) {
-                if (declaration.phases != std::vector{NativePhase::Wiring}) {
-                    function.support_error = "native temporal calls require the wiring phase";
-                }
-            } else if (declaration.phases.empty() || std::ranges::any_of(declaration.phases, [](NativePhase phase) {
-                           return phase != NativePhase::Start && phase != NativePhase::Evaluation && phase != NativePhase::Stop;
-                       })) {
-                function.support_error = "native value calls currently require node hook phases (start, evaluation, stop)";
-            }
             if (declaration.thread_safety == NativeThreadSafety::Serialized) {
                 function.support_error = "serialized native value calls are not supported yet";
             }
@@ -628,6 +636,31 @@ namespace hgl::descriptor
             if (declaration.signature.result != no_schema_id) {
                 function.result = imported_type(descriptor, declaration.signature.result);
                 if (!function.result) { function.support_error = "native calls require a supported value result"; }
+            }
+            // Temporal calls construct graph/node state at wiring time.
+            // Read-only ordinary native atomic helpers may additionally opt in
+            // to cold execution; this never grants source-checker execution.
+            const auto contains_native = [&](const semantics::ImportedType &type, const auto &self) -> bool {
+                return type.kind == semantics::ImportedTypeKind::NativeAtomic ||
+                       std::ranges::any_of(type.children, [&](const auto &child) { return self(child, self); });
+            };
+            const bool native_helper =
+                declaration.execution_role == NativeExecutionRole::Value &&
+                ((function.result && contains_native(*function.result, contains_native)) ||
+                 std::ranges::any_of(function.parameters,
+                                     [&](const auto &parameter) { return contains_native(parameter.type, contains_native); })) &&
+                std::ranges::all_of(function.parameters, [](const auto &parameter) {
+                    return parameter.access == semantics::NativeParameterAccess::Value;
+                });
+            if (declaration.execution_role == NativeExecutionRole::Temporal) {
+                if (declaration.phases != std::vector{NativePhase::Wiring}) {
+                    function.support_error = "native temporal calls require the wiring phase";
+                }
+            } else if (declaration.phases.empty() || std::ranges::any_of(declaration.phases, [&](NativePhase phase) {
+                           return phase != NativePhase::Start && phase != NativePhase::Evaluation && phase != NativePhase::Stop &&
+                                  !(phase == NativePhase::Wiring && native_helper);
+                       })) {
+                function.support_error = "native value calls currently require node hook phases (start, evaluation, stop)";
             }
             for (NativePhase allowed : declaration.phases) { function.phases.push_back(phase(allowed)); }
             module.functions.push_back(std::move(function));

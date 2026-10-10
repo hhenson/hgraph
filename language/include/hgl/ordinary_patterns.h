@@ -19,10 +19,12 @@ namespace hgl::ordinary
                                 scalar_descriptor<Date>::value_meta(),     scalar_descriptor<Time>::value_meta(),
                                 scalar_descriptor<DateTime>::value_meta(), scalar_descriptor<TimeDelta>::value_meta(),
                                 scalar_descriptor<Bytes>::value_meta(),    scalar_descriptor<hgl::ordinary::Any>::value_meta()};
-        if (std::ranges::find(leaves, value) != leaves.end()) { return registry.ts(value); }
+        if (std::ranges::find(leaves, value) != leaves.end() || native_values::contract(value)) { return registry.ts(value); }
         switch (value->value_kind()) {
             case ValueTypeKind::Set:
-                if (value->element_type == leaves[0] || value->element_type == leaves[1]) {
+                if (value->element_type == leaves[0] || value->element_type == leaves[1] ||
+                    native_values::contract(value->element_type)) {
+                    validate_key_schema(value->element_type);
                     return registry.tss(value->element_type);
                 }
                 return nullptr;
@@ -32,9 +34,10 @@ namespace hgl::ordinary
                 return element ? registry.tsl(element, value->fixed_size) : nullptr;
             }
             case ValueTypeKind::Map: {
-                if (value->key_type != leaves[1]) { return nullptr; }
-                const auto *element = held_source(value->element_type);
-                return element ? registry.tsd(value->key_type, element) : nullptr;
+                    if (value->key_type != leaves[1] && !native_values::contract(value->key_type)) { return nullptr; }
+                    validate_key_schema(value->key_type);
+                    const auto *element = held_source(value->element_type);
+                    return element ? registry.tsd(value->key_type, element) : nullptr;
             }
             case ValueTypeKind::Tuple:
             case ValueTypeKind::Bundle: {

@@ -9,6 +9,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -57,6 +58,7 @@ namespace hgl::semantics
         /// so a layout can carry it even though no signature does.
         Atomic,
         Delta,
+        NativeAtomic,
     };
 
     enum class ImportedConstantKind : std::uint8_t {
@@ -253,6 +255,7 @@ namespace hgl::semantics
         std::vector<ImportedFunction>         functions{};
         std::vector<ImportedOperatorContract> operators{};
         std::vector<ImportedStruct>           structs{};
+        std::vector<NativeTypeContract>       native_types{};
     };
 
     struct CatalogError
@@ -274,6 +277,13 @@ namespace hgl::semantics
             }
             for (ImportedFunction &function : module.functions) {
                 if (function.candidate_identity.empty()) { function.candidate_identity = function.identity; }
+            }
+            std::ranges::sort(module.native_types, {}, &NativeTypeContract::name);
+            for (std::size_t index = 0; index < module.native_types.size(); ++index) {
+                const auto &type = module.native_types[index];
+                if (index != 0 && module.native_types[index - 1].name == type.name) {
+                    return CatalogError{"$.native.types", "duplicate native type binding '" + type.identity + "'"};
+                }
             }
             std::ranges::sort(module.functions, [](const ImportedFunction &lhs, const ImportedFunction &rhs) {
                 return std::tie(lhs.name, lhs.candidate_identity) < std::tie(rhs.name, rhs.candidate_identity);
@@ -314,6 +324,26 @@ namespace hgl::semantics
                                                            structure.name + "'"};
                 }
             }
+            std::unordered_map<std::string, NativeValueCapabilities> introduced;
+            for (const auto &type : module.native_types) {
+                if (!type.atomic_value) { continue; }
+                if (std::ranges::binary_search(module.functions, type.name, {}, &ImportedFunction::name) ||
+                    std::ranges::binary_search(module.operators, type.name, {}, &ImportedOperatorContract::name) ||
+                    std::ranges::binary_search(module.structs, type.name, {}, &ImportedStruct::name)) {
+                    return CatalogError{"$.native.types",
+                                        "ordinary native type '" + type.identity + "' conflicts with another declaration"};
+                }
+                const auto known = native_capabilities_.find(type.canonical_identity);
+                if (known != native_capabilities_.end() && known->second != type.capabilities) {
+                    return CatalogError{"$.native.types", "canonical native scalar '" + type.canonical_identity +
+                                                              "' has incompatible shared capabilities"};
+                }
+                const auto [found, inserted] = introduced.emplace(type.canonical_identity, type.capabilities);
+                if (!inserted && found->second != type.capabilities) {
+                    return CatalogError{"$.native.types", "canonical native scalar aliases must share one capability contract"};
+                }
+            }
+            for (auto &[identity, capabilities] : introduced) { native_capabilities_.emplace(std::move(identity), capabilities); }
             modules_.push_back(std::move(module));
             std::ranges::sort(modules_, {}, &ImportableModule::identity);
             return std::nullopt;
@@ -327,6 +357,21 @@ namespace hgl::semantics
         [[nodiscard]] const ImportedFunction *find_function(std::string_view module, std::string_view name) const noexcept {
             const std::span<const ImportedFunction> functions = find_functions(module, name);
             return functions.empty() ? nullptr : &functions.front();
+        }
+
+        [[nodiscard]] const NativeTypeContract *find_native_type(std::string_view module, std::string_view name,
+                                                                 bool exported_only = true) const noexcept {
+            const auto *owner = find(module);
+            if (owner == nullptr) { return nullptr; }
+            const auto found = std::ranges::lower_bound(owner->native_types, name, {}, &NativeTypeContract::name);
+            return found != owner->native_types.end() && found->name == name && (!exported_only || found->exported) ? &*found
+                                                                                                                    : nullptr;
+        }
+
+        [[nodiscard]] const NativeTypeContract *find_native_type_by_identity(std::string_view identity) const noexcept {
+            const auto separator = identity.rfind("::");
+            if (separator == std::string_view::npos) { return nullptr; }
+            return find_native_type(identity.substr(0, separator), identity.substr(separator + 2), false);
         }
 
         [[nodiscard]] const ImportedOperatorContract *find_operator(std::string_view module, std::string_view name) const noexcept {
@@ -373,6 +418,7 @@ namespace hgl::semantics
 
       private:
         std::vector<ImportableModule> modules_{};
+        std::unordered_map<std::string, NativeValueCapabilities> native_capabilities_{};
     };
 }  // namespace hgl::semantics
 
