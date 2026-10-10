@@ -1149,7 +1149,7 @@ namespace hgl::semantics
                             }
                             if (node.raises_block != ast::no_node) {
                                 const auto *literal = std::get_if<ast::StringLiteral>(&module_.expr(node.condition).node);
-                                if (!node.raises_literal || literal == nullptr || (literal->value != "yield.negative_duration" && literal->value != "yield.non_increasing_time" && literal->value != "eval.input_delta_profile")) {
+                                if (!node.raises_literal || literal == nullptr || (literal->value != "yield.negative_duration" && literal->value != "yield.non_increasing_time" && literal->value != "eval.input_delta_profile" && literal->value != "value.unset_read")) {
                                     diagnostics_.report(Category::Type, node.raises_argument_range,
                                                         "raises requires a literal execution error code", "test.raises_code");
                                 }

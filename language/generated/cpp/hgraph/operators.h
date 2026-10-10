@@ -29,6 +29,8 @@
 
 namespace hgraph_::operators_
 {
+    /// Compiler-owned bindings prepared before runtime evaluation.
+    void prepare_ordinary_value_plans();
     /// Operator contracts for the module's public callables.
     namespace operators
     {

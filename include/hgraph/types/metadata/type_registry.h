@@ -292,6 +292,12 @@ namespace hgraph
         [[nodiscard]] std::optional<std::size_t> value_inheritance_distance(
             const ValueTypeMetaData *candidate,
             const ValueTypeMetaData *base) const noexcept;
+        /** Prepare an exact held nominal Bundle without replacing its ordinary name alias (RFC 0046). */
+        const ValueTypeMetaData *projected_bundle(
+            const ValueTypeMetaData *ordinary_origin,
+            const std::vector<std::pair<std::string, const ValueTypeMetaData *>> &fields,
+            const std::vector<const ValueTypeMetaData *> &parents = {});
+
         /**
          * Intern a list value-schema. Pass ``fixed_size > 0`` for a static
          * list; use ``fixed_list`` when zero is a fixed empty extent.
@@ -411,6 +417,9 @@ namespace hgraph
          * Bundles produce structural TSBs.
          */
         const TSValueTypeMetaData *tsb(const ValueTypeMetaData *bundle_value);
+        /** Bind explicit temporal children to an exact nominal held Bundle (RFC 0046). */
+        const TSValueTypeMetaData *tsb(const ValueTypeMetaData *bundle_value,
+            const std::vector<std::pair<std::string, const TSValueTypeMetaData *>> &fields);
         /**
          * Look up a previously-registered *named* ``TSB`` by name. Returns
          * the canonical named-TSB metadata, or ``nullptr`` if no TS schema
@@ -574,6 +583,29 @@ namespace hgraph
                 size_t seed = std::hash<std::string>{}(k.bundle_namespace);
                 seed = combine(seed, std::hash<std::string>{}(k.local_name));
                 return combine(seed, std::hash<const ValueTypeMetaData *>{}(k.un_named));
+            }
+        };
+
+        struct ProjectedBundleKey {
+            const ValueTypeMetaData *origin{nullptr};
+            const ValueTypeMetaData *structural{nullptr};
+            bool operator==(const ProjectedBundleKey &) const noexcept = default;
+        };
+        struct ProjectedBundleKeyHash {
+            size_t operator()(const ProjectedBundleKey &key) const noexcept {
+                return combine(std::hash<const ValueTypeMetaData *>{}(key.origin),
+                               std::hash<const ValueTypeMetaData *>{}(key.structural));
+            }
+        };
+        struct ExactTSBundleKey {
+            const ValueTypeMetaData *value{nullptr};
+            const TSValueTypeMetaData *structural{nullptr};
+            bool operator==(const ExactTSBundleKey &) const noexcept = default;
+        };
+        struct ExactTSBundleKeyHash {
+            size_t operator()(const ExactTSBundleKey &key) const noexcept {
+                return combine(std::hash<const ValueTypeMetaData *>{}(key.value),
+                               std::hash<const TSValueTypeMetaData *>{}(key.structural));
             }
         };
 
@@ -755,6 +787,9 @@ namespace hgraph
         InternTable<const ValueTypeMetaData *, ValueTypeMetaData> owned_cache_;
         InternTable<const ValueTypeMetaData *, ValueTypeMetaData> shared_cache_;
         InternTable<NamedBundleKey, ValueTypeMetaData, NamedBundleKeyHash> named_bundle_cache_;
+        InternTable<ProjectedBundleKey, ValueTypeMetaData, ProjectedBundleKeyHash> projected_bundle_cache_;
+        std::vector<std::unique_ptr<BundleHierarchyMetaData>> projected_bundle_hierarchy_storage_;
+        std::vector<const ValueTypeMetaData *> projected_bundle_schemas_;
         std::vector<std::unique_ptr<ValueTypeMetaData>> recursive_bundle_storage_;
         InternTable<std::string, ValueTypeMetaData> named_enum_cache_;
         InternTable<std::string, ValueTypeMetaData> opaque_python_cache_;
@@ -785,6 +820,7 @@ namespace hgraph
         InternTable<TSWindowKey, TSValueTypeMetaData, TSWindowKeyHash> tsw_cache_;
         InternTable<TSBundleKey, TSValueTypeMetaData, TSBundleKeyHash> tsb_cache_;
         InternTable<NamedTSBundleKey, TSValueTypeMetaData, NamedTSBundleKeyHash> named_tsb_cache_;
+        InternTable<ExactTSBundleKey, TSValueTypeMetaData, ExactTSBundleKeyHash> exact_tsb_cache_;
         InternTable<const TSValueTypeMetaData *, TSValueTypeMetaData> ref_cache_;
 
         // Aliasing maps: borrow pointers to canonical metadata stored in the

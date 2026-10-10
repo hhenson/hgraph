@@ -636,12 +636,15 @@ namespace hgl::hgraph_ir
                 const gir::Type type               = graph_type(parameter.type, planned.range);
                 const bool      unresolved_generic = type.kind == hir::TypeKind::Symbol && type.binding.valid();
                 const bool declared_enum = type.kind == hir::TypeKind::Symbol && std::ranges::any_of(graph_.enums, [&](const auto &item) { return item.identity == type.nominal_identity; });
+                const bool declared_struct = type.kind == hir::TypeKind::Symbol && std::ranges::any_of(graph_.structures, [&](const auto &item) {
+                    return item.identity == type.nominal_identity && (parameter.is_const || !item.abstract);
+                });
                 if (type.kind != hir::TypeKind::Scalar && type.kind != hir::TypeKind::Atomic && type.kind != hir::TypeKind::Map &&
                     type.kind != hir::TypeKind::Set && type.kind != hir::TypeKind::List && type.kind != hir::TypeKind::Rolling &&
                     type.kind != hir::TypeKind::Reference && type.kind != hir::TypeKind::Signal && type.kind != hir::TypeKind::Tuple &&
-                    !(parameter.is_const && type.kind == hir::TypeKind::Delta) && !unresolved_generic && !declared_enum) {
+                    !(parameter.is_const && type.kind == hir::TypeKind::Delta) && !unresolved_generic && !declared_enum && !declared_struct) {
                     backend(graph_type(parameter.type, planned.range).range,
-                            "the runtime-node slice supports scalar, atomic, tuple, collection, ref, and signal parameters");
+                            "the runtime-node slice supports scalar, atomic, concrete struct, tuple, collection, ref, and signal parameters");
                 }
                 if (!parameter.is_const) { ++temporal_count; }
             }

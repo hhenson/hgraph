@@ -178,7 +178,12 @@ namespace hgraph
             if (!concrete->is_named_tsb() || concrete->bundle_name() == nullptr) { return true; }
             if (pattern.scalar.kind == ScalarPattern::Kind::Bundle && !pattern.scalar.bundle_origin.empty())
             {
-                return scalar_pattern_match(pattern.scalar, concrete->value_type, map);
+                const auto *origin = concrete->value_type;
+                if (origin != nullptr && origin->bundle_hierarchy != nullptr &&
+                    origin->bundle_hierarchy->ordinary_origin != nullptr) {
+                    origin = origin->bundle_hierarchy->ordinary_origin;
+                }
+                return scalar_pattern_match(pattern.scalar, origin, map);
             }
             return pattern.bundle_name == concrete->bundle_name();
         }
@@ -343,6 +348,11 @@ namespace hgraph
                 if (concrete->value_kind() != ValueTypeKind::Bundle) { return false; }
                 if (!pattern.bundle_origin.empty())
                 {
+                    // An ordinary nominal scalar pattern describes its origin,
+                    // never the separate held representation. Temporal nominal
+                    // matching supplies the explicit ordinary origin above.
+                    if (concrete->bundle_hierarchy != nullptr &&
+                        concrete->bundle_hierarchy->ordinary_origin != nullptr) { return false; }
                     const std::string_view actual = concrete->name();
                     if (!actual.starts_with(pattern.bundle_origin) ||
                         actual.size() <= pattern.bundle_origin.size() ||
@@ -555,6 +565,7 @@ namespace hgraph
             if (pattern.size_var) { sizes.push_back(pattern.size_name); }
             collect_scalar_variables(pattern.scalar, series, scalars, sizes);
             for (const TypePattern &child : pattern.children) { collect_ts_variables(child, series, scalars, sizes); }
+            for (const TypePattern &parent : pattern.nominal_parents) { collect_ts_variables(parent, series, scalars, sizes); }
         }
 
         /** A concrete candidate type: the matcher binds the operator's variables,
@@ -1205,6 +1216,23 @@ namespace hgraph
                     if (child == nullptr) { return nullptr; }
                     fields.emplace_back(pattern.field_names[i], child);
                 }
+                if (pattern.nominal_projected) {
+                    const auto *origin = scalar_pattern_resolve(pattern.scalar, map);
+                    if (origin == nullptr && pattern.nominal_origin_resolver != nullptr)
+                    {
+                        origin = pattern.nominal_origin_resolver(map);
+                    }
+                    if (origin == nullptr) { return nullptr; }
+                    std::vector<const ValueTypeMetaData *> parents;
+                    for (const auto &parent_pattern : pattern.nominal_parents) {
+                        const auto *parent = ts_pattern_resolve(parent_pattern, map);
+                        if (parent == nullptr) { return nullptr; }
+                        parents.push_back(parent->value_schema);
+                    }
+                    std::vector<std::pair<std::string, const ValueTypeMetaData *>> held_fields;
+                    for (const auto &[name, type] : fields) { held_fields.emplace_back(name, type->value_schema); }
+                    return registry.tsb(registry.projected_bundle(origin, held_fields, parents), fields);
+                }
                 if (pattern.named_bundle && pattern.scalar.kind == ScalarPattern::Kind::Bundle &&
                     !pattern.scalar.bundle_origin.empty())
                 {
@@ -1253,6 +1281,7 @@ namespace hgraph
         {
             child = substitute_scalar_patterns(std::move(child), replacements);
         }
+        for (TypePattern &parent : pattern.nominal_parents) { parent = substitute_scalar_patterns(std::move(parent), replacements); }
         return pattern;
     }
 
@@ -1304,6 +1333,7 @@ namespace hgraph
         {
             child = substitute_size_patterns(std::move(child), replacements);
         }
+        for (TypePattern &parent : pattern.nominal_parents) { parent = substitute_size_patterns(std::move(parent), replacements); }
         return pattern;
     }
 

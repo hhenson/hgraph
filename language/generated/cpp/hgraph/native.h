@@ -843,6 +843,8 @@ namespace hgraph_::native
         };
         template <Implementation T> constexpr auto bind() noexcept { return BoundNative<T>{}; }
     }  // namespace native_interface
+    /// Compiler-owned bindings prepared before runtime evaluation.
+    void prepare_ordinary_value_plans();
     /// Register the module's operators and implementations with the hgraph
     /// registry and return the exact removable provider generation.
     hgraph::OperatorProviderHandle register_operators();

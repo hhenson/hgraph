@@ -150,7 +150,8 @@ namespace
 
         REQUIRE(root.schema() != nullptr);
         Value current{root.value()};
-        REQUIRE(current.binding() == ValuePlanFactory::instance().type_for(root.schema()->value_schema));
+        REQUIRE(current.schema() == root.schema()->value_schema);
+        REQUIRE(current.binding() == value_owning_type(root.value().binding()));
         REQUIRE(current.binding().ops_ref().kind != ValueOpsKind::Invalid);
 
         REQUIRE(root.modified(modified_time));
@@ -926,22 +927,26 @@ TEST_CASE("TSDataPlanFactory: fixed TSL stores current values as a fixed value-l
             aux_component->offset + elements_component->offset + 2 * elements_component->plan->array_stride());
     REQUIRE(view.value().is_list());
     REQUIRE(view.value().as_list().size() == 3);
-    REQUIRE(view.value().as_list().at(2).checked_as<std::int32_t>() == 0);
+    REQUIRE_FALSE(view.value().as_list().at(2).has_value());
     REQUIRE(tsl_view.valid_values().begin() == tsl_view.valid_values().end());
     REQUIRE(tsl_view.valid_items().begin() == tsl_view.valid_items().end());
 
     const auto list = view.value().as_list();
-    const auto *first = static_cast<const std::byte *>(list.at(0).data());
-    const auto *second = static_cast<const std::byte *>(list.at(1).data());
+    // Ordinary owned scalar arrays remain dense and default constructed;
+    // only the temporal observation reports invalid positions as holes.
+    Value ordinary{ValuePlanFactory::instance().type_for(tsl->value_schema)};
+    REQUIRE(ordinary.view().as_list().at(2).checked_as<std::int32_t>() == 0);
+    const auto *first = static_cast<const std::byte *>(ordinary.view().as_list().at(0).data());
+    const auto *second = static_cast<const std::byte *>(ordinary.view().as_list().at(1).data());
     REQUIRE(static_cast<std::size_t>(second - first) == value_component->plan->array_stride());
 
     const auto t1 = MIN_ST;
     Value      eleven{11};
     {
         auto child = tsl_view.at(2);
-        REQUIRE(child.value().data() == list.at(2).data());
         auto mutation = child.begin_mutation(t1);
         REQUIRE(mutation.copy_value_from(eleven.view()));
+        REQUIRE(child.value().data() == list.at(2).data());
     }
 
     REQUIRE(view.modified(t1));
@@ -1041,7 +1046,7 @@ TEST_CASE("TSDataPlanFactory: fixed TSL owns embedded TSS child storage")
     REQUIRE(child1_view.as_set().contains(two.view()));
 
     const auto value_list = view.value().as_list();
-    REQUIRE(value_list.at(0).as_set().empty());
+    REQUIRE_FALSE(value_list.at(0).has_value());
     REQUIRE(value_list.at(1).as_set().contains(one.view()));
     REQUIRE(value_list.at(1).as_set().contains(two.view()));
 
@@ -1051,8 +1056,9 @@ TEST_CASE("TSDataPlanFactory: fixed TSL owns embedded TSS child storage")
     REQUIRE(child_snapshot.view().as_set().contains(two.view()));
 
     Value parent_snapshot{view.value()};
-    REQUIRE(parent_snapshot.binding() == ValuePlanFactory::instance().type_for(tsl->value_schema));
-    REQUIRE(parent_snapshot.view().as_list().at(0).as_set().empty());
+    REQUIRE(parent_snapshot.schema() == tsl->value_schema);
+    REQUIRE(parent_snapshot.binding() == value_owning_type(view.value().binding()));
+    REQUIRE_FALSE(parent_snapshot.view().as_list().at(0).has_value());
     REQUIRE(parent_snapshot.view().as_list().at(1).as_set().contains(one.view()));
     REQUIRE(parent_snapshot.view().as_list().at(1).as_set().contains(two.view()));
 }

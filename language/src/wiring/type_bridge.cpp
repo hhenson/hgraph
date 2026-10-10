@@ -81,6 +81,9 @@ namespace hgl::wiring
     }
 
     bool TypeBridge::optional_field(const hgraph::ValueTypeMetaData *type, std::size_t index) const {
+        if (type != nullptr && type->bundle_hierarchy != nullptr && type->bundle_hierarchy->ordinary_origin != nullptr) {
+            type = type->bundle_hierarchy->ordinary_origin;
+        }
         const auto found = presence_contracts_.find(type);
         return found != presence_contracts_.end() && index < found->second->fields.size() &&
                found->second->fields[index].optional;
@@ -842,7 +845,15 @@ namespace hgl::wiring
             fields.emplace_back(field.name, field_type);
         }
         try {
-            return registry_.tsb(value_type->name(), fields);
+            std::vector<std::pair<std::string, const hgraph::ValueTypeMetaData *>> held_fields;
+            for (const auto &[name, child] : fields) { held_fields.emplace_back(name, child->value_schema); }
+            std::vector<const hgraph::ValueTypeMetaData *> held_parents;
+            for (const auto parent : contract->parents) {
+                const auto *parent_schema = schema(parent, *applied);
+                if (parent_schema == nullptr) { return nullptr; }
+                held_parents.push_back(parent_schema->value_schema);
+            }
+            return registry_.tsb(registry_.projected_bundle(value_type, held_fields, held_parents), fields);
         } catch (const std::exception &error) {
             report(type.range, "cannot register temporal struct '" + std::string{value_type->name()} + "': " + error.what());
             return nullptr;

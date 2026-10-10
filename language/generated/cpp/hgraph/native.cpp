@@ -402,9 +402,11 @@ namespace hgraph_::native
 
     }  // namespace native
 
+    void prepare_ordinary_value_plans() {}
+
     hgraph::OperatorProviderHandle register_operators() {
         auto &registry = hgraph::OperatorRegistry::instance();
-        auto  provider = registry.register_installer("hgraph.native", [] {});
+        auto  provider = registry.register_installer("hgraph.native", [] { prepare_ordinary_value_plans(); });
         auto  rollback = hgraph::make_scope_exit<true>([&] { (void)registry.remove_provider(provider); });
         registry.activate_provider(provider);
         rollback.release();

@@ -134,6 +134,9 @@ namespace hgraph
             ValueTypeRef added_set_binding{nullptr};
             ValueTypeRef removed_set_binding{nullptr};
             ValueTypeRef modified_map_binding{nullptr};
+            ValueTypeRef live_map_owning_binding{nullptr};
+            ValueTypeRef live_key_owning_binding{nullptr};
+            ValueTypeRef live_element_owning_binding{nullptr};
 
             TSDProxyContext(const TSValueTypeMetaData &schema_, ValueTypeRef key_binding_,
                             TSRoleTypeRef element_type_, TypeRole role_)
@@ -170,6 +173,9 @@ namespace hgraph
                 layout.element_type          = element_type;
                 layout.element_layout        = element_layout;
                 layout.element_value_binding = element_layout->value_binding;
+                live_element_owning_binding = value_owning_type(element_layout->value_binding);
+                live_key_owning_binding = value_owning_type(key_binding_);
+                live_map_owning_binding = compact_map_type(live_key_owning_binding, live_element_owning_binding);
                 layout.element_delta_binding = element_layout->delta_binding;
                 layout.tracking_offset       = 0;
                 if (layout.key_binding == nullptr || layout.element_value_binding == nullptr ||
@@ -389,6 +395,7 @@ namespace hgraph
                 };
                 ops.owning_type_impl      = &canonical_value_binding;
                 ops.copy_construct_view_impl = &map_copy_construct_view<Surface>;
+                if constexpr (Surface == TSDProxyMapSurface::Live) { ops.owning_type_impl = &live_map_owner; }
                 ops.copy_assign_view_impl    = &map_copy_assign_view<Surface>;
                 return ops;
             }
@@ -396,6 +403,12 @@ namespace hgraph
             [[nodiscard]] static const TSDProxyContext *ctx(const void *context) noexcept
             {
                 return static_cast<const TSDProxyContext *>(context);
+            }
+
+            [[nodiscard]] static ValueTypeRef
+            live_map_owner(const void *context, ValueTypeRef)
+            {
+                return ctx(context)->live_map_owning_binding;
             }
 
             [[nodiscard]] static ValueTypeRef
@@ -523,8 +536,12 @@ namespace hgraph
                     throw std::logic_error("TSDProxy map copy requires a canonical map binding");
                 }
 
-                const auto key_binding = ValuePlanFactory::instance().type_for(binding.schema()->key_type);
-                const auto value_binding = ValuePlanFactory::instance().type_for(binding.schema()->element_type);
+                const auto key_binding = Surface == TSDProxyMapSurface::Live
+                    ? ctx(context)->live_key_owning_binding
+                    : ValuePlanFactory::instance().type_for(binding.schema()->key_type);
+                const auto value_binding = Surface == TSDProxyMapSurface::Live
+                    ? ctx(context)->live_element_owning_binding
+                    : ValuePlanFactory::instance().type_for(binding.schema()->element_type);
                 if (key_binding == nullptr || value_binding == nullptr)
                 {
                     throw std::logic_error("TSDProxy map copy bindings are not resolved");
@@ -533,9 +550,10 @@ namespace hgraph
                 MapBuilder builder{key_binding, value_binding};
                 for (const auto [key, value] : map_kv_range<Surface>(context, memory))
                 {
+                    Value owned_key{key_binding, key};
                     if (!value.has_value())
                     {
-                        builder.set_item_unset(key.data());
+                        builder.set_item_unset(owned_key.view().data());
                         continue;
                     }
                     Value owned_value{value};
@@ -543,7 +561,7 @@ namespace hgraph
                     {
                         throw std::logic_error("TSDProxy map copy materialized the wrong value binding");
                     }
-                    builder.set_item_copy(key.data(), owned_value.view().data());
+                    builder.set_item_copy(owned_key.view().data(), owned_value.view().data());
                 }
                 return builder.build_storage();
             }
@@ -1027,6 +1045,7 @@ namespace hgraph
                 const auto *child_memory = proxy_storage(memory).child_at_slot(slot);
                 if constexpr (Surface == TSDProxyMapSurface::Live)
                 {
+                    if (!child_ops.has_current_value_impl(child_ops.context, child_memory)) { return nullptr; }
                     return child_ops.value_memory_impl(child_ops.context, child_memory);
                 }
                 else

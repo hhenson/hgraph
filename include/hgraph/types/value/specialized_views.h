@@ -873,7 +873,7 @@ namespace hgraph
         [[nodiscard]] const ValueView at(const ValueView &key) const
         {
             const void *found = key_compatible(key) ? ops_->value_at(ops_->context, data(), key.data()) : nullptr;
-            if (found == nullptr) { throw std::out_of_range("MapView::at: key not present"); }
+            if (found == nullptr && !contains(key)) { throw std::out_of_range("MapView::at: key not present"); }
             return ValueView{ops_->value_binding(ops_->context, data()), found};
         }
 

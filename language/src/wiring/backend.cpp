@@ -133,6 +133,9 @@ namespace hgl::wiring
             gir::ValueId                                               expression{};
             bool                                                       resolved{false};
             bool                                                       complete_constructor{false};
+            // Shared cold provenance keeps nested complete constructors
+            // available when their held ports cross an atomic boundary.
+            std::shared_ptr<const std::vector<Slot>>                    constructor_fields{};
             std::vector<std::optional<hgraph::Value>>                  elements{};
             std::vector<std::pair<std::string, hgraph::WiringPortRef>> pack_ports{};
             const hgraph::ValueTypeMetaData                           *element_meta{nullptr};
@@ -1055,16 +1058,23 @@ namespace hgl::wiring
             // A general TSB expression is not a complete construction.
             if (slot.complete_constructor && slot.port.is_structural_source() && target != nullptr &&
                 target->kind == hgraph::TSTypeKind::TS && slot.port.schema->kind == hgraph::TSTypeKind::TSB &&
-                hgraph::value_schema_without_storage(target->value_schema) == slot.port.schema->value_schema) {
+                hgraph::value_schema_without_storage(target->value_schema) == ordinary::ordinary_nominal_origin(slot.port.schema->value_schema)) {
                 std::vector<hgraph::WiringPortRef> children;
                 std::vector<std::pair<std::string, const hgraph::TSValueTypeMetaData *>> fields;
                 const auto &source_children = slot.port.structural_children();
+                const auto *ordinary_target = hgraph::value_schema_without_storage(target->value_schema);
+                if (slot.constructor_fields == nullptr || slot.constructor_fields->size() != source_children.size()) {
+                    backend(slot.range, "complete constructor lost its field provenance");
+                }
                 for (std::size_t index = 0; index < source_children.size(); ++index) {
                     if (source_children[index].is_null_source()) { continue; }
-                    fields.emplace_back(slot.port.schema->fields()[index].name, source_children[index].schema);
-                    children.push_back(source_children[index]);
+                    const auto *child_target = registry_.ts(hgraph::value_schema_without_storage(ordinary_target->fields[index].type));
+                    const Slot &source = (*slot.constructor_fields)[index];
+                    const Slot child = convert_port(source, child_target);
+                    fields.emplace_back(slot.port.schema->fields()[index].name, child.port.schema);
+                    children.push_back(child.port);
                 }
-                const auto *atomic_target = registry_.ts(hgraph::value_schema_without_storage(target->value_schema));
+                const auto *atomic_target = registry_.ts(ordinary_target);
                 const Slot present = make_port(hgraph::WiringPortRef::structural_source(
                     registry_.un_named_tsb(fields), std::move(children)), slot.range);
                 return wire("combine_cs", {argument_of(present, "ts")}, slot.range, true, atomic_target);
@@ -1149,11 +1159,12 @@ namespace hgl::wiring
                 metadata.push_back(item.meta());
                 values.push_back(std::move(item.value));
             }
-            const auto   *meta = registry_.tuple(metadata);
-            hgraph::Value result{hgraph::ValuePlanFactory::instance().type_for(meta)};
-            auto          output = result.as_tuple().begin_mutation();
-            for (std::size_t index = 0; index < values.size(); ++index) { output.at(index).copy_from(values[index].view()); }
-            return make_const(std::move(result), range);
+            const auto *meta = registry_.tuple(metadata);
+            const ordinary::PreparedValuePlan plan{meta};
+            std::vector<std::pair<std::size_t, hgraph::ValueView>> fields;
+            fields.reserve(values.size());
+            for (std::size_t index = 0; index < values.size(); ++index) { fields.emplace_back(index, values[index].view()); }
+            return make_const(plan.bundle(fields), range);
         }
 
         Slot Compiler::eval_sequence(gir::ValueId id, const gir::Sequence &sequence, SourceRange range, Frame &frame) {
@@ -1259,6 +1270,7 @@ namespace hgl::wiring
                 }
                 std::vector<hgraph::WiringPortRef>                                       children;
                 std::vector<std::pair<std::string, const hgraph::TSValueTypeMetaData *>> present;
+                std::vector<Slot> constructor_fields(contract.fields.size());
                 for (std::size_t index = 0; index < contract.fields.size(); ++index) {
                     const auto *field_schema = shape->fields()[index].type;
                     if (!effective[index] || effective[index]->kind == Slot::Kind::Null) {
@@ -1274,9 +1286,11 @@ namespace hgl::wiring
                         Slot converted = make_const(convert(effective[index]->value, constant_schema->value_schema,
                                                             effective[index]->range, "field '" + contract.fields[index].name + "'"),
                                                     effective[index]->range);
-                        children.push_back(wire_constant(converted, constant_schema).port);
+                        constructor_fields[index] = wire_constant(converted, constant_schema);
+                        children.push_back(constructor_fields[index].port);
                     } else if (effective[index]->is_port()) {
-                        children.push_back(convert_port(*effective[index], field_schema).port);
+                        constructor_fields[index] = convert_port(*effective[index], field_schema);
+                        children.push_back(constructor_fields[index].port);
                     } else {
                         fail(Category::Type, effective[index]->range,
                              "field '" + contract.fields[index].name + "' expects " + std::string{field_schema->name()});
@@ -1285,6 +1299,7 @@ namespace hgl::wiring
                 if (!atomic) {
                     Slot result = make_port(hgraph::WiringPortRef::structural_source(shape, std::move(children)), range);
                     result.complete_constructor = true;
+                    result.constructor_fields = std::make_shared<const std::vector<Slot>>(std::move(constructor_fields));
                     return result;
                 }
                 // Only the fields that have a value take part, so the value

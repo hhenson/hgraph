@@ -18,11 +18,12 @@ namespace hgraph_::std_
         void register_operators(std::integral_constant<std::size_t, 6>);
         void register_operators(std::integral_constant<std::size_t, 7>);
     }  // namespace hgl_detail
+    void prepare_ordinary_value_plans() {}
+
     hgraph::OperatorProviderHandle register_operators() {
         auto &registry = hgraph::OperatorRegistry::instance();
         auto  provider = registry.register_installer("hgraph.std", [] {
-            (void)hgraph::scalar_descriptor<hgraph::DateTime>::value_meta();
-            hgl_value_plan_0 = hgl::ordinary::PreparedValuePlan{hgraph::scalar_descriptor<hgraph::DateTime>::value_meta()};
+            prepare_ordinary_value_plans();
             hgl_detail::register_operators(std::integral_constant<std::size_t, 0>{});
             hgl_detail::register_operators(std::integral_constant<std::size_t, 1>{});
             hgl_detail::register_operators(std::integral_constant<std::size_t, 2>{});

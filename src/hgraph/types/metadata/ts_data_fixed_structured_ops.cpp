@@ -65,6 +65,7 @@ namespace hgraph::ts_data_plan_factory_detail
         ValueTypeRef delta_map_value_binding{nullptr};
         ValueTypeRef delta_key_set_binding{nullptr};
         ValueTypeRef value_owning_binding{nullptr};
+        ValueTypeRef value_owning_element_binding{nullptr};
         ValueTypeRef delta_owning_binding{nullptr};
         std::vector<TSRoleTypeRef>       element_types{};
         std::vector<std::size_t>       element_data_offsets{};
@@ -159,6 +160,32 @@ namespace hgraph::ts_data_plan_factory_detail
             const auto canonical_delta = ValuePlanFactory::instance().type_for(delta_schema);
             const auto *snapshot       = active_type_realization();
             value_owning_binding = snapshot != nullptr ? value_type_for_active_realization(value_schema) : canonical_value;
+            if (schema->kind == TSTypeKind::TSL && element_count() != 0)
+            {
+                // Dense scalar arrays cannot represent an invalid position.
+                // The observation owns the same exact List schema through
+                // the existing compact sequence strategy and its hole bits.
+                value_owning_element_binding = value_owning_type(element_value_binding(0));
+                value_owning_binding = compact_list_type(value_owning_element_binding, *value_schema);
+                projected_value_surface = true;
+            }
+            else if (schema->kind == TSTypeKind::TSB && !value_schema->is_abstract_bundle())
+            {
+                std::vector<ValueTypeRef> fields;
+                fields.reserve(element_count());
+                bool changed = false;
+                for (std::size_t index = 0; index < element_count(); ++index)
+                {
+                    const auto owner = value_owning_type(element_value_binding(index));
+                    fields.push_back(owner);
+                    changed |= owner != ValuePlanFactory::instance().type_for(value_schema->fields[index].type);
+                }
+                if (changed)
+                {
+                    value_owning_binding = ValuePlanFactory::instance().realized_composite_type_for(value_schema, fields);
+                    projected_value_surface = true;
+                }
+            }
             delta_owning_binding = snapshot != nullptr ? value_type_for_active_realization(delta_schema) : canonical_delta;
             if (canonical_value == nullptr || canonical_delta == nullptr || value_owning_binding == nullptr ||
                 delta_owning_binding == nullptr)
@@ -632,8 +659,7 @@ namespace hgraph::ts_data_plan_factory_detail
             const auto &ops  = child_ops(child);
             const auto *data  = child_data(state, memory, index);
             const auto binding = state->element_value_binding(index);
-            if (state->schema->kind == TSTypeKind::TSB &&
-                !ops.has_current_value_impl(ops.context, data))
+            if (!ops.has_current_value_impl(ops.context, data))
             {
                 return ValueView{binding, nullptr};
             }
@@ -800,7 +826,8 @@ namespace hgraph::ts_data_plan_factory_detail
             std::size_t seed  = 0;
             for (std::size_t index = 0; index < state->element_count(); ++index)
             {
-                seed = combine_hash(seed, view_hash(child_value_view(state, memory, index)));
+                const auto child = child_value_view(state, memory, index);
+                seed = combine_hash(seed, child.has_value() ? child.hash() : 0x9e3779b97f4a7c15ULL);
             }
             return seed;
         }
@@ -896,18 +923,14 @@ namespace hgraph::ts_data_plan_factory_detail
                 return;
             }
 
-            const auto &plan = binding.checked_plan();
-            auto       *bytes = static_cast<std::byte *>(dst);
-            if (!plan.is_array() || plan.array_count() != state->element_count())
-            {
-                throw std::logic_error("fixed TSL value copy requires a matching array plan");
-            }
-            const auto &element_plan = plan.array_element_plan();
+            ListBuilder builder{state->value_owning_element_binding, *binding.schema()};
             for (std::size_t index = 0; index < state->element_count(); ++index)
             {
-                Value child{child_value_view(state, memory, index)};
-                element_plan.copy_assign(bytes + plan.element_offset(index), child.view().data());
+                const auto child = child_value_view(state, memory, index);
+                if (!child.has_value()) { builder.push_back_unset(); }
+                else { builder.push_back(Value{child}); }
             }
+            *static_cast<ListStorage *>(dst) = builder.build_storage();
         }
 
 

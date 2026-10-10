@@ -1832,6 +1832,9 @@ namespace hgraph::ts_data_plan_factory_detail
             SetValueOps             key_set_value_ops{};
             IndexedValueOps          dict_delta_bundle_ops{};
             ValueTypeRef modified_map_binding{nullptr};
+            ValueTypeRef live_map_owning_binding{nullptr};
+            ValueTypeRef live_key_owning_binding{nullptr};
+            ValueTypeRef live_element_owning_binding{nullptr};
             ValueTypeRef key_set_value_binding{nullptr};
             TSRoleTypeRef          key_set_ts_type{};
 
@@ -1996,6 +1999,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 dict_layout.element_type          = element_type;
                 dict_layout.element_layout        = element_layout;
                 dict_layout.element_value_binding = element_layout->value_binding;
+                live_element_owning_binding = value_owning_type(element_layout->value_binding);
                 dict_layout.element_delta_binding = element_layout->delta_binding;
                 dict_layout.tracking_offset       = 0;
 
@@ -2082,7 +2086,7 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 value_map_ops = map_ops_for_surface<SlotMapSurface::Live>();
                 value_map_ops.dynamic_storage_metrics_impl = &tsd_dynamic_storage_metrics;
-                value_map_ops.owning_type_impl      = &canonical_value_binding;
+                value_map_ops.owning_type_impl      = &live_map_owner;
                 value_map_ops.copy_construct_view_impl = &map_copy_construct_view<SlotMapSurface::Live>;
                 value_map_ops.copy_assign_view_impl    = &map_copy_assign_view<SlotMapSurface::Live>;
 
@@ -2138,6 +2142,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     throw std::logic_error("TSD schemas are not populated");
                 }
                 const auto key_binding = dict_layout.key_binding;
+                live_key_owning_binding = value_owning_type(key_binding);
+                live_map_owning_binding = compact_map_type(live_key_owning_binding, live_element_owning_binding);
                 const auto element_type = dict_layout.element_type;
                 const TSDSlotStorage sample{key_binding, element_type};
                 const auto &keys = sample.keys();
@@ -2248,6 +2254,11 @@ namespace hgraph::ts_data_plan_factory_detail
                 return static_cast<const TSDContext *>(context);
             }
 
+            [[nodiscard]] static ValueTypeRef live_map_owner(const void *context, ValueTypeRef)
+            {
+                return ctxd(context)->live_map_owning_binding;
+            }
+
             template <SlotMapSurface Surface>
             static void map_copy_construct_view(const void *context,
                                                 const ValueTypeRef &binding,
@@ -2277,10 +2288,12 @@ namespace hgraph::ts_data_plan_factory_detail
                     throw std::logic_error("TSD map copy requires a canonical map binding");
                 }
 
-                const auto key_binding = value_type_for_active_realization(
-                    binding.schema()->key_type);
-                const auto value_binding = value_type_for_active_realization(
-                    binding.schema()->element_type);
+                const auto key_binding = Surface == SlotMapSurface::Live
+                    ? ctxd(context)->live_key_owning_binding
+                    : value_type_for_active_realization(binding.schema()->key_type);
+                const auto value_binding = Surface == SlotMapSurface::Live
+                    ? ctxd(context)->live_element_owning_binding
+                    : value_type_for_active_realization(binding.schema()->element_type);
                 if (!key_binding)
                 {
                     throw std::logic_error("TSD map copy key binding is not resolved");
@@ -2295,6 +2308,11 @@ namespace hgraph::ts_data_plan_factory_detail
                 for (const auto [key, value] : map_kv_range<Surface>(context, memory))
                 {
                     auto owned_key = materialize_value(key_binding, key);
+                    if (!value.has_value())
+                    {
+                        builder.set_item_unset(owned_key.data());
+                        continue;
+                    }
                     auto owned_value = materialize_value(value_binding, value);
                     builder.set_item_copy(owned_key.data(), owned_value.data());
                 }
@@ -2720,6 +2738,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto *child_memory = store.child_at_slot(slot);
                 if constexpr (Surface == SlotMapSurface::Live)
                 {
+                    if (!child_ops.has_current_value_impl(child_ops.context, child_memory)) { return nullptr; }
                     return child_ops.value_memory_impl(child_ops.context, child_memory);
                 }
                 else { return child_ops.delta_memory_impl(child_ops.context, child_memory); }
@@ -2842,7 +2861,11 @@ namespace hgraph::ts_data_plan_factory_detail
                 std::size_t result = 0;
                 for (const auto [key, value] : map_kv_range<Surface>(context, memory))
                 {
-                    const auto value_hash = value.has_value() ? value_ops.hash(value.data()) : std::size_t{0};
+                    // Live values share the compact Map's unset marker. Delta
+                    // surfaces retain their existing hash convention.
+                    constexpr std::size_t unset_hash = Surface == SlotMapSurface::Live
+                        ? 0x9e3779b97f4a7c15ULL : std::size_t{0};
+                    const auto value_hash = value.has_value() ? value_ops.hash(value.data()) : unset_hash;
                     result ^= combine_hash(key_ops.hash(key.data()), value_hash);
                 }
                 return result;

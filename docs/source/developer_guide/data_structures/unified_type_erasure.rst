@@ -306,6 +306,109 @@ bundle uses its nominal name, while its structural twin retains the
 ``Bundle{...}`` form.  Registry aliases are lookup names only and never mutate
 that canonical label or affect schema identity.
 
+An explicit held nominal Bundle (RFC 0046) has its own exact field schemas,
+storage binding and structural twin. ``TypeRegistry::projected_bundle`` prepares
+it from an ordinary nominal origin and exact projected parents. Its const
+``ordinary_origin`` pointer retains the language identity; it is never a value
+name alias and does not relax ordinary schema equality, copying or covariance.
+Even unchanged-field parents get distinct held metadata so their held children
+cannot join an ordinary family. Hierarchy snapshots include both separate
+families, preserving each abstract flag and discriminator. The factory checks
+the recursive projection relation once with a visited pair set, then interns
+the exact fields and verifies projected parents on reuse.
+
+``TypeRegistry::tsb(held_bundle, temporal_fields)`` requires each child's actual
+held schema to match the prepared Bundle field. Static ``HeldNominalBundle``
+markers and the HGL type bridge call these same preparation factories. Generic
+nominal TSB resolution retains its ordinary origin constructor and exact
+temporal parent patterns; only its auxiliary temporal nominal matching uses the
+ordinary origin. A normal scalar record pattern still rejects held metadata.
+Existing plain-field C++ nominal TSB providers retain their canonical schemas
+and use the established temporal name-and-child equivalence rule when wiring
+against a held descriptor. Atomic abstract families keep ordinary metadata and
+stop structural conversion; this representation API does not broaden the
+shared eval profile to structural abstract-family inputs.
+
+Temporal matching does not imply ordinary parent value identity.
+``In<TSB>::value()`` preserves the bound source's actual metadata, including
+at a legacy named/unnamed boundary. Whole ``copy_value_from`` still requires
+the exact output parent schema. A provider forwarding between matching
+temporal descriptors with different ordinary parents uses typed child
+selectors. HGL ordinary observations instead normalize through their prepared
+source and target bindings before publishing children.
+Composition constructors retain shared preparation-time field provenance.
+At an Atomic call boundary, the direct compiler verifies the constructor's
+ordinary nominal origin, recursively adapts supplied child constructors to
+their exact ordinary field schemas, and uses the existing field assembler.
+Missing optional fields remain omitted; they do not gate construction. This
+adaptation does not make ordinary and held parent bindings interchangeable.
+
+Normal generic record arguments preserve their ordinary metadata independently
+of their temporal resolutions. The private HGL ``Temporal`` alias recursively
+lifts Tuple, List, Map and nominal arguments; explicit Atomic fields bypass it.
+Delta-activated shape formals retain their originating temporal identity.
+``PreparedObservationPlan`` checks the actual temporal shape against the declared
+ordinary origin during preparation, records named-field indices by name, and
+selects recursive conversion operations. Retention preserves typed holes and
+uses those operations without schema discovery or registry access during ticks.
+``PreparedPublicationPlan`` likewise selects the generic result writer once;
+ordinary scalar matching and whole-parent copying remain strict.
+Both plans build a cold hash index of destination field names, reject duplicate
+or missing names, and retain only positional indices for evaluation. Forward
+and inverse observation mappings are derived from the same field bijection.
+Preparing a Bundle therefore takes linear expected time in its field count;
+evaluation never performs a name lookup.
+
+Runtime nodes prepare their ordinary bindings in node storage. Aggregate locals
+and recursively referenced value helpers also trigger cold preparation even
+with scalar-only signatures. Helper bindings share the module's dedicated
+preparation function with its provider installer; direct C++ node wiring does
+not depend on a provider having run before the first evaluation.
+
+HGL owning ``let`` bindings and ordinary constructor children retain projected
+scalar observations as typed values, including absence. This is an emit-time
+representation choice; their source types remain unchanged. Arithmetic,
+Boolean conditions and native scalar arguments consume the observation through
+``required_scalar``; an absent payload raises ``value.unset_read``. An unset
+ordinary List's ``len`` and admitted indexed List, Tuple, field and Map reads
+use the same execution code when the parent root is absent. The parent must
+have a payload before selecting a List position or Map member. Known-field
+observation projection uses the exact child bindings prepared with the parent,
+so a named field or Tuple field can preserve typed absence without a parent
+payload. Owned and abstract origins cache only declared binding references,
+preserving the existing boundary for recursive Atomic descendants.
+A writable observation grants access only to a present child; reading an unset
+child does not invoke the writer operation that marks it live. Present child
+mutation and whole-field replacement retain their existing paths. The diagnostic
+is created
+only on the failing branch, separately from successful scalar payload reads.
+Direct temporal validity checks, bounds, missing-key failures and global borrowed
+payload guards keep their existing paths and uncoded error identity. Retention and projection do not require a child payload.
+Generator owning locals use the same decision: projected scalar observations
+live in typed owning storage across suspension, while native scalar locals
+retain their existing representation. Hoisted storage is selected during
+emission, including nested emission frames; evaluation does not inspect types.
+
+HGL complete structural publication
+-----------------------------------
+
+HGL implements the specification's bounded complete-value publication rule
+separately from sparse delta application. It retains the complete expression
+before output writes, then publishes each live child and invalidates each
+observed unset child. A Map reconciles exact membership, removing absent output
+keys while preserving existing unset members. Empty or wholly invalid
+structural snapshots and newly introduced unset Map members remain outside
+this profile. Source endpoint timestamps are never copied.
+
+Resolved fields use prepared constant index plans. For a source type variable,
+``hgl::ordinary::PreparedPublicationPlan`` selects recursive publication
+function pointers from its concrete temporal schema during node preparation.
+Its exact ordinary source bindings remain separate from the output parent's
+held bindings. Evaluation uses these cached operations and child plans;
+it performs no type-kind discovery, schema interning or binding lookup.
+Generic input observations are erased values, and local retention owns their
+payload rather than wrapping the address of a ``ValueView`` object.
+
 Value ops tables carry a separate one-byte ``ValueOpsKind`` discriminator at
 offset zero.  It describes the concrete ops-table ABI, not the semantic value
 schema.  The supported hierarchy is ``Base <- Indexed`` with the leaf branches
@@ -841,3 +944,43 @@ The main design decision still requiring validation is the exact family and
 role vocabulary.  It should be tested against values, all time-series roles,
 native and Python nodes, graph builders, graph instances, executors, clocks,
 services, and nested graph slot stores before the numeric ABI is fixed.
+
+Held collection child validity
+------------------------------
+
+A live collection value projects each child's current validity, independently
+of the child's retained payload storage. An invalid fixed or growing list
+position remains present as a typed hole. An invalid live dictionary member
+keeps its key and exposes a typed hole; only removal changes membership.
+``MapView::at`` therefore distinguishes an absent key from a present unset
+value.
+
+Fixed-list observations use the existing compact sequence ownership strategy
+with the exact fixed List schema and element binding. Dense scalar array
+storage cannot preserve position validity. The live view projects the child
+endpoints, and retention copies their values or unset bits into independent
+compact storage. The element binding is prepared with the TSData context;
+retention does not discover a representation from the observed payload.
+Growing-list and dictionary snapshot builders likewise preserve unset entries.
+Live collection hashes use the same unset marker as their compact owning
+representations, recursively, so semantic equality also permits heterogeneous
+key lookup. This value rule does not change sparse delta hashes. Proxy map
+retention materializes each key through the prepared owning binding before
+copying it into the destination map; graph-local key storage is never treated
+as owning storage merely because the schemas match.
+This source observation contract does not apply an output delta or copy source
+endpoint timestamps.
+
+HGL prepared fixed List observation plans use the existing mutable List
+ownership strategy with the exact fixed schema, preserving both unset bits
+and ordinary local writability. Conversion builds each live position or typed unset
+position directly with the prepared element binding; retaining an unset leaf
+does not manufacture its default payload. This representation correction
+preserves the compiler's existing sparse publication behavior. Ordinary fixed
+List default construction still creates valid default elements, so canonical
+authoring values keep their dense zero payloads independently of temporal
+observation holes.
+Length, indexed payload access and Map item traversal check that their
+retained root has a payload before invoking storage operations. Reading an
+unset aggregate's payload raises the existing absent ordinary-value failure;
+retaining that same typed hole remains valid and does not traverse it.

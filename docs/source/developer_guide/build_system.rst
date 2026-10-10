@@ -14,6 +14,9 @@ Current Targets
 
 ``hgraph_options``
     Interface target for C++ standard, warnings, include paths, sanitizer flags, and common compile definitions.
+    Enabled sanitizers also instrument every locally compiled target, including
+    standalone language tools and built dependencies, so shared standard-library
+    container implementations use consistent instrumentation.
 
 ``hgraph_core``
     Core runtime target. This is exported publicly as ``hgraph::core``.

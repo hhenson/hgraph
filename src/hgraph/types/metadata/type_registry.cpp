@@ -549,6 +549,13 @@ namespace hgraph
             if (!include_abstract && candidate->is_abstract_bundle()) { continue; }
             result.push_back(candidate);
         }
+        for (const auto *candidate : projected_bundle_schemas_)
+        {
+            if (candidate == base && !include_base) { continue; }
+            if (!value_is_a(candidate, base)) { continue; }
+            if (!include_abstract && candidate->is_abstract_bundle()) { continue; }
+            result.push_back(candidate);
+        }
         return result;
     }
 
@@ -567,6 +574,7 @@ namespace hgraph
                 result.push_back(bundle);
             }
         }
+        result.insert(result.end(), projected_bundle_schemas_.begin(), projected_bundle_schemas_.end());
         return result;
     }
 
@@ -601,6 +609,16 @@ namespace hgraph
             if (found == value_name_cache_.end() || !found->second->is_named_bundle()) { continue; }
             result.entries.push_back(BundleHierarchySnapshot::Entry{
                 .schema = found->second,
+                .parents = hierarchy->parents,
+                .is_abstract = hierarchy->is_abstract,
+                .has_children = !hierarchy->children.empty(),
+            });
+        }
+        for (const auto *schema : projected_bundle_schemas_)
+        {
+            const auto *hierarchy = schema->bundle_hierarchy;
+            result.entries.push_back(BundleHierarchySnapshot::Entry{
+                .schema = schema,
                 .parents = hierarchy->parents,
                 .is_abstract = hierarchy->is_abstract,
                 .has_children = !hierarchy->children.empty(),
@@ -726,6 +744,9 @@ namespace hgraph
         synthetic_scalar_cache_.clear();
         tuple_cache_.clear();
         bundle_cache_.clear();
+        projected_bundle_cache_.clear();
+        projected_bundle_hierarchy_storage_.clear();
+        projected_bundle_schemas_.clear();
         owned_cache_.clear();
         shared_cache_.clear();
         named_bundle_cache_.clear();
@@ -752,6 +773,7 @@ namespace hgraph
         tsw_cache_.clear();
         tsb_cache_.clear();
         named_tsb_cache_.clear();
+        exact_tsb_cache_.clear();
         ref_cache_.clear();
 
         // Drop the alias maps and the dereference cache.
@@ -1593,6 +1615,130 @@ namespace hgraph
         return &meta;
     }
 
+    const ValueTypeMetaData *TypeRegistry::projected_bundle(
+        const ValueTypeMetaData *origin,
+        const std::vector<std::pair<std::string, const ValueTypeMetaData *>> &fields,
+        const std::vector<const ValueTypeMetaData *> &parents)
+    {
+        const std::lock_guard lock(mutex_);
+        if (origin == nullptr || !origin->is_named_bundle() || origin->bundle_hierarchy == nullptr ||
+            origin->bundle_hierarchy->ordinary_origin != nullptr)
+        {
+            throw std::invalid_argument("projected_bundle requires an ordinary nominal origin");
+        }
+        const auto &source_hierarchy = *origin->bundle_hierarchy;
+        if (fields.size() != origin->field_count || parents.size() != source_hierarchy.parents.size())
+            throw std::invalid_argument("projected_bundle requires exact source field and parent counts");
+
+        // Validate the source/held relation once for the entire field DAG.
+        // Atomic and owner boundaries preserve their exact metadata and stop
+        // descent; named child projections already validated their own fields.
+        std::vector<std::pair<const ValueTypeMetaData *, const ValueTypeMetaData *>> pending;
+        for (std::size_t index = 0; index < fields.size(); ++index)
+        {
+            if (fields[index].first != origin->fields[index].name || fields[index].second == nullptr)
+                throw std::invalid_argument("projected_bundle fields must preserve source names and order");
+            pending.emplace_back(origin->fields[index].type, fields[index].second);
+        }
+        const auto pair_hash = [](const auto &pair) {
+            return combine(std::hash<const ValueTypeMetaData *>{}(pair.first),
+                           std::hash<const ValueTypeMetaData *>{}(pair.second));
+        };
+        std::unordered_set<std::pair<const ValueTypeMetaData *, const ValueTypeMetaData *>, decltype(pair_hash)> seen{0, pair_hash};
+        while (!pending.empty())
+        {
+            const auto pair = pending.back();
+            pending.pop_back();
+            const auto [source, held] = pair;
+            if (source == held) { continue; }
+            if (source == nullptr || held == nullptr || !seen.insert(pair).second)
+            {
+                if (source != nullptr && held != nullptr) { continue; }
+                throw std::invalid_argument("projected_bundle field has no exact source schema");
+            }
+            const auto source_kind = source->try_value_kind();
+            const auto held_kind = held->try_value_kind();
+            if (source_kind == ValueTypeKind::Tuple && held->is_un_named_bundle() && source->field_count == held->field_count)
+            {
+                for (std::size_t index = 0; index < source->field_count; ++index)
+                {
+                    if (std::string_view{held->fields[index].name} != std::to_string(index))
+                        throw std::invalid_argument("projected_bundle tuple fields must preserve positions");
+                    pending.emplace_back(source->fields[index].type, held->fields[index].type);
+                }
+            }
+            else if (source_kind == ValueTypeKind::List && held_kind == source_kind &&
+                     source->flags == held->flags && source->fixed_size == held->fixed_size)
+            {
+                pending.emplace_back(source->element_type, held->element_type);
+            }
+            else if (source_kind == ValueTypeKind::Map && held_kind == source_kind &&
+                     source->flags == held->flags && source->key_type == held->key_type)
+            {
+                pending.emplace_back(source->element_type, held->element_type);
+            }
+            else if (source->is_named_bundle() && held->is_named_bundle() && held->bundle_hierarchy != nullptr &&
+                     held->bundle_hierarchy->ordinary_origin == source)
+            {
+                // The child's factory owns its recursive projection proof.
+            }
+            else { throw std::invalid_argument("projected_bundle field is not an exact held projection"); }
+        }
+        std::unordered_map<std::string_view, const ValueTypeMetaData *> field_types;
+        if (!parents.empty()) { for (const auto &[name, type] : fields) { field_types.emplace(name, type); } }
+        for (std::size_t index = 0; index < parents.size(); ++index)
+        {
+            const auto *parent = parents[index];
+            const auto *parent_origin = parent != nullptr && parent->bundle_hierarchy != nullptr
+                ? parent->bundle_hierarchy->ordinary_origin : nullptr;
+            if (parent_origin != source_hierarchy.parents[index])
+                throw std::invalid_argument("projected_bundle parent must preserve its exact ordinary origin");
+            for (std::size_t field = 0; field < parent->field_count; ++field)
+            {
+                const auto found = field_types.find(parent->fields[field].name);
+                if (found == field_types.end() || !value_is_a(found->second, parent->fields[field].type))
+                    throw std::invalid_argument("projected_bundle must preserve inherited held fields");
+            }
+        }
+        const auto *structural = un_named_bundle(fields);
+        const ProjectedBundleKey key{origin, structural};
+        bool created = false;
+        const ValueTypeMetaData &meta = projected_bundle_cache_.intern(key, [&]() {
+            created = true;
+            ValueTypeMetaData result{ValueTypeKind::Bundle, structural->flags, origin->header.label};
+            result.fields = structural->fields;
+            result.field_count = structural->field_count;
+            result.wrapped_un_named = structural;
+            auto hierarchy = std::make_unique<BundleHierarchyMetaData>(BundleHierarchyMetaData{
+                .ordinary_origin = origin,
+                .namespace_name = source_hierarchy.namespace_name,
+                .local_name = source_hierarchy.local_name,
+                .parents = parents,
+                .generic_arguments = source_hierarchy.generic_arguments,
+                .is_abstract = source_hierarchy.is_abstract,
+                .discriminator = source_hierarchy.discriminator,
+                .discriminator_value = source_hierarchy.discriminator_value,
+                .generation = ++bundle_hierarchy_generation_,
+            });
+            fix_nominal_ancestry(*hierarchy);
+            result.bundle_hierarchy = hierarchy.get();
+            projected_bundle_hierarchy_storage_.push_back(std::move(hierarchy));
+            return result;
+        });
+        if (meta.bundle_hierarchy->parents != parents)
+            throw std::invalid_argument("projected_bundle is already registered with different held parents");
+        if (created)
+        {
+            projected_bundle_schemas_.push_back(&meta);
+            for (const auto *parent : parents)
+            {
+                parent->bundle_hierarchy->children.push_back(&meta);
+                parent->bundle_hierarchy->generation = ++bundle_hierarchy_generation_;
+            }
+        }
+        return &meta;
+    }
+
     const ValueTypeMetaData *
     TypeRegistry::list(const ValueTypeMetaData *element_type, size_t fixed_size, bool variadic_tuple)
     {
@@ -2239,6 +2385,28 @@ namespace hgraph
 
         return bundle_value->is_named_bundle() ? tsb(bundle_value->name(), fields)
                                                : un_named_tsb(fields);
+    }
+
+    const TSValueTypeMetaData *TypeRegistry::tsb(
+        const ValueTypeMetaData *value,
+        const std::vector<std::pair<std::string, const TSValueTypeMetaData *>> &fields)
+    {
+        const std::lock_guard lock(mutex_);
+        if (value == nullptr || !value->is_named_bundle())
+            throw std::invalid_argument("tsb(Bundle, fields) requires an exact named Bundle schema");
+        const auto *structural = un_named_tsb(fields);
+        if (structural->value_schema != value->wrapped_un_named)
+            throw std::invalid_argument("tsb(Bundle, fields) temporal children do not match exact held fields");
+        if (value->bundle_hierarchy == nullptr || value->bundle_hierarchy->ordinary_origin == nullptr)
+            return tsb(value->name(), fields);
+        const ExactTSBundleKey key{value, structural};
+        const TSValueTypeMetaData &meta = exact_tsb_cache_.intern(key, [&]() {
+            TSValueTypeMetaData result{TSTypeKind::TSB, value, value->header.label};
+            result.set_tsb(structural->fields(), structural->field_count(), value->header.label, structural);
+            populate_ts_schemas(result);
+            return result;
+        });
+        return &meta;
     }
 
     const TSValueTypeMetaData *TypeRegistry::ref(const TSValueTypeMetaData *referenced_ts)

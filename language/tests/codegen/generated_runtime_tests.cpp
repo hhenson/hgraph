@@ -1,4 +1,5 @@
 #include <runtime.h>
+#include <hgl/execution_error.h>
 #include <sources.h>
 #include <hgraph/runtime/logger.h>
 #include <hgraph/util/scope.h>
@@ -27,6 +28,212 @@ namespace
         runtime::register_operators();
     }
 }  // namespace
+
+TEST_CASE("direct compiled scalar signatures prepare aggregate locals and helpers", "[codegen][runtime][prepared-locals]") {
+    // Direct node wiring has no generated provider installer to prepare plans.
+    CHECK_OUTPUT(eval_node<runtime::scalar_tuple_local>(values<Int>(7, 8)), values<Int>(7, 8));
+    CHECK_OUTPUT(eval_node<runtime::scalar_list_local>(values<Int>(7, 8)), values<Int>(1, 1));
+    CHECK_OUTPUT(eval_node<runtime::scalar_list_helper>(values<Int>(7, 8)), values<Int>(1, 1));
+}
+
+TEST_CASE("required unset scalar reads preserve their code and run normal stop cleanup", "[codegen][runtime][unset-read]") {
+    session();
+    using Number = runtime::UnsetObservedNumber::time_series;
+    using Flag = runtime::UnsetObservedFlag::time_series;
+    using Samples = runtime::UnsetObservedSamples::time_series;
+    using Mapping = runtime::UnsetObservedMapping::time_series;
+    using Known = runtime::UnsetKnownOuter::time_series;
+    using KnownInner = runtime::UnsetKnownInner::time_series;
+    using KnownNested = runtime::UnsetKnownNested::time_series;
+    using Abstract = runtime::UnsetAbstractOuter::time_series;
+    using Mutable = runtime::UnsetMutableOuter::time_series;
+    using MutableInner = runtime::UnsetMutableInner::time_series;
+    using Growing = runtime::UnsetGrowingSamples::time_series;
+    const auto expect_unset = [](auto invoke) {
+        try { invoke(); FAIL("required absent payload unexpectedly produced a result"); }
+        catch (const std::exception &error) { CHECK(hgl::execution_error_code(error) == "value.unset_read"); }
+    };
+    expect_unset([&] { (void)eval_node<runtime::unset_number>(values<Value>(tsb_delta<Number>(Int{1}, std::nullopt))); });
+    expect_unset([&] { (void)eval_node<runtime::unset_flag>(values<Value>(tsb_delta<Flag>(Int{1}, std::nullopt))); });
+    expect_unset([&] { (void)eval_node<runtime::unset_length>(values<Value>(tsb_delta<Samples>(Int{1}, std::nullopt))); });
+    expect_unset([&] { (void)eval_node<runtime::unset_list_index>(values<Value>(tsb_delta<Samples>(Int{1}, std::nullopt))); });
+    expect_unset([&] { (void)eval_node<runtime::unset_map_index>(values<Value>(tsb_delta<Mapping>(Int{1}, std::nullopt))); });
+    expect_unset([&] { (void)eval_node<runtime::unset_mutable_length>(values<Value>(tsb_delta<Samples>(Int{1}, std::nullopt))); });
+    expect_unset([&] { (void)eval_node<runtime::unset_mutable_push>(values<Value>(tsb_delta<Growing>(Int{1}, std::nullopt))); });
+    CHECK_OUTPUT(eval_node<runtime::unset_mutable_push>(values<Value>(tsb_delta<Growing>(Int{1}, dynamic_list_delta<TS<Int>>({{0, 4}})))), values<Int>(2));
+    CHECK_OUTPUT(eval_node<runtime::unset_known_chain>(values<Value>(tsb_delta<Known>(Int{1}, std::nullopt))), values<Int>(1));
+    CHECK_OUTPUT(eval_node<runtime::unset_known_staged>(values<Value>(tsb_delta<Known>(Int{1}, std::nullopt))), values<Int>(1));
+    const auto known_present = tsb_delta<Known>(Int{1}, tsb_delta<KnownInner>(tsb_delta<KnownNested>(Int{0})));
+    CHECK_OUTPUT(eval_node<runtime::unset_known_chain>(values<Value>(known_present)), values<Int>(1));
+    CHECK_OUTPUT(eval_node<runtime::unset_abstract_known>(values<Value>(tsb_delta<Abstract>(Int{1}, std::nullopt))), values<Int>(1));
+    const hgl::ordinary::PreparedValuePlan concrete{scalar_descriptor<runtime::UnsetAbstractConcrete::value_type>::value_meta()};
+    const hgl::ordinary::PreparedValuePlan family{scalar_descriptor<runtime::UnsetAbstractInner::value_type>::value_meta()};
+    const Value zero{Int{0}};
+    const std::array<std::pair<std::size_t, ValueView>, 1> concrete_fields{{{0, zero.view()}}};
+    CHECK_OUTPUT((eval_node<runtime::operators::unset_abstract_present, TS<runtime::UnsetAbstractInner::value_type>>(
+                     values<Int>(1), values<Value>(family.retain(concrete.bundle(concrete_fields).view())))), values<Value>(Value{Int{1}}));
+    using Lengths = UnNamedTSB<Field<"0", TS<Int>>, Field<"1", TS<Int>>>;
+    CHECK_OUTPUT(eval_node<runtime::unset_mutable_present>(values<Value>(tsb_delta<Mutable>(Int{1}, tsb_delta<MutableInner>(dynamic_list_delta<TS<Int>>({{0, 4}}))))),
+                 values<Value>(tsb_delta<Lengths>(Int{2}, Int{1})));
+    CHECK_OUTPUT(eval_node<runtime::unset_mutable_length>(values<Value>(tsb_delta<Samples>(Int{1}, list_delta<TS<Int>>({{0, 4}, {1, 5}})))), values<Int>(2));
+    CHECK_OUTPUT(eval_node<runtime::unset_list_index>(values<Value>(tsb_delta<Samples>(Int{1}, list_delta<TS<Int>>({{0, 4}, {1, 5}})))), values<Int>(5));
+    CHECK_OUTPUT(eval_node<runtime::unset_map_index>(values<Value>(tsb_delta<Mapping>(Int{1}, dict_delta<Int, TS<Int>>({{1, 4}})))), values<Int>(5));
+    expect_unset([&] { (void)eval_node<runtime::unset_native_text>(values<Value>(tsb_delta<Number>(Int{1}, std::nullopt))); });
+    CHECK_OUTPUT(eval_node<runtime::unset_number>(values<Value>(tsb_delta<Number>(Int{1}, Int{0}))), values<Int>(1));
+    CHECK_OUTPUT(eval_node<runtime::unset_flag>(values<Value>(tsb_delta<Flag>(Int{1}, Bool{false}))), values<Int>(0));
+    CHECK_OUTPUT(eval_node<runtime::unset_native_text>(values<Value>(tsb_delta<Number>(Int{1}, Int{0}))), values<Str>(Str{"0"}));
+    using Pair = UnNamedTSB<Field<"0", TS<Int>>, Field<"1", TS<Bool>>>;
+    CHECK_OUTPUT(eval_node<runtime::unset_retain_partial>(values<Value>(tsb_delta<Pair>(Int{1}, std::nullopt))),
+                 values<Value>(tsb_delta<Pair>(Int{1}, std::nullopt)));
+    CHECK_OUTPUT(eval_node<runtime::unset_retain_partial>(values<Value>(tsb_delta<Pair>(Int{1}, Bool{false}))),
+                 values<Value>(tsb_delta<Pair>(Int{1}, Bool{false})));
+    CHECK_OUTPUT(eval_node<runtime::unset_rebuild_number>(values<Value>(tsb_delta<Number>(Int{1}, std::nullopt))),
+                 values<Value>(tsb_delta<Number>(Int{1}, std::nullopt)));
+    CHECK_OUTPUT(eval_node<runtime::unset_rebuild_number>(values<Value>(tsb_delta<Number>(Int{1}, Int{0}))),
+                 values<Value>(tsb_delta<Number>(Int{1}, Int{0})));
+    std::ostringstream captured;
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(captured);
+    auto logger = std::make_shared<spdlog::logger>("unset-read-test", sink);
+    logger->set_pattern("%v");
+    log::set_logger(logger);
+    const auto restore = make_scope_exit([]() noexcept { log::set_logger(nullptr); });
+    expect_unset([&] { (void)eval_node<runtime::unset_error_cleanup>(values<Value>(tsb_delta<Number>(Int{1}, std::nullopt))); });
+    auto trace = captured.str();
+    for (auto pos = trace.find("\r\n"); pos != std::string::npos; pos = trace.find("\r\n", pos)) { trace.erase(pos, 1); }
+    CHECK(trace == "before\nstopped\n");
+    captured.str("");
+    captured.clear();
+    expect_unset([&] { (void)eval_node<runtime::unset_generator_retention>(); });
+    trace = captured.str();
+    for (auto pos = trace.find("\r\n"); pos != std::string::npos; pos = trace.find("\r\n", pos)) { trace.erase(pos, 1); }
+    CHECK(trace == "retained\nresumed\n");
+    CHECK_OUTPUT(eval_node<runtime::unset_generator_present>(), values<Int>(none, 1, 1));
+    try { (void)eval_node<runtime::unset_global_field>(values<Int>(1)); FAIL("global absent field unexpectedly produced a result"); }
+    catch (const std::exception &error) {
+        CHECK(hgl::execution_error_code(error).empty());
+        CHECK_THAT(error.what(), Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
+    }
+    CHECK_OUTPUT(eval_node<runtime::unset_temporal_delta>(values<Value>(tsb_delta<Number>(Int{1}, std::nullopt))), values<Int>(none));
+    CHECK_OUTPUT(eval_node<runtime::unset_temporal_delta>(values<Value>(tsb_delta<Number>(Int{1}, Int{0}))), values<Int>(0));
+}
+
+TEST_CASE("aggregate helper specializations keep bindings independent across nodes and runs", "[codegen][runtime][prepared-locals]") {
+    using IntegerPair = UnNamedTSB<Field<"0", TS<Int>>, Field<"1", TS<Bool>>>;
+    using FloatPair = UnNamedTSB<Field<"0", TS<Float>>, Field<"1", TS<Bool>>>;
+    for (std::size_t run = 0; run < 2; ++run) {
+        CHECK_OUTPUT(eval_node<runtime::specialized_helpers_together>(values<Int>(7, 8), values<Float>(1.5, 2.5)), values<Bool>(true, true));
+        CHECK_OUTPUT(eval_node<runtime::specialized_int_helper_node>(values<Int>(9)), values<Value>(tsb_delta<IntegerPair>(Int{9}, Bool{false})));
+        CHECK_OUTPUT(eval_node<runtime::specialized_float_helper_node>(values<Float>(3.5)), values<Value>(tsb_delta<FloatPair>(Float{3.5}, Bool{false})));
+    }
+}
+
+TEST_CASE("generated nominal records prepare exact held fields and retain sparse children", "[codegen][runtime][nominal-observation]") {
+    session();
+    using Pair = UnNamedTSB<Field<"0", TS<Int>>, Field<"1", TS<Bool>>>;
+    using Record = runtime::NominalObservedRecord::time_series;
+    using Child = runtime::NominalObservedChild::time_series;
+    const auto *ordinary = scalar_descriptor<runtime::NominalObservedRecord::value_type>::value_meta();
+    const auto *held = schema_descriptor<Record>::ts_meta()->value_schema;
+    REQUIRE(ordinary != held);
+    CHECK(held->bundle_hierarchy->ordinary_origin == ordinary);
+    CHECK(ordinary->fields[0].type->try_value_kind() == ValueTypeKind::Tuple);
+    CHECK(held->fields[0].type == schema_descriptor<Pair>::ts_meta()->value_schema);
+    const auto complete = tsb_delta<Record>(tsb_delta<Pair>(Int{7}, Bool{false}), std::nullopt);
+    const auto partial = tsb_delta<Record>(tsb_delta<Pair>(Int{7}, std::nullopt), std::nullopt);
+    const auto tick = tsb_delta<Record>(tsb_delta<Pair>(std::nullopt, Bool{false}), std::nullopt);
+    CHECK_OUTPUT(eval_node<runtime::operators::nominal_construct>(values<Int>(7, none, 7)), values<Value>(complete, none, complete));
+    CHECK_OUTPUT((eval_node<runtime::operators::nominal_copied, Record>(values<Value>(partial, tick))), values<Value>(partial, complete));
+    CHECK_OUTPUT((eval_node<runtime::operators::nominal_read, Record>(values<Value>(complete))), values<Bool>(false));
+    const auto child = tsb_delta<Child>(Int{4}, tsb_delta<Pair>(Int{7}, std::nullopt), std::nullopt);
+    const auto child_tick = tsb_delta<Child>(std::nullopt, tsb_delta<Pair>(std::nullopt, Bool{false}), std::nullopt);
+    const auto child_complete = tsb_delta<Child>(Int{4}, tsb_delta<Pair>(Int{7}, Bool{false}), std::nullopt);
+    CHECK_OUTPUT((eval_node<runtime::operators::nominal_child_copied, Child>(values<Value>(child, child_tick))), values<Value>(child, child_complete));
+    using Tuple = UnNamedTSB<Field<"0", Record>, Field<"1", TS<Bool>>>;
+    CHECK_OUTPUT((eval_node<runtime::operators::nominal_tuple_read, Tuple>(values<Value>(tsb_delta<Tuple>(Value{complete}, Bool{true})))), values<Bool>(false));
+    using List = TSL<Record, 2>;
+    CHECK_OUTPUT((eval_node<runtime::operators::nominal_list_read, List>(values<Value>(list_delta<Record>({{0, complete}})))), values<Bool>(false));
+    using Map = TSD<Int, Record>;
+    CHECK_OUTPUT((eval_node<runtime::operators::nominal_map_read, Map>(values<Value>(dict_delta<Int, Record>({{4, complete}})))), values<Bool>(false));
+    CHECK_OUTPUT(eval_node<runtime::operators::generic_tuple_int_wrapper>(values<Int>(7, 8)),
+                 values<Value>(tsb_delta<Pair>(Int{7}, Bool{false}), tsb_delta<Pair>(Int{8}, Bool{false})));
+}
+
+TEST_CASE("generated normal record arguments preserve structural closure and Atomic identity", "[codegen][runtime][nominal-observation][generic]") {
+    session();
+    using OrdinaryPair = FixedTuple<Int, Bool>;
+    using Pair = UnNamedTSB<Field<"0", TS<Int>>, Field<"1", TS<Bool>>>;
+    using PairPair = UnNamedTSB<Field<"0", Pair>, Field<"1", TS<Bool>>>;
+    using TupleRecord = runtime::NominalObservedGenericRecord<OrdinaryPair>::time_series;
+    const auto inner = tsb_delta<Pair>(Int{7}, std::nullopt);
+    const auto nested = tsb_delta<TupleRecord>(tsb_delta<PairPair>(Value{inner}, Bool{false}));
+    CHECK_OUTPUT((eval_node<runtime::operators::generic_tuple_record, TupleRecord>(values<Value>(nested))), values<Value>(nested));
+    using OrdinaryList = hgl::ordinary::List<OrdinaryPair, 2>;
+    using List = TSL<Pair, 2>;
+    using ListPair = UnNamedTSB<Field<"0", List>, Field<"1", TS<Bool>>>;
+    using ListRecord = runtime::NominalObservedGenericRecord<OrdinaryList>::time_series;
+    const auto listed = tsb_delta<ListRecord>(tsb_delta<ListPair>(list_delta<Pair>({{0, inner}}), Bool{false}));
+    CHECK_OUTPUT((eval_node<runtime::operators::generic_list_record, ListRecord>(values<Value>(listed))), values<Value>(listed));
+    using OrdinaryMap = Map<Int, OrdinaryPair>;
+    using MapTS = TSD<Int, Pair>;
+    using MapPair = UnNamedTSB<Field<"0", MapTS>, Field<"1", TS<Bool>>>;
+    using MapRecord = runtime::NominalObservedGenericRecord<OrdinaryMap>::time_series;
+    const auto mapped = tsb_delta<MapRecord>(tsb_delta<MapPair>(dict_delta<Int, Pair>({{4, inner}}), Bool{false}));
+    CHECK_OUTPUT((eval_node<runtime::operators::generic_map_record, MapRecord>(values<Value>(mapped))), values<Value>(mapped));
+    using Record = runtime::NominalObservedRecord::time_series;
+    using RecordPair = UnNamedTSB<Field<"0", Record>, Field<"1", TS<Bool>>>;
+    using NamedRecord = runtime::NominalObservedGenericRecord<runtime::NominalObservedRecord::value_type>::time_series;
+    const auto named = tsb_delta<NamedRecord>(tsb_delta<RecordPair>(tsb_delta<Record>(Value{inner}, std::nullopt), Bool{false}));
+    CHECK_OUTPUT((eval_node<runtime::operators::generic_nominal_record, NamedRecord>(values<Value>(named))), values<Value>(named));
+    using AtomicRecord = runtime::NominalGenericAtomicRecord<OrdinaryPair>::time_series;
+    const auto *atomic_schema = schema_descriptor<AtomicRecord>::ts_meta();
+    CHECK(atomic_schema->fields()[0].type == schema_descriptor<Pair>::ts_meta());
+    CHECK(atomic_schema->fields()[1].type == schema_descriptor<TS<OrdinaryPair>>::ts_meta());
+    const hgl::ordinary::PreparedValuePlan ordinary_pair{scalar_descriptor<OrdinaryPair>::value_meta()};
+    const Value seven{Int{7}}, falsity{Bool{false}};
+    const auto opaque = ordinary_pair.bundle(std::array{std::pair<std::size_t, ValueView>{0, seven.view()},
+        std::pair<std::size_t, ValueView>{1, falsity.view()}});
+    BundleBuilder atomic_builder{ValuePlanFactory::instance().type_for(atomic_schema->delta_value_schema)};
+    atomic_builder.set(0, inner.view());
+    atomic_builder.set(1, opaque.view());
+    const auto atomic = atomic_builder.build();
+    CHECK_OUTPUT((eval_node<runtime::operators::atomic_tuple_record, AtomicRecord>(values<Value>(atomic))), values<Value>(atomic));
+}
+
+TEST_CASE("generated complete publications reconcile recursive validity and Map membership", "[codegen][runtime][publication]") {
+    session();
+    using Pair = UnNamedTSB<Field<"0", TS<Int>>, Field<"1", TS<Bool>>>;
+    using Named = runtime::NominalPublicationPair::time_series;
+    using List = TSL<TS<Int>, 2>;
+    const auto steps = values<Int>(1, 2, 3);
+    const auto expected = values<Bool>(true, false, false);
+    using CanonicalNamed = NominalTSB<runtime::NominalPublicationPair::value_type, Field<"left", TS<Int>>, Field<"right", TS<Bool>>>;
+    const auto canonical_full = values<Value>(tsb_delta<CanonicalNamed>(Int{1}, Bool{false}), none, none);
+    const auto canonical_partial = values<Value>(tsb_delta<CanonicalNamed>(Int{2}, std::nullopt), tsb_delta<CanonicalNamed>(Int{2}, std::nullopt), none);
+    CHECK_OUTPUT((eval_node<runtime::operators::publication_value_validity, CanonicalNamed, CanonicalNamed>(steps, canonical_full, canonical_partial)), expected);
+    const auto pair_full = values<Value>(tsb_delta<Pair>(Int{1}, Bool{false}), none, none);
+    const auto pair_partial = values<Value>(tsb_delta<Pair>(Int{2}, std::nullopt), tsb_delta<Pair>(Int{2}, std::nullopt), none);
+    CHECK_OUTPUT((eval_node<runtime::operators::publication_tuple_result_validity, Pair, Pair>(steps, pair_full, pair_partial)), expected);
+    CHECK_OUTPUT((eval_node<runtime::operators::publication_generic_tuple_validity, Pair, Pair>(steps, pair_full, pair_partial)), expected);
+    const auto list_full = values<Value>(list_delta<TS<Int>>({{0, Int{1}}, {1, Int{10}}}), none, none);
+    const auto list_partial = values<Value>(list_delta<TS<Int>>({{0, Int{2}}}), list_delta<TS<Int>>({{0, Int{2}}}), none);
+    CHECK_OUTPUT((eval_node<runtime::operators::publication_list_result_validity, List, List>(steps, list_full, list_partial)), expected);
+    CHECK_OUTPUT((eval_node<runtime::operators::publication_generic_list_validity, List, List>(steps, list_full, list_partial)), expected);
+    const auto named_full = values<Value>(tsb_delta<Named>(Int{1}, Bool{false}), none, none);
+    const auto named_partial = values<Value>(tsb_delta<Named>(Int{2}, std::nullopt), tsb_delta<Named>(Int{2}, std::nullopt), none);
+    CHECK_OUTPUT((eval_node<runtime::operators::publication_value_validity, Named, Named>(steps, named_full, named_partial)), expected);
+    CHECK_OUTPUT((eval_node<runtime::operators::publication_delta_validity, Named, Named>(steps, named_full, named_partial)), values<Bool>(true, true, true));
+    CHECK_OUTPUT((eval_node<runtime::operators::publication_generic_pair_validity, Named, Named>(steps, named_full, named_partial)), expected);
+    CHECK_OUTPUT(eval_node<runtime::operators::publication_copied_membership>(steps), expected);
+    CHECK_OUTPUT(eval_node<runtime::operators::publication_copied_invalid_membership>(steps), values<Bool>(true, true, true));
+    CHECK_OUTPUT(eval_node<runtime::operators::publication_copied_map_validity>(steps), expected);
+    CHECK_OUTPUT(eval_node<runtime::operators::publication_generic_map_membership>(steps), expected);
+    CHECK_OUTPUT(eval_node<runtime::operators::publication_generic_map_validity>(steps), expected);
+    using Nested = UnNamedTSB<Field<"0", Pair>, Field<"1", TS<Bool>>>;
+    const auto nested_full = values<Value>(tsb_delta<Nested>(tsb_delta<Pair>(Int{1}, Bool{false}), Bool{false}), none, none);
+    const auto nested_partial_value = tsb_delta<Nested>(tsb_delta<Pair>(Int{2}, std::nullopt), Bool{false});
+    const auto nested_partial = values<Value>(nested_partial_value, nested_partial_value, none);
+    CHECK_OUTPUT((eval_node<runtime::operators::publication_generic_nested_validity, Nested, Nested>(steps, nested_full, nested_partial)), expected);
+}
 
 TEST_CASE("generated runtime tuple results publish complete values and sparse positional deltas", "[codegen][runtime][tuple]")
 {
@@ -127,7 +334,10 @@ TEST_CASE("generated tuple observations preserve absent required payloads", "[co
     CHECK_THROWS_WITH((eval_node<runtime::operators::tuple_list_observed_absent_field, Nested>(nested_partial)),
                       Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
     CHECK_THROWS_WITH((eval_node<runtime::operators::tuple_list_observed_absent_slot, Nested>(nested_partial)),
-                      Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
+                     Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
+    const auto absent_list = values<Value>(tsb_delta<Nested>(std::nullopt, Bool{true}));
+    CHECK_THROWS_WITH((eval_node<runtime::operators::tuple_list_observed_absent_length, Nested>(absent_list)),
+                     Catch::Matchers::ContainsSubstring("ordinary scalar value is absent"));
     using Map = UnNamedTSB<Field<"0", TSD<Int, Pair>>, Field<"1", TS<Bool>>>;
     const auto map_partial = values<Value>(tsb_delta<Map>(
         dict_delta<Int, Pair>({{4, tsb_delta<Pair>(Int{7}, std::nullopt)}}), Bool{true}));

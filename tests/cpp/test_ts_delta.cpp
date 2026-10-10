@@ -6,9 +6,11 @@
 // delta builders) for TS / SIGNAL / TSS / TSD / TSL / TSB / TSW.
 
 #include <hgraph/lib/testing/check_output.h>
+#include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/runtime.h>
+#include <hgraph/runtime/registry_snapshot.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/type_realization.h>
@@ -16,7 +18,9 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/time_series/ts_delta.h>
+#include <hgraph/types/time_series/output_mutation.h>
 #include <hgraph/types/utils/counted_mutex.h>
+#include <hgraph/types/utils/key_slot_store.h>
 #include <hgraph/types/value/value_builder.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -170,7 +174,74 @@ template <typename Graph, typename Seed> auto run_graph(Seed seed) {
   ex.view().run();
   return ex;
 }
+
+using HeldSamples = TSL<TS<Int>, 2>;
+using HeldBook = TSD<Int, TS<Int>>;
+struct HeldListSource {
+  static constexpr auto name = "held_list_source";
+  static void eval(In<"action", TS<Int>> action, Out<HeldSamples> out) {
+    if (action.value() == 1) { out.set(0, Int{7}); out.set(1, Int{100}); }
+    if (action.value() == 2) { invalidate(out, 0); }
+    if (action.value() == 3) { out.set(0, Int{9}); }
+  }
+};
+struct HeldMapSource {
+  static constexpr auto name = "held_map_source";
+  static void eval(In<"action", TS<Int>> action, Out<HeldBook> out) {
+    if (action.value() == 1) { out.set(Int{1}, Int{7}); out.set(Int{2}, Int{100}); }
+    if (action.value() == 2) { invalidate(out, Int{1}); }
+    if (action.value() == 3) { out.set(Int{1}, Int{9}); }
+  }
+};
+template <typename S> struct HeldCollectionObserver {
+  static constexpr auto name = "held_collection_observer";
+  static void eval(In<"step", TS<Int>>, In<"value", S, InputActivity::Passive, InputValidity::Unchecked> value,
+                   Out<TS<Bool>> out) {
+    const auto before = type_system_lock_count();
+    Value snapshot{value.base().value()};
+    REQUIRE(type_system_lock_count() == before);
+    if constexpr (std::is_same_v<S, HeldSamples>) {
+      REQUIRE(snapshot.view().as_list().size() == 2);
+      REQUIRE(snapshot.view().as_list().at(1).checked_as<Int>() == 100);
+      const bool live = snapshot.view().as_list().at(0).has_value();
+      REQUIRE(live == value[0].valid());
+      out.set(live);
+    } else {
+      Value key{Int{1}};
+      REQUIRE(snapshot.view().as_map().contains(key.view()));
+      const bool live = snapshot.view().as_map().at(key.view()).has_value();
+      REQUIRE(live == value[Int{1}].valid());
+      out.set(live);
+    }
+  }
+};
+template <typename Source, typename S> struct HeldCollectionGraph {
+  static constexpr auto name = "held_collection_graph";
+  static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>> action, Port<TS<Int>> step) {
+    return wire<HeldCollectionObserver<S>>(w, step, wire<Source>(w, action));
+  }
+};
+// Retained and projected values have one semantic hash, including typed holes.
+void check_held_hash_lookup(const ValueView &observed, const ValueView &retained) {
+  REQUIRE(observed.equals(retained));
+  REQUIRE(retained.equals(observed));
+  CHECK(observed.hash() == retained.hash());
+  KeySlotStore keys{retained.binding()};
+  const auto inserted = keys.insert(retained);
+  REQUIRE(inserted.inserted);
+  CHECK(keys.find_slot(observed) == inserted.slot);
+  CHECK_FALSE(keys.insert(observed).inserted);
+  CHECK(keys.size() == 1);
+}
 } // namespace
+
+TEST_CASE("public C++ wiring observes invalid collection children on an independent step", "[held-child-validity]") {
+  const auto actions = values<Int>(1, none, 2, none, none, 3, none);
+  const auto steps = values<Int>(none, 1, none, 1, 1, none, 1);
+  const auto expected = values<Bool>(none, true, none, false, false, none, true);
+  CHECK_OUTPUT((eval_node<HeldCollectionGraph<HeldListSource, HeldSamples>>(actions, steps)), expected);
+  CHECK_OUTPUT((eval_node<HeldCollectionGraph<HeldMapSource, HeldBook>>(actions, steps)), expected);
+}
 
 TEST_CASE("TSData realizations select a non-missing current-state policy") {
   (void)TypeRegistry::instance().register_scalar<Int>("int");
@@ -193,6 +264,152 @@ TEST_CASE("TSData realizations select a non-missing current-state policy") {
     REQUIRE(type.ops_ref().current_state_ops != nullptr);
     REQUIRE(type.ops_ref().current_state_ops !=
             &ts_current_state_detail::missing_current_state_ops());
+  }
+}
+
+TEST_CASE("held collection observations preserve invalid child holes", "[held-child-validity]") {
+  (void)TypeRegistry::instance().register_scalar<Int>("int");
+  SECTION("fixed list retains positions without retained invalid payloads") {
+    using Samples = TSL<TS<Int>, 2>;
+    TSOutput source{schema_descriptor<Samples>::ts_meta()};
+    Value initial = list_delta<TS<Int>>({{0, 7}, {1, 100}});
+    apply_delta(source.view(MIN_ST), initial.view());
+    const auto next = MIN_ST + MIN_TD;
+    auto output = source.view(next);
+    auto samples = output.as_list();
+    auto first = samples.at(0);
+    REQUIRE(first.begin_mutation(next).invalidate());
+    REQUIRE_FALSE(first.valid());
+    REQUIRE(output.valid());
+    const auto observed = output.value();
+    REQUIRE(observed.as_indexed_view().size() == 2);
+    REQUIRE_FALSE(observed.as_indexed_view().at(0).has_value());
+    REQUIRE(observed.as_indexed_view().at(1).checked_as<Int>() == 100);
+    Value retained{observed};
+    check_held_hash_lookup(observed, retained.view());
+    REQUIRE_FALSE(retained.view().as_indexed_view().at(0).has_value());
+    REQUIRE(retained.view().as_indexed_view().at(1).checked_as<Int>() == 100);
+    REQUIRE(retained.schema() == observed.schema());
+    Value replacement{Int{9}};
+    REQUIRE(first.begin_mutation(next + MIN_TD).copy_value_from(replacement.view()));
+    REQUIRE_FALSE(retained.view().as_indexed_view().at(0).has_value());
+  }
+  SECTION("growing list retains live positions and their holes") {
+    using Samples = TSL<TS<Int>>;
+    TSOutput source{schema_descriptor<Samples>::ts_meta()};
+    Value initial = dynamic_list_delta<TS<Int>>({{0, 7}, {1, 100}});
+    apply_delta(source.view(MIN_ST), initial.view());
+    const auto next = MIN_ST + MIN_TD;
+    auto output = source.view(next);
+    auto samples = output.as_list();
+    auto first = samples.at(0);
+    REQUIRE(first.begin_mutation(next).invalidate());
+    REQUIRE(output.valid());
+    const auto observed = output.value();
+    REQUIRE(observed.as_list().size() == 2);
+    REQUIRE_FALSE(observed.as_list().at(0).has_value());
+    Value retained{observed};
+    check_held_hash_lookup(observed, retained.view());
+    REQUIRE(retained.schema() == observed.schema());
+    REQUIRE_FALSE(retained.view().as_list().at(0).has_value());
+    REQUIRE(retained.view().as_list().at(1).checked_as<Int>() == 100);
+  }
+  SECTION("map retains invalid live membership as a hole") {
+    using Book = TSD<Int, TS<Int>>;
+    TSOutput source{schema_descriptor<Book>::ts_meta()};
+    Value initial = dict_delta<Int, TS<Int>>({{1, 7}, {2, 100}});
+    apply_delta(source.view(MIN_ST), initial.view());
+    const auto next = MIN_ST + MIN_TD;
+    auto output = source.view(next);
+    Value key{Int{1}};
+    auto first = output.as_dict().at(key.view());
+    REQUIRE(first.begin_mutation(next).invalidate());
+    REQUIRE_FALSE(first.valid());
+    REQUIRE(output.valid());
+    const auto observed = output.value();
+    REQUIRE(observed.as_map().contains(key.view()));
+    REQUIRE_FALSE(observed.as_map().at(key.view()).has_value());
+    Value retained{observed};
+    check_held_hash_lookup(observed, retained.view());
+    REQUIRE(retained.view().as_map().contains(key.view()));
+    REQUIRE_FALSE(retained.view().as_map().at(key.view()).has_value());
+    REQUIRE(retained.schema() == observed.schema());
+    const auto capture_before = type_system_lock_count();
+    const auto before = runtime_registry_snapshot();
+    const auto capture_cost = before.type_system_lock_acquisitions - capture_before;
+    for (int repeat = 0; repeat < 10; ++repeat) {
+      Value repeated{observed};
+      REQUIRE_FALSE(repeated.view().as_map().at(key.view()).has_value());
+    }
+    REQUIRE(type_system_lock_count() == before.type_system_lock_acquisitions);
+    const auto after = runtime_registry_snapshot();
+    // Registry snapshot capture itself acquires cold-path registry locks.
+    REQUIRE(after.type_system_lock_acquisitions - before.type_system_lock_acquisitions == capture_cost);
+    REQUIRE(after.type_records == before.type_records);
+    Value absent{Int{3}};
+    REQUIRE_THROWS_AS(observed.as_map().at(absent.view()), std::out_of_range);
+    Value sibling{Int{2}};
+    REQUIRE(retained.view().as_map().at(sibling.view()).checked_as<Int>() == 100);
+    Value replacement{Int{9}};
+    REQUIRE(first.begin_mutation(next + MIN_TD).copy_value_from(replacement.view()));
+    REQUIRE_FALSE(retained.view().as_map().at(key.view()).has_value());
+  }
+}
+
+TEST_CASE("held collection retention keeps nested fixed-list holes", "[held-child-validity]") {
+  using Child = TSL<TS<Int>, 2>;
+  (void)TypeRegistry::instance().register_scalar<Int>("int");
+  const auto partial = list_delta<TS<Int>>({{0, 7}});
+  const auto full = list_delta<TS<Int>>({{0, 100}, {1, 200}});
+  SECTION("fixed list child") {
+    using Outer = TSL<Child, 2>;
+    TSOutput source{schema_descriptor<Outer>::ts_meta()};
+    const auto initial = list_delta<Child>({{0, partial}, {1, full}});
+    apply_delta(source.view(MIN_ST), initial.view());
+    const auto observed = source.view(MIN_ST).value();
+    Value snapshot{observed};
+    check_held_hash_lookup(observed, snapshot.view());
+    const auto nested = snapshot.view().as_list().at(0).as_list();
+    REQUIRE(nested.at(0).checked_as<Int>() == 7);
+    REQUIRE_FALSE(nested.at(1).has_value());
+    REQUIRE(snapshot.view().as_list().at(1).as_list().at(1).checked_as<Int>() == 200);
+    auto output = source.view(MIN_ST + MIN_TD);
+    auto list = output.as_list();
+    auto first = list.at(0);
+    REQUIRE(first.begin_mutation(MIN_ST + MIN_TD).invalidate());
+    REQUIRE_FALSE(output.value().as_list().at(0).has_value());
+    REQUIRE(nested.at(0).checked_as<Int>() == 7);
+    REQUIRE_FALSE(nested.at(1).has_value());
+  }
+  SECTION("growing list child") {
+    using Outer = TSL<Child>;
+    TSOutput source{schema_descriptor<Outer>::ts_meta()};
+    const auto initial = dynamic_list_delta<Child>({{0, partial}, {1, full}});
+    apply_delta(source.view(MIN_ST), initial.view());
+    const auto observed = source.view(MIN_ST).value();
+    Value snapshot{observed};
+    check_held_hash_lookup(observed, snapshot.view());
+    REQUIRE_FALSE(snapshot.view().as_list().at(0).as_list().at(1).has_value());
+  }
+  SECTION("dictionary member") {
+    using Outer = TSD<Int, Child>;
+    TSOutput source{schema_descriptor<Outer>::ts_meta()};
+    const auto initial = dict_delta<Int, Child>({{1, partial}, {2, full}});
+    apply_delta(source.view(MIN_ST), initial.view());
+    const auto observed = source.view(MIN_ST).value();
+    Value snapshot{observed};
+    check_held_hash_lookup(observed, snapshot.view());
+    Value key{Int{1}};
+    const auto nested = snapshot.view().as_map().at(key.view()).as_list();
+    REQUIRE(nested.at(0).checked_as<Int>() == 7);
+    REQUIRE_FALSE(nested.at(1).has_value());
+    auto output = source.view(MIN_ST + MIN_TD);
+    auto first = output.as_dict().at(key.view());
+    REQUIRE(first.begin_mutation(MIN_ST + MIN_TD).invalidate());
+    REQUIRE(output.value().as_map().contains(key.view()));
+    REQUIRE_FALSE(output.value().as_map().at(key.view()).has_value());
+    REQUIRE(nested.at(0).checked_as<Int>() == 7);
+    REQUIRE_FALSE(nested.at(1).has_value());
   }
 }
 

@@ -482,6 +482,8 @@ namespace hgraph::ts_data_plan_factory_detail
             TypeRole                        role{TypeRole::Invalid};
             bool                            embedded{false};
             ValueTypeRef element_value_binding{nullptr};
+            ValueTypeRef element_owning_binding{nullptr};
+            ValueTypeRef list_owning_binding{nullptr};
             ValueTypeRef element_delta_binding{nullptr};
             ValueTypeRef ordinal_key_binding{nullptr};
             ValueTypeRef delta_key_set_binding{nullptr};
@@ -503,6 +505,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 }
 
                 element_value_binding = element_layout->value_binding;
+                element_owning_binding = value_owning_type(element_value_binding);
+                list_owning_binding = compact_list_type(element_owning_binding, *schema->value_schema);
                 element_delta_binding = element_layout->delta_binding;
                 if (element_value_binding == nullptr || element_delta_binding == nullptr)
                 {
@@ -719,7 +723,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     &dynamic_value_make_range,
                     nullptr,
                 };
-                value_list_ops.owning_type_impl      = &canonical_value_binding;
+                value_list_ops.owning_type_impl      = &list_owner;
                 value_list_ops.copy_construct_view_impl = &dynamic_value_copy_construct_view;
                 value_list_ops.copy_assign_view_impl    = &dynamic_value_copy_assign_view;
                 value_list_ops.dynamic_storage_metrics_impl = &dynamic_storage_metrics;
@@ -882,6 +886,10 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 const auto &ops = child_ops(state->element_type);
                 const auto *data = storage(memory).child_memory(index);
+                if (!ops.has_current_value_impl(ops.context, data))
+                {
+                    return ValueView{state->element_value_binding, nullptr};
+                }
                 return ValueView{state->element_value_binding, ops.value_memory_impl(ops.context, data)};
             }
 
@@ -899,6 +907,12 @@ namespace hgraph::ts_data_plan_factory_detail
                     return ValueView{state->element_delta_binding, nullptr};
                 }
                 return ValueView{state->element_delta_binding, ops.delta_memory_impl(ops.context, data)};
+            }
+
+            [[nodiscard]] static ValueTypeRef
+            list_owner(const void *context, ValueTypeRef)
+            {
+                return ctx(context)->list_owning_binding;
             }
 
             [[nodiscard]] static ValueTypeRef
@@ -1053,7 +1067,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 std::size_t seed = 0;
                 for (std::size_t index = 0; index < store.size(); ++index)
                 {
-                    seed = dynamic_combine_hash(seed, child_value_view(state, memory, index).hash());
+                    const auto child = child_value_view(state, memory, index);
+                    seed = dynamic_combine_hash(seed, child.has_value() ? child.hash() : 0x9e3779b97f4a7c15ULL);
                 }
                 return seed;
             }
@@ -1143,7 +1158,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     throw std::logic_error("dynamic TSL value copy requires the canonical parent list schema");
                 }
-                const auto element_binding = ValuePlanFactory::instance().type_for(binding.schema()->element_type);
+                const auto element_binding = state->element_owning_binding;
                 if (element_binding == nullptr)
                 {
                     throw std::logic_error("dynamic TSL value copy element binding is not resolved");
@@ -1153,7 +1168,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto &store = storage(memory);
                 for (std::size_t index = 0; index < store.size(); ++index)
                 {
-                    Value child{child_value_view(state, memory, index)};
+                    const auto observed = child_value_view(state, memory, index);
+                    if (!observed.has_value()) { builder.push_back_unset(); continue; }
+                    Value child{observed};
                     if (child.binding() != element_binding)
                     {
                         throw std::logic_error("dynamic TSL value copy materialized the wrong element binding");

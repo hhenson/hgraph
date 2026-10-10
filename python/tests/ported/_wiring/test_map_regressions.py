@@ -290,6 +290,7 @@ def test_proxy_lag_of_mapped_bundle_uses_erased_aggregate_conversion():
     aggregate_deltas = []
     bound_output_values = []
     bound_output_deltas = []
+    live_membership = []
 
     @hg.graph
     def make_status(value: hg.TS[int]) -> hg.TSB[Status]:
@@ -301,6 +302,7 @@ def test_proxy_lag_of_mapped_bundle_uses_erased_aggregate_conversion():
         aggregate_deltas.append(values.delta_value)
         bound_output_values.append(values.output.value)
         bound_output_deltas.append(values.output.delta_value)
+        live_membership.append(set(values.keys()))
 
     @hg.graph
     def app(
@@ -315,11 +317,15 @@ def test_proxy_lag_of_mapped_bundle_uses_erased_aggregate_conversion():
     assert eval_node(
         app, [{"item": 1}, {"item": 2}], [True, True, True]
     ) == [{}, {"item": first}, {"item": second}]
-    expected = [{}, {"item": first}, {"item": second}]
-    assert aggregate_values == expected
-    assert aggregate_deltas == expected
-    assert bound_output_values == expected
-    assert bound_output_deltas == expected
+    # The lagged member is already live before its first payload becomes valid.
+    # Current values retain that membership; deltas publish only payload changes.
+    expected_value = [{"item": None}, {"item": first}, {"item": second}]
+    expected_delta = [{}, {"item": first}, {"item": second}]
+    assert live_membership == [{"item"}, {"item"}, {"item"}]
+    assert aggregate_values == expected_value
+    assert aggregate_deltas == expected_delta
+    assert bound_output_values == expected_value
+    assert bound_output_deltas == expected_delta
 
 
 def test_bundle_with_nested_tsd_and_tsl_uses_child_conversion_strategies():
