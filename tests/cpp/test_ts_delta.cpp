@@ -1359,3 +1359,39 @@ TEST_CASE("ts_delta: empty publication markers preserve same-cycle ticks without
   verify(schema_descriptor<TSL<TS<Int>, 1>>::ts_meta(), list_delta<TS<Int>>({{0, 1}}));
   verify(schema_descriptor<Quote>::ts_meta(), tsb_delta<Quote>(Int{1}, std::nullopt));
 }
+
+TEST_CASE("ts_delta: sampled rebinds retain previously empty fixed and bundle publications", "[empty-delta][sampled]") {
+  auto &registry = TypeRegistry::instance();
+  const auto *scalar = schema_descriptor<TS<Int>>::ts_meta();
+  const std::vector<const TSValueTypeMetaData *> schemas{
+      registry.tsl(scalar, 0), registry.tsl(scalar, 2),
+      registry.tsb("SampledEmptyUnit", {}),
+      registry.tsb("SampledEmptyFields", {{"value", scalar}})};
+  for (const auto *schema : schemas) {
+    CAPTURE(schema->name());
+    const auto type = TSDataPlanFactory::instance().data_type_for(schema).as_role();
+    const auto empty = type.ops_ref().empty_delta_impl(type);
+    TSOutput first{schema}, second{schema}, invalid{schema};
+    apply_delta(first.view(MIN_ST), empty.view());
+    apply_delta(second.view(MIN_ST), empty.view());
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+    const auto sample_time = MIN_ST + MIN_TD;
+    input.view(nullptr, sample_time).bind_output(first.view(sample_time));
+    CHECK_FALSE(input.view(nullptr, sample_time).modified());
+    input.view(nullptr, sample_time).bind_output_sampled(second.view(sample_time), sample_time);
+    auto sampled = input.view(nullptr, sample_time);
+    REQUIRE(sampled.valid());
+    REQUIRE(sampled.modified());
+    CHECK(sampled.last_modified_time() == sample_time);
+    CHECK(second.view(sample_time).last_modified_time() == MIN_ST);
+    const auto captured = capture_delta(sampled);
+    CHECK((captured.view() == empty.view()));
+    CHECK(delta_is_observable(sampled, captured.view()));
+    const auto later = sample_time + MIN_TD;
+    CHECK_FALSE(input.view(nullptr, later).modified());
+    CHECK_FALSE(delta_is_observable(input.view(nullptr, later), captured.view()));
+    input.view(nullptr, later).bind_output_sampled(invalid.view(later), later);
+    CHECK_FALSE(input.view(nullptr, later).valid());
+    CHECK_FALSE(delta_is_observable(input.view(nullptr, later), captured.view()));
+  }
+}

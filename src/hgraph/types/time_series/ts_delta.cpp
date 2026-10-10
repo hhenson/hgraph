@@ -700,7 +700,8 @@ namespace hgraph
             if (!schema.is_unbounded_tsl())
             {
                 return delta.as_map().size() != 0 || (input.valid() &&
-                    input.data_view().tracking().last_empty_delta_time == input.evaluation_time());
+                    (input.delta_is_sampled_rebind() ||
+                     input.data_view().tracking().last_empty_delta_time == input.evaluation_time()));
             }
             // A dynamic TSL delta is Bundle{removed, modified} (RFC 0031): a
             // truncation is an observable event in its own right, and a valid
@@ -715,7 +716,10 @@ namespace hgraph
                                              const ValueView &delta)
         {
             if (!input.modified() || !delta.has_value()) { return false; }
-            if (input.valid() && input.data_view().tracking().last_empty_delta_time == input.evaluation_time()) { return true; }
+            // A sampled input publishes the valid source's current state at
+            // the link's time, even when its empty publication was earlier.
+            if (input.valid() && (input.delta_is_sampled_rebind() ||
+                input.data_view().tracking().last_empty_delta_time == input.evaluation_time())) { return true; }
             const auto bundle = delta.as_bundle();
             auto children = input.as_bundle();
             for (std::size_t index = 0; index < children.size(); ++index)

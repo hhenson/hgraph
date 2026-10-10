@@ -1680,7 +1680,9 @@ parent after visiting unchanged children. Captured empty deltas remain owning,
 present values. ``TSDataTracking::last_empty_delta_time`` distinguishes an
 explicit empty List or bundle publication from a scheduling-only child
 invalidation notification. The observability policy accepts the former without
-changing the latter. The marker uses evaluation time, so no cleanup allocation
+changing the latter. A sampled input rebind also publishes the valid source's
+current empty state at the input's sampling time, without changing its producer's
+timestamp. The marker uses evaluation time, so no cleanup allocation
 or registry lookup is required. Atomic complete payloads and
 rolling arrivals retain their existing per-arrival publication behavior.
 
