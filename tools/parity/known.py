@@ -716,6 +716,68 @@ def _empty_set_renders_as_braces_relation(
     return admitted >= 1
 
 
+def _update_dictionary_keys(keys: set[str], items) -> None:
+    for key, value in items:
+        if value == {"$remove": True}:
+            keys.discard(key)
+        else:
+            keys.add(key)
+
+
+def _apply_raw_dictionary_membership(keys: set[str], delta) -> bool:
+    if delta is None:
+        return True
+    if not isinstance(delta, dict):
+        return False
+    _update_dictionary_keys(keys, delta.items())
+    return True
+
+
+def _apply_canonical_dictionary_membership(keys: set[str], delta) -> bool:
+    if delta is None:
+        return True
+    if not isinstance(delta, dict) or set(delta) != {"$map"}:
+        return False
+    _update_dictionary_keys(keys, delta["$map"])
+    return True
+
+
+def _is_empty_branch_withdrawal(ref, cand, published, output_keys, source_keys,
+                               condition, selected) -> bool:
+    return (
+        cand is None
+        and ref == {"$map": []}
+        and published
+        and not output_keys
+        and not source_keys
+        and condition is not None
+        and condition != selected
+    )
+
+
+def _empty_branch_elision_trace(reference_trace, candidate_trace, conditions,
+                               source, selected) -> bool:
+    source_keys: set[str] = set()
+    output_keys: set[str] = set()
+    condition = None
+    published = False
+    elided = 0
+    for tick, (ref, cand) in enumerate(zip(reference_trace, candidate_trace)):
+        condition = conditions[tick] if conditions[tick] is not None else condition
+        if not _apply_raw_dictionary_membership(source_keys, source[tick]):
+            return False
+        if cand != ref:
+            if not _is_empty_branch_withdrawal(
+                ref, cand, published, output_keys, source_keys, condition, selected
+            ):
+                return False
+            elided += 1
+        if not _apply_canonical_dictionary_membership(output_keys, ref):
+            return False
+        published = published or ref is not None
+    return elided >= 1
+
+
 def _empty_delta_elision_relation(
     recipe: dict[str, Any],
     difference: dict[str, Any],
@@ -749,46 +811,42 @@ def _empty_delta_elision_relation(
         or len(source) != len(reference_trace)
     ):
         return False
-    source_keys: set[str] = set()
-    output_keys: set[str] = set()
-    condition = None
+    if any(item is not None and type(item) is not bool for item in conditions):
+        return False
+    return _empty_branch_elision_trace(
+        reference_trace, candidate_trace, conditions, source, branch == "true"
+    )
+
+
+def _is_nested_key_only_elision(ref, cand, published, key, key_repeated,
+                               value, value_tick) -> bool:
+    inner = {"$map": [] if value is None else [[key, value]]}
+    return (
+        published
+        and key_repeated
+        and value_tick is None
+        and cand is None
+        and ref == {"$map": [[key, inner]]}
+    )
+
+
+def _nested_convert_elision_trace(refs, cands, keys, values) -> bool:
+    key = None
+    value = None
     published = False
     elided = 0
-    for tick, (ref, cand) in enumerate(zip(reference_trace, candidate_trace)):
-        if conditions[tick] is not None:
-            if type(conditions[tick]) is not bool:
-                return False
-            condition = conditions[tick]
-        update = source[tick]
-        if update is not None:
-            if not isinstance(update, dict):
-                return False
-            for key, value in update.items():
-                if value == {"$remove": True}:
-                    source_keys.discard(key)
-                else:
-                    source_keys.add(key)
-        if cand != ref:
-            if not (
-                cand is None
-                and ref == {"$map": []}
-                and published
-                and not output_keys
-                and not source_keys
-                and condition is not None
-                and condition != (branch == "true")
+    for key_tick, value_tick, ref, cand in zip(keys, values, refs, cands):
+        previous_key = key
+        key = key_tick if key_tick is not None else key
+        value = value_tick if value_tick is not None else value
+        if ref != cand:
+            if not _is_nested_key_only_elision(
+                ref, cand, published, key,
+                key_tick is not None and key == previous_key, value, value_tick
             ):
                 return False
             elided += 1
-        if ref is not None:
-            if not isinstance(ref, dict) or set(ref) != {"$map"}:
-                return False
-            for key, value in ref["$map"]:
-                if value == {"$remove": True}:
-                    output_keys.discard(key)
-                else:
-                    output_keys.add(key)
-            published = True
+        published = published or ref is not None
     return elided >= 1
 
 
@@ -814,36 +872,11 @@ def _nested_convert_key_only_elision_relation(
         return False
     if not (len(refs) == len(cands) == len(keys) == len(values)):
         return False
-    key = None
-    value = None
-    published = False
-    elided = 0
-    for key_tick, value_tick, ref, cand in zip(keys, values, refs, cands):
-        previous_key = key
-        if key_tick is not None:
-            if not isinstance(key_tick, str):
-                return False
-            key = key_tick
-        if value_tick is not None:
-            if type(value_tick) is not int:
-                return False
-            value = value_tick
-        if ref != cand:
-            inner = {"$map": [] if value is None else [[key, value]]}
-            expected = {"$map": [[key, inner]]}
-            if not (
-                published
-                and key_tick is not None
-                and key == previous_key
-                and value_tick is None
-                and cand is None
-                and ref == expected
-            ):
-                return False
-            elided += 1
-        if ref is not None:
-            published = True
-    return elided >= 1
+    if any(item is not None and not isinstance(item, str) for item in keys):
+        return False
+    if any(item is not None and type(item) is not int for item in values):
+        return False
+    return _nested_convert_elision_trace(refs, cands, keys, values)
 
 
 def _unbounded_integer_width_relation(

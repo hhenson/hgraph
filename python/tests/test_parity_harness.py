@@ -4421,7 +4421,9 @@ def test_tsd_merge_recipe_accepts_three_inputs_only_with_matching_arity():
     validate_recipe(Recipe.from_dict(raw))
     for arity in (1, 2, 4, True):
         changed = dict(raw, parameters={"operation": "merge", "arity": arity})
+        recipe = Recipe.from_dict(changed)
         with pytest.raises(RecipeError):
-            validate_recipe(Recipe.from_dict(changed))
+            validate_recipe(recipe)
+    recipe = Recipe.from_dict(dict(raw, parameters={"operation": "flip", "arity": 3}))
     with pytest.raises(RecipeError):
-        validate_recipe(Recipe.from_dict(dict(raw, parameters={"operation": "flip", "arity": 3})))
+        validate_recipe(recipe)
