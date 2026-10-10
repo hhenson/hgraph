@@ -3403,6 +3403,12 @@ namespace hgraph
                 callbacks.evaluate = [](const NodeView &view, DateTime evaluation_time) {
                     invoke<&TImplementation::eval, signature_args>(view, evaluation_time);
                 };
+#if defined(_MSC_VER)
+                // A deliberately throwing start hook makes the route-acquire
+                // success path unreachable in that specialization.
+#pragma warning(push)
+#pragma warning(disable: 4702)
+#endif
                 callbacks.start = [](const NodeView &view, DateTime evaluation_time) {
                     if constexpr (has_start<TImplementation>)
                     {
@@ -3410,6 +3416,9 @@ namespace hgraph
                     }
                     acquire_prepared_output_route(view, evaluation_time);
                 };
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
                 callbacks.stop = [](const NodeView &view, DateTime evaluation_time) {
                     auto clear_route = UnwindCleanupGuard([&]() noexcept { clear_prepared_output_route(view); });
                     if constexpr (has_stop<TImplementation>)
