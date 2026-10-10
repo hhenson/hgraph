@@ -393,6 +393,7 @@ namespace hgraph
                 .now_impl = &realtime_clock_now_impl,
                 .cycle_time_impl = &realtime_clock_cycle_time_impl,
                 .next_cycle_evaluation_time_impl = &realtime_clock_next_cycle_evaluation_time_impl,
+                .supports_wall_clock             = true,
             };
             return table;
         }
