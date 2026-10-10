@@ -46,7 +46,51 @@ template <> struct arg_provider<python_bridge::PyOwnerSchedulerSupport> {
 } // namespace hgraph::static_node_detail
 
 namespace hgraph::python_bridge {
+namespace {
+/** Exact-type scalar results stored through the node's prepared output
+ * route (RFC 0008 stage 6): the same assignment the atomic from_python slot
+ * performs for an exact int, float or bool, followed by the same commit
+ * (record the first modification of the cycle, bubble to the parent). Any
+ * other result, an overflowing int included, takes the erased path so its
+ * conversion rules and errors are unchanged. */
+[[nodiscard]] bool apply_native_scalar_result(const PreparedOutputRoute &route,
+                                              nb::handle result, DateTime time) {
+  if (route.value_ops == &ops_for<Int>()) {
+    if (!PyLong_CheckExact(result.ptr())) {
+      return false;
+    }
+    const long long value = PyLong_AsLongLong(result.ptr());
+    if (value == -1 && PyErr_Occurred()) {
+      PyErr_Clear();
+      return false;
+    }
+    *static_cast<Int *>(route.native_value) = static_cast<Int>(value);
+  } else if (route.value_ops == &ops_for<Float>()) {
+    if (!PyFloat_CheckExact(result.ptr())) {
+      return false;
+    }
+    *static_cast<Float *>(route.native_value) = PyFloat_AsDouble(result.ptr());
+  } else if (route.value_ops == &ops_for<Bool>()) {
+    if (!PyBool_Check(result.ptr())) {
+      return false;
+    }
+    *static_cast<Bool *>(route.native_value) = result.ptr() == Py_True;
+  } else {
+    return false;
+  }
+  if (route.tracking->record_modified(time)) {
+    route.tracking->parent.notify_child_modified(time);
+  }
+  return true;
+}
+} // namespace
+
 void apply_py_result(nb::handle result, Out<TsVar<"O">> &out) {
+  if (const auto *route = out.prepared_output();
+      route != nullptr && route->native() && !result.is_none() &&
+      apply_native_scalar_result(*route, result, out.evaluation_time())) {
+    return;
+  }
   apply_python_result(static_cast<const TSOutputView &>(out), result);
 }
 } // namespace hgraph::python_bridge
@@ -1046,7 +1090,8 @@ struct py_fast_compute_node {
   }
 
   static void eval(State<PyFastComputeStateRef> state,
-                   PyOwnerSchedulerSupport, DateTime now) {
+                   PyOwnerSchedulerSupport, DateTime now,
+                   Out<TsVar<"O">> out) {
     PyFastComputeCache *cache = state.get().cache;
     if (cache == nullptr) {
       throw std::logic_error("fast python node has no runtime cache");
@@ -1089,8 +1134,8 @@ struct py_fast_compute_node {
                            std::move(call_kwargs));
       }
 
-      auto output_view = cache->output.view(now);
-      Out<TsVar<"O">> out{std::move(output_view), now};
+      // The frame's Out carries the prepared output route (stage 6), so a
+      // scalar result can be stored without re-deriving the output view.
       apply_py_result(result, out);
       invalid.release();
       lease.invalidate();

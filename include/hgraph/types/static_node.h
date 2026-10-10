@@ -1809,14 +1809,24 @@ namespace hgraph
       public:
         using schema = TsVar<VarName, TConstraints...>;
 
-        Out(TSOutputView view, DateTime /*evaluation_time*/) noexcept : TSOutputView(std::move(view)) {}
+        Out(TSOutputView view, DateTime /*evaluation_time*/, const PreparedOutputRoute *route = nullptr) noexcept
+            : TSOutputView(std::move(view)), route_(route)
+        {
+        }
 
         /** Type-erased set: copy a value (matching the resolved output schema) and tick it. */
         void apply(const ValueView &value) const
         {
             apply_current_value(*this, value);
         }
+        /** The node's prepared output route (RFC 0008 stage 6), or null when
+            the frame did not plan one; an erased writer that recognises the
+            route's native scalar may store through it. */
+        [[nodiscard]] const PreparedOutputRoute *prepared_output() const noexcept { return route_; }
         // schema() / begin_mutation() / evaluation_time() / as_set() / as_list() inherited.
+
+      private:
+        const PreparedOutputRoute *route_{nullptr};
     };
 
     // The per-cycle delta capture / apply that ``replay`` / ``record`` and the harness
@@ -2307,7 +2317,7 @@ namespace hgraph
             template <typename Frame>
             static Out<V> get_prepared(Frame &frame)
             {
-                // Only the atomic Out<TS<T>> takes the prepared output route.
+                // The atomic Out<TS<T>> and the erased Out<TsVar> take the prepared output route.
                 if constexpr (std::is_constructible_v<Out<V>, TSOutputView, DateTime, const PreparedOutputRoute *>)
                 {
                     return Out<V>{frame.output(), frame.evaluation_time(), frame.prepared_output()};
