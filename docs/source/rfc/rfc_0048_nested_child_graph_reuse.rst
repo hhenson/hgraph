@@ -33,7 +33,7 @@ Observation
 
 ``map_`` already reuses a stopped graph in one window: a key removed and
 re-added before the key set's ``on_erase`` callback "resurrects the same
-stopped graph and slot" (``nested_graphs.rst``, map_ slot lifecycle). The
+stopped graph and slot" (``nested_graphs.rst``, ``map_`` slot lifecycle). The
 machinery to stop, re-bind and re-start a nested graph in place exists; what
 does not exist is a guarantee that a re-started graph behaves as a **fresh**
 one when it serves a different key or a different selection, and a place to
