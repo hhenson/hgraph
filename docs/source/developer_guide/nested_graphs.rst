@@ -746,6 +746,15 @@ input(s) — an operator like the rest of the family
   publish the removed delta, but leaves the ``MapKeyEntry`` constructed in its
   stable slot. The key set's later ``on_erase`` callback runs the destructor;
   insertion before that callback resurrects the same stopped graph and slot.
+  The entry also caches the **dict slot of its parent output element**
+  (``MapKeyEntry::output_slot``, likewise ``MeshEntry``): the element is
+  allocated once per key and ``KeySlotStore`` never moves a live key, so after
+  the first lookup the per-tick finalisation of a child's output
+  (``finalize_mapped_child_output``) reaches the element by slot plus one key
+  equality check instead of a hash probe; a miss (the sentinel after a
+  rebuild, or a slot that no longer holds the key) falls back to the lookup
+  and refreshes the hint. This was about 10% of the dense keyed bake-off cells
+  (2026-10-10 profile).
   On node stop, ``map_`` stops every child, erases the owned TSD elements, and
   clears the output, while entry destruction remains part of node-storage
   disposal after graph-wide subscriptions have been released.

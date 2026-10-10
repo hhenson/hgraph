@@ -79,6 +79,10 @@ namespace hgraph
             runtime_detail::MappedKeySource key_source{};
             MapChildScheduleContext        schedule_context{};
             GraphValue                     graph{};
+            // The parent output element's dict slot, resolved once when the
+            // element is allocated and verified by key equality on use, so
+            // finalising a child's output costs no hash lookup per tick.
+            std::size_t                    output_slot{runtime_detail::mapped_output_slot_unknown};
         };
 
         /** The key-set slots named by one cycle's changed-key list. */
@@ -472,7 +476,8 @@ namespace hgraph
             if (!context.spec.child.output_binding.has_value()) { return; }
             runtime_detail::clear_mapped_output_element_binding(
                 view, evaluation_time, entry.key.view(), context.access.output,
-                context.spec.output_binding_mode);
+                context.spec.output_binding_mode,
+                &const_cast<MapKeyEntry &>(entry).output_slot);
         }
 
         void remove_entry_at_slot(const NodeView &view, const MapNodeContext &context,
@@ -579,7 +584,7 @@ namespace hgraph
             runtime_detail::bind_mapped_child_output(view, entry.graph.view(), evaluation_time,
                                                      spec.child.output_binding, context.access, entry.key.view(),
                                                      key_source,
-                                                     spec.output_binding_mode);
+                                                     spec.output_binding_mode, false, &entry.output_slot);
             entry.graph.view().start(evaluation_time);
             // Out-of-band child schedules (a notification or scheduler firing
             // while the child is idle between map evaluations) report into
@@ -1082,7 +1087,7 @@ namespace hgraph
                     runtime_detail::finalize_mapped_child_output(
                         view, evaluation_time, spec.child.output_binding,
                         context.access.output,
-                        entry->key.view());
+                        entry->key.view(), &entry->output_slot);
                 }
                 if (const DateTime next = child.next_scheduled_time(); next != MAX_DT && next > evaluation_time)
                 {

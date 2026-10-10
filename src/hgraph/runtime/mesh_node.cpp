@@ -83,6 +83,8 @@ struct MeshEntry {
   runtime_detail::MappedKeySource key_source{};
   MeshChildScheduleContext schedule_context{};
   GraphValue graph{};
+  // Cached dict slot of this instance's output element (see MapKeyEntry).
+  std::size_t output_slot{runtime_detail::mapped_output_slot_unknown};
   int rank{0};
   // Pause/resume settle state, per cycle:
   bool paused{false};            // paused this cycle, awaiting a dependency
@@ -1303,7 +1305,7 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
         runtime_detail::finalize_mapped_child_output(
             view, evaluation_time, spec.child.output_binding,
             context.access.output,
-            entry->key.view());
+            entry->key.view(), &entry->output_slot);
       } else {
         entry->paused = true;
         // Park on the dependency it asked for, if that dependency is going to

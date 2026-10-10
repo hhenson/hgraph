@@ -56,8 +56,15 @@ namespace hgraph::runtime_detail
     };
 
     struct MappedOutputAccessPlan;
+    /** Resolve the parent's output element for a child key. ``slot_hint``
+        (nullable) is the child's cached dict slot: the element a keyed
+        parent allocates for a child lives in one stable slot for the
+        child's whole life (``KeySlotStore`` never moves a live key and
+        reuses a slot only after a later physical erase), so after the first
+        lookup the element is found by slot plus a key equality check instead
+        of a hash probe per evaluation. A miss refreshes the hint. */
     using MappedOutputElementFn = TSOutputView (*)(const MappedOutputAccessPlan &, const NodeView &,
-                                                   DateTime, const ValueView &);
+                                                   DateTime, const ValueView &, std::size_t *slot_hint);
 
     struct MappedOutputAccessOps
     {
@@ -162,22 +169,42 @@ namespace hgraph::runtime_detail
         return plan.ops->resolve(plan, root_input, key, key_source, source_path);
     }
 
+    /** Sentinel for an unresolved output slot hint. */
+    inline constexpr std::size_t mapped_output_slot_unknown = static_cast<std::size_t>(-1);
+
     [[nodiscard]] inline TSOutputView mapped_dict_output_element(
         const MappedOutputAccessPlan &,
         const NodeView &parent,
         DateTime evaluation_time,
-        const ValueView &key)
+        const ValueView &key,
+        std::size_t *slot_hint)
     {
         auto output = parent.output(evaluation_time);
         auto dict = output.as_dict();
-        return dict.contains(key) ? dict.at(key) : TSOutputView{};
+        if (slot_hint == nullptr) { return dict.contains(key) ? dict.at(key) : TSOutputView{}; }
+
+        const std::size_t capacity = dict.slot_capacity();
+        if (const std::size_t hint = *slot_hint;
+            hint < capacity && dict.slot_live(hint) && dict.key_at_slot(hint) == key)
+        {
+            return dict.at_slot(hint);
+        }
+        const std::size_t slot = dict.find_slot(key);
+        if (slot < capacity && dict.slot_live(slot))
+        {
+            *slot_hint = slot;
+            return dict.at_slot(slot);
+        }
+        *slot_hint = mapped_output_slot_unknown;
+        return {};
     }
 
     [[nodiscard]] inline TSOutputView mapped_list_output_element(
         const MappedOutputAccessPlan &,
         const NodeView &parent,
         DateTime evaluation_time,
-        const ValueView &key)
+        const ValueView &key,
+        std::size_t *)
     {
         auto output = parent.output(evaluation_time);
         auto list = output.as_list();
@@ -188,7 +215,8 @@ namespace hgraph::runtime_detail
         const MappedOutputAccessPlan &,
         const NodeView &,
         DateTime,
-        const ValueView &)
+        const ValueView &,
+        std::size_t *)
     {
         return {};
     }
@@ -197,9 +225,10 @@ namespace hgraph::runtime_detail
         const MappedOutputAccessPlan &plan,
         const NodeView &parent,
         DateTime evaluation_time,
-        const ValueView &key)
+        const ValueView &key,
+        std::size_t *slot_hint = nullptr)
     {
-        return plan.ops->element(plan, parent, evaluation_time, key);
+        return plan.ops->element(plan, parent, evaluation_time, key, slot_hint);
     }
 
     [[nodiscard]] inline bool mapped_output_leaf_modified(
@@ -435,11 +464,12 @@ namespace hgraph::runtime_detail
         const ValueView &key,
         const TSOutputView &key_source,
         MapOutputBindingMode mode = MapOutputBindingMode::ChildTerminalWritesElement,
-        bool silent_repoint = false)
+        bool silent_repoint = false,
+        std::size_t *output_slot_hint = nullptr)
     {
         if (!output_binding.has_value()) { return; }
 
-        auto element = mapped_output_element(access.output, parent, evaluation_time, key);
+        auto element = mapped_output_element(access.output, parent, evaluation_time, key, output_slot_hint);
         if (!element.bound()) { return; }
 
         if (output_binding->kind == NestedGraphOutputBinding::Kind::ParentInput)
@@ -495,11 +525,12 @@ namespace hgraph::runtime_detail
         DateTime evaluation_time,
         const ValueView &key,
         const MappedOutputAccessPlan &access,
-        MapOutputBindingMode mode)
+        MapOutputBindingMode mode,
+        std::size_t *output_slot_hint = nullptr)
     {
         if (mode == MapOutputBindingMode::ChildTerminalWritesElement) { return; }
 
-        auto element = mapped_output_element(access, parent, evaluation_time, key);
+        auto element = mapped_output_element(access, parent, evaluation_time, key, output_slot_hint);
         if (!element.bound()) { return; }
         static_cast<void>(clear_forwarding_output_tree(std::move(element)));
     }
@@ -524,11 +555,12 @@ namespace hgraph::runtime_detail
         DateTime evaluation_time,
         const std::optional<NestedGraphOutputBinding> &output_binding,
         const MappedOutputAccessPlan &access,
-        const ValueView &key)
+        const ValueView &key,
+        std::size_t *output_slot_hint = nullptr)
     {
         if (!output_binding.has_value()) { return; }
 
-        auto element = mapped_output_element(access, parent, evaluation_time, key);
+        auto element = mapped_output_element(access, parent, evaluation_time, key, output_slot_hint);
         if (!element.bound() ||
             !mapped_output_data_tree_modified(access.data, element.data_view(), evaluation_time))
         {
