@@ -3499,7 +3499,7 @@ namespace hgraph
     NodeBuilder &NodeBuilder::implementation()
     {
         auto parts = static_node_detail::static_node_builder_parts<TImplementation>();
-        std::string saved_label{label_};
+        std::string saved_label{label()};
         Value       saved_scalars{std::move(scalars_)};
         const auto  saved_output_storage = output_value_storage_;
         *this = static_node_detail::make_static_node_builder<TImplementation>(std::move(parts));
@@ -3513,7 +3513,7 @@ namespace hgraph
     NodeBuilder &NodeBuilder::implementation(const ResolutionMap &resolution)
     {
         auto parts = static_node_detail::static_node_builder_parts<TImplementation>(resolution);
-        std::string saved_label{label_};
+        std::string saved_label{label()};
         Value       saved_scalars{std::move(scalars_)};
         const auto  saved_output_storage = output_value_storage_;
         *this = static_node_detail::make_static_node_builder<TImplementation>(std::move(parts));

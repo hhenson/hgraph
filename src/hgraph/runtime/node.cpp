@@ -22,6 +22,7 @@
 #include <stdexcept>
 #include <string>
 #include <tuple>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 
@@ -39,15 +40,91 @@ namespace hgraph
 
     namespace node_runtime_detail
     {
+        // Empty base: shared_ptr retains the concrete deleter installed by
+        // make_shared. The owning facade's semantic field tag selects access;
+        // a label-only allocation never reserves an empty checkpoint identity.
+        struct NodeRuntimeMetadata {};
+
+        inline constexpr std::uint8_t label_field{1};
+        inline constexpr std::uint8_t checkpoint_field{2};
+        inline constexpr std::uint8_t both_fields{label_field | checkpoint_field};
+
+        struct LabelMetadata final : NodeRuntimeMetadata
+        {
+            explicit LabelMetadata(std::string value) : label(std::move(value)) {}
+            std::string label;
+        };
+
+        struct CheckpointMetadata final : NodeRuntimeMetadata
+        {
+            explicit CheckpointMetadata(NodeCheckpointIdentity value) : identity(std::move(value)) {}
+            NodeCheckpointIdentity identity;
+        };
+
+        struct CompleteMetadata final : NodeRuntimeMetadata
+        {
+            CompleteMetadata(std::string label_value, NodeCheckpointIdentity identity_value)
+                : label(std::move(label_value)), identity(std::move(identity_value)) {}
+            std::string label;
+            NodeCheckpointIdentity identity;
+        };
+
+        const std::string empty_label{};
+        const NodeCheckpointIdentity empty_checkpoint_identity{};
+
+        [[nodiscard]] const std::string &metadata_label(
+            const NodeRuntimeMetadata *metadata, std::uint8_t fields) noexcept
+        {
+            if (!metadata || (fields & label_field) == 0) { return empty_label; }
+            return fields == label_field ? static_cast<const LabelMetadata &>(*metadata).label
+                                         : static_cast<const CompleteMetadata &>(*metadata).label;
+        }
+
+        [[nodiscard]] const NodeCheckpointIdentity &metadata_identity(
+            const NodeRuntimeMetadata *metadata, std::uint8_t fields) noexcept
+        {
+            if (!metadata || (fields & checkpoint_field) == 0) { return empty_checkpoint_identity; }
+            return fields == checkpoint_field ? static_cast<const CheckpointMetadata &>(*metadata).identity
+                                              : static_cast<const CompleteMetadata &>(*metadata).identity;
+        }
+
+        // Runtime owners convert to shared_ptr<const Base>. The builder may
+        // mutate only while it is the sole owner; other builders and runtimes
+        // force detachment. Builder setters are not concurrent.
+        [[nodiscard]] std::string &exclusive_label(
+            const std::shared_ptr<NodeRuntimeMetadata> &metadata, std::uint8_t fields) noexcept
+        {
+            assert(metadata.use_count() == 1 && (fields & label_field) != 0);
+            return fields == label_field ? static_cast<LabelMetadata &>(*metadata).label
+                                         : static_cast<CompleteMetadata &>(*metadata).label;
+        }
+
+        [[nodiscard]] NodeCheckpointIdentity &exclusive_identity(
+            const std::shared_ptr<NodeRuntimeMetadata> &metadata, std::uint8_t fields) noexcept
+        {
+            assert(metadata.use_count() == 1 && (fields & checkpoint_field) != 0);
+            return fields == checkpoint_field ? static_cast<CheckpointMetadata &>(*metadata).identity
+                                              : static_cast<CompleteMetadata &>(*metadata).identity;
+        }
+
+        [[nodiscard]] bool empty_identity(const NodeCheckpointIdentity &identity) noexcept
+        {
+            return identity.component.empty() && identity.id.empty() && identity.signature.empty() &&
+                   identity.refusal.empty() && !identity.transient && identity.input_components.empty();
+        }
+
+        static_assert(std::is_nothrow_move_constructible_v<NodeCheckpointIdentity>);
+        static_assert(std::is_nothrow_move_assignable_v<NodeCheckpointIdentity>);
+
         // GDB resolves notification targets through RTTI. Give this private type
         // a stable name: GCC IPO can add .lto_priv suffixes to anonymous-namespace
         // RTTI symbols that GDB cannot match to their debug information.
         struct HGRAPH_LOCAL NodeRuntimeStorage final : Notifiable
         {
-            NodeRuntimeStorage(const NodeTypeMetaData &schema, std::string runtime_label)
-                : label(std::move(runtime_label))
+            explicit NodeRuntimeStorage(std::shared_ptr<const NodeRuntimeMetadata> runtime_metadata = {},
+                                        std::uint8_t fields = 0)
+                : metadata(std::move(runtime_metadata)), metadata_fields(fields)
             {
-                if (label.empty() && schema.display_name != nullptr) { label = schema.display_name; }
             }
 
             void notify(DateTime modified_time) override
@@ -57,8 +134,8 @@ namespace hgraph
 
             GraphValue   *graph{nullptr};
             std::size_t   node_index{0};
-            std::string   label{};
-            NodeCheckpointIdentity checkpoint_identity{};
+            std::shared_ptr<const NodeRuntimeMetadata> metadata{};
+            std::uint8_t metadata_fields{0};
             bool owns_output{true};
             bool          started{false};
             bool          starting{false};
@@ -71,9 +148,9 @@ namespace hgraph
     {
         using node_runtime_detail::NodeRuntimeStorage;
 
-        [[nodiscard]] std::size_t node_runtime_graph_offset(const NodeTypeMetaData &schema)
+        [[nodiscard]] std::size_t node_runtime_graph_offset()
         {
-            const NodeRuntimeStorage sample{schema, {}};
+            const NodeRuntimeStorage sample{};
             return static_cast<std::size_t>(
                 reinterpret_cast<const std::byte *>(&sample.graph) -
                 reinterpret_cast<const std::byte *>(&sample));
@@ -139,6 +216,7 @@ namespace hgraph
             NodeRuntimeLayout                layout{};
             const MemoryUtils::StoragePlan  *plan{nullptr};
             const void *runtime_type_id{nullptr};
+            const char *default_label{nullptr};
         };
 
         [[nodiscard]] const NodeRuntimeContext &runtime_context(const void *context)
@@ -406,7 +484,8 @@ namespace hgraph
                                          TSEndpointSchema          output_endpoint_override,
                                          ValueStorageVariant       output_value_storage,
                                          const NodeBuilder::ResolvedOutputTypes *resolved_outputs,
-                                         std::string               runtime_label,
+                                         std::shared_ptr<const node_runtime_detail::NodeRuntimeMetadata> runtime_metadata,
+                                         std::uint8_t              metadata_fields,
                                          const Value              &scalars,
                                          void                     *memory)
         {
@@ -426,7 +505,7 @@ namespace hgraph
             }
             std::construct_at(MemoryUtils::cast<NodeRuntimeStorage>(
                                   MemoryUtils::advance(memory, runtime_storage_component->offset)),
-                              schema, std::move(runtime_label));
+                              std::move(runtime_metadata), metadata_fields);
             constructed.push_back(runtime_storage_component);
 
             if (context.layout.has_input())
@@ -747,12 +826,17 @@ namespace hgraph
 
         std::string_view label_impl(const void *context, const void *memory) noexcept
         {
-            return node_storage(runtime_context(context), memory).label;
+            const auto &storage = node_storage(runtime_context(context), memory);
+            const auto &label = node_runtime_detail::metadata_label(storage.metadata.get(), storage.metadata_fields);
+            if (!label.empty()) { return label; }
+            const auto *default_label = runtime_context(context).default_label;
+            return default_label != nullptr ? std::string_view{default_label} : std::string_view{};
         }
 
         const NodeCheckpointIdentity &checkpoint_identity_impl(const void *context, const void *memory) noexcept
         {
-            return node_storage(runtime_context(context), memory).checkpoint_identity;
+            const auto &storage = node_storage(runtime_context(context), memory);
+            return node_runtime_detail::metadata_identity(storage.metadata.get(), storage.metadata_fields);
         }
 
         bool owns_output_impl(const void *context, const void *memory) noexcept
@@ -1136,7 +1220,7 @@ namespace hgraph
                 schema.display_name != nullptr
                     ? std::string{schema.display_name}
                     : std::string{}));
-            if (!names.back()->empty()) {
+            if (schema.display_name != nullptr) {
               schema.display_name = names.back()->c_str();
             }
             schema.header = SchemaHeader{
@@ -1150,6 +1234,7 @@ namespace hgraph
                 .layout = layout_for(plan),
                 .plan = &plan,
                 .runtime_type_id = runtime_type_id,
+                .default_label = names.back()->c_str(),
             });
             schemas.push_back(std::move(schema));
             fill_default_ops(ops);
@@ -1311,7 +1396,7 @@ namespace hgraph
             throw std::logic_error("node debug descriptor could not resolve runtime storage");
         debug_fields.push_back(DebugField{
             .name = "graph",
-            .offset = runtime_storage->offset + node_runtime_graph_offset(schema),
+            .offset = runtime_storage->offset + node_runtime_graph_offset(),
             .flags = DebugFieldFlags::IndirectEmbeddedPointer,
         });
         const auto append_value_owner = [&](const char *name, const ValueTypeMetaData *value_schema) {
@@ -1902,22 +1987,85 @@ namespace hgraph
 
     NodeBuilder &NodeBuilder::label(std::string label)
     {
-        label_ = std::move(label);
+        using namespace node_runtime_detail;
+        if (label == this->label()) { return *this; }
+        const bool has_checkpoint = metadata_ && (metadata_fields_ & checkpoint_field) != 0;
+        const bool exclusive = metadata_.use_count() == 1;
+        if (label.empty())
+        {
+            if (has_checkpoint)
+            {
+                metadata_ = exclusive
+                    ? std::make_shared<CheckpointMetadata>(std::move(exclusive_identity(metadata_, metadata_fields_)))
+                    : std::make_shared<CheckpointMetadata>(checkpoint_identity());
+                metadata_fields_ = checkpoint_field;
+            }
+            else { metadata_.reset(); metadata_fields_ = 0; }
+        }
+        else if (exclusive && (metadata_fields_ & label_field) != 0)
+        {
+            exclusive_label(metadata_, metadata_fields_) = std::move(label);
+        }
+        else if (has_checkpoint)
+        {
+            metadata_ = exclusive
+                ? std::make_shared<CompleteMetadata>(std::move(label), std::move(exclusive_identity(metadata_, metadata_fields_)))
+                : std::make_shared<CompleteMetadata>(std::move(label), checkpoint_identity());
+            metadata_fields_ = both_fields;
+        }
+        else
+        {
+            metadata_ = std::make_shared<LabelMetadata>(std::move(label));
+            metadata_fields_ = label_field;
+        }
         return *this;
     }
 
     std::string_view NodeBuilder::label() const noexcept
     {
-        return label_;
+        return node_runtime_detail::metadata_label(metadata_.get(), metadata_fields_);
     }
 
     NodeBuilder &NodeBuilder::checkpoint_identity(NodeCheckpointIdentity identity)
     {
-        checkpoint_identity_ = std::move(identity);
+        using namespace node_runtime_detail;
+        const bool has_label = metadata_ && (metadata_fields_ & label_field) != 0;
+        const bool exclusive = metadata_.use_count() == 1;
+        if (empty_identity(identity))
+        {
+            if (has_label)
+            {
+                if ((metadata_fields_ & checkpoint_field) == 0) { return *this; }
+                metadata_ = exclusive
+                    ? std::make_shared<LabelMetadata>(std::move(exclusive_label(metadata_, metadata_fields_)))
+                    : std::make_shared<LabelMetadata>(std::string{label()});
+                metadata_fields_ = label_field;
+            }
+            else { metadata_.reset(); metadata_fields_ = 0; }
+        }
+        else if (exclusive && (metadata_fields_ & checkpoint_field) != 0)
+        {
+            exclusive_identity(metadata_, metadata_fields_) = std::move(identity);
+        }
+        else if (has_label)
+        {
+            metadata_ = exclusive
+                ? std::make_shared<CompleteMetadata>(std::move(exclusive_label(metadata_, metadata_fields_)), std::move(identity))
+                : std::make_shared<CompleteMetadata>(std::string{label()}, std::move(identity));
+            metadata_fields_ = both_fields;
+        }
+        else
+        {
+            metadata_ = std::make_shared<CheckpointMetadata>(std::move(identity));
+            metadata_fields_ = checkpoint_field;
+        }
         return *this;
     }
 
-    const NodeCheckpointIdentity &NodeBuilder::checkpoint_identity() const noexcept { return checkpoint_identity_; }
+    const NodeCheckpointIdentity &NodeBuilder::checkpoint_identity() const noexcept
+    {
+        return node_runtime_detail::metadata_identity(metadata_.get(), metadata_fields_);
+    }
 
     NodeBuilder &NodeBuilder::input_endpoint(TSEndpointSchema endpoint)
     {
@@ -2070,8 +2218,8 @@ namespace hgraph
         NodeBuilder result{type, input_endpoint_};
         result.output_endpoint_ = output_endpoint_;
         result.output_value_storage_ = output_value_storage_;
-        result.label_           = label_;
-        result.checkpoint_identity_ = checkpoint_identity_;
+        result.metadata_        = metadata_;
+        result.metadata_fields_ = metadata_fields_;
         result.scalars_         = scalars_;
         return result;
     }
@@ -2130,8 +2278,8 @@ namespace hgraph
         NodeBuilder result{type, input_endpoint_};
         result.output_endpoint_ = output_endpoint_;
         result.output_value_storage_ = output_value_storage_;
-        result.label_           = label_;
-        result.checkpoint_identity_ = checkpoint_identity_;
+        result.metadata_        = metadata_;
+        result.metadata_fields_ = metadata_fields_;
         result.scalars_         = scalars_;
         return result;
     }
@@ -2238,11 +2386,11 @@ namespace hgraph
                                     output_endpoint(),
                                     output_value_storage(),
                                     resolved_outputs.get(),
-                                    std::string{label()},
+                                    metadata_,
+                                    metadata_fields_,
                                     scalars(),
                                     memory);
 
-        node_storage(runtime, memory).checkpoint_identity = checkpoint_identity_;
         const auto &effective_output = output_endpoint_.empty() ? type.schema()->output_endpoint_schema : output_endpoint_;
         node_storage(runtime, memory).owns_output = effective_output.empty() || effective_output.is_local();
 
