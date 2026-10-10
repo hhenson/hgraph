@@ -202,6 +202,7 @@ hgraph_add_test_objects(hgraph_runtime_test_objects
     test_graph_diagnostics.cpp
     test_logger.cpp
     test_node_scheduler.cpp
+    test_prepared_native_routes.cpp
     test_push_source_queues.cpp
     test_realtime_execution.cpp
     test_ref_executor.cpp

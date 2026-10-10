@@ -564,3 +564,75 @@ pay the one-word-wider input view without gaining the cache — measured
 -1.7 percent on the native request-reply service scenario, inside the five
 percent investigation bar; extending route planning to the erased node
 front-ends is the natural follow-up if that cost matters.
+
+
+Stage 6 amendment: resolved facts on the route (2026-10-10)
+-----------------------------------------------------------
+
+Stage 5 removed the slot lookup; the resolution behind it remained. The
+bake-off follow-up profiles of main (2026-10-10) and a code walk of the read
+path showed that with a route in place one ``In<TS[int]>`` read still rebuilt
+the input root view, ran the trust check plus the ``ts_data_alive_at``
+parent walk once for the validity gate and again inside ``value()`` (a third
+time for ``modified()``), and then re-derived the layout, the value-ops
+identity and the value memory through the ops table; ``Out<TS<T>>::set``
+re-derived the output view, re-validated the mutation scope and located the
+slot per tick. Everything in that list except the tracking time and the
+value bytes is fixed from the moment ``observed`` is written.
+
+Design
+~~~~~~
+
+The RFC's contract is that ``observed`` is replaced in place on every
+topology event and never polled. Stage 6 keeps that contract and attaches
+the derived facts to the same write:
+
+* ``TSInputTargetActiveNode::resolved`` (``ResolvedObservation``) holds the
+  observed output's tracking pointer, its native value memory and value ops
+  when the output is a direct native atomic, and ``walk_free``: no
+  target-link hop and no dynamic container (TSD, dynamic TSL, window) between
+  the observed data and its root, decided by walking the parent chain once.
+  ``refresh_resolved`` runs at every site that assigns ``observed``
+  (``make_active``, ``resubscribe_tree``) and the record is cleared with the
+  handle (``unsubscribe_node``, ``unsubscribe_tree_noexcept``,
+  ``clear_observed``). A from-REF or forwarding target is a link hop, so it
+  is never walk-free and never native: those reads stay on the resolving
+  path, as do passive and structural observations (no trusted route).
+* The cursor skips the liveness walk for a walk-free trusted route (the
+  answer is "alive" by construction); ``valid()`` on a native route is
+  ``tracking->last_modified_time != MIN_DT`` (what the atomic
+  ``has_current_value`` computes); ``modified()`` on a native route is the
+  output tracking's time, or the link's own stamp at the target root (the
+  sampled-rebind contract; a native atomic target has no structural
+  transition); ``try_native_value_memory`` returns the cached memory when the
+  ops match. ``In<TS<T>>::value()`` therefore costs the trust check and two
+  loads.
+* ``PreparedInputSlotRoute`` carries the owning ``TSInput`` and scheduling
+  notifier, both fixed for the node's lifetime, so a ready slot is rebuilt
+  by ``TSInputView::from_prepared`` without first constructing the input
+  root view (one node-ops hop, four component checks and a classification
+  per tick).
+* A planned ``prepared_output`` field (``PreparedOutputRoute``: the node's
+  own output, its native value memory and tracking) is acquired by the
+  framework start callback after the output exists and cleared at stop, for
+  every static node with an output. ``Out<TS<T>>::set`` whose ops match
+  stores and calls ``record_modified`` directly, the same commit
+  ``mark_modified`` performs; the invocation frame constructs the ``Out``
+  view from the output pointer. Non-native outputs keep the pointer and fall
+  back for the write. Lifted kernels keep their erased write for now.
+
+Memory: 32 bytes per active-trie node, 16 per prepared slot, 32 per static
+node with an output. Semantics: the fast paths are exact subsets of the
+resolving paths and switch off wherever the resolving path's answer depends
+on something the record does not capture.
+
+Acceptance
+~~~~~~~~~~
+
+The stage 5 criteria apply, plus: REF-adapted and forwarding targets must
+keep retargeting correctly (never native, never walk-free); a TSD element
+input must still observe slot expiry (dynamic ancestor, walk retained);
+passive inputs and structural observations must be untouched; nested
+restart (map/mesh key erase and reuse, switch) must re-acquire the output
+route; a sampled rebind in the current cycle must still report ``modified``
+through the link stamp.

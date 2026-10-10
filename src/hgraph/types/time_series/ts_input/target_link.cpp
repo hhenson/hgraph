@@ -122,6 +122,7 @@ namespace hgraph::detail
             [[maybe_unused]] auto reset_observed = make_scope_exit([&]() noexcept {
                 node.scheduling_subscribed = false;
                 node.observed.reset();
+                node.resolved = {};
             });
             if (!node.scheduling_subscribed) { return; }
             auto view = node.observed.data_view();
@@ -162,6 +163,7 @@ namespace hgraph::detail
         {
             if (node.scheduling_subscribed) { unsubscribe_handle_noexcept(node.observed, &notifier); }
             else { node.observed.reset(); }
+            node.resolved = {};
             node.scheduling_subscribed = false;
             node.children.for_each([&](std::size_t, TSInputTargetActiveNode &child) {
                 unsubscribe_tree_noexcept(child, notifier);
@@ -623,6 +625,7 @@ namespace hgraph::detail
                 {
                     unsubscribe_node(node, state.scheduling_notifier);
                     node.observed = observed;
+                    node.refresh_resolved();
                     subscribe_scheduling_notifier(state, node);
                 }
             }
@@ -738,9 +741,59 @@ namespace hgraph::detail
     {
         scheduling_subscribed = false;
         observed.reset();
+        resolved = {};
         children.for_each([](std::size_t, TSInputTargetActiveNode &child) {
             child.clear_observed();
         });
+    }
+
+    void TSInputTargetActiveNode::refresh_resolved() noexcept
+    {
+        resolved = {};
+        if (!observed.bound()) { return; }
+        const TSDataView data = observed.data_view();
+        if (!data.valid()) { return; }
+        const auto &table = data.ops();
+        resolved.tracking = table.tracking_impl(table.context, data.data());
+        if (table.direct_native_value && table.value_view_impl == nullptr)
+        {
+            // Mirrors TSDataView::try_native_value_memory, with the ops
+            // identity left to the typed reader.
+            const auto *layout    = table.layout_impl(table.context);
+            resolved.value_ops    = layout->value_binding.ops();
+            resolved.native_value = table.value_memory_impl(table.context, data.data());
+        }
+        // The structure of ts_data_alive_at without the time: a link hop
+        // means a forwarding or from-REF target whose liveness is dynamic; a
+        // container ancestor with per-child liveness (TSD, dynamic TSL,
+        // window) can expire the slot. Fixed bundles and fixed lists have
+        // static membership.
+        TSDataView endpoint = data.borrowed_ref();
+        bool       walk_free = true;
+        while (endpoint.valid())
+        {
+            if (target_link_storage(endpoint) != nullptr)
+            {
+                walk_free = false;
+                break;
+            }
+            const auto parent = endpoint.parent_link();
+            if (!parent.has_ts_data_parent()) { break; }
+            endpoint = TSDataView{parent.parent_storage_type(), parent.parent_data()};
+            if (const auto &ops = endpoint.ops(); ops.ownership_ops != nullptr)
+            {
+                const auto *schema = endpoint.schema();
+                const bool  static_membership =
+                    schema != nullptr && (schema->kind == TSTypeKind::TSB ||
+                                          (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl()));
+                if (!static_membership)
+                {
+                    walk_free = false;
+                    break;
+                }
+            }
+        }
+        resolved.walk_free = walk_free;
     }
 
     void TSInputTargetLinkState::SchedulingNotifier::set_target(Notifiable *target) noexcept
@@ -1216,6 +1269,7 @@ namespace hgraph::detail
         active_node.locally_active = true;
         active_node.observation_kind = observation_kind;
         active_node.observed = observed_handle;
+        active_node.refresh_resolved();
         subscribe_scheduling_notifier(state, active_node);
     }
 
