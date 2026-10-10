@@ -47,6 +47,7 @@ POLYMORPHIC_JSON_PRESERVES_LEAF = "polymorphic-json-preserves-leaf"
 EMPTY_SET_RENDERS_AS_BRACES = "empty-set-renders-as-braces"
 UNBOUNDED_INTEGER_WIDTH = "unbounded-integer-width"
 EMPTY_DELTA_ELISION = "empty-delta-elision"
+NESTED_CONVERT_KEY_ONLY_ELISION = "nested-convert-key-only-elision"
 IEEE_LOG_DOMAIN = "ieee-log-domain"
 N_ARY_SET_FOLD = "n-ary-set-fold"
 KEY_SET_READER_TICK = "key-set-reader-tick"
@@ -716,21 +717,17 @@ def _empty_set_renders_as_braces_relation(
 
 
 def _empty_delta_elision_relation(
-    _recipe: dict[str, Any],
+    recipe: dict[str, Any],
     difference: dict[str, Any],
     reference: dict[str, Any],
     candidate: dict[str, Any],
     _family: dict[str, Any],
 ) -> bool:
-    """Issue #926: the no-change ruling's clause that a keyed delta netting to
-    no change does not tick, and ONLY that clause. Every position must match
-    exactly, or be a candidate ``None`` where the reference re-emitted an
-    EMPTY MAP it had already emitted.
+    """Admit only withdrawal of an already-empty if_ branch (#926/#1676).
 
-    The general ``no-change-elision`` relation is wrong here. It would also
-    admit a dropped re-tick of a non-empty entry write, which is the opposite
-    of the ruling -- "repeated TSD entry writes" tick, and issues #909-#916
-    were that exact defect (review)."""
+    A removal delta can leave the dictionary empty without itself being an
+    empty delta. Replay membership, including invalid children from the raw
+    source, rather than comparing the last two emitted deltas."""
     if difference.get("classification") != "value":
         return False
     reference_trace = reference.get("trace")
@@ -741,19 +738,111 @@ def _empty_delta_elision_relation(
         or len(reference_trace) != len(candidate_trace)
     ):
         return False
-    empty_map = {"$map": []}
-    last: Any = object()   # nothing emitted yet — never equal to a value
-    elided = 0
-    for ref, cand in zip(reference_trace, candidate_trace):
-        unchanged = ref is not None and ref == last
-        if ref is not None:
-            last = ref
-        if cand == ref:
-            continue
-        if cand is None and unchanged and ref == empty_map:
-            elided += 1
-            continue
+    inputs = recipe.get("inputs", {})
+    conditions, source = inputs.get("condition"), inputs.get("ts")
+    branch = recipe.get("parameters", {}).get("branch", "true")
+    if (
+        branch not in ("true", "false")
+        or not isinstance(conditions, list)
+        or not isinstance(source, list)
+        or len(conditions) != len(reference_trace)
+        or len(source) != len(reference_trace)
+    ):
         return False
+    source_keys: set[str] = set()
+    output_keys: set[str] = set()
+    condition = None
+    published = False
+    elided = 0
+    for tick, (ref, cand) in enumerate(zip(reference_trace, candidate_trace)):
+        if conditions[tick] is not None:
+            if type(conditions[tick]) is not bool:
+                return False
+            condition = conditions[tick]
+        update = source[tick]
+        if update is not None:
+            if not isinstance(update, dict):
+                return False
+            for key, value in update.items():
+                if value == {"$remove": True}:
+                    source_keys.discard(key)
+                else:
+                    source_keys.add(key)
+        if cand != ref:
+            if not (
+                cand is None
+                and ref == {"$map": []}
+                and published
+                and not output_keys
+                and not source_keys
+                and condition is not None
+                and condition != (branch == "true")
+            ):
+                return False
+            elided += 1
+        if ref is not None:
+            if not isinstance(ref, dict) or set(ref) != {"$map"}:
+                return False
+            for key, value in ref["$map"]:
+                if value == {"$remove": True}:
+                    output_keys.discard(key)
+                else:
+                    output_keys.add(key)
+            published = True
+    return elided >= 1
+
+
+def _nested_convert_key_only_elision_relation(
+    recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Equal key-only writes do not reassign an unchanged nested REF.
+
+    This particular template composes two key/value conversions. Its raw
+    inputs prove no key, payload or designation changed at an elided tick;
+    equal explicit payload writes and new keys must still match exactly.
+    """
+    if difference.get("classification") != "value":
+        return False
+    refs, cands = reference.get("trace"), candidate.get("trace")
+    inputs = recipe.get("inputs", {})
+    keys, values = inputs.get("key"), inputs.get("value")
+    if not all(isinstance(items, list) for items in (refs, cands, keys, values)):
+        return False
+    if not (len(refs) == len(cands) == len(keys) == len(values)):
+        return False
+    key = None
+    value = None
+    published = False
+    elided = 0
+    for key_tick, value_tick, ref, cand in zip(keys, values, refs, cands):
+        previous_key = key
+        if key_tick is not None:
+            if not isinstance(key_tick, str):
+                return False
+            key = key_tick
+        if value_tick is not None:
+            if type(value_tick) is not int:
+                return False
+            value = value_tick
+        if ref != cand:
+            inner = {"$map": [] if value is None else [[key, value]]}
+            expected = {"$map": [[key, inner]]}
+            if not (
+                published
+                and key_tick is not None
+                and key == previous_key
+                and value_tick is None
+                and cand is None
+                and ref == expected
+            ):
+                return False
+            elided += 1
+        if ref is not None:
+            published = True
     return elided >= 1
 
 
@@ -1347,6 +1436,7 @@ RELATIONS = {
     EMPTY_SET_RENDERS_AS_BRACES: _empty_set_renders_as_braces_relation,
     UNBOUNDED_INTEGER_WIDTH: _unbounded_integer_width_relation,
     EMPTY_DELTA_ELISION: _empty_delta_elision_relation,
+    NESTED_CONVERT_KEY_ONLY_ELISION: _nested_convert_key_only_elision_relation,
     IEEE_LOG_DOMAIN: _ieee_log_domain_relation,
     N_ARY_SET_FOLD: _n_ary_set_fold_relation,
     KEY_SET_READER_TICK: _key_set_reader_tick_relation,

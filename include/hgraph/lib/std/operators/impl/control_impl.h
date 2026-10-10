@@ -56,70 +56,63 @@ namespace hgraph::stdlib
             return ref.is_valid(input.evaluation_time());
         }
 
-        struct merge_binary
+        /** Select from original sources in O(N) time and O(1) auxiliary space.
+            Folding binary merges loses source ages when an intermediate
+            fallback republishes an older value (issue #846). */
+        struct merge_list
         {
-            static constexpr auto name = "merge_binary";
+            static constexpr auto name = "merge_list";
 
-            static void start(State<Int> selected) { selected.set(Int{-1}); }
+            static void start(In<"tsl", TSL<TsVar<"S">, SIZE<"N">>, InputActivity::Passive,
+                                 InputValidity::Unchecked> tsl)
+            {
+                // Observe each original binding directly: root-only list
+                // activation receives value ticks but not child unbinding.
+                for (std::size_t index = 0; index < tsl.size(); ++index)
+                {
+                    auto input = tsl[index];
+                    input.make_active();
+                }
+            }
 
-            static void eval(In<"lhs", TsVar<"S">, InputValidity::Unchecked> lhs,
-                             In<"rhs", TsVar<"S">, InputValidity::Unchecked> rhs,
-                             State<Int> selected,
+            static void stop(In<"tsl", TSL<TsVar<"S">, SIZE<"N">>, InputActivity::Passive,
+                                InputValidity::Unchecked> tsl)
+            {
+                for (std::size_t index = 0; index < tsl.size(); ++index)
+                {
+                    auto input = tsl[index];
+                    input.make_passive();
+                }
+            }
+
+            static void eval(In<"tsl", TSL<TsVar<"S">, SIZE<"N">>, InputActivity::Passive,
+                                InputValidity::Unchecked> tsl,
                              Out<TsVar<"S">> out)
             {
-                const Int current = selected.get();
-                if (lhs.modified() && lhs.valid())
+                std::size_t selected = tsl.size();
+                DateTime latest = MIN_DT;
+                for (std::size_t index = 0; index < tsl.size(); ++index)
                 {
-                    selected.set(Int{0});
-                    out.apply(lhs.value());
-                    return;
-                }
-                if (rhs.modified() && rhs.valid())
-                {
-                    selected.set(Int{1});
-                    out.apply(rhs.value());
-                    return;
-                }
-
-                // Nothing ticked: a source went away and we re-select. The
-                // re-selected value is a republication rather than a result,
-                // so an unchanged one is not an event -- released
-                // merge_ts_scalar guards its own re-selection the same way
-                // (`out != _output.value`). Without this, removing a key whose
-                // value the fallback already holds re-emits (issue #823).
-                if (current == 0 && !lhs.valid())
-                {
-                    if (rhs.valid())
+                    const auto input = tsl[index];
+                    if (!input.valid()) { continue; }
+                    if (input.modified())
                     {
-                        selected.set(Int{1});
-                        apply_if_changed(out, rhs.value());
+                        // Explicit source writes tick even when equal.
+                        out.apply(input.value());
+                        return;
                     }
-                    else { selected.set(Int{-1}); }
-                    return;
+                    const DateTime modified = input.base().last_modified_time();
+                    if (selected == tsl.size() || modified > latest)
+                    {
+                        selected = index;
+                        latest = modified;
+                    }
                 }
-                if (current == 1 && !rhs.valid())
+                if (selected != tsl.size())
                 {
-                    if (lhs.valid())
-                    {
-                        selected.set(Int{0});
-                        apply_if_changed(out, lhs.value());
-                    }
-                    else { selected.set(Int{-1}); }
-                    return;
-                }
-
-                if (current < 0)
-                {
-                    if (lhs.valid())
-                    {
-                        selected.set(Int{0});
-                        apply_if_changed(out, lhs.value());
-                    }
-                    else if (rhs.valid())
-                    {
-                        selected.set(Int{1});
-                        apply_if_changed(out, rhs.value());
-                    }
+                    // Fallback is a republication, not an explicit write:
+                    // an equal value must remain silent (issue #823).
+                    apply_if_changed(out, tsl[selected].value());
                 }
             }
         };
@@ -375,12 +368,13 @@ namespace hgraph::stdlib
         static auto compose(Wiring &w, VarIn<"tsl", TsVar<"S">> ts)
         {
             if (ts.empty()) { throw std::invalid_argument("merge requires at least one input"); }
-            // merge_binary observes positional invalidity so that it can fall
-            // back to another source. Public reduce_ deliberately skips
-            // invalid values, therefore merge owns this static fold directly.
-            return higher_order_impl_detail::reduce_layout(
-                w, fn<control_impl_detail::merge_binary>(),
+            if (ts.size() == 1) { return ts[0]; }
+            auto &registry = TypeRegistry::instance();
+            WiringPortRef packed = WiringPortRef::structural_source(
+                registry.tsl(ts[0].schema, ts.size()),
                 std::vector<WiringPortRef>{ts.begin(), ts.end()});
+            return wire<control_impl_detail::merge_list>(
+                w, Port<void>{w, std::move(packed)}).erased();
         }
     };
 

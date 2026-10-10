@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "deviation-nested-convert-key-only-no-retick",
+  "description": "Owner decision 2026-10-10 (#1640/#1641/#1642): equal key-only writes preserve nested structure without republishing an unchanged REF.",
+  "template": "declaration_shape",
+  "parameters": {"declaration_shape": "nested_collection"},
+  "inputs": {"key": ["a", "a"], "value": [null, null]},
+  "features": ["declaration:nested-collection", "shape:TSD", "deviation:no-change-elision"]
+}
