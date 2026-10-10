@@ -124,7 +124,14 @@ namespace hgraph
             route_node->observed.bound())
         {
             value_data = route_node->observed.data_view();
-            if (!detail::ts_data_alive_at(value_data.borrowed_ref(), evaluation_time)) { value_data = {}; }
+            // Stage 6: a walk-free observation (no link hop, no dynamic
+            // container above it) is alive by construction; the walk's
+            // answer was resolved when ``observed`` was written.
+            if (!route_node->resolved.walk_free &&
+                !detail::ts_data_alive_at(value_data.borrowed_ref(), evaluation_time))
+            {
+                value_data = {};
+            }
             return value_data;
         }
         if (is_target_position()) { value_data = detail::target_link_resolve(raw_data, target_path_node()); }
@@ -161,6 +168,16 @@ namespace hgraph
     bool TSInputView::InputDataCursor::modified(DateTime evaluation_time) const
     {
         if (evaluation_time == MIN_DT) { return false; }
+        // Stage 6: a trusted native route answers from the observed output's
+        // tracking (plus the link's own stamp at the target root, the
+        // sampled-rebind contract). A native atomic target has no structural
+        // transition, so the structural sample time cannot apply.
+        if (route_node != nullptr && route_node->resolved.native() && route_node->locally_active &&
+            route_node->observation_kind == detail::TSInputObservationKind::Value && route_node->observed.bound())
+        {
+            if (route_node->resolved.tracking->last_modified_time == evaluation_time) { return true; }
+            return is_target_root() && raw_data.modified(evaluation_time);
+        }
         const auto &data = resolved_value_data(evaluation_time);
         if (is_target_position())
         {
@@ -430,8 +447,25 @@ namespace hgraph
 
     bool TSInputView::valid() const
     {
+        // Stage 6: a direct native atomic has a current value exactly when
+        // its tracking has recorded a modification.
+        if (const auto *resolved = prepared_observation(); resolved != nullptr && resolved->native())
+        {
+            return resolved->tracking->last_modified_time != MIN_DT;
+        }
         const auto &data = data_view();
         return data.valid() && data.has_current_value();
+    }
+
+    const detail::ResolvedObservation *TSInputView::prepared_observation() const noexcept
+    {
+        const auto *node = data_.route_node;
+        if (node == nullptr || !node->locally_active ||
+            node->observation_kind != detail::TSInputObservationKind::Value || !node->observed.bound())
+        {
+            return nullptr;
+        }
+        return &node->resolved;
     }
 
     bool TSInputView::all_valid() const
@@ -506,6 +540,11 @@ namespace hgraph
 
     const void *TSInputView::try_native_value_memory(const void *expected_value_ops) const noexcept
     {
+        if (const auto *resolved = prepared_observation();
+            resolved != nullptr && resolved->native() && resolved->value_ops == expected_value_ops)
+        {
+            return resolved->native_value;
+        }
         const auto &data = data_view();
         if (!data.valid()) { return nullptr; }
         return data.try_native_value_memory(expected_value_ops);
@@ -861,6 +900,8 @@ namespace hgraph
             route.route = state != nullptr ? state->active_root() : nullptr;
         }
         else { route.data = projection.visible.storage_ref(); }
+        route.input    = input_;
+        route.notifier = scheduling_notifier_;
         return route;
     }
 
@@ -874,17 +915,25 @@ namespace hgraph
 
     TSInputView TSInputView::child_from_prepared(const detail::PreparedInputSlotRoute &route) const
     {
+        detail::PreparedInputSlotRoute owned = route;
+        owned.input    = input_;
+        owned.notifier = scheduling_notifier_;
+        return from_prepared(owned, evaluation_time_);
+    }
+
+    TSInputView TSInputView::from_prepared(const detail::PreparedInputSlotRoute &route, DateTime evaluation_time)
+    {
         if (!route.target)
         {
-            return TSInputView{input_, TSDataView{route.data}, TSDataView{}, nullptr,
-                               scheduling_notifier_, evaluation_time_,
+            return TSInputView{route.input, TSDataView{route.data}, TSDataView{}, nullptr,
+                               route.notifier, evaluation_time,
                                InputDataCursor::Classification::Known};
         }
         // Empty value seed: every read resolves through the cursor (the
         // prepared route or the full resolution), exactly as the projected
         // slow path does.
-        TSInputView view{input_, TSDataView{}, TSDataView{route.data}, target_root_marker(),
-                         scheduling_notifier_, evaluation_time_,
+        TSInputView view{route.input, TSDataView{}, TSDataView{route.data}, target_root_marker(),
+                         route.notifier, evaluation_time,
                          InputDataCursor::Classification::Known};
         view.data_.route_node = route.route;
         return view;

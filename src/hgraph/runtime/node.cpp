@@ -183,6 +183,7 @@ namespace hgraph
             std::size_t recordable_state_offset{npos};
             std::size_t prepared_inputs_offset{npos};
             std::size_t runtime_cache_offset{npos};
+            std::size_t prepared_output_offset{npos};
 
             // The planned components construction touches, resolved once per
             // type with the offsets above: construction used to look each of
@@ -654,6 +655,7 @@ namespace hgraph
                  &NodeRuntimeLayout::recordable_state_component},
                 {node_prepared_inputs_field.data(), &NodeRuntimeLayout::prepared_inputs_offset, nullptr},
                 {node_runtime_cache_field.data(), &NodeRuntimeLayout::runtime_cache_offset, nullptr},
+                {node_prepared_output_field.data(), &NodeRuntimeLayout::prepared_output_offset, nullptr},
             };
             for (const auto &[name, offset_member, component_member] : optional_components)
             {
@@ -1510,7 +1512,8 @@ namespace hgraph
         {
             std::vector<NodeStorageField> fields;
             if (origin_plan == nullptr) { return fields; }
-            for (const std::string_view name : {node_prepared_inputs_field, node_runtime_cache_field})
+            for (const std::string_view name :
+                 {node_prepared_inputs_field, node_runtime_cache_field, node_prepared_output_field})
             {
                 if (const auto *component = origin_plan->find_component(name); component != nullptr)
                 {
@@ -1609,6 +1612,16 @@ namespace hgraph
         const auto &context = *static_cast<const NodeRuntimeContext *>(table.context);
         if (context.layout.prepared_inputs_offset == NodeRuntimeLayout::npos) { return nullptr; }
         return MemoryUtils::advance(data(), context.layout.prepared_inputs_offset);
+    }
+
+    void *NodeView::prepared_output() const noexcept
+    {
+        if (!valid()) { return nullptr; }
+        const NodeOps &table = ops();
+        if (table.context == nullptr) { return nullptr; }
+        const auto &context = *static_cast<const NodeRuntimeContext *>(table.context);
+        if (context.layout.prepared_output_offset == NodeRuntimeLayout::npos) { return nullptr; }
+        return MemoryUtils::advance(data(), context.layout.prepared_output_offset);
     }
 
     void *NodeView::runtime_cache() const noexcept

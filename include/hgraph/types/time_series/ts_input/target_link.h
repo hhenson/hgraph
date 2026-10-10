@@ -3,6 +3,7 @@
 
 #include <hgraph/types/time_series/ts_data.h>
 #include <hgraph/types/time_series/ts_output/base_view.h>
+#include <hgraph/types/time_series/ts_input/resolved_observation.h>
 #include <hgraph/types/time_series/ts_input/target_link_structural_state.h>
 #include <hgraph/types/utils/small_dense_ptr_map.h>
 
@@ -43,6 +44,20 @@ namespace hgraph::detail
             the target-link state observer instead. */
         bool scheduling_subscribed{false};
         TSOutputHandle observed{};
+        /**
+         * Resolved facts of ``observed`` (RFC 0008 stage 6), recomputed by
+         * ``refresh_resolved`` at every write of ``observed`` and cleared
+         * with it, so they share its in-place validity contract exactly.
+         * ``tracking`` points at the observed output's tracking record;
+         * ``native_value`` / ``value_ops`` describe its value memory when the
+         * output is a direct native atomic (otherwise null); ``walk_free``
+         * says no target-link hop and no dynamic container (TSD, dynamic
+         * TSL, window) lies between the observed data and its root, so the
+         * per-read liveness walk has a known answer. A from-REF or forwarding
+         * target (a link hop) is never walk-free and never native, which
+         * keeps those reads on the resolving path.
+         */
+        ResolvedObservation resolved{};
         SmallDensePtrMap<std::size_t, TSInputTargetActiveNode> children{};
 
         [[nodiscard]] TSInputTargetActiveNode *child_at(std::size_t slot_index) const noexcept;
@@ -50,6 +65,8 @@ namespace hgraph::detail
         [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
         TSInputTargetActiveNode &ensure_child(std::size_t slot_index);
         void clear_observed() noexcept;
+        /** Recompute ``resolved`` from ``observed`` (cleared when unbound). */
+        void refresh_resolved() noexcept;
     };
 
     struct TSInputTargetLinkState final : Notifiable

@@ -1211,12 +1211,25 @@ namespace hgraph
         using schema     = TS<TValue>;
         using value_type = TValue;
 
-        Out(TSOutputView view, DateTime /*evaluation_time*/) noexcept : TSOutputView(std::move(view)) {}
+        Out(TSOutputView view, DateTime /*evaluation_time*/, const PreparedOutputRoute *route = nullptr) noexcept
+            : TSOutputView(std::move(view)), route_(route)
+        {
+        }
 
         /** Write ``value`` into the output and tick it at the current evaluation time. */
         template <typename U>
         void set(U &&value) const
         {
+            // Prepared route (RFC 0008 stage 6): the output's native slot and
+            // tracking were resolved at start; this is the typed fast path
+            // below without the per-tick view, scope and slot derivation.
+            if (route_ != nullptr && route_->native() && route_->value_ops == &ops_for<TValue>())
+            {
+                *static_cast<TValue *>(route_->native_value) = TValue{std::forward<U>(value)};
+                const DateTime time = evaluation_time();
+                if (route_->tracking->record_modified(time)) { route_->tracking->parent.notify_child_modified(time); }
+                return;
+            }
             auto mutation = TSOutputView::begin_mutation(evaluation_time());
             // Typed fast path: a pure-native atomic slot whose realized ops
             // match TValue assigns in place and commits via mark_modified
@@ -1245,6 +1258,9 @@ namespace hgraph
             static_cast<void>(mutation.copy_value_from(value));
         }
         // modified() / valid() / evaluation_time() inherited from TSOutputView.
+
+      private:
+        const PreparedOutputRoute *route_{nullptr};
     };
 
     template <typename TElement>
@@ -2214,23 +2230,27 @@ namespace hgraph
         {
           public:
             StaticNodeInvocationFrame(const NodeView &view, DateTime evaluation_time,
-                                      const detail::PreparedInputSlotRoute *routes = nullptr)
-                : view_(view), evaluation_time_(evaluation_time), routes_(routes)
+                                      const detail::PreparedInputSlotRoute *routes = nullptr,
+                                      const PreparedOutputRoute *output_route = nullptr)
+                : view_(view), evaluation_time_(evaluation_time), routes_(routes), output_route_(output_route)
             {
             }
 
             [[nodiscard]] const NodeView &view() const noexcept { return view_; }
             [[nodiscard]] DateTime evaluation_time() const noexcept { return evaluation_time_; }
+            [[nodiscard]] const PreparedOutputRoute *prepared_output() const noexcept { return output_route_; }
 
             [[nodiscard]] TSInputView input_at(std::size_t slot)
             {
+                // Stage 6: a ready route carries its input and notifier, so
+                // the slot view is rebuilt without the input root view.
+                if (routes_ != nullptr && routes_[slot].ready())
+                {
+                    return TSInputView::from_prepared(routes_[slot], evaluation_time_);
+                }
                 if (!input_root_.has_value())
                 {
                     input_root_.emplace(view_.input(evaluation_time_));
-                }
-                if (routes_ != nullptr && routes_[slot].ready())
-                {
-                    return input_root_->child_from_prepared(routes_[slot]);
                 }
                 return input_root_->indexed_child_at(slot);
             }
@@ -2246,6 +2266,12 @@ namespace hgraph
 
             [[nodiscard]] TSOutputView output() const
             {
+                // Stage 6: the output pointer is a start-time fact; skip the
+                // node-ops hop and its component checks.
+                if (output_route_ != nullptr && output_route_->ready())
+                {
+                    return output_route_->output->view(evaluation_time_);
+                }
                 return view_.output(evaluation_time_);
             }
 
@@ -2253,6 +2279,7 @@ namespace hgraph
             const NodeView            &view_;
             DateTime                   evaluation_time_;
             const detail::PreparedInputSlotRoute *routes_{nullptr};
+            const PreparedOutputRoute *output_route_{nullptr};
             std::optional<TSInputView> input_root_{};
             std::optional<BundleView>  scalar_root_{};
         };
@@ -2280,7 +2307,15 @@ namespace hgraph
             template <typename Frame>
             static Out<V> get_prepared(Frame &frame)
             {
-                return Out<V>{frame.output(), frame.evaluation_time()};
+                // Only the atomic Out<TS<T>> takes the prepared output route.
+                if constexpr (std::is_constructible_v<Out<V>, TSOutputView, DateTime, const PreparedOutputRoute *>)
+                {
+                    return Out<V>{frame.output(), frame.evaluation_time(), frame.prepared_output()};
+                }
+                else
+                {
+                    return Out<V>{frame.output(), frame.evaluation_time()};
+                }
             }
         };
 
@@ -2440,7 +2475,7 @@ namespace hgraph
                          std::index_sequence<I...>)
         {
             using args = typename fn_traits<decltype(Fn)>::args_tuple;
-            StaticNodeInvocationFrame frame{view, evaluation_time, routes};
+            StaticNodeInvocationFrame frame{view, evaluation_time, routes, prepared_output_route_for(view)};
             Fn(provide_arg<selector_of<std::tuple_element_t<I, args>>, CanonicalArgs>(
                 frame)...);
         }
@@ -2533,7 +2568,7 @@ namespace hgraph
                                std::index_sequence<I...>)
         {
             using args = typename fn_traits<decltype(Fn)>::args_tuple;
-            StaticNodeInvocationFrame frame{view, evaluation_time, routes};
+            StaticNodeInvocationFrame frame{view, evaluation_time, routes, prepared_output_route_for(view)};
             std::tuple<std::tuple_element_t<I, args>...> hook_args{
                 provide_arg<selector_of<std::tuple_element_t<I, args>>, CanonicalArgs>(frame)...};
             const bool inputs_ready =
@@ -3369,18 +3404,31 @@ namespace hgraph
                 callbacks.evaluate = [](const NodeView &view, DateTime evaluation_time) {
                     invoke<&TImplementation::eval, signature_args>(view, evaluation_time);
                 };
-                if constexpr (has_start<TImplementation>)
-                {
-                    callbacks.start = [](const NodeView &view, DateTime evaluation_time) {
+#if defined(_MSC_VER)
+                // A deliberately throwing start hook makes the route-acquire
+                // success path unreachable in that specialization.
+#pragma warning(push)
+#pragma warning(disable: 4702)
+#endif
+                callbacks.start = [](const NodeView &view, DateTime evaluation_time) {
+                    if constexpr (has_start<TImplementation>)
+                    {
                         invoke<&TImplementation::start, signature_args>(view, evaluation_time);
-                    };
-                }
-                if constexpr (has_stop<TImplementation>)
-                {
-                    callbacks.stop = [](const NodeView &view, DateTime evaluation_time) {
+                    }
+                    acquire_prepared_output_route(view, evaluation_time);
+                };
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+                callbacks.stop = [](const NodeView &view, DateTime evaluation_time) {
+                    auto clear_route = UnwindCleanupGuard([&]() noexcept { clear_prepared_output_route(view); });
+                    if constexpr (has_stop<TImplementation>)
+                    {
                         invoke<&TImplementation::stop, signature_args>(view, evaluation_time);
-                    };
-                }
+                    }
+                    else { static_cast<void>(evaluation_time); }
+                    clear_route.complete();
+                };
                 return callbacks;
             }
             else
@@ -3404,6 +3452,7 @@ namespace hgraph
                         invoke<&TImplementation::start, signature_args>(view, evaluation_time);
                     }
                     acquire_prepared_input_routes<slot_count>(view, evaluation_time);
+                    acquire_prepared_output_route(view, evaluation_time);
                 };
 #if defined(_MSC_VER)
 #pragma warning(pop)
@@ -3412,6 +3461,7 @@ namespace hgraph
                     static_cast<void>(evaluation_time);
                     auto clear_routes = UnwindCleanupGuard([&]() noexcept {
                         clear_prepared_input_routes<slot_count>(view);
+                        clear_prepared_output_route(view);
                     });
                     if constexpr (has_stop<TImplementation>)
                     {
@@ -3475,13 +3525,19 @@ namespace hgraph
             descriptor.schema               = std::move(parts.schema);
             descriptor.implementation_label = parts.implementation_label;
             constexpr std::size_t slot_count = signature::input_count();
-            if constexpr (slot_count > 0)
             {
-                if (descriptor.schema.input_schema != nullptr)
+                std::vector<NodeStorageField> fields;
+                if constexpr (slot_count > 0)
                 {
-                    const std::array fields{prepared_routes_storage_field<slot_count>()};
-                    descriptor.storage_plan = &node_storage_plan_for(descriptor.schema, fields);
+                    if (descriptor.schema.input_schema != nullptr)
+                    {
+                        fields.push_back(prepared_routes_storage_field<slot_count>());
+                    }
                 }
+                // Stage 6: the output route is planned for every static node
+                // with an output (sources included).
+                if (descriptor.schema.output_schema != nullptr) { fields.push_back(prepared_output_storage_field()); }
+                if (!fields.empty()) { descriptor.storage_plan = &node_storage_plan_for(descriptor.schema, fields); }
             }
             descriptor.callbacks = static_node_callbacks<TImplementation>();
             if constexpr (requires { TImplementation::checkpoint_ops(); })

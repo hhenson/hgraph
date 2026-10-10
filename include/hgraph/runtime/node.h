@@ -282,6 +282,11 @@ namespace hgraph
         through ``node_storage_plan_for``'s ``extra_fields`` like the
         prepared-slot array; the layout caches its offset the same way. */
     inline constexpr std::string_view node_runtime_cache_field{"runtime_cache"};
+    /** Planned field name of a static node's prepared output route (RFC 0008
+        stage 6): the node's own output, its native value memory and tracking
+        record, acquired by the framework start callback after the output
+        exists and cleared at stop; ``Out<TS<T>>::set`` writes through it. */
+    inline constexpr std::string_view node_prepared_output_field{"prepared_output"};
 
     /**
      * Build (and intern) the node storage plan. Components destroy in
@@ -353,6 +358,9 @@ namespace hgraph
             (``node_runtime_cache_field``), or null when this node type plans
             none. Type-erased; the declaring front-end casts to its record. */
         [[nodiscard]] void *runtime_cache() const noexcept;
+        /** The node's planned prepared output route
+            (``node_prepared_output_field``), or null when none is planned. */
+        [[nodiscard]] void *prepared_output() const noexcept;
 
         [[nodiscard]] std::string_view label() const noexcept;
         [[nodiscard]] NodeKind node_kind() const noexcept;

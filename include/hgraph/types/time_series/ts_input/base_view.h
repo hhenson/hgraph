@@ -4,6 +4,7 @@
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/time_series/endpoint_owner.h>
 #include <hgraph/types/time_series/ts_input/activity.h>
+#include <hgraph/types/time_series/ts_input/resolved_observation.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series_reference.h>
 #include <cstddef>
@@ -41,7 +42,13 @@ namespace hgraph
         {
             TSDataStorageRef<>                     data{};
             const detail::TSInputTargetActiveNode *route{nullptr};
-            bool                                   target{false};
+            // The owning input and its scheduling notifier (RFC 0008 stage
+            // 6): fixed for the node's lifetime, captured with the route so a
+            // ready slot is rebuilt without constructing the input root view
+            // first.
+            TSInput    *input{nullptr};
+            Notifiable *notifier{nullptr};
+            bool        target{false};
 
             [[nodiscard]] bool ready() const noexcept { return data.has_value(); }
         };
@@ -233,6 +240,17 @@ namespace hgraph
          */
         [[nodiscard]] detail::PreparedInputSlotRoute prepare_child_route(std::size_t index) const;
         [[nodiscard]] TSInputView child_from_prepared(const detail::PreparedInputSlotRoute &route) const;
+        /** Rebuild a slot view from a ready route alone (RFC 0008 stage 6):
+            the route carries the owning input and notifier, so no root view
+            is needed. Identical to ``child_from_prepared``. */
+        [[nodiscard]] static TSInputView from_prepared(const detail::PreparedInputSlotRoute &route,
+                                                       DateTime evaluation_time);
+        /** RFC 0008 stage 6: the resolved facts of this view's trusted
+            prepared route (locally active, value-kind, bound), or null when
+            there is no route or it is not trusted. Typed readers use it to
+            answer ``valid()`` / ``value()`` from the observed output's
+            tracking and native memory without a resolution. */
+        [[nodiscard]] const detail::ResolvedObservation *prepared_observation() const noexcept;
         /** One-shot convenience for RETAINED child views (issue #203): the
             projected child carries its prepared route, so subsequent reads
             resolve through the trie handle instead of re-running route
