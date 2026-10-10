@@ -662,7 +662,8 @@ namespace hgl::descriptor
                         !optional_string(fields, "binding", item_path, record.binding_identity) ||
                         !optional_reference(fields, "size", item_path, record.size) ||
                         !optional_reference(fields, "min_size", item_path, record.min_size) ||
-                        !optional_bool(fields, "unbounded", item_path, record.unbounded)) {
+                        !optional_bool(fields, "unbounded", item_path, record.unbounded) ||
+                        !optional_bool(fields, "native_atomic", item_path, record.native_atomic)) {
                         if (!error_ && static_cast<std::size_t>(id) != index) {
                             fail(member_path(item_path, "id"), "record id does not match array index");
                         }
@@ -811,9 +812,11 @@ namespace hgl::descriptor
                                      {"field", ConstantExpressionCategory::Field},
                                      {"sequence", ConstantExpressionCategory::Sequence},
                                      {"tuple", ConstantExpressionCategory::Tuple},
-                                     {"construct", ConstantExpressionCategory::Construct}},
+                                     {"construct", ConstantExpressionCategory::Construct},
+                                     {"call", ConstantExpressionCategory::Call}},
                                     record.category) ||
                         !optional_string(fields, "parameter", item_path, record.parameter_identity) ||
+                        !optional_string(fields, "callee", item_path, record.callable_identity) ||
                         !optional_string(fields, "operator", item_path, record.operator_spelling) ||
                         !optional_reference(fields, "lhs", item_path, record.lhs) ||
                         !optional_reference(fields, "rhs", item_path, record.rhs) ||
@@ -945,8 +948,24 @@ namespace hgl::descriptor
                             declaration.category) ||
                         !required_string(fields, "identity", item_path, declaration.identity) ||
                         !required_string(fields, "cpp_type", item_path, declaration.cpp_type) ||
-                        !required_string(fields, "public_header", item_path, declaration.public_header)) {
+                        !required_string(fields, "public_header", item_path, declaration.public_header) ||
+                        !optional_string(fields, "canonical_identity", item_path, declaration.canonical_identity) ||
+                        !optional_bool(fields, "exported", item_path, declaration.exported)) {
                         return false;
+                    }
+                    if (const Element *contract = fields.find("value_contract")) {
+                        ObjectFields              values;
+                        NativeAtomicValueContract parsed;
+                        const auto                path = member_path(item_path, "value_contract");
+                        if (!object(*contract, path, values) || !required_bool(values, "owning_copy", path, parsed.owning_copy) ||
+                            !required_bool(values, "text", path, parsed.text) ||
+                            !required_bool(values, "equality", path, parsed.equality) ||
+                            !required_bool(values, "hash", path, parsed.hash) ||
+                            !required_bool(values, "order", path, parsed.order) ||
+                            !required_bool(values, "serialization", path, parsed.serialization)) {
+                            return false;
+                        }
+                        declaration.value_contract = parsed;
                     }
                     out.push_back(std::move(declaration));
                     ++index;
@@ -1116,7 +1135,12 @@ namespace hgl::descriptor
         class Validator
         {
           public:
-            explicit Validator(const ModuleDescriptor &descriptor) : descriptor_{descriptor} {}
+            explicit Validator(const ModuleDescriptor &descriptor) : descriptor_{descriptor} {
+                for (const auto &type : descriptor.types) {
+                    if (type.category == TypeCategory::Symbol) { native_schema_identities_.emplace(type.nominal_identity); }
+                }
+                for (const auto &type : descriptor.native_types) { native_types_by_identity_.emplace(type.identity, &type); }
+            }
 
             [[nodiscard]] std::optional<ReadError> run() {
                 if (descriptor_.format_version != module_descriptor_format_version) {
@@ -1470,11 +1494,31 @@ namespace hgl::descriptor
 
             bool native_type(const NativeTypeDeclaration &type, std::string_view path) {
                 if (!unique_identity(type.identity, path, native_type_identities_)) { return false; }
-                const bool known_identity = std::ranges::any_of(descriptor_.types, [&](const TypeRecord &record) {
-                    return record.category == TypeCategory::Symbol && record.nominal_identity == type.identity;
-                });
+                const bool known_identity = native_schema_identities_.contains(type.identity);
                 if (!known_identity) {
                     return fail(member_path(path, "identity"), "native type does not name a nominal descriptor type");
+                }
+                if (type.value_contract || !type.canonical_identity.empty() || type.exported) {
+                    if (type.category != NativeTypeCategory::AtomicValue) {
+                        return fail(std::string{path}, "opaque resource state cannot declare an ordinary atomic value contract");
+                    }
+                    if (type.canonical_identity.empty() || !type.value_contract) {
+                        return fail(std::string{path},
+                                    "native atomic value requires its canonical identity and shared value contract");
+                    }
+                    if (!exact_cpp_symbol(type.cpp_type)) {
+                        return fail(member_path(path, "cpp_type"), "mapped native C++ type must be one exact qualified identifier; "
+                                                                   "use a public alias for instantiated types");
+                    }
+                    if (!type.value_contract->owning_copy || !type.value_contract->text) {
+                        return fail(member_path(path, "value_contract"), "native atomic value requires owning copy and text");
+                    }
+                    const auto [existing, inserted] =
+                        native_canonical_contracts_.emplace(type.canonical_identity, *type.value_contract);
+                    if (!inserted && existing->second != *type.value_contract) {
+                        return fail(member_path(path, "value_contract"),
+                                    "canonical native aliases declare incompatible value contracts");
+                    }
                 }
                 if (type.cpp_type.empty()) { return fail(member_path(path, "cpp_type"), "C++ type must not be empty"); }
                 if (type.public_header.empty()) {
@@ -1555,10 +1599,7 @@ namespace hgl::descriptor
                     return allow_signal || fail(std::string{path}, "'signal' is supported only as a native input-view parameter");
                 }
                 if (native_generic_symbol(signature, type) ||
-                    (type.category == TypeCategory::Symbol &&
-                     std::ranges::any_of(descriptor_.native_types, [&](const NativeTypeDeclaration &declaration) {
-                         return declaration.identity == type.nominal_identity;
-                     }))) {
+                    (type.category == TypeCategory::Symbol && native_types_by_identity_.contains(type.nominal_identity))) {
                     return true;
                 }
                 const bool collection = type.category == TypeCategory::List || type.category == TypeCategory::Set ||
@@ -1861,6 +1902,15 @@ namespace hgl::descriptor
             }
 
             bool type_record(const TypeRecord &record, std::string_view path) {
+                if (record.native_atomic) {
+                    const auto native = native_types_by_identity_.find(record.nominal_identity);
+                    if (record.category != TypeCategory::Symbol || !record.binding_identity.empty() || !record.arguments.empty() ||
+                        native == native_types_by_identity_.end() || native->second->category != NativeTypeCategory::AtomicValue ||
+                        !native->second->value_contract || native->second->canonical_identity.empty()) {
+                        return fail(member_path(path, "native_atomic"),
+                                    "ordinary native schema requires a mapped atomic value contract");
+                    }
+                }
                 if (record.category == TypeCategory::Scalar) {
                     if (record.scalar_name.empty()) { return fail(member_path(path, "name"), "scalar type is missing its name"); }
                     if (!known_scalar_name(record.scalar_name)) {
@@ -1915,6 +1965,11 @@ namespace hgl::descriptor
 
             bool constant_record(const ConstantExpressionRecord &record, std::string_view path) {
                 switch (record.category) {
+                    case ConstantExpressionCategory::Call:
+                        if (record.callable_identity.empty()) {
+                            return fail(member_path(path, "callee"), "call expression is missing its source callable identity");
+                        }
+                        break;
                     case ConstantExpressionCategory::Literal:
                         if (!record.literal) { return fail(member_path(path, "literal"), "missing literal payload"); }
                         break;
@@ -2034,6 +2089,9 @@ namespace hgl::descriptor
             std::unordered_set<std::string>                       interface_identities_{};
             std::unordered_set<std::string>                       implementation_identities_{};
             std::unordered_set<std::string>                       native_type_identities_{};
+            std::unordered_set<std::string_view>                                native_schema_identities_{};
+            std::unordered_map<std::string_view, const NativeTypeDeclaration *> native_types_by_identity_{};
+            std::unordered_map<std::string_view, NativeAtomicValueContract>     native_canonical_contracts_{};
             std::unordered_map<std::string, std::vector<Signature>> native_declaration_signatures_{};
         };
     }  // namespace

@@ -34,6 +34,7 @@ namespace hgl::hgraph_ir
                     return std::move(result_);
                 }
 
+                result_.native_types = source_.native_types;
                 lower_bindings();
                 lower_types();
                 lower_constraints();
@@ -43,6 +44,11 @@ namespace hgl::hgraph_ir
                 lower_callables();
                 lower_materializations();
                 lower_tests();
+                for (std::size_t i = 0; i < constant_calls_.size(); ++i) {
+                    const auto [constant, source]            = constant_calls_[i];
+                    const ValueId value                      = lower_value(source);
+                    result_.const_exprs[constant.value].call = value;
+                }
                 classify_native_dependencies();
                 collect_provider_requirements();
                 lower_source_order();
@@ -293,6 +299,21 @@ namespace hgl::hgraph_ir
                         target.arguments.push_back(
                             ConstArgument{argument.name, lower_const_expr(argument.value, argument.range, role)});
                     }
+                } else if ((role == "a parameter default" || role == "a struct field default") &&
+                           std::holds_alternative<hir::Call>(source.node) &&
+                           source.operation.kind == hir::OperationKind::ExactFunction && source.operation.target.valid() &&
+                           source_.symbol(source.operation.target).owner.valid() &&
+                           std::holds_alternative<hir::FunctionDecl>(
+                               source_.declaration(source_.symbol(source.operation.target).owner).node) &&
+                           std::get<hir::FunctionDecl>(source_.declaration(source_.symbol(source.operation.target).owner).node)
+                               .is_const) {
+                    target.kind              = ConstExprKind::Call;
+                    target.callable_identity = symbol_identity(source.operation.target);
+                    for (const auto &argument : std::get<hir::Call>(source.node).arguments) {
+                        target.arguments.push_back(
+                            ConstArgument{argument.name, lower_const_expr(argument.value, argument.range, role)});
+                    }
+                    constant_calls_.emplace_back(id, expression);
                 } else if (const auto *construct = std::get_if<hir::Construct>(&source.node)) {
                     target.kind             = ConstExprKind::Construct;
                     target.constructed_type = lower_type(construct->type);
@@ -432,6 +453,10 @@ namespace hgl::hgraph_ir
                     if (const auto found = bindings.values.find(reference->symbol.value); found != bindings.values.end()) {
                         return found->second;
                     }
+                    return lower_const_expr(expression, range, role);
+                }
+
+                if (std::holds_alternative<hir::Call>(source.node) && source.operation.kind == hir::OperationKind::ExactFunction) {
                     return lower_const_expr(expression, range, role);
                 }
 
@@ -923,6 +948,7 @@ namespace hgl::hgraph_ir
                     target.implementation_kind    = source.implementation_kind;
                     target.lifecycle              = source.lifecycle;
                     target.source_defined         = source.source_defined;
+                    target.source_declared        = source.source_declared;
                     target.cpp_parameters         = source.cpp_parameters;
                     target.cpp_body               = source.cpp_body;
                     target.range                  = source.range;
@@ -939,7 +965,9 @@ namespace hgl::hgraph_ir
                 // helpers. Expression ownership therefore includes their
                 // transitive native requirements without a second call walk.
                 // Native declarations themselves are public package roots.
-                for (NativeFunction &native : result_.native_functions) { native.test_only = !native.source_defined; }
+                for (NativeFunction &native : result_.native_functions) {
+                    native.test_only = !native.source_defined && !native.source_declared;
+                }
                 const auto production_use = [&](NativeFunctionId id) {
                     if (id.valid()) { result_.native_functions.at(id.value).test_only = false; }
                 };
@@ -1351,6 +1379,7 @@ namespace hgl::hgraph_ir
             syntax::DiagnosticSink                             &diagnostics_;
             Module                                              result_{};
             std::unordered_map<std::uint32_t, TypeId>           types_{};
+            std::vector<std::pair<ConstExprId, hir::ExprId>>    constant_calls_{};
             std::unordered_map<std::uint32_t, ConstExprId>      const_exprs_{};
             std::unordered_map<std::uint32_t, ConstraintId>     constraints_{};
             std::unordered_map<std::uint32_t, BindingId>        bindings_{};

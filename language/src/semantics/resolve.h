@@ -23,14 +23,15 @@ namespace hgl::semantics
 
     enum class BindingKind : std::uint8_t {
         Unbound,
-        Local,             ///< `let`/`var`/state/inject/for binding: `stmt` + binder `index`
-        Parameter,         ///< `decl` is the function, `index` the parameter
-        Generic,           ///< `decl` is the function, `index` the generic parameter
-        ConstraintLocal,   ///< type variable introduced by `each` in a requires clause
+        Local,            ///< `let`/`var`/state/inject/for binding: `stmt` + binder `index`
+        Parameter,        ///< `decl` is the function, `index` the parameter
+        Generic,          ///< `decl` is the function, `index` the generic parameter
+        ConstraintLocal,  ///< type variable introduced by `each` in a requires clause
         Enum,
         EnumMember,
         Struct,            ///< `decl` is the nominal struct declaration
         ImportedStruct,    ///< `index` names ResolvedModule::imported_structs (ADR 0013)
+        NativeType,        ///< `index` names a canonical ordinary native contract
         Function,          ///< `decl` is the `fn`
         NativeFunction,    ///< `index` names a local native overload family
         ImportedFunction,  ///< `index` names ResolvedModule::imported_functions
@@ -131,7 +132,11 @@ namespace hgl::semantics
         /// Structs other modules export, bound by qualified type (ADR 0013).
         /// The identity stays the owner's; nothing is copied into this module.
         std::vector<ImportedStruct>           imported_structs;
+        std::vector<NativeTypeContract>       native_types;
         std::vector<ImportedFunction>         imported_functions;
+        /// Data-only provider contracts for local native overload families.
+        /// Retained once per family, independently of source declaration order.
+        std::vector<ImportedFunction>         source_native_contracts;
         std::vector<ImportedOperatorContract> imported_contracts;
         std::vector<ModuleAlias>              aliases;
         std::vector<ast::DeclId>              functions;

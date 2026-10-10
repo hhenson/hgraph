@@ -541,6 +541,13 @@ namespace hgl::syntax::ast
         std::vector<Name>             lifecycle{};
     };
 
+    /// A descriptor-backed opaque nominal ordinary scalar (NVAL-1).
+    struct NativeTypeDecl
+    {
+        bool exported{false};
+        Name name{};
+    };
+
     struct StructField
     {
         Name   name{};
@@ -586,8 +593,8 @@ namespace hgl::syntax::ast
         BlockId block{no_node};
     };
 
-    using DeclNode = std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, EnumDecl, OperatorDecl, InstantiateDecl, FunctionDecl,
-                                  NativeFunctionDecl, TestDecl>;
+    using DeclNode = std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, EnumDecl, OperatorDecl, InstantiateDecl,
+                                  FunctionDecl, NativeFunctionDecl, NativeTypeDecl, TestDecl>;
 
     struct Decl
     {

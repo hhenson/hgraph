@@ -219,6 +219,17 @@ namespace hgl::semantics
                         binding.kind = BindingKind::Struct;
                         binding.decl = id;
                         declare(structure->name, binding, "in the module");
+                    } else if (const auto *native = std::get_if<ast::NativeTypeDecl>(&decl.node)) {
+                        const auto *contract = catalog_.find_native_type(result_.module_path, native->name.text, false);
+                        if (contract == nullptr) {
+                            report(Category::Module, native->name.range,
+                                   "native type '" + std::string{native->name.text} +
+                                       "' requires its package's canonical scalar contract");
+                        } else if (auto binding = native_type_binding(*contract, native->name.range)) {
+                            binding->decl                                 = id;
+                            result_.native_types[binding->index].exported = native->exported;
+                            declare(native->name, *binding, "in the module");
+                        }
                     } else if (const auto *enumeration = std::get_if<ast::EnumDecl>(&decl.node)) {
                         Binding binding;
                         binding.kind = BindingKind::Enum;
@@ -333,6 +344,16 @@ namespace hgl::semantics
                 const std::uint32_t index = static_cast<std::uint32_t>(result_.native_families.size());
                 result_.native_families.push_back({id});
                 native_family_indices_.emplace(std::string{fn.name.text}, index);
+                for (const auto &contract : catalog_.find_functions(result_.module_path, fn.name.text)) {
+                    result_.source_native_contracts.push_back(contract);
+                    for (const auto &generic : contract.generics) {
+                        if (generic.type) { retain_native_type_contract(*generic.type, fn.name.range); }
+                    }
+                    for (const auto &parameter : contract.parameters) {
+                        retain_native_type_contract(parameter.type, fn.name.range);
+                    }
+                    if (contract.result) { retain_native_type_contract(*contract.result, fn.name.range); }
+                }
                 Binding binding;
                 binding.kind  = BindingKind::NativeFunction;
                 binding.index = index;
@@ -378,6 +399,12 @@ namespace hgl::semantics
                             } else {
                                 declare(name, *binding, "in the module");
                             }
+                        }
+                        continue;
+                    }
+                    if (const auto *native = catalog_.find_native_type(path, name.text)) {
+                        if (const auto binding = native_type_binding(*native, name.range)) {
+                            declare(name, *binding, "in the module");
                         }
                         continue;
                     }
@@ -664,6 +691,7 @@ namespace hgl::semantics
             /// nominal type -- a name the source never mentions.
             void reached_structs(const ImportedType &type, std::string_view owner, SourceRange range,
                                  std::vector<ImportedStruct> &found) {
+                if (type.kind == ImportedTypeKind::NativeAtomic) { return; }
                 if (!type.nominal_identity.empty()) {
                     const ImportedStruct *reached = catalog_.find_struct_by_identity(type.nominal_identity);
                     if (reached == nullptr) {
@@ -681,6 +709,35 @@ namespace hgl::semantics
                     // nominal type.
                 }
                 for (const ImportedType &child : type.children) { reached_structs(child, owner, range, found); }
+            }
+
+            [[nodiscard]] std::optional<Binding> native_type_binding(const NativeTypeContract &contract, SourceRange range) {
+                if (!contract.atomic_value || contract.canonical_identity.empty() || !contract.capabilities.owning_copy ||
+                    !contract.capabilities.text) {
+                    report(Category::Module, range,
+                           "native type '" + contract.identity + "' is not an ordinary atomic value provider");
+                    return std::nullopt;
+                }
+                if (const auto found = native_type_bindings_.find(contract.identity); found != native_type_bindings_.end()) {
+                    return found->second;
+                }
+                Binding binding;
+                binding.kind  = BindingKind::NativeType;
+                binding.index = static_cast<std::uint32_t>(result_.native_types.size());
+                result_.native_types.push_back(contract);
+                native_type_bindings_.emplace(contract.identity, binding);
+                return binding;
+            }
+
+            void retain_native_type_contract(const ImportedType &type, SourceRange range) {
+                if (type.kind == ImportedTypeKind::NativeAtomic) {
+                    if (const auto *contract = catalog_.find_native_type_by_identity(type.nominal_identity)) {
+                        (void)native_type_binding(*contract, range);
+                    } else {
+                        report(Category::Module, range, "missing ordinary native contract '" + type.nominal_identity + "'");
+                    }
+                }
+                for (const auto &child : type.children) { retain_native_type_contract(child, range); }
             }
 
             [[nodiscard]] std::optional<Binding> imported_function(std::span<const ImportedFunction> functions, SourceRange range) {
@@ -703,7 +760,14 @@ namespace hgl::semantics
                 binding.kind  = BindingKind::ImportedFunction;
                 binding.index = static_cast<std::uint32_t>(result_.imported_functions.size());
                 binding.count = static_cast<std::uint32_t>(supported.size());
-                for (const ImportedFunction *function : supported) { result_.imported_functions.push_back(*function); }
+                for (const ImportedFunction *function : supported) {
+                    for (const auto &generic : function->generics) {
+                        if (generic.type) { retain_native_type_contract(*generic.type, range); }
+                    }
+                    for (const auto &parameter : function->parameters) { retain_native_type_contract(parameter.type, range); }
+                    if (function->result) { retain_native_type_contract(*function->result, range); }
+                    result_.imported_functions.push_back(*function);
+                }
                 imported_function_bindings_.emplace(family, binding);
                 return binding;
             }
@@ -1312,6 +1376,10 @@ namespace hgl::semantics
                 }
                 for (const ModuleAlias &alias : result_.aliases) {
                     if (alias.alias != ref.qualifier.text) { continue; }
+                    if (const auto *native = catalog_.find_native_type(alias.module, ref.name.text)) {
+                        if (const auto binding = native_type_binding(*native, ref.name.range)) { result_.bindings[id] = *binding; }
+                        return;
+                    }
                     if (const auto *contract = catalog_.find_operator(alias.module, ref.name.text)) {
                         if (const auto binding = imported_operator(*contract, ref.name.range)) { result_.bindings[id] = *binding; }
                         return;
@@ -1404,7 +1472,8 @@ namespace hgl::semantics
                 if (binding->kind == BindingKind::Generic && is_const_generic(*binding)) {
                     report(Category::Type, argument.name.range,
                            "type generic '" + std::string{parameter.name.text} + "' takes a type argument");
-                } else if (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct && binding->kind != BindingKind::Enum) {
+                } else if (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct &&
+                           binding->kind != BindingKind::Enum && binding->kind != BindingKind::NativeType) {
                     report(Category::Type, argument.name.range, "'" + std::string{argument.name.text} + "' is not a type");
                 } else if (binding->kind == BindingKind::Struct && !generics_of(binding->decl).empty()) {
                     report(Category::Type, argument.name.range,
@@ -1446,8 +1515,9 @@ namespace hgl::semantics
                         report(Category::Type, argument.name.range,
                                "const generic '" + parameter.name + "' takes a const value argument");
                     }
-                } else if (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct && binding->kind != BindingKind::Enum &&
-                           binding->kind != BindingKind::ImportedStruct) {
+                } else if (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct &&
+                           binding->kind != BindingKind::Enum && binding->kind != BindingKind::ImportedStruct &&
+                           binding->kind != BindingKind::NativeType) {
                     // A value name is not a type: the local path refuses it, so
                     // an imported application must too, or it binds an invalid
                     // specialization as a type.
@@ -1522,6 +1592,15 @@ namespace hgl::semantics
                     if (candidate.alias == type.qualifier.text) { alias = &candidate; }
                 }
                 if (alias != nullptr) { structure = catalog_.find_struct(alias->module, type.name.text); }
+                if (alias != nullptr) {
+                    if (const auto *native = catalog_.find_native_type(alias->module, type.name.text)) {
+                        if (!type.arguments.empty()) {
+                            report(Category::Type, type.range, "a native atomic type cannot have type arguments");
+                        }
+                        if (const auto binding = native_type_binding(*native, type.range)) { result_.type_bindings[id] = *binding; }
+                        return;
+                    }
+                }
                 // Arguments resolve whether or not the head does, so a spelling
                 // error inside them is still reported. Where the application's
                 // arity matches, each argument is checked against its parameter
@@ -1609,12 +1688,13 @@ namespace hgl::semantics
                             }
                             result_.type_bindings[id] = *binding;
                         }
-                    } else if (!binding ||
-                               (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct && binding->kind != BindingKind::Enum)) {
+                    } else if (!binding || (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct &&
+                                            binding->kind != BindingKind::Enum && binding->kind != BindingKind::NativeType)) {
                         report(Category::Type, type.name.range, "unknown type '" + std::string{type.name.text} + "'");
                     } else {
                         result_.type_bindings[id] = *binding;
-                        if (binding->kind == BindingKind::Generic || binding->kind == BindingKind::Enum) {
+                        if (binding->kind == BindingKind::Generic || binding->kind == BindingKind::Enum ||
+                            binding->kind == BindingKind::NativeType) {
                             if (!type.arguments.empty()) {
                                 report(Category::Type, type.range, "a type parameter cannot be applied as a generic struct");
                             }
@@ -2703,6 +2783,7 @@ namespace hgl::semantics
             std::unordered_map<std::string, Binding>       imported_function_bindings_{};
             /// One binding per imported struct identity (ADR 0013).
             std::unordered_map<std::string, Binding>       imported_struct_bindings_{};
+            std::unordered_map<std::string, Binding>       native_type_bindings_{};
             std::unordered_map<std::string, std::uint32_t> native_family_indices_{};
             std::vector<std::uint8_t>                      struct_states_{};
             /// What each bare-name argument of an applied type names, indexed

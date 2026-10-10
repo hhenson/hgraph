@@ -162,7 +162,9 @@ namespace hgl::ir::detail
         const Type &rhs = module_.type(actual);
         if (lhs.kind == TypeKind::Delta && lhs.children.size() == 1U &&
             ((rhs.kind == TypeKind::Scalar && (rhs.scalar <= ScalarType::ZonedTime || rhs.scalar == ScalarType::TimeZone)) ||
-             (rhs.kind == TypeKind::Symbol && rhs.symbol.valid() && module_.symbol(rhs.symbol).kind == SymbolKind::Enum))) {
+             (rhs.kind == TypeKind::Symbol && rhs.symbol.valid() &&
+              (module_.symbol(rhs.symbol).kind == SymbolKind::Enum ||
+               module_.symbol(rhs.symbol).kind == SymbolKind::NativeType)))) {
             return unify_as(lhs.children.front(), actual, inference);
         }
         if (lhs.kind == TypeKind::Reference && rhs.kind != TypeKind::Reference && lhs.children.size() == 1U) {

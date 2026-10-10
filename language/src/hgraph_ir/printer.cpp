@@ -480,6 +480,7 @@ namespace hgl::hgraph_ir
                     }
                     out << ']';
                     break;
+                case ConstExprKind::Call: out << "call v" << expression.call.value; break;
                 case ConstExprKind::Construct:
                     out << (expression.delta ? "delta " : "construct ");
                     print_type_id(out, expression.constructed_type);

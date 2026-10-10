@@ -169,6 +169,11 @@ namespace hgl::syntax
                 if (d.block_body != ast::no_node) { block(depth + 1, d.block_body, "body"); }
             }
 
+            void decl_node(int depth, SourceRange range, const ast::NativeTypeDecl &d) {
+                line(depth, "NativeTypeDecl", range,
+                     (d.exported ? "export native type " : "native type ") + std::string{d.name.text});
+            }
+
             void decl_node(int depth, SourceRange range, const ast::NativeFunctionDecl &d) {
                 line(depth, "NativeFunctionDecl", range,
                      (d.is_const ? "native const fn " : "native fn ") + std::string{d.name.text} + (d.throws ? " throws" : ""));

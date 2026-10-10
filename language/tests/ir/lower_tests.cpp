@@ -112,6 +112,71 @@ namespace
         return catalog;
     }
 
+    hgl::semantics::ModuleCatalog atomic_native_catalog() {
+        hgl::semantics::ModuleCatalog    catalog;
+        hgl::semantics::ImportableModule module;
+        module.identity = "checks.native_values";
+        for (const auto name : {"Token", "TokenAlias", "TextOnly"}) {
+            const bool comparable = std::string_view{name} != "TextOnly";
+            module.native_types.push_back(hgl::NativeTypeContract{
+                .module_identity    = module.identity,
+                .identity           = module.identity + "::" + name,
+                .name               = name,
+                .canonical_identity = comparable ? "native.values.Token" : "native.values.TextOnly",
+                .cpp_type           = comparable ? "native::Token" : "native::TextOnly",
+                .public_header      = "native/values.h",
+                .capabilities       = hgl::NativeValueCapabilities{.owning_copy   = true,
+                                                                   .text          = true,
+                                                                   .equality      = comparable,
+                                                                   .hash          = comparable,
+                                                                   .order         = comparable,
+                                                                   .serialization = true},
+                .atomic_value       = true,
+                .exported           = true,
+            });
+        }
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
+
+    hgl::semantics::ModuleCatalog guide_native_catalog() {
+        using namespace hgl::semantics;
+        ImportableModule module;
+        module.identity = "examples.native_atomic_values";
+        module.native_types.push_back(hgl::NativeTypeContract{
+            .module_identity    = module.identity,
+            .identity           = module.identity + "::Token",
+            .name               = "Token",
+            .canonical_identity = "native.values.Token",
+            .cpp_type           = "native::Token",
+            .public_header      = "native/values.h",
+            .capabilities =
+                hgl::NativeValueCapabilities{
+                    .owning_copy = true, .text = true, .equality = true, .hash = true, .order = true, .serialization = true},
+            .atomic_value = true,
+        });
+        ImportedType token;
+        token.kind             = ImportedTypeKind::NativeAtomic;
+        token.nominal_identity = module.identity + "::Token";
+        for (const bool observer : {false, true}) {
+            const std::string name = observer ? "token_text" : "token";
+            module.functions.push_back(ImportedFunction{
+                .module_identity = module.identity,
+                .name            = name,
+                .identity        = module.identity + "::" + name,
+                .cpp_symbol      = "native::" + name,
+                .parameters      = {{observer ? "value" : "text", observer ? token : ImportedType{ImportedScalarType::Str}, false}},
+                .result          = observer ? ImportedType{ImportedScalarType::Str} : token,
+                .phases = {NativeCallPhase::Wiring, NativeCallPhase::Start, NativeCallPhase::Evaluation, NativeCallPhase::Stop},
+                .execution_role = hgl::NativeExecutionRole::Value,
+                .public_headers = {"native/values.h"},
+            });
+        }
+        ModuleCatalog catalog;
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
+
     hgl::semantics::ModuleCatalog rolling_native_catalog() {
         using namespace hgl::semantics;
         ImportedType element;
@@ -534,8 +599,10 @@ TEST_CASE("every guide example lowers to resolved HIR", "[ir][examples]") {
         ++count;
         std::ifstream input{entry.path()};
         REQUIRE(input.good());
-        Lowered lowered{std::string{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}},
-                        entry.path().string()};
+        const std::string source{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
+        Lowered           lowered = entry.path().filename() == "native-atomic-values.hgl"
+                                        ? Lowered{source, guide_native_catalog(), entry.path().string()}
+                                        : Lowered{source, entry.path().string()};
         INFO(entry.path().filename().string());
         require_clean(lowered);
         CHECK(lowered.hir.declarations.size() == lowered.ast.decls.size());
@@ -855,8 +922,10 @@ TEST_CASE("every guide example completes typed HIR", "[ir][examples][typed]") {
         if (entry.path().extension() != ".hgl") { continue; }
         std::ifstream input{entry.path()};
         REQUIRE(input.good());
-        Lowered lowered{std::string{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}},
-                        entry.path().string()};
+        const std::string source{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
+        Lowered           lowered = entry.path().filename() == "native-atomic-values.hgl"
+                                        ? Lowered{source, guide_native_catalog(), entry.path().string()}
+                                        : Lowered{source, entry.path().string()};
         INFO(entry.path().filename().string());
         require_clean(lowered);
         const bool completed = complete(lowered);
@@ -4455,4 +4524,100 @@ TEST_CASE("empty sparse delta constructors retain exact shapes", "[ir][typed][em
     CHECK(std::ranges::any_of(invalid.diagnostics.diagnostics(), [](const auto &diagnostic) {
         return diagnostic.code == "delta.index_bounds";
     }));
+}
+
+TEST_CASE("native atomic contracts check aliases publications and optional capabilities without providers") {
+    const auto catalog = atomic_native_catalog();
+    Lowered    valid{R"hgl(module checks.native_values
+native type Token
+native type TokenAlias
+native type TextOnly
+const fn alias(value: Token) -> TokenAlias => value
+const fn equal(value: Token, other: TokenAlias) -> bool => value == other
+const fn less(value: Token, other: TokenAlias) -> bool => value < other
+const fn text_copy(value: TextOnly) -> TextOnly => value
+fn forward(value: atomic<Token>) -> delta<Token> { when { return delta_value(value) } }
+)hgl",
+                     catalog};
+    require_clean(valid);
+    CHECK(complete(valid));
+    INFO(valid.diagnostics.render(valid.file));
+    REQUIRE_FALSE(valid.diagnostics.has_errors());
+    CHECK(valid.hir.native_types.size() == 3);
+    CHECK(std::ranges::count_if(valid.hir.symbols, [](const auto &symbol) { return symbol.kind == hir::SymbolKind::NativeType; }) ==
+          2);
+
+    for (const auto expression : {"value == value", "value < value"}) {
+        Lowered rejected{"module checks.native_values\nnative type TextOnly\nconst fn bad(value: TextOnly) -> bool => " +
+                             std::string{expression} + "\n",
+                         catalog};
+        require_clean(rejected);
+        CHECK_FALSE(complete(rejected));
+        CHECK(std::ranges::any_of(rejected.diagnostics.diagnostics(), [](const auto &diagnostic) {
+            return diagnostic.message.find("comparison capability") != std::string::npos;
+        }));
+    }
+    Lowered keys{"module checks.native_values\nnative type TextOnly\nconst fn bad(value: TextOnly) -> set<TextOnly> => "
+                 "set<TextOnly>(items: [value])\n",
+                 catalog};
+    require_clean(keys);
+    CHECK_FALSE(complete(keys));
+    CHECK(std::ranges::any_of(keys.diagnostics.diagnostics(), [](const auto &diagnostic) {
+        return diagnostic.message.find("keys require admitted") != std::string::npos;
+    }));
+}
+
+TEST_CASE("native atomic bindings expose no constructors fields inheritance or conversions") {
+    const auto catalog = atomic_native_catalog();
+    for (const auto declaration : {
+             "const fn bad() -> Token => Token()",
+             "const fn bad(value: Token) -> str => value.text",
+             "const fn bad(value: i64) -> Token => value",
+             "const fn bad(value: Token) -> i64 => value",
+         }) {
+        Lowered rejected{"module checks.native_values\nnative type Token\n" + std::string{declaration} + "\n", catalog};
+        if (!rejected.diagnostics.has_errors()) { CHECK_FALSE(complete(rejected)); }
+        INFO(declaration);
+        REQUIRE(rejected.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("required defaults reject transitive native value dependencies without executing providers", "[ir][native][defaults]") {
+    const auto        catalog      = guide_native_catalog();
+    const std::string declarations = R"(module examples.native_atomic_values
+native type Token
+native const fn token(text: str) -> Token
+const fn leaf() -> Token => token("seed")
+const fn indirect() -> Token => leaf()
+)";
+    Lowered           executed{declarations + "test setup { let value: Token = indirect() }\n", catalog};
+    require_clean(executed);
+    CHECK(complete(executed));
+    for (const std::string declaration : {
+             "const fn configured(value: Token = indirect()) -> Token => value\n",
+             "struct Defaults { value: Token = indirect() }\n",
+         }) {
+        Lowered required{declarations + declaration, catalog};
+        require_clean(required);
+        CHECK_FALSE(complete(required));
+        CHECK(required.diagnostics.render(required.file)
+                  .find("required constant evaluation cannot call a const fn with native dependencies") != std::string::npos);
+    }
+}
+
+TEST_CASE("required source default calls preserve coded known capability checking", "[ir][defaults][any]") {
+    const std::string declarations = R"(module checks.default_calls
+const fn missing() -> bool {
+    return any(map<i64, i64>(items: [1: 2])) < any(map<i64, i64>(items: [1: 2]))
+}
+const fn indirect() -> bool => missing()
+)";
+    Lowered           runtime{declarations + "test control { assert raises(\"value.capability\") { assert indirect() } }\n"};
+    require_clean(runtime);
+    CHECK(complete(runtime));
+    Lowered required{declarations + "const fn configured(value: bool = indirect()) -> bool => value\n"};
+    require_clean(required);
+    CHECK_FALSE(complete(required));
+    REQUIRE(required.diagnostics.diagnostics().size() == 1);
+    CHECK(required.diagnostics.diagnostics().front().code == "value.constant_capability");
 }

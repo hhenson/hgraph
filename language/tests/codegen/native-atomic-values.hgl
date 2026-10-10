@@ -1,0 +1,33 @@
+module examples.native_atomic_values part cpp_checks
+
+native type TextOnly
+native const fn text_only(text: str) -> TextOnly
+native const fn text_only_text(value: TextOnly) -> str
+
+struct NativeRecord { first: Token
+    pair: list<Token, 2> }
+
+export fn leaf(value: Token) -> Token { when { return delta_value(value) } }
+export fn make(value: str) -> Token { when { return token(value) } }
+export fn text(value: Token) -> str { when { return token_text(value) } }
+export fn text_leaf(value: TextOnly) -> str { when { return text_only_text(value) } }
+export fn less(left: Token, right: Token) -> bool { when { return left < right } }
+export fn boxed(value: Token) -> any { when { return any(value) } }
+export fn fixed(value: list<Token, 2>) -> list<Token, 2> { when { return delta_value(value) } }
+export fn complete(value: atomic<list<Token, 2>>) -> atomic<list<Token, 2>> { when { return delta_value(value) } }
+export fn members(value: set<Token>) -> set<Token> { when { return delta_value(value) } }
+export fn mapping(value: map<Token, Token>) -> map<Token, Token> { when { return delta_value(value) } }
+export fn record(value: atomic<NativeRecord>) -> atomic<NativeRecord> { when { return delta_value(value) } }
+export fn arrival(value: rolling<Token, 2, 1>) -> Token { when { return delta_value(value) } }
+
+struct NativeScalarEntry { value: Token }
+export fn scalar_copy(value: Token) -> Token {
+    inject global_state
+    when {
+        set(global_state, "native.scalar.copy", NativeScalarEntry(value: value))
+        var entry: NativeScalarEntry = get(global_state, "native.scalar.copy")
+        let retained: Token = entry.value
+        entry.value = token("replacement")
+        return retained
+    }
+}

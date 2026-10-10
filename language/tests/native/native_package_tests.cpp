@@ -103,6 +103,70 @@ TEST_CASE("native package API emits a sealed descriptor") {
     CHECK(parsed.value->descriptor_fingerprint.starts_with("sha256:"));
 }
 
+TEST_CASE("native package atomic value contracts preserve canonical mapping and explicit capabilities") {
+    using namespace hgl::native;
+    Package source{
+        .module_identity  = "acme.tokens",
+        .language_version = "0.1-test",
+        .types            = {Type{
+            .category           = TypeCategory::AtomicValue,
+            .identity           = "acme.tokens::Token",
+            .cpp_type           = "acme::Token",
+            .public_header      = "acme/token.h",
+            .canonical_identity = "acme.values.Token",
+            .value_contract =
+                AtomicValueContract{
+                    .owning_copy   = true,
+                    .text          = true,
+                    .equality      = true,
+                    .hash          = true,
+                    .order         = true,
+                    .serialization = true,
+                },
+            .exported = true,
+        }},
+    };
+    const auto parsed = hgl::descriptor::read_json(descriptor_json(source));
+    REQUIRE(parsed);
+    REQUIRE(parsed.value->native_types.size() == 1);
+    const auto &type = parsed.value->native_types.front();
+    CHECK(type.canonical_identity == "acme.values.Token");
+    CHECK(type.exported);
+    REQUIRE(type.value_contract);
+    CHECK(type.value_contract->owning_copy);
+    CHECK(type.value_contract->text);
+    CHECK(type.value_contract->equality);
+    CHECK(type.value_contract->hash);
+    CHECK(type.value_contract->order);
+    CHECK(type.value_contract->serialization);
+
+    // These decisions are data, independently of the named C++ representation.
+    source.types.front().value_contract->equality = false;
+    source.types.front().value_contract->hash     = false;
+    source.types.front().value_contract->order    = false;
+    const auto restricted                         = hgl::descriptor::read_json(descriptor_json(source));
+    REQUIRE(restricted);
+    CHECK_FALSE(restricted.value->native_types.front().value_contract->equality);
+    CHECK_FALSE(restricted.value->native_types.front().value_contract->hash);
+    CHECK_FALSE(restricted.value->native_types.front().value_contract->order);
+
+    SECTION("copy and text are mandatory") {
+        source.types.front().value_contract->owning_copy = false;
+        CHECK_THROWS_WITH(descriptor_json(source), Catch::Matchers::ContainsSubstring("owning copy and text"));
+        source.types.front().value_contract->owning_copy = true;
+        source.types.front().value_contract->text        = false;
+        CHECK_THROWS_WITH(descriptor_json(source), Catch::Matchers::ContainsSubstring("owning copy and text"));
+    }
+    SECTION("a mapping requires both metadata halves") {
+        source.types.front().canonical_identity.clear();
+        CHECK_THROWS_WITH(descriptor_json(source), Catch::Matchers::ContainsSubstring("mapped atomic value contract"));
+    }
+    SECTION("resource state cannot advertise an ordinary value contract") {
+        source.types.front().category = TypeCategory::OpaqueState;
+        CHECK_THROWS_WITH(descriptor_json(source), Catch::Matchers::ContainsSubstring("opaque resource state"));
+    }
+}
+
 TEST_CASE("native package descriptor order is canonical") {
     hgl::native::Package reordered = package();
     std::ranges::reverse(reordered.declarations);

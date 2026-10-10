@@ -55,6 +55,7 @@ namespace hgl::codegen
             enum class Kind : std::uint8_t {
                 Unknown,  ///< a port whose schema the registry decides
                 Scalar,
+                Native,
                 Enum,
                 Tuple,
                 List,
@@ -551,7 +552,17 @@ namespace hgl::codegen
           public:
             Emitter(const syntax::SourceFile &file, const gir::Module &graph, const EmitOptions &options,
                     syntax::DiagnosticSink &diagnostics)
-                : file_{file}, graph_{graph}, options_{options}, diagnostics_{diagnostics} {}
+                : file_{file}, graph_{graph}, options_{options}, diagnostics_{diagnostics} {
+                for (const auto &native : graph.native_types) {
+                    if (native.atomic_value) {
+                        if (!exact_cpp_symbol(native.cpp_type)) {
+                            backend({}, "mapped native C++ type must be one exact qualified identifier; use a public alias for "
+                                        "instantiated types");
+                        }
+                        native_types_.emplace(native.canonical_identity, &native);
+                    }
+                }
+            }
 
             [[nodiscard]] EmittedModule emit();
 
@@ -766,9 +777,9 @@ namespace hgl::codegen
             [[nodiscard]] Value construct_delta(const HType &type, const std::vector<gir::Argument> &arguments,
                                                 SourceRange range, Frame &frame);
             [[nodiscard]] static bool ordinary_aggregate(const HType &type) {
-                return type.is(hir::ScalarType::Any) || type.kind == HType::Kind::Enum || type.kind == HType::Kind::List ||
-                       type.kind == HType::Kind::Struct || type.kind == HType::Kind::Tuple || type.kind == HType::Kind::Delta ||
-                       type.kind == HType::Kind::Set || type.kind == HType::Kind::Map;
+                return type.is(hir::ScalarType::Any) || type.kind == HType::Kind::Native || type.kind == HType::Kind::Enum ||
+                       type.kind == HType::Kind::List || type.kind == HType::Kind::Struct || type.kind == HType::Kind::Tuple ||
+                       type.kind == HType::Kind::Delta || type.kind == HType::Kind::Set || type.kind == HType::Kind::Map;
             }
             [[nodiscard]] static bool contains_window(const HType &type) {
                 if (type.kind == HType::Kind::Rolling) { return true; }
@@ -829,6 +840,7 @@ namespace hgl::codegen
             const gir::Module           &graph_;
             const EmitOptions           &options_;
             syntax::DiagnosticSink      &diagnostics_;
+            std::unordered_map<std::string_view, const NativeTypeContract *> native_types_{};
             std::string                  basename_{};
             std::string                  namespace_{};
             std::string                  module_name_{};
@@ -1022,7 +1034,8 @@ namespace hgl::codegen
 
         std::string Emitter::native_parameter_type(const gir::NativeParameter &parameter, SourceRange range) {
             const HType type = planned_type(parameter.type, range);
-            if (parameter.access != hir::NativeParameterAccess::Value || type.kind != HType::Kind::Scalar) {
+            if (parameter.access != hir::NativeParameterAccess::Value ||
+                (type.kind != HType::Kind::Scalar && type.kind != HType::Kind::Native)) {
                 backend(range, "external native value interfaces currently require canonical scalar parameters");
             }
             const std::string value = value_type(type, range);
@@ -1505,6 +1518,11 @@ namespace hgl::codegen
             if (expression.literal) { return planned_literal(*expression.literal, range); }
 
             switch (expression.kind) {
+                case gir::ConstExprKind::Call:
+                    {
+                        Frame frame;
+                        return eval_planned_expr(expression.call, frame);
+                    }
                 case gir::ConstExprKind::Unary:
                     {
                         return fold_unary(expression.unary, planned_constant(expression.lhs, range), range);
@@ -1608,6 +1626,13 @@ namespace hgl::codegen
                             result.source_generic = binding.name;
                             return result;
                         }
+                        if (const auto native = native_types_.find(type.nominal_identity); native != native_types_.end()) {
+                            HType result;
+                            result.kind             = HType::Kind::Native;
+                            result.nominal_identity = type.nominal_identity;
+                            result.cpp_type         = native->second->cpp_type;
+                            return result;
+                        }
                         if (std::ranges::any_of(graph_.enums, [&](const auto &item) { return item.identity == type.nominal_identity; })) {
                             HType result;
                             result.kind = HType::Kind::Enum;
@@ -1650,7 +1675,10 @@ namespace hgl::codegen
                     {
                         if (type.children.size() != 1U) { backend(range, "hgraph IR delta type requires one originating shape"); }
                         HType origin = planned_type(type.children.front(), range, bindings);
-                        if (origin.kind == HType::Kind::Scalar || origin.kind == HType::Kind::Enum) { return origin; }
+                        if (origin.kind == HType::Kind::Scalar || origin.kind == HType::Kind::Enum ||
+                            origin.kind == HType::Kind::Native) {
+                            return origin;
+                        }
                         if (origin.kind == HType::Kind::Atomic || origin.kind == HType::Kind::Rolling) { return origin.children.front(); }
                         HType result;
                         result.kind = HType::Kind::Delta;
@@ -1886,6 +1914,7 @@ namespace hgl::codegen
                 case gir::ConstExprKind::Construct: return planned_construct(expression, fallback, bindings);
                 case gir::ConstExprKind::Literal:
                 case gir::ConstExprKind::Parameter:
+                case gir::ConstExprKind::Call:
                 case gir::ConstExprKind::Sequence:
                 case gir::ConstExprKind::Tuple: return planned_constant(id, fallback);
             }
@@ -2026,6 +2055,7 @@ namespace hgl::codegen
 
         std::string Emitter::value_type(const HType &type, SourceRange range) {
             switch (type.kind) {
+                case HType::Kind::Native:
                 case HType::Kind::Enum: return type.cpp_type;
                 case HType::Kind::Scalar:
                     switch (type.scalar) {
@@ -2074,6 +2104,7 @@ namespace hgl::codegen
 
         std::string Emitter::schema(const HType &type, SourceRange range) {
             switch (type.kind) {
+                case HType::Kind::Native:
                 case HType::Kind::Enum:
                 case HType::Kind::Scalar: return "hgraph::TS<" + value_type(type, range) + ">";
                 case HType::Kind::Atomic: return "hgraph::TS<" + value_type(type.children[0], range) + ">";
@@ -2936,7 +2967,8 @@ namespace hgl::codegen
 
         Value Emitter::wire_binary(hir::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range) {
             using hir::BinaryOp;
-            if (lhs.type.is(hir::ScalarType::Any) && rhs.type.is(hir::ScalarType::Any)) {
+            if ((lhs.type.is(hir::ScalarType::Any) && rhs.type.is(hir::ScalarType::Any)) ||
+                (lhs.type.kind == HType::Kind::Native && same_type(lhs.type, rhs.type))) {
                 const int operation = op == BinaryOp::Equal          ? 0
                                       : op == BinaryOp::NotEqual     ? 1
                                       : op == BinaryOp::Less         ? 2
@@ -2945,7 +2977,8 @@ namespace hgl::codegen
                                       : op == BinaryOp::GreaterEqual ? 5
                                                                      : -1;
                 if (operation >= 0) {
-                    return wire("hgl::ordinary::BoxComparison<" + std::to_string(operation) + ">",
+                    return wire("hgl::ordinary::BoxComparison<" + std::to_string(operation) +
+                                    (lhs.type.kind == HType::Kind::Native ? ", " + value_type(lhs.type, range) : "") + ">",
                                 {argument_code(lhs), argument_code(rhs)}, range, scalar_type(hir::ScalarType::Bool));
                 }
             }
@@ -3600,7 +3633,8 @@ namespace hgl::codegen
                                 const std::string selector = target.selector + ".template field<" + quote(std::to_string(*position)) + ">()";
                                 Value result = make_runtime(selector + ".value()", item, expression.range, selector);
                                 result.borrowed_value = ordinary_aggregate(item);
-                                if (item.kind == HType::Kind::Enum || item.is(hir::ScalarType::Any) ||
+                                if (item.kind == HType::Kind::Native || item.kind == HType::Kind::Enum ||
+                                    item.is(hir::ScalarType::Any) ||
                                     (item.kind == HType::Kind::Atomic && ordinary_aggregate(item.children.front()))) {
                                     result.code = selector + ".base().value()";
                                     result.ordinary_value = true;
@@ -3611,13 +3645,21 @@ namespace hgl::codegen
                             if (!target.is_runtime() || target.selector.empty() || target.type.kind != HType::Kind::List ||
                                 target.type.children.size() != 1U ||
                                 (target.type.children.front().kind != HType::Kind::Reference &&
-                                 target.type.children.front().kind != HType::Kind::Scalar)) {
+                                 target.type.children.front().kind != HType::Kind::Scalar &&
+                                 target.type.children.front().kind != HType::Kind::Native)) {
                                 backend(expression.range, "hgraph IR runtime index has no supported input selector");
                             }
                             if ((!index.is_const() && !index.is_runtime()) || !index.type.is(hir::ScalarType::I64)) {
                                 fail(Category::Type, index.range, "a runtime list index is an i64 value");
                             }
                             const std::string selector = target.selector + "[static_cast<std::size_t>(" + index.code + ")]";
+                            if (target.type.children.front().kind == HType::Kind::Native) {
+                                auto result           = make_runtime(selector + ".base().value()", target.type.children.front(),
+                                                                     expression.range, selector);
+                                result.ordinary_value = true;
+                                result.borrowed_value = true;
+                                return result;
+                            }
                             return make_runtime(selector + ".value()", target.type.children.front(), expression.range, selector);
                         }
                         if (!target.is_port()) { unsupported(expression.range, "indexing a constant"); }
@@ -3684,7 +3726,8 @@ namespace hgl::codegen
                             const std::string selector = target.selector + ".template field<" + quote(node.name) + ">()";
                             Value result = make_runtime(selector + ".value()", type, expression.range, selector);
                             result.borrowed_value = ordinary_aggregate(type);
-                            if (type.kind == HType::Kind::Enum || type.is(hir::ScalarType::Any) ||
+                            if (type.kind == HType::Kind::Native || type.kind == HType::Kind::Enum ||
+                                type.is(hir::ScalarType::Any) ||
                                 (type.kind == HType::Kind::Atomic && ordinary_aggregate(type.children.front()))) {
                                 result.code = selector + ".base().value()";
                                 result.ordinary_value = true;
@@ -4046,7 +4089,10 @@ namespace hgl::codegen
                 if (!same_type(argument.type, expected)) {
                     fail(Category::Type, argument.range, "native parameter '" + parameter.name + "' requires an exact value type");
                 }
-                if (parameter.is_const || !frame.runtime) {
+                if (expected.kind == HType::Kind::Native) {
+                    args.push_back("hgl::ordinary::native_argument<" + value_type(expected, argument.range) + ">(" +
+                                   ordinary_view(argument) + ")");
+                } else if (parameter.is_const || !frame.runtime) {
                     args.push_back(as_const(argument, expected, argument.range, "native parameter '" + parameter.name + "'"));
                 } else {
                     if (!argument.is_const() && !argument.is_runtime()) {
@@ -4063,7 +4109,21 @@ namespace hgl::codegen
                 use(name);
                 args.push_back(name);
             }
-            const std::string invocation = symbol + "(" + join(args, ", ") + ")";
+            const auto declared_native = [&](gir::TypeId id) {
+                const auto &type = graph_type(id, range);
+                return type.kind == hir::TypeKind::Symbol && !type.binding.valid() && native_types_.contains(type.nominal_identity);
+            };
+            const bool native_atomic_signature =
+                (has_planned_result(target.result, range) && declared_native(target.result)) ||
+                std::ranges::any_of(target.parameters, [&](const auto &parameter) { return declared_native(parameter.type); });
+            const auto checked_symbol = native_atomic_signature && target.generics.empty()
+                                            ? "static_cast<" + native_result_type(target) + " (*)(" +
+                                                  native_parameters(target, false) + ")" + (target.throws ? "" : " noexcept") +
+                                                  ">(&" + symbol + ")"
+                                            : symbol;
+            const std::string invocation =
+                (native_atomic_signature && target.generics.empty() ? "(" + checked_symbol + ")" : symbol) + "(" +
+                join(args, ", ") + ")";
             const std::string code = preparation.empty() ? invocation
                 : "[&]() { " + preparation + "return " + invocation + "; }()";
             if (graph_type(target.result, range).kind == hir::TypeKind::Void) {
@@ -4074,6 +4134,13 @@ namespace hgl::codegen
                 return result;
             }
             const HType result_type = planned_type(target.result, range);
+            if (result_type.kind == HType::Kind::Native) {
+                const auto owned  = "([&]() { auto hgl_native_result = " + code + "; return hgraph::Value{" +
+                                    ordinary_plan(result_type, range) + ".binding(), &hgl_native_result}; }())";
+                auto       result = frame.runtime ? make_runtime(owned, result_type, range) : make_const(owned, result_type, range);
+                result.ordinary_value = true;
+                return result;
+            }
             return frame.runtime ? make_runtime(code, result_type, range) : make_const(code, result_type, range);
         }
 
@@ -4506,7 +4573,8 @@ namespace hgl::codegen
                 if (input.type.kind == HType::Kind::Scalar && !input.type.is(hir::ScalarType::Any)) {
                     return make_runtime(ordinary_scalar(input.selector + ".delta_value()", input.type, range, false), input.type, range);
                 }
-                if (input.type.kind == HType::Kind::Enum || input.type.is(hir::ScalarType::Any)) {
+                if (input.type.kind == HType::Kind::Native || input.type.kind == HType::Kind::Enum ||
+                    input.type.is(hir::ScalarType::Any)) {
                     Value value = make_runtime(input.selector + ".delta_value()", input.type, range);
                     value.ordinary_value = true;
                     value.borrowed_value = true;
@@ -5086,6 +5154,12 @@ namespace hgl::codegen
                     result.global_borrow = result.ordinary_value;
                     if (result.global_borrow) { result.global_entry = "hgl_cache.ref()." + entry->name; }
                     result.global_payload = true;
+                    if (type.kind == HType::Kind::Native) {
+                        result.code           = ordinary_plan(type, expression.range) + ".retain(" + result.code + ")";
+                        result.borrowed_value = false;
+                        result.global_borrow  = false;
+                        result.global_payload = false;
+                    }
                     if (!result.ordinary_value) { result.code = ordinary_scalar(result.code, type, expression.range, false); }
                 }
                 return result;
@@ -5723,8 +5797,8 @@ namespace hgl::codegen
                 out.line(selector + ".apply(" + ordinary_view(value) + ");");
                 return;
             }
-            if ((target.kind == HType::Kind::Enum || target.is(hir::ScalarType::Any)) && value.ordinary_value &&
-                same_type(value.type, target)) {
+            if ((target.kind == HType::Kind::Native || target.kind == HType::Kind::Enum || target.is(hir::ScalarType::Any)) &&
+                value.ordinary_value && same_type(value.type, target)) {
                 out.line(selector + ".apply(" + ordinary_view(value) + ");");
                 return;
             }
@@ -5952,11 +6026,17 @@ namespace hgl::codegen
                             }
                             init.code = as_runtime(init, declared, init.range, "'" + binding.name + "'");
                             init.type = declared;
-                            if ((init.ordinary_value || ((ordinary_aggregate(declared) || declared.kind == HType::Kind::Generic) && init.borrowed_value)) &&
-                                !init.global_borrow && !init.raw_delta) {
+                            if ((init.ordinary_value || ((ordinary_aggregate(declared) || declared.kind == HType::Kind::Generic) &&
+                                                         init.borrowed_value)) &&
+                                (!init.global_borrow || declared.kind == HType::Kind::Native) && !init.raw_delta) {
                                 init.code = ordinary_retain(init);
                                 init.borrowed_value = false;
                                 init.ordinary_value = true;
+                                if (declared.kind == HType::Kind::Native) {
+                                    init.global_borrow  = false;
+                                    init.global_payload = false;
+                                    init.global_entry.clear();
+                                }
                             }
                             use("hgl_cache");
                             out.line(target + " = " + init.code + ";");
@@ -6009,11 +6089,17 @@ namespace hgl::codegen
                         }
                         value.code = as_runtime(value, declared, value.range, "'" + binding.name + "'");
                         value.type = declared;
-                        if ((value.ordinary_value || ((ordinary_aggregate(declared) || declared.kind == HType::Kind::Generic) && value.borrowed_value)) &&
-                            !value.global_borrow && !value.raw_delta) {
+                        if ((value.ordinary_value ||
+                             ((ordinary_aggregate(declared) || declared.kind == HType::Kind::Generic) && value.borrowed_value)) &&
+                            (!value.global_borrow || declared.kind == HType::Kind::Native) && !value.raw_delta) {
                             value.code = ordinary_retain(value);
                             value.borrowed_value = false;
                             value.ordinary_value = true;
+                            if (declared.kind == HType::Kind::Native) {
+                                value.global_borrow  = false;
+                                value.global_payload = false;
+                                value.global_entry.clear();
+                            }
                         }
                         out.line((binding.kind == gir::BindingKind::LocalVar ? "auto " : "const auto ") + local + " = " +
                                  value.code + ";");
@@ -6644,8 +6730,9 @@ namespace hgl::codegen
                         // exact held schemas, independent of ordinary plans.
                         frame.params[index].borrowed_value = true;
                     }
-                    if (!parameter.is_const && (type.kind == HType::Kind::Enum || type.is(hir::ScalarType::Any) ||
-                                                (type.kind == HType::Kind::Atomic && ordinary_aggregate(type.children.front())))) {
+                    if (!parameter.is_const &&
+                        (type.kind == HType::Kind::Native || type.kind == HType::Kind::Enum || type.is(hir::ScalarType::Any) ||
+                         (type.kind == HType::Kind::Atomic && ordinary_aggregate(type.children.front())))) {
                         // Atomic composite payloads use the existing erased value
                         // view, not checked_as on the static schema marker.
                         frame.params[index].code = name + ".base().value()";
@@ -7914,6 +8001,13 @@ namespace hgl::codegen
             std::set<std::string>                    cmake_packages{"hgraph"};
             std::set<std::string>                    imported_targets{"hgraph::core"};
             std::set<std::string>                    runtime_images;
+            for (const auto &[identity, native] : native_types_) {
+                static_cast<void>(identity);
+                if (!is_public_header_name(native->public_header)) {
+                    backend({}, "native atomic type names an unsafe public header");
+                }
+                native_headers.insert(native->public_header);
+            }
             for (const gir::NativeFunction &native : graph_.native_functions) {
                 if (native.test_only && !options_.include_test_contexts) { continue; }
                 if (native.source_defined) { source_native_functions.push_back(&native); }
@@ -8056,6 +8150,13 @@ namespace hgl::codegen
             // Direct C++ node wiring prepares helper-owned bindings without
             // requiring the CLI/module provider installation path.
             body.open("void prepare_ordinary_value_plans()");
+            for (const auto &[identity, native] : native_types_) {
+                const auto &caps = native->capabilities;
+                const auto  flag = [](bool enabled) { return enabled ? "true" : "false"; };
+                body.line("(void)hgl::native_values::bind<" + native->cpp_type + ">(" + quote(identity) + ", " +
+                          flag(caps.equality) + ", " + flag(caps.hash) + ", " + flag(caps.order) + ", " + flag(caps.serialization) +
+                          ");");
+            }
             for (const auto &structure : graph_.structures) {
                 if (structure.generics.empty() && !structure.imported) {
                     body.line("(void)hgraph::scalar_descriptor<" + struct_cpp_type(structure.identity, structure.range) + "::value_type>::value_meta();");
@@ -8080,6 +8181,66 @@ namespace hgl::codegen
             body.line("auto &registry = hgraph::OperatorRegistry::instance();");
             body.open("auto provider = registry.register_installer(" + quote(result.module_name) + ", []");
             body.line("prepare_ordinary_value_plans();");
+            for (const auto &[identity, native] : native_types_) {
+                for (int operation = 0; operation < 6; ++operation) {
+                    if (operation < 2 ? !native->capabilities.equality : !native->capabilities.order) { continue; }
+                    const auto comparison = "hgl::ordinary::NativeComparison<" +
+                                            quote("hgl.native.compare." + std::string{identity} + "." + std::to_string(operation)) +
+                                            ", " + native->cpp_type + ", " + std::to_string(operation) + ">";
+                    body.line("hgraph::register_overload<" + comparison + ", " + comparison + ">();");
+                }
+            }
+            for (std::size_t index = 0; index < graph_.native_functions.size(); ++index) {
+                const auto &native = graph_.native_functions[index];
+                if ((!options_.include_test_contexts && native.test_only) || native.execution_role != NativeExecutionRole::Value ||
+                    !native.generics.empty() || !native.capabilities.empty() ||
+                    std::ranges::find(native.phases, hir::NativePhase::Wiring) == native.phases.end()) {
+                    continue;
+                }
+                if (!has_planned_result(native.result, native.range)) { continue; }
+                const auto result = planned_type(native.result, native.range);
+                if (result.kind != HType::Kind::Native && result.kind != HType::Kind::Scalar) { continue; }
+                std::vector<std::string>                         arguments;
+                std::vector<std::pair<std::string, std::string>> parameters;
+                bool                                             contains_native = result.kind == HType::Kind::Native;
+                bool                                             supported       = true;
+                for (std::size_t position = 0; position < native.parameters.size(); ++position) {
+                    const auto &parameter = native.parameters[position];
+                    const auto  type      = planned_type(parameter.type, native.range);
+                    if (parameter.access != hir::NativeParameterAccess::Value ||
+                        (type.kind != HType::Kind::Scalar && type.kind != HType::Kind::Native)) {
+                        supported = false;
+                        break;
+                    }
+                    contains_native = contains_native || type.kind == HType::Kind::Native;
+                    const auto cpp  = value_type(type, native.range);
+                    parameters.emplace_back(parameter.name, cpp);
+                    arguments.push_back("*static_cast<const " + cpp + " *>(hgl_call.args[" + std::to_string(position) +
+                                        "].scalar_value.view().data())");
+                }
+                if (!supported || !contains_native) { continue; }
+                body.open("");
+                body.line("hgraph::OperatorImpl hgl_helper;");
+                body.line("hgl_helper.name = " + quote("hgl.native.value." + native.candidate_identity) + ";");
+                for (const auto &[name, cpp] : parameters) {
+                    body.line(
+                        "hgl_helper.params.push_back(hgraph::ParamPattern{.kind = hgraph::ParamPattern::Kind::Scalar, .name = " +
+                        quote(name) + ", .scalar = hgraph::to_scalar_pattern<" + cpp + ">()});");
+                }
+                body.line("hgl_helper.has_output = true;");
+                body.line("hgl_helper.output = hgraph::to_pattern<hgraph::TS<" + value_type(result, native.range) + ">>();");
+                body.open("hgl_helper.const_kernel = [](const hgraph::TSValueTypeMetaData *hgl_result, hgraph::OperatorCallContext "
+                          "hgl_call)");
+                body.line("auto hgl_value = (static_cast<" + native_result_type(native) + " (*)(" +
+                          native_parameters(native, false) + ")" + (native.throws ? "" : " noexcept") + ">(&" +
+                          native_cpp_symbol(gir::NativeFunctionId{static_cast<std::uint32_t>(index)}) + "))(" +
+                          join(arguments, ", ") + ");");
+                body.line(
+                    "return hgraph::Value{hgraph::ValuePlanFactory::instance().type_for(hgl_result->value_schema), &hgl_value};");
+                body.close(";");
+                body.line("hgraph::OperatorRegistry::instance().register_overload(std::move(hgl_helper));");
+                body.close();
+            }
             std::vector<std::string> registrations;
             for (const gir::CallableId id : exports) {
                 const std::string name         = callable_cpp_name(id);
