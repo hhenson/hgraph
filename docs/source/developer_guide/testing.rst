@@ -73,8 +73,14 @@ typed recording layout selected by its dense record sink and supplies
 actual stored delta binding, including normalized REF results and canonical
 Any boxes. An empty Any box remains a valid tick. The reader never guesses the
 layout from an individual value or accesses an unresolved generic output
-schema. Reads using the default layout retain the seeded envelope convention. ``TS<AnyValue>`` uses
-owning canonical ``Value`` harness elements.
+schema. Dense buffer bindings also retain a private representation label on
+existing ``TypeRecord`` metadata. Seed helpers mark the seeded envelope format;
+the dense record sink prepares the typed binding at start. Native bare
+``replay(key)`` resolves that format once at start and caches a reader callback.
+Owning ``Value`` and ``GlobalState`` copies preserve the binding and recipe;
+replay performs no format-name lookup or payload-based inference per entry.
+Reads using the default raw-read layout retain the seeded envelope convention.
+``TS<AnyValue>`` uses owning canonical ``Value`` harness elements.
 
 **Type erasure.** ``replay`` and ``record`` are *single erased nodes*, not
 per-schema templates: capture uses the runtime, type-erased ``capture_delta``

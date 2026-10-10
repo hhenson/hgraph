@@ -2,6 +2,7 @@
 #define HGRAPH_LIB_TESTING_RECORD_REPLAY_BUFFER_H
 
 #include <hgraph/types/metadata/type_realization.h>
+#include <hgraph/types/metadata/type_record_registry.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/value/mutable_container_ops.h>
@@ -63,6 +64,32 @@ namespace hgraph::testing
     /** An ``Any`` boxing a copy of ``inner``. */
     [[nodiscard]] inline Value make_any(const Value &inner) { return make_any(inner.view()); }
 
+    enum class DenseBufferLayout { Seeded, Typed };
+
+    // Private representation identity preserves the format through owning
+    // Value and GlobalState copies without changing the canonical List schema.
+    [[nodiscard]] inline ValueTypeRef dense_buffer_binding(ValueTypeRef binding, DenseBufferLayout layout) {
+        const auto &record = TypeRecordRegistry::instance().intern(TypeRecordDefinition{
+            .key = TypeRecordKey{.schema = &binding.schema()->header,
+                                 .role   = TypeRole::Instance,
+                                 .plan   = binding.plan(),
+                                 .ops    = binding.ops(),
+                                 .debug  = binding.record()->debug,
+                                 .implementation_label =
+                                     layout == DenseBufferLayout::Typed ? "testing.dense.typed" : "testing.dense.seeded"},
+            .ops_abi_version = binding.record()->ops_abi_version,
+            .capabilities    = binding.capabilities(),
+        });
+        return ValueTypeRef::checked(AnyPtr::typed_null(record));
+    }
+    [[nodiscard]] inline DenseBufferLayout dense_buffer_layout(ValueTypeRef binding) noexcept {
+        return binding && binding.record()->implementation_name() == "testing.dense.typed" ? DenseBufferLayout::Typed
+                                                                                           : DenseBufferLayout::Seeded;
+    }
+    [[nodiscard]] inline ValueTypeRef dense_recording_binding(ValueTypeRef delta_binding) {
+        return dense_buffer_binding(mutable_list_type(delta_binding), DenseBufferLayout::Typed);
+    }
+
     /** A fresh, empty cycle-aligned buffer (a mutable ``List<Any>``) — the
         SEEDED replay layout (set_replay does not know one element schema). */
     [[nodiscard]] inline Value make_buffer()
@@ -70,22 +97,20 @@ namespace hgraph::testing
         auto       &registry = TypeRegistry::instance();
         const auto *schema   = registry.mutable_list(registry.any());
         const auto binding  = ValuePlanFactory::instance().type_for(schema);
-        return Value{binding};
+        return Value{dense_buffer_binding(binding, DenseBufferLayout::Seeded)};
     }
 
     /** A fresh, empty TYPED dense recording buffer: ``List<delta_schema>``
         with holes as UNSET elements (element validity). */
     [[nodiscard]] inline Value make_dense_buffer(ValueTypeRef delta_binding)
     {
-        return Value{mutable_list_type(delta_binding)};
+        return Value{dense_recording_binding(delta_binding)};
     }
 
     [[nodiscard]] inline Value make_dense_buffer(const ValueTypeMetaData *delta_schema)
     {
         return make_dense_buffer(recording_binding_for(delta_schema));
     }
-
-    enum class DenseBufferLayout { Seeded, Typed };
 
     /** The delta at ``index`` of a dense buffer, either layout: the seeded
         ``List<Any>`` (empty box = no tick) or the typed recorded list
@@ -105,6 +130,17 @@ namespace hgraph::testing
             return Value{boxed.get()};
         }
         return Value{element};
+    }
+
+    using DenseEntryReader = std::optional<Value> (*)(const ListView &, std::size_t);
+    [[nodiscard]] inline std::optional<Value> typed_dense_entry(const ListView &list, std::size_t index) {
+        return dense_entry_delta(list, index, DenseBufferLayout::Typed);
+    }
+    [[nodiscard]] inline std::optional<Value> seeded_dense_entry(const ListView &list, std::size_t index) {
+        return dense_entry_delta(list, index, DenseBufferLayout::Seeded);
+    }
+    [[nodiscard]] inline DenseEntryReader dense_entry_reader(ValueTypeRef binding) noexcept {
+        return dense_buffer_layout(binding) == DenseBufferLayout::Typed ? &typed_dense_entry : &seeded_dense_entry;
     }
 
     /** The cycle index for ``now`` (offset from ``MIN_ST`` in ``MIN_TD`` steps). */

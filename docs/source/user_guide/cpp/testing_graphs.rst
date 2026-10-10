@@ -234,7 +234,10 @@ A seeded replay buffer is a value-layer **mutable** ``List<Any>`` stored in the
 The seed envelope distinguishes silence from a payload of any ordinary type.
 An empty Any payload is retained inside a populated envelope and remains a tick.
 Dense recordings instead use ``List<delta_schema>`` with unset elements for
-silence. ``eval_node`` reads this typed layout automatically, retaining each
+silence. Native bare ``replay(key)`` accepts both seeded and typed dense
+buffers: it resolves their stored format at start. Copying a buffer as an
+owning ``Value`` or through ``GlobalState`` retains that format.
+``eval_node`` reads this typed layout automatically, retaining each
 complete delta, including canonical Any boxes.
 
 .. note::
