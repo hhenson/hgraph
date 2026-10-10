@@ -36,6 +36,7 @@
 
 namespace hgraph
 {
+    class TypeRealizationSnapshot;
     class GraphValue;
     class GraphView;
     class GraphBuilder;
@@ -594,6 +595,32 @@ namespace hgraph
         std::string            label_{};
         NodeCheckpointIdentity checkpoint_identity_{};
         Value                  scalars_{};
+
+      public:
+        /** The output type records a node of this builder's type constructs
+            with, resolved once per (active type realization, graph-value
+            mode, value storage) and reused for every node instance: the
+            factory lookup behind each ``TSOutput(schema)`` constructor was
+            a mutex and a hash probe per node, 5-6% of Python-node and
+            ``switch_`` construction (2026-10-10 profile). Keyed on the
+            realization so a nested graph built inside an evaluate scope
+            resolves its own realized types. Refreshed lazily by the const
+            construction path; builders are constructed from on one thread
+            at a time (graph construction is serialized per graph). */
+        struct ResolvedOutputTypes
+        {
+            const TypeRealizationSnapshot *snapshot{nullptr};
+            bool                           graph_value{false};
+            ValueStorageVariant            storage{ValueStorageVariant::Native};
+            TSOutputTypeRef                output{};
+            TSOutputTypeRef                error_output{};
+            TSOutputTypeRef                recordable_state{};
+            bool                           resolved{false};
+        };
+        [[nodiscard]] const ResolvedOutputTypes &resolved_output_types() const;
+
+      private:
+        mutable ResolvedOutputTypes resolved_outputs_{};
     };
 
     /** Clear node schema/ops contexts after their common TypeRecords are reset. */

@@ -21,6 +21,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 
@@ -102,6 +103,21 @@ namespace hgraph
             std::size_t recordable_state_offset{npos};
             std::size_t prepared_inputs_offset{npos};
             std::size_t runtime_cache_offset{npos};
+
+            // The planned components construction touches, resolved once per
+            // type with the offsets above: construction used to look each of
+            // them up by name (a string compare over the plan's components)
+            // for every node instance.
+            const MemoryUtils::CompositeComponent *runtime_storage_component{nullptr};
+            const MemoryUtils::CompositeComponent *input_component{nullptr};
+            const MemoryUtils::CompositeComponent *output_component{nullptr};
+            const MemoryUtils::CompositeComponent *state_component{nullptr};
+            const MemoryUtils::CompositeComponent *scalars_component{nullptr};
+            const MemoryUtils::CompositeComponent *scheduler_component{nullptr};
+            const MemoryUtils::CompositeComponent *global_state_component{nullptr};
+            const MemoryUtils::CompositeComponent *evaluation_clock_component{nullptr};
+            const MemoryUtils::CompositeComponent *error_output_component{nullptr};
+            const MemoryUtils::CompositeComponent *recordable_state_component{nullptr};
 
             [[nodiscard]] bool has_input() const noexcept { return input_offset != npos; }
             [[nodiscard]] bool has_output() const noexcept { return output_offset != npos; }
@@ -371,24 +387,36 @@ namespace hgraph
             }
         }
 
+        [[nodiscard]] const MemoryUtils::CompositeComponent &require_component(
+            const MemoryUtils::CompositeComponent *component, const char *name)
+        {
+            if (component == nullptr)
+            {
+                throw std::logic_error(std::string{"Node storage plan is missing "} + name);
+            }
+            return *component;
+        }
+
         void construct_node_storage_impl(const NodeRuntimeContext &context,
                                          const NodeTypeMetaData   &schema,
                                          const TSInputBuilder     *input_builder,
                                          TSEndpointSchema          output_endpoint_override,
                                          ValueStorageVariant       output_value_storage,
+                                         const NodeBuilder::ResolvedOutputTypes *resolved_outputs,
                                          std::string               runtime_label,
                                          const Value              &scalars,
                                          void                     *memory)
         {
             if (context.plan == nullptr) { throw std::logic_error("Node runtime context has no storage plan"); }
             const MemoryUtils::StoragePlan &plan = *context.plan;
+            const NodeRuntimeLayout &layout = context.layout;
 
             ConstructedComponents constructed{plan.components().size()};
             auto rollback = make_scope_exit([&]() noexcept {
                 destroy_constructed_components(constructed, memory);
             });
 
-            const auto *runtime_storage_component = plan.find_component("runtime_storage");
+            const auto *runtime_storage_component = layout.runtime_storage_component;
             if (runtime_storage_component == nullptr)
             {
                 throw std::logic_error("Node storage plan is missing runtime_storage");
@@ -404,8 +432,7 @@ namespace hgraph
                 {
                     throw std::logic_error("Node storage input builder is not resolved");
                 }
-                const auto *component = plan.find_component("input");
-                if (component == nullptr) { throw std::logic_error("Node storage plan is missing input"); }
+                const auto *component = &require_component(layout.input_component, "input");
                 std::construct_at(MemoryUtils::cast<TSInput>(
                                       MemoryUtils::advance(memory, component->offset)),
                                   *input_builder);
@@ -414,16 +441,20 @@ namespace hgraph
 
             if (context.layout.has_output())
             {
-                const auto *component = plan.find_component("output");
-                if (component == nullptr) { throw std::logic_error("Node storage plan is missing output"); }
+                const auto *component = &require_component(layout.output_component, "output");
                 const TSEndpointSchema &output_endpoint =
                     !output_endpoint_override.empty() ? output_endpoint_override : schema.output_endpoint_schema;
                 if (output_endpoint.empty())
                 {
-                    std::construct_at(MemoryUtils::cast<TSOutput>(
-                                          MemoryUtils::advance(memory, component->offset)),
-                                      *schema.output_schema,
-                                      output_value_storage);
+                    auto *output_memory = MemoryUtils::cast<TSOutput>(MemoryUtils::advance(memory, component->offset));
+                    if (resolved_outputs != nullptr && resolved_outputs->output)
+                    {
+                        std::construct_at(output_memory, resolved_outputs->output);
+                    }
+                    else
+                    {
+                        std::construct_at(output_memory, *schema.output_schema, output_value_storage);
+                    }
                 }
                 else
                 {
@@ -436,8 +467,7 @@ namespace hgraph
 
             if (context.layout.has_state())
             {
-                const auto *component = plan.find_component("state");
-                if (component == nullptr) { throw std::logic_error("Node storage plan is missing state"); }
+                const auto *component = &require_component(layout.state_component, "state");
                 std::construct_at(MemoryUtils::cast<Value>(
                                       MemoryUtils::advance(memory, component->offset)),
                                   state_binding_for(schema.state_schema));
@@ -446,8 +476,7 @@ namespace hgraph
 
             if (context.layout.has_scalars())
             {
-                const auto *component = plan.find_component("scalars");
-                if (component == nullptr) { throw std::logic_error("Node storage plan is missing scalars"); }
+                const auto *component = &require_component(layout.scalars_component, "scalars");
                 if (!scalars.has_value())
                 {
                     throw std::logic_error("Node has a scalar schema but no scalar configuration value was provided");
@@ -460,8 +489,7 @@ namespace hgraph
 
             if (context.layout.has_scheduler())
             {
-                const auto *component = plan.find_component("scheduler");
-                if (component == nullptr) { throw std::logic_error("Node storage plan is missing scheduler"); }
+                const auto *component = &require_component(layout.scheduler_component, "scheduler");
                 std::construct_at(MemoryUtils::cast<NodeSchedulerState>(
                                       MemoryUtils::advance(memory, component->offset)));
                 constructed.push_back(component);
@@ -469,8 +497,7 @@ namespace hgraph
 
             if (context.layout.has_global_state())
             {
-                const auto *component = plan.find_component("global_state");
-                if (component == nullptr) { throw std::logic_error("Node storage plan is missing global_state"); }
+                const auto *component = &require_component(layout.global_state_component, "global_state");
                 std::construct_at(MemoryUtils::cast<std::optional<GlobalStateView>>(
                                       MemoryUtils::advance(memory, component->offset)));
                 constructed.push_back(component);
@@ -478,8 +505,7 @@ namespace hgraph
 
             if (context.layout.has_evaluation_clock())
             {
-                const auto *component = plan.find_component("evaluation_clock");
-                if (component == nullptr) { throw std::logic_error("Node storage plan is missing evaluation_clock"); }
+                const auto *component = &require_component(layout.evaluation_clock_component, "evaluation_clock");
                 std::construct_at(MemoryUtils::cast<ClockPtr>(
                                       MemoryUtils::advance(memory, component->offset)));
                 constructed.push_back(component);
@@ -487,21 +513,25 @@ namespace hgraph
 
             if (context.layout.has_error_output())
             {
-                const auto *component = plan.find_component("error_output");
-                if (component == nullptr) { throw std::logic_error("Node storage plan is missing error_output"); }
-                std::construct_at(MemoryUtils::cast<TSOutput>(
-                                      MemoryUtils::advance(memory, component->offset)),
-                                  *schema.error_output_schema);
+                const auto *component = &require_component(layout.error_output_component, "error_output");
+                auto *output_memory = MemoryUtils::cast<TSOutput>(MemoryUtils::advance(memory, component->offset));
+                if (resolved_outputs != nullptr && resolved_outputs->error_output)
+                {
+                    std::construct_at(output_memory, resolved_outputs->error_output);
+                }
+                else { std::construct_at(output_memory, *schema.error_output_schema); }
                 constructed.push_back(component);
             }
 
             if (context.layout.has_recordable_state())
             {
-                const auto *component = plan.find_component("recordable_state");
-                if (component == nullptr) { throw std::logic_error("Node storage plan is missing recordable_state"); }
-                std::construct_at(MemoryUtils::cast<TSOutput>(
-                                      MemoryUtils::advance(memory, component->offset)),
-                                  *schema.recordable_state_schema);
+                const auto *component = &require_component(layout.recordable_state_component, "recordable_state");
+                auto *output_memory = MemoryUtils::cast<TSOutput>(MemoryUtils::advance(memory, component->offset));
+                if (resolved_outputs != nullptr && resolved_outputs->recordable_state)
+                {
+                    std::construct_at(output_memory, resolved_outputs->recordable_state);
+                }
+                else { std::construct_at(output_memory, *schema.recordable_state_schema); }
                 constructed.push_back(component);
             }
 
@@ -522,27 +552,33 @@ namespace hgraph
         [[nodiscard]] NodeRuntimeLayout layout_for(const MemoryUtils::StoragePlan &plan)
         {
             NodeRuntimeLayout layout;
-            layout.storage_offset = plan.component("runtime_storage").offset;
+            const auto &runtime_storage = plan.component("runtime_storage");
+            layout.storage_offset            = runtime_storage.offset;
+            layout.runtime_storage_component = &runtime_storage;
 
             // Optional components: recorded only when the schema declares them.
-            const std::pair<const char *, std::size_t NodeRuntimeLayout::*> optional_components[]{
-                {"input", &NodeRuntimeLayout::input_offset},
-                {"output", &NodeRuntimeLayout::output_offset},
-                {"state", &NodeRuntimeLayout::state_offset},
-                {"scalars", &NodeRuntimeLayout::scalars_offset},
-                {"scheduler", &NodeRuntimeLayout::scheduler_offset},
-                {"global_state", &NodeRuntimeLayout::global_state_offset},
-                {"evaluation_clock", &NodeRuntimeLayout::evaluation_clock_offset},
-                {"error_output", &NodeRuntimeLayout::error_output_offset},
-                {"recordable_state", &NodeRuntimeLayout::recordable_state_offset},
-                {node_prepared_inputs_field.data(), &NodeRuntimeLayout::prepared_inputs_offset},
-                {node_runtime_cache_field.data(), &NodeRuntimeLayout::runtime_cache_offset},
+            using ComponentPtr = const MemoryUtils::CompositeComponent *NodeRuntimeLayout::*;
+            const std::tuple<const char *, std::size_t NodeRuntimeLayout::*, ComponentPtr> optional_components[]{
+                {"input", &NodeRuntimeLayout::input_offset, &NodeRuntimeLayout::input_component},
+                {"output", &NodeRuntimeLayout::output_offset, &NodeRuntimeLayout::output_component},
+                {"state", &NodeRuntimeLayout::state_offset, &NodeRuntimeLayout::state_component},
+                {"scalars", &NodeRuntimeLayout::scalars_offset, &NodeRuntimeLayout::scalars_component},
+                {"scheduler", &NodeRuntimeLayout::scheduler_offset, &NodeRuntimeLayout::scheduler_component},
+                {"global_state", &NodeRuntimeLayout::global_state_offset, &NodeRuntimeLayout::global_state_component},
+                {"evaluation_clock", &NodeRuntimeLayout::evaluation_clock_offset,
+                 &NodeRuntimeLayout::evaluation_clock_component},
+                {"error_output", &NodeRuntimeLayout::error_output_offset, &NodeRuntimeLayout::error_output_component},
+                {"recordable_state", &NodeRuntimeLayout::recordable_state_offset,
+                 &NodeRuntimeLayout::recordable_state_component},
+                {node_prepared_inputs_field.data(), &NodeRuntimeLayout::prepared_inputs_offset, nullptr},
+                {node_runtime_cache_field.data(), &NodeRuntimeLayout::runtime_cache_offset, nullptr},
             };
-            for (const auto &[name, member] : optional_components)
+            for (const auto &[name, offset_member, component_member] : optional_components)
             {
                 if (const auto *component = plan.find_component(name); component != nullptr)
                 {
-                    layout.*member = component->offset;
+                    layout.*offset_member = component->offset;
+                    if (component_member != nullptr) { layout.*component_member = component; }
                 }
             }
             return layout;
@@ -2124,6 +2160,42 @@ namespace hgraph
         return *this;
     }
 
+    const NodeBuilder::ResolvedOutputTypes &NodeBuilder::resolved_output_types() const
+    {
+        const TypeRealizationSnapshot *snapshot    = active_type_realization();
+        const bool                     graph_value = active_graph_value_realization();
+        ResolvedOutputTypes           &cache       = resolved_outputs_;
+        if (cache.resolved && cache.snapshot == snapshot && cache.graph_value == graph_value &&
+            cache.storage == output_value_storage_)
+        {
+            return cache;
+        }
+        cache             = ResolvedOutputTypes{};
+        cache.snapshot    = snapshot;
+        cache.graph_value = graph_value;
+        cache.storage     = output_value_storage_;
+        if (const auto *schema = type_.schema(); schema != nullptr)
+        {
+            // The plain output only: an endpoint-shaped output (nested graph
+            // forwarding, map elements) keeps its endpoint constructor.
+            if (schema->output_schema != nullptr && schema->output_endpoint_schema.empty() && output_endpoint_.empty())
+            {
+                cache.output = TSOutput::resolved_type_for(schema->output_schema, output_value_storage_);
+            }
+            if (schema->error_output_schema != nullptr)
+            {
+                cache.error_output = TSOutput::resolved_type_for(schema->error_output_schema, ValueStorageVariant::Native);
+            }
+            if (schema->recordable_state_schema != nullptr)
+            {
+                cache.recordable_state =
+                    TSOutput::resolved_type_for(schema->recordable_state_schema, ValueStorageVariant::Native);
+            }
+        }
+        cache.resolved = true;
+        return cache;
+    }
+
     ValueStorageVariant NodeBuilder::output_value_storage() const noexcept
     {
         return output_value_storage_;
@@ -2145,6 +2217,7 @@ namespace hgraph
                                     input_builder,
                                     output_endpoint(),
                                     output_value_storage(),
+                                    &resolved_output_types(),
                                     std::string{label()},
                                     scalars(),
                                     memory);

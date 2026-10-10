@@ -61,6 +61,13 @@ namespace hgraph
         explicit TSOutput(const TSEndpointSchema &endpoint_schema);
         ~TSOutput() noexcept;
 
+        /** The output type the schema constructors would resolve right now
+            (the active type realization and the requested value storage
+            decide it). A builder constructing many nodes of one type resolves
+            it once per realization and constructs from the type ref. */
+        [[nodiscard]] static TSOutputTypeRef resolved_type_for(const TSValueTypeMetaData *schema,
+                                                               ValueStorageVariant value_storage);
+
         TSOutput(const TSOutput &other);
         TSOutput &operator=(const TSOutput &other);
         TSOutput(TSOutput &&other) noexcept;
