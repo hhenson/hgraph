@@ -207,7 +207,7 @@ on the node schema and specialised node builder:
    +-- extra fields       specialised node data   optional
    |   +-- prepared_inputs  prepared slot routes    static / lifted nodes (RFC 0008 stage 5)
    |   +-- runtime_cache    front-end private record (e.g. the feedback sink)
-   |   +-- prepared_output  own output + native slot + tracking (static nodes, RFC 0008 stage 6)
+   |   +-- prepared_output  own output + native slot + tracking (static / lifted nodes, RFC 0008 stage 6)
    +-- output             TSOutput                optional
    +-- state              Value                   optional
    +-- scalars            Value                   optional
@@ -220,8 +220,8 @@ on the node schema and specialised node builder:
 Two generic extra fields are named by the runtime so every front-end plans
 them the same way through ``node_storage_plan_for``'s ``extra_fields``:
 ``prepared_inputs`` (the per-slot route array, ``NodeView::prepared_input_routes``),
-``prepared_output`` (the static node's own output with its native value memory
-and tracking, ``NodeView::prepared_output``, RFC 0008 stage 6)
+``prepared_output`` (the static node's or lifted kernel's own output with its
+native value memory and tracking, ``NodeView::prepared_output``, RFC 0008 stage 6)
 and ``runtime_cache`` (a small, trivially relocatable record a system node
 front-end fills in its start callback and reads per tick instead of re-deriving
 topology facts, ``NodeView::runtime_cache``; the feedback sink keeps its source
