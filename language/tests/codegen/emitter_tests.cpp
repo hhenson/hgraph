@@ -4507,3 +4507,24 @@ export fn aggregate_local(value: i64) -> i64 {
     CHECK(contains(with_storage, "aggregate_local_cache_fields"));
     CHECK(contains(with_storage, "hgl::ordinary::PreparedValuePlan"));
 }
+
+TEST_CASE("generic runtime nodes preserve independently concrete output ports", "[codegen][generic][empty-delta]") {
+    Unit unit{R"(
+module tests.generic_concrete_output
+fn metadata<T>(value: T, step: i64) -> atomic<tuple<bool, bool, bool>> {
+    when { return (valid(value), modified(value), all_valid(value)) }
+}
+fn sample<T>(value: T, step: i64) -> i64 {
+    when { return step }
+}
+export fn list_metadata(value: list<i64>, step: i64) -> atomic<tuple<bool, bool, bool>> => metadata(value, step)
+export fn list_sample(value: list<i64>, step: i64) -> i64 => sample(value, step)
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::wire<metadata>(w,"));
+    CHECK(contains(emitted->source, ".as<hgraph::TS<hgraph::Tuple<hgraph::Bool, hgraph::Bool, hgraph::Bool>>>()"));
+    CHECK(contains(emitted->source, "hgraph::wire<sample>(w,"));
+    CHECK(contains(emitted->source, ".as<hgraph::TS<hgraph::Int>>()"));
+}

@@ -375,25 +375,6 @@ namespace hgraph
             }
         };
 
-        template <typename Field>
-        void initialize_tsb_delta_field(BundleBuilder &builder, std::size_t index)
-        {
-            using C = typename Field::schema;
-            if constexpr (!is_scalar_ts<C>::value)
-            {
-                Value empty = empty_delta_builder<C>::build();
-                builder.set(index, std::move(empty));
-            }
-        }
-
-        template <typename... Fields>
-        void initialize_tsb_delta_defaults(BundleBuilder &builder)
-        {
-            [&]<std::size_t... I>(std::index_sequence<I...>) {
-                (initialize_tsb_delta_field<std::tuple_element_t<I, std::tuple<Fields...>>>(builder, I), ...);
-            }(std::make_index_sequence<sizeof...(Fields)>{});
-        }
-
         template <typename C, typename Arg>
         void set_tsb_delta_field(BundleBuilder &builder, std::size_t index, Arg &&arg)
         {
@@ -435,9 +416,8 @@ namespace hgraph
         template <typename... Fields>
         struct tsb_delta_builder<UnNamedTSB<Fields...>>
         {
-            // A normal TSB delta is sparse: omitted fields did not tick. Only
-            // empty_delta_builder<TSB> below explicitly validates empty
-            // collection children.
+            // A TSB delta is sparse: omitted fields did not tick. An empty
+            // delta validates the parent only when it is invalid.
             static void initialize(BundleBuilder &) {}
 
             template <typename... Args>
@@ -465,7 +445,6 @@ namespace hgraph
             [[nodiscard]] static Value build()
             {
                 BundleBuilder builder{delta_value_binding<UnNamedTSB<Fields...>>()};
-                initialize_tsb_delta_defaults<Fields...>(builder);
                 return builder.build();
             }
         };

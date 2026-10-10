@@ -160,7 +160,9 @@ TSW intentionally uses ``all_valid`` for minimum-window readiness instead.
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 23. ABI 23 adds ``membership`` to
+    ``TS_DATA_OPS_ABI_VERSION`` is 24. ABI 24 adds an explicit empty-publication
+    timestamp to ``TSDataTracking`` and a sampled-bind timestamp to target-link
+    storage; native extensions must be rebuilt. ABI 23 adds ``membership`` to
     ``TSCurrentReconcileOptions``, which the current-state ops take by value:
     an exact mirror keeps a dictionary key whose child is invalid, for a
     ``convert`` entry that stands in for a reference (runtime spec,
@@ -1660,3 +1662,34 @@ joining (re-appending an already-linked entry would corrupt the ring); the
 ``TSDataView`` / ``TSOutput`` / ``NodeView`` and **no** ``TSOutput::dirty_``
 flag: the earlier eager-sweep apparatus has been removed in favour of this
 read-gated, mutation-driven model.
+
+Explicit empty sparse deltas
+----------------------------
+
+The ``empty-delta-validity`` language contract and
+``runtime/cases_empty_delta_validity.md`` in the specification define application
+by target validity. The installed ``TSDataOps`` apply policy validates an invalid
+Set, Map, List or bundle on an explicit empty patch and records its modification
+through the existing tracking/parent notification path. Repetition on a valid
+target is silent and preserves an earlier same-cycle tick. Empty bundle builders
+leave every child absent; current-state capture likewise includes only valid
+children.
+
+Nonempty patches rely on effective child publications and membership mutations
+to notify ancestors. In particular a Map does not unconditionally touch its
+parent after visiting unchanged children. Captured empty deltas remain owning,
+present values. ``TSDataTracking::last_empty_delta_time`` distinguishes an
+explicit empty List or bundle publication from a scheduling-only child
+invalidation notification. The observability policy accepts the former without
+changing the latter. A sampled input rebind also publishes the valid source's
+current empty state at the input's sampling time, without changing its producer's
+timestamp. Target links retain this sampling identity separately from source
+modification, including equal timestamps after child invalidation; moves preserve
+it and detaching or silently rebinding clears it. The markers use evaluation time, so no cleanup allocation
+or registry lookup is required. Atomic complete payloads and
+rolling arrivals retain their existing per-arrival publication behavior.
+
+HGL trace admission permits empty sparse payloads while retaining the sequential
+membership, index, overlap and removal checks. Its dense input horizon remains
+independent of the number of publications. Ordinary held-value publication
+admission is separate and retains its existing restrictions.

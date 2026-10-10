@@ -3002,3 +3002,65 @@ TEST_CASE("Runtime contract dictionary rebind samples children and retains withd
     REQUIRE(range_size(dict.removed_items()) == 0);
     CHECK_FALSE(dict.slot_removed(0));
 }
+
+TEST_CASE("TSInput sampled identity follows bindings through copy move and detach", "[empty-delta][sampled]")
+{
+    using namespace hgraph;
+    using detail::TSInputTargetLinkStorage;
+    auto &registry = TypeRegistry::instance();
+    const auto *scalar = registry.ts(registry.register_scalar<Int>("int"));
+    const auto *schema = registry.tsl(scalar, 0);
+    TSOutput output{schema};
+    output.view(MIN_ST).data_view().begin_mutation(MIN_ST).mark_empty_delta();
+    const auto now = MIN_ST + MIN_TD;
+    TSInputTargetLinkStorage source;
+    source.bind_sampled(*schema, output.view(now), now);
+    REQUIRE(source.bound());
+    REQUIRE(source.last_sample_time == now);
+
+    // Copies deliberately have no target; a sampled event cannot outlive its binding.
+    TSInputTargetLinkStorage copied{source};
+    CHECK_FALSE(copied.bound());
+    CHECK(copied.last_sample_time == MIN_DT);
+    copied.bind_sampled(*schema, output.view(now), now);
+    copied = source;
+    CHECK_FALSE(copied.bound());
+    CHECK(copied.last_sample_time == MIN_DT);
+    CHECK(source.last_sample_time == now);
+
+    TSInputTargetLinkStorage moved{std::move(source)};
+    CHECK(moved.bound());
+    CHECK(moved.last_sample_time == now);
+    CHECK_FALSE(source.bound());
+    CHECK(source.last_sample_time == MIN_DT);
+    TSInputTargetLinkStorage assigned;
+    assigned = std::move(moved);
+    CHECK(assigned.bound());
+    CHECK(assigned.last_sample_time == now);
+    CHECK_FALSE(moved.bound());
+    CHECK(moved.last_sample_time == MIN_DT);
+
+    assigned.bind(*schema, output.view(now));
+    CHECK(assigned.last_sample_time == MIN_DT);
+    assigned.bind_sampled(*schema, output.view(now), now);
+    assigned.unbind();
+    CHECK_FALSE(assigned.bound());
+    CHECK(assigned.last_sample_time == MIN_DT);
+    assigned.bind_sampled(*schema, output.view(now), now);
+    assigned.unbind_noexcept();
+    CHECK(assigned.last_sample_time == MIN_DT);
+    assigned.bind_sampled(*schema, output.view(now), now);
+    REQUIRE(output.view(now).data_view().begin_mutation(now).invalidate());
+    // Payload invalidation leaves the binding in place. Physical source
+    // teardown, unlike that notification, detaches it.
+    CHECK(assigned.bound());
+    CHECK(assigned.last_sample_time == now);
+    {
+        TSOutput transient{schema};
+        transient.view(now).data_view().begin_mutation(now).mark_empty_delta();
+        assigned.bind_sampled(*schema, transient.view(now), now);
+        CHECK(assigned.last_sample_time == now);
+    }
+    CHECK_FALSE(assigned.bound());
+    CHECK(assigned.last_sample_time == MIN_DT);
+}

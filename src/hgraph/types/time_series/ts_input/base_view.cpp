@@ -592,7 +592,11 @@ namespace hgraph
         const auto &data = data_view();
         if (!data.valid() || !is_target_position()) { return false; }
         const auto *link = data_.link_storage();
-        return link != nullptr && link->tracking.last_modified_time > data.last_modified_time();
+        // Sampling is an explicit input event even when a child notification
+        // stamped the producer at the same evaluation time.
+        return link != nullptr &&
+               ((evaluation_time_ != MIN_DT && link->last_sample_time == evaluation_time_) ||
+                link->tracking.last_modified_time > data.last_modified_time());
     }
 
     DynamicStorageMetrics TSInputView::dynamic_storage_metrics() const noexcept

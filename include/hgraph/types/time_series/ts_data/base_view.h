@@ -400,6 +400,11 @@ namespace hgraph
          */
         void mark_modified();
 
+        /** Record an admitted empty sparse publication on an invalid endpoint.
+         * The selected structural delta policy establishes these preconditions.
+         * Unlike a child invalidation notification, this is an observable tick. */
+        void mark_empty_delta();
+
         /**
          * Record a modification an erased write op reported as NEW at this
          * scope's mutation time and notify the parent. Throws when the
