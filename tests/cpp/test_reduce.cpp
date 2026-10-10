@@ -1605,3 +1605,23 @@ TEST_CASE("reduce: a lifted reduce keeps one output identity through every key c
     ReduceIdentityProbe::last.reset();
     CHECK_OUTPUT(eval_node<LiftedReduceIdentityGraph>(input), values<Bool>(true, false, none, false, false));
 }
+
+TEST_CASE("reduce: a lifted reduce follows same-cycle key churn and slot reuse through its leaf routes")
+{
+    using namespace hgraph;
+    using namespace std::string_literals;
+    stdlib::register_standard_operators();
+
+    // t1 removes b and adds d in one cycle (d reuses b's slot), t2 ticks a
+    // value through the direct route, t3 removes two keys and adds two, t4
+    // ticks every key (the dense position list), t5 empties the dictionary.
+    CHECK_OUTPUT((eval_node<stdlib::reduce_, TSD<Str, TS<Int>>>(
+                     fn<stdlib::add_>(),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}, {"c"s, 3}}),
+                                   dict_delta<Str, TS<Int>>({{"d"s, 4}}, {"b"s}),
+                                   dict_delta<Str, TS<Int>>({{"a"s, 10}}),
+                                   dict_delta<Str, TS<Int>>({{"e"s, 5}, {"f"s, 6}}, {"a"s, "c"s}),
+                                   dict_delta<Str, TS<Int>>({{"d"s, 40}, {"e"s, 50}, {"f"s, 60}}),
+                                   dict_delta<Str, TS<Int>>({}, {"d"s, "e"s, "f"s})))),
+                 values<Int>(6, 8, 17, 15, 150, none));
+}

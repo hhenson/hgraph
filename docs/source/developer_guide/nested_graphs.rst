@@ -356,7 +356,18 @@ slots: compacting the leaves is what keeps the live combiner count at ``n-1``.
   through that array and recording it for the evaluation paths, where the
   position pass previously walked the same slots a second time with a hash
   lookup each; together those were two hash probes per ticking key per cycle
-  (2026-10-10 profile).
+  (2026-10-10 profile). Beside the handle, each dense leaf of a lifted
+  reduce records a **leaf route** (``LeafRoute``): the element's native
+  value memory and tracking record when it is a direct native atomic of the
+  kernel's operand type, and whether the slot output is that element itself
+  (``direct``, no forwarding link in between). The modified-slot walk takes
+  a direct, valid route as a value tick without building the slot view,
+  resolving forwarding or walking the alive-at chain — a direct element
+  cannot re-point while its key lives and its validity is its tracking
+  record — and falls back to the full resolution for forwarding slots, new
+  keys and elements that lost their value. The route is refreshed wherever
+  the source handle is (adds, re-points, full reconciles, checkpoint
+  restore) and moves with the leaf on compaction.
 - **Aggregate resolution** (per position): empty leaf → ``Empty``; live leaf
   → ``Leaf``; internal: both children empty → ``Empty``, exactly one
   non-empty → alias that child's aggregate, both → ``Node`` (the combiner).
@@ -367,10 +378,15 @@ slots: compacting the leaves is what keeps the live combiner count at ``n-1``.
   live byte (the combiner inventory) and a valid byte (the cell holds a
   computed partial), and no combiner child graph is constructed, bound,
   started or scheduled — the combiner banks stay empty. A due cell reads
-  its two child aggregates as values (a leaf's element, a child cell's
-  partial, or the zero) and assigns the kernel's result into its own cell
+  its two child aggregates as values (a leaf's element through its leaf
+  route — a validity test and a load — a child cell's partial, or the
+  zero) and assigns the kernel's result into its own cell
   (``evaluate_lifted_cell`` → ``LiftedKernel::eval_assign``): no mutation
-  scope, no tracking and no observers below the root. The tree shape and
+  scope, no tracking and no observers below the root. A dense tick (half
+  the leaves or more modified) evaluates the full descending position list
+  instead of marking each modified leaf's ancestors: an untouched cell
+  recomputes the same partial, and an untouched graph combiner is gated by
+  its own schedule, so the result is the same either way. The tree shape and
   the deepest-first order are exactly those of the child-graph form, so the
   kernel's own ``associative`` flag does not gate the selection: that flag
   only guards the re-associating single-node fixed-``TSL`` fast path above,
