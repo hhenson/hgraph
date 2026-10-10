@@ -37,14 +37,16 @@ non-NaN key restriction. Wired box comparisons use the same checked
 ordinary operation from a typed HGL node, so graph composition preserves the
 same execution failures as an explicit ``when`` observation. Physical storage
 operations do not grant source structural deltas new ordinary capabilities. During preparation, structural
-delta and aggregate bindings receive interned ops profiles with resolved
-recursive capability markers. Preparation follows the declared member types,
-so empty collections carry the same restrictions as populated collections;
-an Any member remains a dynamic boundary whose actual contents are checked.
-The existing source no-order restriction on timezone is resolved by the native
-comparison callback identity. Native C++ timezone ordering does not become
-HGL ordering. The ordinary operation boundary reads that callback
-identity; it performs no lookup or interning during execution. Storage copying
+delta and aggregate bindings receive distinct immutable type records with
+resolved recursive capability flags. Preparation follows the declared member
+types, so empty collections carry the same restrictions as populated
+collections; an Any member remains a dynamic boundary whose actual contents
+are checked. Timezone's source no-order restriction is resolved during
+preparation. Raw native timezone views use the existing exact scalar metadata
+predicate, which reads the canonical ops-table object without resolving a
+schema. Ordinary operations read capability flags, without callback address
+comparisons, lookup, or interning during execution. Linker folding of
+identical callbacks therefore cannot change source capabilities. Storage copying
 and hashing remain available to internal retained configuration values.
 
 Atomic/delta normalization, sparse child publication, complete atomic payloads,

@@ -36,8 +36,14 @@ namespace hgraph
             }
             const auto &schema = *reinterpret_cast<const ValueTypeMetaData *>(record.schema);
             const auto &ops = checked_record_ops(record);
-            if (record.capabilities != value_type_capabilities(schema, *record.plan, ops))
-            {
+            const auto     physical     = value_type_capabilities(schema, *record.plan, ops);
+            constexpr auto restrictable = TypeCapabilities::Equatable | TypeCapabilities::Comparable | TypeCapabilities::Hashable;
+            const auto     actual       = static_cast<std::uint32_t>(record.capabilities);
+            const auto     expected     = static_cast<std::uint32_t>(physical);
+            // A binding can restrict ordinary operations while retaining its
+            // physical storage hooks. It cannot grant absent operations or
+            // change the lifecycle/representation promises of the plan.
+            if ((actual & ~expected) != 0 || ((actual ^ expected) & ~static_cast<std::uint32_t>(restrictable)) != 0) {
                 throw std::invalid_argument("ValueTypeRef capabilities do not match the value schema, plan, and ops");
             }
         }

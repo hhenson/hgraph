@@ -8,12 +8,12 @@
 #include <functional>
 #include <hgl/execution_error.h>
 #include <hgraph/types/metadata/type_realization.h>
+#include <hgraph/types/metadata/type_record_registry.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
-#include <hgraph/types/utils/intern_table.h>
 #include <hgraph/types/value/mutable_container_ops.h>
 #include <hgraph/types/value/value_builder.h>
 #include <limits>
@@ -195,29 +195,22 @@ namespace hgl::ordinary
         visiting.erase(schema);
     }
 
-    // Source structural deltas carry no ordinary capabilities. Their physical
-    // copy/hash machinery remains available to retained configuration storage.
-    // A prepared ops callback identifies that boundary without runtime names.
-    inline std::partial_ordering source_delta_compare(const void *, const void *, const void *) noexcept {
-        return std::partial_ordering::unordered;
-    }
-    inline std::partial_ordering source_unordered_compare(const void *, const void *, const void *) noexcept {
-        return std::partial_ordering::unordered;
-    }
-    inline bool source_delta(const hgraph::ValueView &value) noexcept {
-        return value.binding().ops()->compare_impl == &source_delta_compare;
+    // Source restrictions are immutable binding metadata. Callback addresses
+    // cannot identify capabilities: linkers may fold identical function bodies.
+    inline bool source_capability(hgraph::ValueTypeRef binding, hgraph::TypeCapabilities capability) noexcept {
+        return hgraph::has_capability(binding.capabilities(), capability);
     }
 
     inline void validate_scalar_key(const hgraph::ValueView &key) {
         if (!key.has_value()) { return; }
-        if (source_delta(key)) {
+        if (!source_capability(key.binding(), hgraph::TypeCapabilities::Equatable | hgraph::TypeCapabilities::Hashable)) {
             throw hgl::ExecutionError{"value.capability", "boxed key contains a value without equality and hash capabilities"};
         }
         if (key.is_any()) {
             const auto box = key.as_any();
             if (!box.has_value()) { return; }
             const auto contents = box.get().concrete();
-            if (source_delta(contents) || !contents.schema()->is_hashable() || !contents.schema()->is_equatable() ||
+            if (!source_capability(contents.binding(), hgraph::TypeCapabilities::Equatable | hgraph::TypeCapabilities::Hashable) ||
                 contents.binding().ops()->hash_impl == nullptr || contents.binding().ops()->equals_impl == nullptr) {
                 throw hgl::ExecutionError{"value.capability", "boxed key requires equality and hash capabilities"};
             }
@@ -261,12 +254,10 @@ namespace hgl::ordinary
             return;
         }
         if (lhs.schema() != rhs.schema()) { return; }
-        if (contained && (source_delta(lhs) || source_delta(rhs) ||
-                          (capability == BoxCapability::Equality
-                               ? !lhs.schema()->is_equatable() || !lhs.binding().ops()->equals_impl
-                               : !lhs.schema()->is_comparable() || !lhs.binding().ops()->compare_impl ||
-                                     lhs.binding().ops()->compare_impl == &source_unordered_compare ||
-                                     lhs.binding().ops()->compare_impl == hgraph::ops_for<hgraph::ZoneId>().compare_impl))) {
+        const auto requested =
+            capability == BoxCapability::Equality ? hgraph::TypeCapabilities::Equatable : hgraph::TypeCapabilities::Comparable;
+        if (contained && (!source_capability(lhs.binding(), requested) || !source_capability(rhs.binding(), requested) ||
+                          (capability == BoxCapability::Order && lhs.is_scalar_type<hgraph::ZoneId>()))) {
             throw hgl::ExecutionError{"value.capability", "boxed value lacks the requested capability"};
         }
         const auto kind = lhs.schema()->try_value_kind();
@@ -576,38 +567,31 @@ namespace hgl::ordinary
         visiting.erase(schema);
         return result;
     }
-    template <typename Ops, bool MissingEquality> inline const Ops &source_profile_ops(hgraph::ValueTypeRef binding) {
-        static hgraph::InternTable<const hgraph::ValueOps *, Ops> profiles;
-        return profiles.intern(binding.ops(), [&] {
-            auto result         = *hgraph::checked_value_ops<Ops>(binding, "source capability profile");
-            result.compare_impl = MissingEquality ? &source_delta_compare : &source_unordered_compare;
-            return result;
-        });
-    }
     inline hgraph::ValueTypeRef source_profile(hgraph::ValueTypeRef binding) {
         std::unordered_set<const hgraph::ValueTypeMetaData *> visiting;
-        const auto                                            capabilities = source_capabilities(binding.schema(), visiting);
-        if (capabilities.equality && capabilities.order) { return binding; }
-        // Native flags already express most ordinary capabilities. Only
-        // stronger source restrictions need a distinct retained ops profile.
-        if (capabilities.equality == binding.schema()->is_equatable() && capabilities.order == binding.schema()->is_comparable()) {
-            return binding;
+        const auto                                            profile = source_capabilities(binding.schema(), visiting);
+        auto                                                  bits    = static_cast<std::uint32_t>(binding.capabilities());
+        if (!profile.equality) {
+            bits &= ~static_cast<std::uint32_t>(hgraph::TypeCapabilities::Equatable | hgraph::TypeCapabilities::Hashable);
         }
-        const auto profile = [&]<typename Ops>() {
-            const auto &ops =
-                capabilities.equality ? source_profile_ops<Ops, false>(binding) : source_profile_ops<Ops, true>(binding);
-            return hgraph::intern_value_type(*binding.schema(), binding.checked_plan(), ops);
-        };
-        switch (binding.ops()->kind) {
-            case hgraph::ValueOpsKind::MutableList: return profile.template operator()<hgraph::MutableListValueOps>();
-            case hgraph::ValueOpsKind::List: return profile.template operator()<hgraph::ListValueOps>();
-            case hgraph::ValueOpsKind::MutableSet: return profile.template operator()<hgraph::MutableSetValueOps>();
-            case hgraph::ValueOpsKind::Set: return profile.template operator()<hgraph::SetValueOps>();
-            case hgraph::ValueOpsKind::MutableMap: return profile.template operator()<hgraph::MutableMapValueOps>();
-            case hgraph::ValueOpsKind::Map: return profile.template operator()<hgraph::MapValueOps>();
-            case hgraph::ValueOpsKind::Indexed: return profile.template operator()<hgraph::IndexedValueOps>();
-            default: return binding;
-        }
+        if (!profile.order) { bits &= ~static_cast<std::uint32_t>(hgraph::TypeCapabilities::Comparable); }
+        const auto capabilities = static_cast<hgraph::TypeCapabilities>(bits);
+        if (capabilities == binding.capabilities()) { return binding; }
+        // Keep the physical copying/hash/compare ops for retained storage. The
+        // distinct record declares only source-admitted ordinary capabilities.
+        const auto  label  = std::string{binding.record()->implementation_name()} +
+                             (profile.equality ? "hgl.source.no_order" : "hgl.source.no_equality");
+        const auto &record = hgraph::TypeRecordRegistry::instance().intern(hgraph::TypeRecordDefinition{
+            .key             = hgraph::TypeRecordKey{.schema               = &binding.schema()->header,
+                                                     .role                 = hgraph::TypeRole::Instance,
+                                                     .plan                 = binding.plan(),
+                                                     .ops                  = binding.ops(),
+                                                     .debug                = binding.record()->debug,
+                                                     .implementation_label = label},
+            .ops_abi_version = binding.record()->ops_abi_version,
+            .capabilities    = capabilities,
+        });
+        return hgraph::ValueTypeRef::checked(hgraph::AnyPtr::typed_null(record));
     }
 
     // Called only while preparing a concrete node, never from a hook.
@@ -635,7 +619,7 @@ namespace hgl::ordinary
             const auto binding = factory.realized_composite_type_for(schema, fields);
             return source_profile(binding);
         }
-        return factory.type_for(schema);
+        return source_profile(factory.type_for(schema));
     }
 
     class PreparedValuePlan

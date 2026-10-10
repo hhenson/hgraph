@@ -65,6 +65,9 @@ namespace hgraph
         void copy_assign_at(void *dst, const void *src) const { checked_plan().copy_assign(dst, src); }
         void move_assign_at(void *dst, void *src) const { checked_plan().move_assign(dst, src); }
 
+        // Immutable ordinary-operation promises. A concrete binding may narrow
+        // equality/order/hash while retaining physical hooks for internal storage.
+        // Lifecycle and representation capabilities must still match its plan.
         [[nodiscard]] constexpr TypeCapabilities capabilities() const noexcept
         {
             return record_ != nullptr ? record_->capabilities : TypeCapabilities::None;
