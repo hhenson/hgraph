@@ -150,10 +150,14 @@ namespace hgraph
             bool modified_leaves_from_reconcile{false};
             /** TSL dense leaf -> effective child source, detecting same-slot re-points. */
             std::vector<TSOutputHandle> dense_to_source_handle{};
-            /** dense leaf -> prepared operand route (parallel to ``dense_to_key``). */
+            /** dense leaf -> prepared operand route (parallel to ``dense_to_key``
+                for a lifted reduce; empty for a graph-combiner reduce, which
+                never reads one). */
             std::vector<LeafRoute> leaf_routes{};
-            /** The kernel operand's value ops a leaf route must match (lifted reduces only). */
+            /** The kernel operand's value ops a leaf route must match: set for a
+                lifted reduce, null for a graph-combiner reduce. */
             const ValueOps *leaf_value_ops{nullptr};
+            [[nodiscard]] bool keeps_leaf_routes() const noexcept { return leaf_value_ops != nullptr; }
             ankerl::unordered_dense::map<Value, std::size_t, ValueHash, ValueEqual> key_to_leaf{};
 
             /** Power-of-two tree width (monotonic; 0 until the first key). */
@@ -742,17 +746,19 @@ namespace hgraph
 
         /**
          * Record a leaf's resolved source: the handle the re-point check
-         * compares, and the route a lifted reduce reads the operand through.
-         * ``direct`` is whether the slot output is the resolved source itself.
-         * Callers size ``dense_to_source_handle`` and ``leaf_routes`` first.
+         * compares, and — for a lifted reduce only — the route it reads the
+         * operand through. ``direct`` is whether the slot output is the
+         * resolved source itself. Callers size ``dense_to_source_handle``
+         * (and, for a lifted reduce, ``leaf_routes``) first.
          */
         void record_leaf_source(ReduceNodeStorage &storage, std::size_t leaf, const TSOutputView &source,
                                 bool direct)
         {
             storage.dense_to_source_handle[leaf] = source.handle();
-            LeafRoute &route                     = storage.leaf_routes[leaf];
-            route                                = {};
-            if (storage.leaf_value_ops == nullptr || !source.bound()) { return; }
+            if (!storage.keeps_leaf_routes()) { return; }
+            LeafRoute &route = storage.leaf_routes[leaf];
+            route            = {};
+            if (!source.bound()) { return; }
             const TSDataView &data   = source.data_view();
             const void       *native = data.try_native_value_memory(storage.leaf_value_ops);
             if (native == nullptr) { return; }
@@ -764,8 +770,8 @@ namespace hgraph
         void append_leaf_source(ReduceNodeStorage &storage, const TSOutputView &source, bool direct)
         {
             storage.dense_to_source_handle.emplace_back();
-            storage.leaf_routes.emplace_back();
-            record_leaf_source(storage, storage.leaf_routes.size() - 1, source, direct);
+            if (storage.keeps_leaf_routes()) { storage.leaf_routes.emplace_back(); }
+            record_leaf_source(storage, storage.dense_to_source_handle.size() - 1, source, direct);
         }
 
         void remove_leaf_at(ReduceNodeStorage &storage, std::size_t leaf)
@@ -782,14 +788,14 @@ namespace hgraph
                 storage.dense_to_key[leaf]                      = std::move(storage.dense_to_key[last]);
                 storage.dense_to_source_slot[leaf]              = storage.dense_to_source_slot[last];
                 storage.dense_to_source_handle[leaf]            = storage.dense_to_source_handle[last];
-                storage.leaf_routes[leaf]                       = storage.leaf_routes[last];
+                if (!storage.leaf_routes.empty()) { storage.leaf_routes[leaf] = storage.leaf_routes[last]; }
                 storage.key_to_leaf[storage.dense_to_key[leaf]] = leaf;
                 map_source_slot(storage, storage.dense_to_source_slot[leaf], leaf);
             }
             storage.dense_to_key.pop_back();
             storage.dense_to_source_slot.pop_back();
             storage.dense_to_source_handle.pop_back();
-            storage.leaf_routes.pop_back();
+            if (!storage.leaf_routes.empty()) { storage.leaf_routes.pop_back(); }
         }
 
         void clear_leaf_state(ReduceNodeStorage &storage)
@@ -819,7 +825,7 @@ namespace hgraph
                 storage.dense_to_key.reserve(dict.size());
                 storage.dense_to_source_slot.reserve(dict.size());
                 storage.dense_to_source_handle.reserve(dict.size());
-                storage.leaf_routes.reserve(dict.size());
+                if (storage.keeps_leaf_routes()) { storage.leaf_routes.reserve(dict.size()); }
                 storage.key_to_leaf.reserve(dict.size());
                 for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
                 {
@@ -903,7 +909,7 @@ namespace hgraph
                 if (!dict.slot_live(slot)) { continue; }
                 const ValueView key = dict.key_at_slot(slot);
                 std::size_t leaf = leaf_for_dict_slot(storage, slot, key);
-                if (leaf != no_leaf)
+                if (leaf != no_leaf && storage.keeps_leaf_routes())
                 {
                     // A direct native element cannot re-point (its slot is
                     // its identity while the key lives) and its validity is
@@ -2041,7 +2047,7 @@ namespace hgraph
             storage.dense_to_key.reserve(leaf_count);
             storage.dense_to_source_slot.reserve(leaf_count);
             storage.dense_to_source_handle.reserve(leaf_count);
-            storage.leaf_routes.reserve(leaf_count);
+            if (lifted) { storage.leaf_routes.reserve(leaf_count); }
             for (std::size_t leaf = 0; leaf < leaf_count; ++leaf)
             {
                 const auto key = keys.at(leaf);
@@ -2052,7 +2058,7 @@ namespace hgraph
                 storage.dense_to_source_slot.push_back(source_slot);
                 map_source_slot(storage, source_slot, storage.dense_to_source_slot.size() - 1);
                 storage.dense_to_source_handle.emplace_back();
-                storage.leaf_routes.emplace_back();
+                if (lifted) { storage.leaf_routes.emplace_back(); }
             }
             std::vector<std::size_t> positions;
             for (std::size_t position = 0; position < internals; ++position)
