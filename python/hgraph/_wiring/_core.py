@@ -209,10 +209,12 @@ _ROLE_CACHE = {}
 
 def _operator_roles(kind, name):
     """The registry's answer for ``name``'s type-argument (``kind="carrier"``)
-    or ``WiredFn`` (``kind="wired_fn"``) parameters, cached per registry
-    generation: every wired Python node asked the registry twice per call for
-    facts that only change when the registry does."""
-    generation = _hgraph._registry_generation()
+    or ``WiredFn`` (``kind="wired_fn"``) parameters, cached on the registry
+    generation and the registry's registration generation (which moves with
+    every overload registered, erased or reset, so an overload added later
+    in the same process is seen): every wired Python node asked the registry
+    twice per call for facts that only change when the registry does."""
+    generation = (_hgraph._registry_generation(), _hgraph._operator_registration_generation())
     key = (kind, name)
     cached = _ROLE_CACHE.get(key)
     if cached is None or cached[0] != generation:

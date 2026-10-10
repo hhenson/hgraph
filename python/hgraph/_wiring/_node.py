@@ -232,14 +232,25 @@ _LAYOUT_LETTERS = {(True, True): "t", (True, False): "u",
 _INPUT_MARKERS = "tuaCTUAP"
 
 
-@lru_cache(maxsize=None)
-def _cached_contains_ref(handle):
-    return _hgraph.contains_ref(handle)
+_CONTAINS_REF_CACHE = [None, {}]   # [registry generation, {handle: bool}]
 
 
 def _contains_ref(handle):
+    """``_hgraph.contains_ref`` per type handle, cached for the active registry
+    generation only: a handle's identity does not survive its registry (a
+    test-only reset frees the metadata and the allocator may reuse the
+    address), so the cache is dropped with the generation."""
+    generation = _hgraph._registry_generation()
+    if _CONTAINS_REF_CACHE[0] != generation:
+        _CONTAINS_REF_CACHE[0] = generation
+        _CONTAINS_REF_CACHE[1] = {}
+    cache = _CONTAINS_REF_CACHE[1]
     try:
-        return _cached_contains_ref(handle)
+        return cache[handle]
+    except KeyError:
+        result = _hgraph.contains_ref(handle)
+        cache[handle] = result
+        return result
     except TypeError:
         return _hgraph.contains_ref(handle)
 

@@ -861,8 +861,13 @@ registry generation, and, when the signature has no variadic group, no
 context input and no wiring-time policy callable, precomputes the whole
 layout string with its keyword tail, input-name suffix and input index map
 (``_precompute_static_layout``). The registry's answers for a name's
-type-argument and ``WiredFn`` parameters are cached per registry generation
-in ``_core._operator_roles``. ``binding_matches`` is unchanged as the one
+type-argument and ``WiredFn`` parameters are cached in
+``_core._operator_roles`` on the registry generation together with the
+registry's registration generation (``OperatorRegistry::registration_generation``,
+moved by every overload registered, erased or reset), so an overload added
+later in the same process is seen; the REF-shape cache behind
+``reference_shapes`` lives for one registry generation only, since a type
+handle's identity does not survive its registry. ``binding_matches`` is unchanged as the one
 assignability rule; it accepts the cached pattern so it is not rebuilt per
 call. The call body keeps every decision that depends on the call's values
 (binding, lifting, policies, scalars) and every error message; the
