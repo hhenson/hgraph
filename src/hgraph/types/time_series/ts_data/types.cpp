@@ -279,11 +279,6 @@ namespace hgraph
         return true;
     }
 
-    TSParentLinkKind TSParentLink::kind() const noexcept
-    {
-        return parent_.enum_value();
-    }
-
     bool TSParentLink::has_parent() const noexcept
     {
         return has_ts_data_parent() || has_endpoint_parent();
@@ -392,31 +387,29 @@ namespace hgraph
         return *table.mutable_tracking_impl(table.context, memory);
     }
 
-    void TSParentLink::notify_child_modified(DateTime mutation_time) const
+    void TSParentLink::notify_child_modified_slow(DateTime mutation_time) const
     {
-        if (!has_ts_data_parent())
+        // The inline front door has already returned for the None and
+        // NodeEndpoint kinds (a node-owned endpoint has no eager delta state
+        // to mark; the root tracking and its subscribers were updated before
+        // reaching it).
+        if (kind() == TSParentLinkKind::TSData && parent_.ptr() != nullptr && payload_.ts_data != nullptr)
         {
-            if (has_node_endpoint_parent())
-            {
-                // The root TSData tracking and its subscribers were updated
-                // before reaching this terminal. Node-owned input and output
-                // endpoints have no additional eager delta state to mark.
-                return;
-            }
-            if (auto *endpoint = parent_endpoint(); endpoint != nullptr)
-            {
-                endpoint->record_child_modified(child_id, mutation_time);
-            }
+            // One kind decode and one ops-table fetch for the whole hop: the
+            // child record, the parent tracking and the next hop all come
+            // from the same table.
+            const auto  type   = TSRoleTypeRef{static_cast<const TypeRecord *>(parent_.ptr())};
+            const auto &table  = *type.ops();
+            auto       *memory = const_cast<void *>(payload_.ts_data);
+            table.record_child_modified_impl(table.context, memory, child_id, mutation_time);
+            auto &state = *table.mutable_tracking_impl(table.context, memory);
+            if (state.record_modified(mutation_time)) { state.parent.notify_child_modified(mutation_time); }
             return;
         }
-
-        const auto type = parent_storage_type();
-        const auto &table = *type.ops();
-        auto       *memory  = const_cast<void *>(parent_data());
-        table.record_child_modified_impl(table.context, memory, child_id, mutation_time);
-
-        auto &state = mutable_parent_tracking();
-        if (state.record_modified(mutation_time)) { state.parent.notify_child_modified(mutation_time); }
+        if (auto *endpoint = parent_endpoint(); endpoint != nullptr)
+        {
+            endpoint->record_child_modified(child_id, mutation_time);
+        }
     }
 
     TSParentLink TSParentLink::parent_link() const
