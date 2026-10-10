@@ -254,6 +254,13 @@ TEST_CASE("Graph executor and clock runtime families use canonical records", "[t
         ExecutorTypeRef::checked(
             AnyPtr::read_only(stale_executor_record, generic_executor.data())),
         std::invalid_argument);
+
+    TypeRecord stale_clock_record = *generic_clock.record();
+    stale_clock_record.ops_abi_version = 1; // Before supports_wall_clock.
+    REQUIRE_THROWS_AS(
+        ClockTypeRef::checked(
+            AnyPtr::read_only(stale_clock_record, generic_clock.data())),
+        std::invalid_argument);
 }
 
 TEST_CASE("NodeValue exposes a type-erased view over node storage")
