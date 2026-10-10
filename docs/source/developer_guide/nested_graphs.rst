@@ -533,7 +533,17 @@ graph ops (no separate engine/clock object; see the recorded decision):
   per call (``NodeView::graph()`` goes through the node ops table); the
   2026-10-07 bake-off profile put this function at about 17% of a dense
   keyed-``map_`` run, and it used to resolve the parent graph twice (clamp,
-  then schedule).
+  then schedule). The child-schedule observer receives, besides the time, a
+  ``due_now`` flag that the push derives from the clamp it has already made
+  (``when == parent evaluation time``). A keyed parent uses it to record a
+  current-cycle child as a **bit in a due-now slot set** instead of a heap
+  entry: on a keyed source write every element notifies its child while the
+  map is idle, and the heap cost two ``O(log n)`` operations per child per
+  cycle (plus a clock lookup per push in ``mesh``) for a set whose order is
+  irrelevant. Future deadlines keep using the heap; the bit set is drained
+  into the evaluation candidates at the start of the next map evaluation,
+  bits raised during an evaluation are dropped exactly as the heap's stale
+  due entries were, and removal of an entry clears its bit.
 
 The push tells a keyed parent *when* but not *which child*. For ``map_`` and
 ``mesh_`` that identity matters: both operators keep sparse child worklists,

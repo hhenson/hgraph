@@ -173,6 +173,15 @@ namespace hgraph
             // Entries are LAZY: a stale (rescheduled, stopped, or removed)
             // slot pops harmlessly — the evaluation loop re-checks due-ness.
             std::vector<MapChildSchedule> child_schedule_queue{};
+            // Children pushed for the parent's CURRENT cycle (a notification
+            // reaching an idle child between map evaluations, e.g. every key
+            // of a keyed source write). They need no ordering, only
+            // membership: a bit per slot replaces a heap push and pop per
+            // child per cycle, and repeated pushes for one child (several
+            // inner nodes notified) collapse. Drained by the next map
+            // evaluation; future deadlines keep using the heap.
+            SlotBitmap due_now_slots{};
+            bool       any_due_now{false};
 
             void push_child_schedule(MapChildSchedule schedule)
             {
@@ -181,11 +190,31 @@ namespace hgraph
                                std::greater<>{});
             }
 
-            void push_observed_child_schedule(DateTime when,
+            void mark_due_now(std::size_t slot)
+            {
+                if (slot >= due_now_slots.size())
+                {
+                    due_now_slots.resize(std::max(slot + 1, entries.slot_capacity()));
+                }
+                due_now_slots.set(slot);
+                any_due_now = true;
+            }
+
+            void clear_due_now(std::size_t slot) noexcept
+            {
+                if (any_due_now && slot < due_now_slots.size()) { due_now_slots.reset(slot); }
+            }
+
+            void push_observed_child_schedule(DateTime when, bool due_now,
                                               const MapChildScheduleContext &schedule)
             {
                 if (schedule.storage != this)
                 {
+                    return;
+                }
+                if (due_now)
+                {
+                    mark_due_now(schedule.slot);
                     return;
                 }
                 push_child_schedule(MapChildSchedule{when, schedule.slot, false});
@@ -493,6 +522,7 @@ namespace hgraph
                 failures.capture([&] { entry->graph.view().stop(evaluation_time); });
             }
             entry->schedule_context.pulled_when = MAX_DT;
+            storage.clear_due_now(slot);
             if (output_mutation != nullptr)
             {
                 // Erasing the owned element stops its forwarding TSData tree.
@@ -592,9 +622,9 @@ namespace hgraph
             // is due (issue #175).
             entry.schedule_context = MapChildScheduleContext{&storage, slot};
             entry.graph.view().set_child_schedule_observer(
-                [](void *context, DateTime when) {
+                [](void *context, DateTime when, bool due_now) {
                     auto *schedule = static_cast<MapChildScheduleContext *>(context);
-                    schedule->storage->push_observed_child_schedule(when, *schedule);
+                    schedule->storage->push_observed_child_schedule(when, due_now, *schedule);
                 },
                 &entry.schedule_context);
             schedule_sampled_input_consumers(
@@ -842,6 +872,24 @@ namespace hgraph
             storage.evaluation_candidates.set(slot);
         }
 
+        /** Move the current-cycle push set into the evaluation candidates. */
+        void drain_due_now_slots(MapNodeStorage &storage)
+        {
+            if (!storage.any_due_now) { return; }
+            for (std::size_t word_index = 0; word_index < storage.due_now_slots.word_count(); ++word_index)
+            {
+                std::uint64_t word = storage.due_now_slots.words[word_index];
+                while (word != 0)
+                {
+                    const auto bit = static_cast<std::size_t>(std::countr_zero(word));
+                    add_map_evaluation_slot(storage, word_index * SlotBitmap::bits_per_word + bit);
+                    word &= word - 1;
+                }
+            }
+            storage.due_now_slots.reset();
+            storage.any_due_now = false;
+        }
+
         void materialize_map_evaluation_slots(MapNodeStorage &storage)
         {
             storage.evaluation_slots.clear();
@@ -945,6 +993,10 @@ namespace hgraph
                     add_map_evaluation_slot(storage, keys.find_slot(key.view()));
                 }
             }
+
+            // Children pushed for this cycle while idle (the keyed-source
+            // broadcast case) are a bit set, not heap entries.
+            drain_due_now_slots(storage);
 
             // Children DUE by their own internal schedules (a service
             // response delivery, a scheduler alarm) pop from the schedule
@@ -1117,7 +1169,11 @@ namespace hgraph
             // the queue was drained at the start of this evaluation (for
             // example while a newly created child samples a valid config
             // input). Do not let that stale minimum replace the future
-            // deadline propagated by the child.
+            // deadline propagated by the child. The same applies to the
+            // due-now bit set: bits raised during this evaluation name
+            // children that already ran (or were created) this cycle.
+            storage.due_now_slots.reset();
+            storage.any_due_now = false;
             while (!storage.child_schedule_queue.empty() &&
                    storage.child_schedule_queue.front().when <= evaluation_time)
             {
@@ -1172,6 +1228,8 @@ namespace hgraph
             storage.evaluation_slots.clear();
             storage.resume_position_plus_one = 0;
             storage.child_schedule_queue.clear();
+            storage.due_now_slots.reset();
+            storage.any_due_now = false;
             failures.rethrow_if_any();
         }
 
@@ -1373,9 +1431,9 @@ namespace hgraph
                     context.access, entry.key.view(), key_source, context.spec.output_binding_mode, true);
                 entry.schedule_context = MapChildScheduleContext{&storage, child.slot};
                 entry.graph.view().set_child_schedule_observer(
-                    [](void *raw, DateTime when) {
+                    [](void *raw, DateTime when, bool due_now) {
                         auto &schedule = *static_cast<MapChildScheduleContext *>(raw);
-                        schedule.storage->push_observed_child_schedule(when, schedule);
+                        schedule.storage->push_observed_child_schedule(when, due_now, schedule);
                     }, &entry.schedule_context);
             }
             for (const auto &child : image.children)
@@ -1430,6 +1488,8 @@ namespace hgraph
                 if (auto *entry = storage.entries.entry_at(slot); entry != nullptr && entry->graph.has_value())
                     entry->graph.view().start(time);
             storage.child_schedule_queue.clear();
+            storage.due_now_slots.reset();
+            storage.any_due_now = false;
             for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
             {
                 auto *entry = storage.entries.entry_at(slot);
@@ -1444,6 +1504,10 @@ namespace hgraph
 
         [[nodiscard]] DateTime live_map_schedule(const NodeView &view)
         {
+            // Future child deadlines live in the heap. Due-now bits are not
+            // a schedule of their own: the nested push that raised one also
+            // scheduled this node in the graph table for that cycle, and the
+            // bits are drained (or dropped) by the next evaluation.
             const auto &storage = *MemoryUtils::cast<MapNodeStorage>(view.as<MapNodeView>().internal_storage());
             return storage.child_schedule_queue.empty() ? MAX_DT : storage.child_schedule_queue.front().when;
         }
