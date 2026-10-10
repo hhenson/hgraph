@@ -777,9 +777,9 @@ namespace hgraph::detail
                 walk_free = false;
                 break;
             }
-            const auto parent = endpoint.parent_link();
-            if (!parent.has_ts_data_parent()) { break; }
-            endpoint = TSDataView{parent.parent_storage_type(), parent.parent_data()};
+            const auto link = endpoint.parent_link();
+            if (!link.has_ts_data_parent()) { break; }
+            endpoint = TSDataView{link.parent_storage_type(), link.parent_data()};
             if (const auto &ops = endpoint.ops(); ops.ownership_ops != nullptr)
             {
                 const auto *schema = endpoint.schema();
