@@ -459,6 +459,30 @@ namespace hgraph
         {
             throw std::invalid_argument("realized output_type_for requires a migrated TS schema");
         }
+        // Front cache on the requested variant (the key space with a bound
+        // value binding; the two-argument overload keys an empty one): the
+        // storage selection below ran per node instance when a graph was
+        // constructed under its realization (construct_py profile,
+        // 2026-10-10, 4% in python_cache_beneficial), although the answer is
+        // a per-(schema, binding, variant) fact.
+        const RealizedOutputKey requested_key{schema, value_binding, requested};
+        {
+            std::lock_guard lock(mutex_);
+            if (const auto found = requested_output_type_cache_.find(requested_key);
+                found != requested_output_type_cache_.end())
+            {
+                return found->second;
+            }
+        }
+        const auto type = resolve_realized_output_type_for(schema, value_binding, requested);
+        std::lock_guard lock(mutex_);
+        return requested_output_type_cache_.try_emplace(requested_key, type).first->second;
+    }
+
+    TSOutputTypeRef TSDataPlanFactory::resolve_realized_output_type_for(const TSValueTypeMetaData *schema,
+                                                                        ValueTypeRef value_binding,
+                                                                        ValueStorageVariant requested)
+    {
         const bool scalar = plan_detail::is_compact_atomic_ts_data(*schema);
         const bool fixed = schema->kind == TSTypeKind::TSB &&
                            plan_detail::is_fixed_structured_ts_data(*schema);

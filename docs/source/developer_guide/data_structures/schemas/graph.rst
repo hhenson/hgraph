@@ -244,7 +244,12 @@ shared reference for its duration, and a thread constructing from the same
 builder under another realization (the realization is thread-local)
 publishes its own record without disturbing a reader. Endpoint-shaped
 outputs (nested-graph forwarding, map elements) keep their endpoint
-constructor.
+constructor. A graph is constructed under its builder's type realization,
+so the resolution runs through the factory's realized overload; that
+overload answers from the same requested-variant front cache (keyed on
+schema, value binding and requested variant) before it runs the storage
+selection, which construction of a Python-node graph otherwise asked once
+per node (4% of ``construct_py``, 2026-10-10 profile).
 
 The node's ``NodeTypeRef`` supplies both the storage plan and the
 ``NodeOps`` table through its common record. Graph evaluation therefore does not need to know the

@@ -1,6 +1,7 @@
 """_PyNode: Python user-node wiring (signature binding + call
 normalisation), @compute_node/@sink_node, lift, @generator, push_queue."""
 import inspect
+import types
 import typing
 import warnings
 from collections.abc import Mapping
@@ -9,11 +10,12 @@ from functools import lru_cache
 
 import _hgraph
 
-from .._types import (default_type_var_of as _default_type_var_of,
+from .._types import (AUTO_RESOLVE, TS,
+                      default_type_var_of as _default_type_var_of,
                       wiring_signature_of as _wiring_signature_of,
                       _ContextExpr, _GenericTsExpr, _Required, _TsExpr,
-                      _TypeVarSentinel, _evaluated_annotations,
-                      _type_var_is_scalar, _type_var_name)
+                      _TypeVarSentinel, _evaluated_annotations, _pattern_of,
+                      _type_var_is_scalar, _type_var_name, _value_type)
 from ._core import (IncorrectTypeBinding, RequirementsNotMetWiringError,
                     WiringError, WiringPort, _current_wiring,
                     _resolve_context, _unwrap, wire)
@@ -40,7 +42,7 @@ def _node_ref(fn, recordable_id=""):
         return _hgraph.node_ref(fn, recordable_id)
 
 
-def binding_matches(annotation, port_tp, scope):
+def binding_matches(annotation, port_tp, scope, pattern=None):
     """Is a port of ``port_tp`` acceptable where ``annotation`` is declared?
 
     This is the ONE assignability rule. It decides whether a wired port may
@@ -64,10 +66,12 @@ def binding_matches(annotation, port_tp, scope):
       the covariance ``dispatch`` relies on.
 
     ``scope`` is mutated by pattern matching: type variables bind into it.
-    Callers that must not bind should pass a throwaway scope.
+    Callers that must not bind should pass a throwaway scope. ``pattern`` is
+    the annotation's type pattern when the caller holds it already (a node's
+    per-parameter plan caches it per registry generation); it is the same
+    pattern ``_pattern_of(annotation)`` builds, passed to save rebuilding it
+    per call.
     """
-    from .._types import TS, _pattern_of
-
     if isinstance(annotation, _TsExpr):
         handle = annotation.handle
         # Both widenings are about the PAYLOAD, so they may only fire when the
@@ -82,10 +86,11 @@ def binding_matches(annotation, port_tp, scope):
             return True
         if handle == port_tp:
             return True
-    try:
-        pattern = _pattern_of(annotation)
-    except TypeError:
-        return True   # non-ts annotation reached with a port: leave to the runtime
+    if pattern is None:
+        try:
+            pattern = _pattern_of(annotation)
+        except TypeError:
+            return True   # non-ts annotation reached with a port: leave to the runtime
     if scope.match(pattern, port_tp):
         return True
     if isinstance(annotation, _TsExpr) and annotation.handle.is_ts:
@@ -220,6 +225,145 @@ def _resolve_signature_aliases(sig):
         ],
         return_annotation=resolve_type_alias(sig.return_annotation),
     )
+
+
+_LAYOUT_LETTERS = {(True, True): "t", (True, False): "u",
+                   (False, True): "T", (False, False): "U"}
+_INPUT_MARKERS = "tuaCTUAP"
+
+
+@lru_cache(maxsize=None)
+def _cached_contains_ref(handle):
+    return _hgraph.contains_ref(handle)
+
+
+def _contains_ref(handle):
+    try:
+        return _cached_contains_ref(handle)
+    except TypeError:
+        return _hgraph.contains_ref(handle)
+
+
+class _ParamPlan:
+    """Per-parameter facts of a node definition, computed once at decoration.
+
+    ``__call__`` used to re-derive every one of these per wired node (the
+    lifecycle code, the typing origin and arguments, the annotation's type
+    pattern, the time-series classification), which made the call body the
+    dominant cost of wiring a Python node (2026-10-10 profile: ~11 µs of its
+    own bytecode per node). The plan holds exactly what the signature
+    determines; everything that depends on the call's values stays in
+    ``__call__``.
+    """
+
+    __slots__ = ("param", "name", "annotation", "default", "kind", "code", "factory",
+                 "is_context", "is_output", "is_ts", "is_type_arg", "carried",
+                 "union_members", "requested_union", "concrete_handle", "optional_ts_none",
+                 "_pattern", "_pattern_generation", "_pattern_missing")
+
+    def __init__(self, param):
+        annotation = param.annotation
+        self.param = param
+        self.name = param.name
+        self.annotation = annotation
+        self.default = param.default
+        self.kind = param.kind
+        self.code, self.factory = _lifecycle_code(annotation, recordable=True)
+        self.is_context = isinstance(annotation, _ContextExpr)
+        self.is_output = param.name == "_output"
+        self.is_ts = _is_time_series_annotation(annotation)
+        origin = typing.get_origin(annotation)
+        self.is_type_arg = origin is type
+        arguments = typing.get_args(annotation) if self.is_type_arg else ()
+        self.carried = arguments[0] if arguments else None
+        self.union_members = typing.get_args(annotation) if origin is typing.Union else None
+        self.requested_union = (typing.get_args(annotation)
+                                if origin in (typing.Union, types.UnionType) else None)
+        self.concrete_handle = annotation.handle if isinstance(annotation, _TsExpr) else None
+        self.optional_ts_none = param.default is None and isinstance(annotation, _TsExpr)
+        self._pattern = None
+        self._pattern_generation = None
+        self._pattern_missing = False
+
+    def pattern(self):
+        """The annotation's type pattern for the active registry generation,
+        or ``None`` when the annotation has none (a non-ts annotation that
+        reached a port: ``binding_matches`` answers True for it)."""
+        generation = _hgraph._registry_generation()
+        if self._pattern_generation != generation:
+            self._pattern_generation = generation
+            try:
+                self._pattern = _pattern_of(self.annotation)
+                self._pattern_missing = False
+            except TypeError:
+                self._pattern = None
+                self._pattern_missing = True
+        return self._pattern
+
+    def pattern_missing(self):
+        self.pattern()
+        return self._pattern_missing
+
+
+class _LifecyclePlan:
+    """A start/stop hook's signature walked once: which of its parameters are
+    call-supplied scalars the node call must yield, and the native layout
+    entries whose per-call part is only the scalar value or the stop input
+    index."""
+
+    __slots__ = ("fn", "enabled", "ref", "external_scalar_names", "entries", "config")
+
+    def __init__(self, owner, phase, fn):
+        self.fn = fn
+        self.enabled = fn is not None
+        self.ref = _node_ref(fn or owner.fn)
+        self.external_scalar_names = ()
+        self.entries = ()
+        self.config = ""
+        if fn is None:
+            return
+        parameters = list(inspect.signature(fn, eval_str=True).parameters.values())
+        external = []
+        for param in parameters:
+            injectable = (
+                param.annotation in _INJECTABLE_MARKERS
+                or isinstance(param.annotation, (_StateExpr, _RecordableStateExpr))
+            )
+            if not injectable and param.name not in owner._signature.parameters:
+                external.append(param.name)
+        self.external_scalar_names = tuple(external)
+        # Issue #79: eval is the signature bearer - an eval-named parameter
+        # classifies by eval's annotation, not its own (``_lifecycle_layout``).
+        entries, codes = [], []
+        for param in parameters:
+            annotation = owner._lifecycle_annotation(param)
+            if phase == "stop" and _is_time_series_annotation(annotation):
+                entries.append(("i", param))
+                codes.append("i")
+                continue
+            code, factory = _lifecycle_code(annotation, recordable=True)
+            codes.append(code)
+            if code == "Q":
+                entries.append(("Q", factory))
+            elif code == "s":
+                entries.append(("s", param))
+        self.entries = tuple(entries)
+        self.config = "".join(codes)
+
+
+def _lift_entry(entry):
+    """A plain value in a variadic group lifts to an inferred const."""
+    if isinstance(entry, WiringPort):
+        return entry
+    return wire("const", entry)
+
+
+def _carried_of(plan):
+    """The type a ``type[...]`` parameter carries; the plan holds it."""
+    if plan.carried is None:
+        raise WiringError(
+            f"type argument parameter '{plan.name}' needs a type[...] annotation")
+    return plan.carried
 
 
 def _is_time_series_annotation(annotation):
@@ -468,6 +612,35 @@ class _PyNode:
                 rendered = ", ".join(sorted(overlap))
                 raise TypeError(
                     f"{self.__name__}: valid= and all_valid= overlap: {rendered}")
+        self._call_plan = tuple(_ParamPlan(param) for param in self._params)
+        self._ts_plans = tuple(plan for plan in self._call_plan if plan.is_ts)
+        self._type_arg_plans = tuple(
+            plan for plan in self._call_plan
+            if plan.param in self._scalar_params and plan.is_type_arg)
+        self._lifecycle_cache = {}
+        # With no variadic group and no context input every parameter
+        # contributes exactly one layout entry, so the entry names and their
+        # keyword flags are per-definition facts; the letters still depend on
+        # the call (an unwired optional input with a None default is a
+        # scalar entry, a wired one an input), so the derived config string
+        # and input index map are cached per distinct layout string.
+        self._fixed_entries = (
+            not self._has_var_group and not any(plan.is_context for plan in self._call_plan))
+        if self._fixed_entries:
+            names, flags, by_name = [], [], False
+            for plan in self._call_plan:
+                if plan.kind is inspect.Parameter.KEYWORD_ONLY:
+                    by_name = True
+                names.append(plan.name)
+                flags.append(by_name)
+            self._layout_names = tuple(names)
+            self._layout_by_name = tuple(flags)
+            self._config_cache = {}
+        self._static_letters = None
+        if not self._has_dynamic_policy:
+            self._static_letters = {
+                plan.name: self._group_letter(plan.name, self._active, self._valid, self._all_valid)
+                for plan in self._call_plan if plan.is_ts}
         # Injectable parameters MUST default to None (hgraph convention):
         # the default guarantees user code in a graph never supplies them.
         for param in self._params:
@@ -481,6 +654,45 @@ class _PyNode:
         if sum(isinstance(param.annotation, _RecordableStateExpr)
                for param in self._params) > 1:
             raise TypeError(f"'{self.__name__}' supports at most one RECORDABLE_STATE parameter")
+
+    def _group_letter(self, name, active_policy, valid_policy, all_valid_policy):
+        if all_valid_policy is not None and name in all_valid_policy:
+            return "a" if active_policy is None or name in active_policy else "A"
+        required = valid_policy is None or name in valid_policy
+        is_active = active_policy is None or name in active_policy
+        return _LAYOUT_LETTERS[(is_active, required)]
+
+    def _config_for(self, layout):
+        """The native config string and input index map for ``layout`` when
+        the entry names are fixed (see ``_fixed_entries``), computed once per
+        distinct layout string."""
+        key = "".join(layout)
+        cached = self._config_cache.get(key)
+        if cached is None:
+            names, flags = self._layout_names, self._layout_by_name
+            config = key
+            kw_names = [n for n, named in zip(names, flags) if named]
+            if kw_names:
+                config += "|" + ",".join(kw_names)
+            input_names = [name for marker, name in zip(layout, names) if marker in _INPUT_MARKERS]
+            if input_names:
+                config += ";" + ",".join(input_names)
+            input_index_by_name, index = {}, 0
+            for marker, name in zip(layout, names):
+                if marker in _INPUT_MARKERS:
+                    input_index_by_name[name] = index
+                    index += 1
+            cached = (config, input_index_by_name)
+            self._config_cache[key] = cached
+        return cached
+
+    def _lifecycle_plan(self, phase):
+        fn = self._start_fn if phase == "start" else self._stop_fn
+        cached = self._lifecycle_cache.get(phase)
+        if cached is None or cached.fn is not fn:
+            cached = _LifecyclePlan(self, phase, fn)
+            self._lifecycle_cache[phase] = cached
+        return cached
 
     @staticmethod
     def _policy_names(policy, names):
@@ -733,8 +945,6 @@ class _PyNode:
         return _TsExpr(_hgraph.tsb(state_name, fields), f"TSB[{origin.__name__}]")
 
     def __call__(self, *args, **kwargs):
-        from .._types import _pattern_of
-
         _ensure_current_signature(self)
         _warn_deprecated(self.__name__, self._deprecated)
         recordable_id = kwargs.pop("__recordable_id__", None)
@@ -743,19 +953,15 @@ class _PyNode:
                 raise TypeError("__recordable_id__ must be a nonempty string")
         else:
             recordable_id = ""
+        # Per-definition facts come from the plans built at decoration (see
+        # ``_ParamPlan``); this body only does what the call's values decide.
+        start_plan = self._lifecycle_plan("start")
+        stop_plan = self._lifecycle_plan("stop")
         lifecycle_scalar_values = {}
-        for phase in ("start", "stop"):
-            lifecycle_fn = getattr(self, f"_{phase}_fn")
-            if lifecycle_fn is None:
-                continue
-            for param in inspect.signature(lifecycle_fn, eval_str=True).parameters.values():
-                injectable = (
-                    param.annotation in _INJECTABLE_MARKERS
-                    or isinstance(param.annotation, (_StateExpr, _RecordableStateExpr))
-                )
-                if (not injectable and param.name not in self._signature.parameters
-                        and param.name in kwargs):
-                    lifecycle_scalar_values[param.name] = kwargs.pop(param.name)
+        for lifecycle_plan in (start_plan, stop_plan):
+            for name in lifecycle_plan.external_scalar_names:
+                if name in kwargs:
+                    lifecycle_scalar_values[name] = kwargs.pop(name)
         ref = _node_ref(self.fn, recordable_id)
         layout, ports, scalars, reference_shapes = [], [], [], []
         # The wiring-time RESOLUTION SCOPE: the C++ type-variable map. Every
@@ -770,17 +976,18 @@ class _PyNode:
         if self.has_output and self._default_type_var is not None:
             requested_output = scope.find_ts(_type_var_name(self._default_type_var))
             if requested_output is not None:
-                if not scope.match(_pattern_of(self._out_tp), requested_output):
+                if not scope.match(self._out_pattern(), requested_output):
                     raise IncorrectTypeBinding(
                         f"{self.__name__}: requested output {requested_output!r} "
                         f"does not match {self._out_tp!r}")
         bound = _bind_partial(
             self._signature, self._partial_binding_plan, args, kwargs)
+        arguments = bound.arguments
         scalar_values = dict(lifecycle_scalar_values)
         # Pre-collect scalar values so callable active=/valid= policies can
         # evaluate before layout letters are chosen.
         for param in self._scalar_params:
-            value = bound.arguments.get(param.name, _MISSING)
+            value = arguments.get(param.name, _MISSING)
             if value is _MISSING and param.default is not inspect.Parameter.empty:
                 value = param.default
             if value is not _MISSING and not isinstance(value, WiringPort):
@@ -790,53 +997,42 @@ class _PyNode:
         # resolution map, not an empty pre-binding scope. Type arguments
         # follow the registry's order (RFC 0033): a supplied one binds before
         # the resolvers, a deferred one materialises after them.
-        from .._types import AUTO_RESOLVE
-
-        def carried(param):
-            arguments = typing.get_args(param.annotation)
-            if typing.get_origin(param.annotation) is not type or not arguments:
-                raise WiringError(
-                    f"type argument parameter '{param.name}' needs a type[...] annotation")
-            return arguments[0]
-
         deferred = []
-        for param in self._scalar_params:
-            if typing.get_origin(param.annotation) is not type:
-                continue
-            scalar_value = scalar_values.get(param.name, _MISSING)
+        for plan in self._type_arg_plans:
+            scalar_value = scalar_values.get(plan.name, _MISSING)
             if scalar_value is _MISSING or scalar_value is None:
                 continue   # None: an absent optional type argument
             if scalar_value is AUTO_RESOLVE or isinstance(
                     scalar_value, (_TypeVarSentinel, typing.TypeVar)):
-                deferred.append((param, scalar_value))
+                deferred.append((plan, scalar_value))
             elif not pre_resolved and not _match_type_carrier(
-                    scope, carried(param), scalar_value):
+                    scope, _carried_of(plan), scalar_value):
                 raise WiringError(
-                    f"type argument {scalar_value!r} for '{param.name}' does not "
-                    f"match {carried(param)!r}")
+                    f"type argument {scalar_value!r} for '{plan.name}' does not "
+                    f"match {_carried_of(plan)!r}")
         if not pre_resolved:
-            for param in self._ts_params:
-                value = bound.arguments.get(param.name, _MISSING)
+            for plan in self._ts_plans:
+                value = arguments.get(plan.name, _MISSING)
                 if isinstance(value, WiringPort):
-                    self._check_binding(scope, param, value)
+                    self._check_binding_plan(scope, plan, value)
             if self._resolvers:
                 self._apply_resolvers(scope, scalar_values)
-        for param, scalar_value in deferred:
-            type_argument = carried(param)
+        for plan, scalar_value in deferred:
+            type_argument = _carried_of(plan)
             source = type_argument if scalar_value is AUTO_RESOLVE else scalar_value
             resolved = _materialise_type_carrier(scope, source)
             if resolved is None:
                 raise WiringError(
-                    f"AUTO_RESOLVE could not resolve '{param.name}' ({source!r}) "
+                    f"AUTO_RESOLVE could not resolve '{plan.name}' ({source!r}) "
                     "from the wired arguments"
                     if scalar_value is AUTO_RESOLVE else
-                    f"could not resolve type variable {source!r} for '{param.name}'")
+                    f"could not resolve type variable {source!r} for '{plan.name}'")
             if scalar_value is not AUTO_RESOLVE and not _match_type_carrier(
                     scope, type_argument, resolved):
                 raise WiringError(
-                    f"resolved type argument {resolved!r} for '{param.name}' does not "
+                    f"resolved type argument {resolved!r} for '{plan.name}' does not "
                     f"match {type_argument!r}")
-            scalar_values[param.name] = resolved
+            scalar_values[plan.name] = resolved
         active_policy = self._active
         valid_policy = self._valid
         all_valid_policy = self._all_valid
@@ -867,47 +1063,37 @@ class _PyNode:
         # TSL (or structural TSB when so annotated), **kwargs into ONE named
         # TSB (or TSD); the rewritten fn receives every parameter BY NAME.
         by_name = self._has_var_group
+        fixed = self._fixed_entries
+        static_letters = self._static_letters
         layout_names, layout_by_name = [], []   # parallel to ``layout``
+        VAR_POSITIONAL = inspect.Parameter.VAR_POSITIONAL
+        VAR_KEYWORD = inspect.Parameter.VAR_KEYWORD
+        KEYWORD_ONLY = inspect.Parameter.KEYWORD_ONLY
 
-        def _note(name):
-            layout_names.append(name)
-            layout_by_name.append(by_name)
-
-        def _lift(entry):
-            """A plain value in a variadic group lifts to an inferred const."""
-            if isinstance(entry, WiringPort):
-                return entry
-            return wire("const", entry)
-
-        def _group_layout(param):
-            if all_valid_policy is not None and param.name in all_valid_policy:
-                return "a" if active_policy is None or param.name in active_policy else "A"
-            required = valid_policy is None or param.name in valid_policy
-            is_active = active_policy is None or param.name in active_policy
-            return {(True, True): "t", (True, False): "u",
-                    (False, True): "T", (False, False): "U"}[(is_active, required)]
-
-        for param in self._params:
-            if param.kind is inspect.Parameter.VAR_POSITIONAL:
-                entries = [_unwrap(_lift(entry)) for entry in bound.arguments.get(param.name, ())]
+        for plan in self._call_plan:
+            name = plan.name
+            kind = plan.kind
+            if kind is VAR_POSITIONAL:
+                entries = [_unwrap(_lift_entry(entry)) for entry in arguments.get(name, ())]
                 if entries:
-                    if _annotation_ts_kind(param.annotation) == _hgraph.TS_KIND_TSB:
+                    if _annotation_ts_kind(plan.annotation) == _hgraph.TS_KIND_TSB:
                         packed_group = _hgraph.bundle_port(entries, [False] * len(entries))
                     else:
                         packed_group = _hgraph.tsl_port(entries)
                     # Match the PACK against the declared annotation (issue
                     # #224): binds pack-level schema/type vars so a generic
                     # return (e.g. TSL[E, SIZE]) can resolve.
-                    self._check_binding(scope, param, packed_group)
-                    layout.append(_group_layout(param))
-                    _note(param.name)
+                    self._check_binding(scope, plan.param, packed_group)
+                    layout.append(self._group_letter(name, active_policy, valid_policy, all_valid_policy))
+                    layout_names.append(name)
+                    layout_by_name.append(by_name)
                     ports.append(packed_group)
                     reference_shapes.append(False)
                 continue
-            if param.kind is inspect.Parameter.VAR_KEYWORD:
-                extras = {k: _unwrap(_lift(v)) for k, v in bound.arguments.get(param.name, {}).items()}
+            if kind is VAR_KEYWORD:
+                extras = {k: _unwrap(_lift_entry(v)) for k, v in arguments.get(name, {}).items()}
                 if extras:
-                    if _annotation_ts_kind(param.annotation) == _hgraph.TS_KIND_TSD:
+                    if _annotation_ts_kind(plan.annotation) == _hgraph.TS_KIND_TSD:
                         packed_group = _unwrap(wire(
                             "combine_tsd", tuple(extras.keys()),
                             *(WiringPort(v) for v in extras.values()), __strict__=False))
@@ -918,108 +1104,99 @@ class _PyNode:
                     # Match the PACK against the declared annotation (issue
                     # #224): binds TSB[TS_SCHEMA] so the generic return
                     # resolves from the supplied keywords.
-                    self._check_binding(scope, param, packed_group)
-                    layout.append(_group_layout(param))
-                    _note(param.name)
+                    self._check_binding(scope, plan.param, packed_group)
+                    layout.append(self._group_letter(name, active_policy, valid_policy, all_valid_policy))
+                    layout_names.append(name)
+                    layout_by_name.append(by_name)
                     ports.append(packed_group)
                     reference_shapes.append(False)
                 continue
-            if param.kind is inspect.Parameter.KEYWORD_ONLY:
+            if kind is KEYWORD_ONLY:
                 by_name = True
-            code, factory = _lifecycle_code(param.annotation, recordable=True)
-            if code != "s":
-                if param.name in bound.arguments:
-                    raise TypeError(f"{self.__name__}: injectable '{param.name}' cannot be supplied")
-                layout.append(code)
-                _note(param.name)
-                if factory is not None:
-                    scalars.append(factory)
+            if plan.code != "s":
+                if name in arguments:
+                    raise TypeError(f"{self.__name__}: injectable '{name}' cannot be supplied")
+                layout.append(plan.code)
+                layout_names.append(name)
+                layout_by_name.append(by_name)
+                if plan.factory is not None:
+                    scalars.append(plan.factory)
                 continue
-            if isinstance(param.annotation, _ContextExpr):
+            if plan.is_context:
                 # A caller-supplied port overrides ambient context, matching
                 # the native Context input contract. Requirement/name marker
                 # values still select from the published context stack.
-                supplied = bound.arguments.get(param.name, _MISSING)
+                supplied = arguments.get(name, _MISSING)
                 if isinstance(supplied, WiringPort):
-                    context_param = param.replace(annotation=param.annotation.ts)
+                    context_param = plan.param.replace(annotation=plan.annotation.ts)
                     self._check_binding(scope, context_param, supplied)
                     resolved = supplied
                 else:
                     requirement = (
-                        supplied if supplied is not _MISSING else param.default)
-                    name = None
+                        supplied if supplied is not _MISSING else plan.default)
+                    context_name = None
                     required = False
                     if isinstance(requirement, _Required):
-                        required, name = True, requirement.name
+                        required, context_name = True, requirement.name
                     elif isinstance(requirement, str):
-                        name = requirement
-                    resolved = _resolve_context(param.annotation, name, scope)
+                        context_name = requirement
+                    resolved = _resolve_context(plan.annotation, context_name, scope)
                     if resolved is None:
-                        where = f" with name {name}" if name else ""
+                        where = f" with name {context_name}" if context_name else ""
                         if required:
                             raise WiringError(
-                                f"no context published for '{param.name}'{where} of '{self.__name__}'")
+                                f"no context published for '{name}'{where} of '{self.__name__}'")
                         continue   # optional and absent: the fn sees its None default
-                is_active = active_policy is None or param.name in active_policy
+                is_active = active_policy is None or name in active_policy
                 layout.append("C" if is_active else "P")
-                _note(param.name)
+                layout_names.append(name)
+                layout_by_name.append(by_name)
                 ports.append(_unwrap(resolved))
                 reference_shapes.append(False)
                 continue
-            if param.name == "_output":
+            if plan.is_output:
                 # hgraph's _output injection: the node's own output view.
-                if param.name in bound.arguments:
+                if name in arguments:
                     raise TypeError(f"{self.__name__}: _output cannot be supplied")
                 layout.append("o")
-                _note(param.name)
+                layout_names.append(name)
+                layout_by_name.append(by_name)
                 continue
-            value = bound.arguments.get(param.name, _MISSING)
+            value = arguments.get(name, _MISSING)
             if value is _MISSING:
-                if param.default is inspect.Parameter.empty:
-                    raise TypeError(f"{self.__name__}: missing argument '{param.name}'")
-                value = param.default
-                if value is None and isinstance(param.annotation, (_TsExpr,)):
+                if plan.default is inspect.Parameter.empty:
+                    raise TypeError(f"{self.__name__}: missing argument '{name}'")
+                value = plan.default
+                if plan.optional_ts_none:
                     # unwired optional ts input: a never-ticking source
-                    value = wire("nothing", output_type=param.annotation)
+                    value = wire("nothing", output_type=plan.annotation)
             if value is AUTO_RESOLVE or isinstance(
                     value, (_TypeVarSentinel, typing.TypeVar)):
-                value = scalar_values[param.name]
-            if not isinstance(value, WiringPort) and _is_time_series_annotation(
-                    param.annotation) and value is not None \
+                value = scalar_values[name]
+            if not isinstance(value, WiringPort) and plan.is_ts and value is not None \
                     and not (value is _MISSING):
                 # A plain VALUE on a time-series parameter lifts to const at
                 # the declared type (hgraph's auto-const rule); conversion
                 # errors surface as wiring errors.
-                value = _lift_time_series_argument(value, param.annotation)
+                value = _lift_time_series_argument(value, plan.annotation)
             if isinstance(value, WiringPort):
-                if all_valid_policy is not None and param.name in all_valid_policy:
-                    layout.append(
-                        "a" if active_policy is None or param.name in active_policy else "A")
-                    _note(param.name)
-                    ports.append(_unwrap(value))
-                    requested = self._requested_input_shape(
-                        scope, param.annotation, value)
-                    reference_shapes.append(
-                        requested
-                        if requested is not None and _hgraph.contains_ref(requested)
-                        else False)
-                    continue
-                required = valid_policy is None or param.name in valid_policy
-                is_active = active_policy is None or param.name in active_policy
-                layout.append({(True, True): "t", (True, False): "u",
-                               (False, True): "T", (False, False): "U"}[(is_active, required)])
-                _note(param.name)
+                letter = static_letters.get(name) if static_letters is not None else None
+                layout.append(letter if letter is not None else
+                              self._group_letter(name, active_policy, valid_policy, all_valid_policy))
+                layout_names.append(name)
+                layout_by_name.append(by_name)
                 ports.append(_unwrap(value))
-                requested = self._requested_input_shape(scope, param.annotation, value)
+                requested = self._requested_shape(scope, plan, value)
                 reference_shapes.append(
                     requested
-                    if requested is not None and _hgraph.contains_ref(requested)
+                    if requested is not None and _contains_ref(requested)
                     else False)
             else:
                 layout.append("s")
-                _note(param.name)
+                layout_names.append(name)
+                layout_by_name.append(by_name)
                 scalars.append(value)
-                scalar_values[param.name] = value
+                scalar_values[name] = value
         if self._requires is not None and not pre_resolved:
             try:
                 verdict = _run_requires(self._requires, scope.bindings, scalar_values)
@@ -1030,69 +1207,64 @@ class _PyNode:
                 reason = verdict if isinstance(verdict, str) else "requirements not met"
                 raise RequirementsNotMetWiringError(f"{self.__name__}: {reason}")
         packed = WiringPort(_hgraph.bundle_port(ports, reference_shapes))
-        config = "".join(layout)
-        kw_names = [n for n, named in zip(layout_names, layout_by_name) if named]
-        if kw_names:
-            # ``layout|name,...``: the trailing entries fill BY NAME (all of
-            # them when a star group rewrote the fn to keyword-only params,
-            # else the keyword-only tail).
-            config += "|" + ",".join(kw_names)
-        # The suffix is cold-path bridge metadata for native diagnostics. It
-        # lets the inspector project the packed ``args._N`` storage back to
-        # the user-authored Python parameter names without retaining Python
-        # signature objects in the runtime.
-        input_names = [
-            name
-            for marker, name in zip(layout, layout_names)
-            if marker in "tuaCTUAP"
-        ]
-        if input_names:
-            config += ";" + ",".join(input_names)
+        if fixed:
+            config, input_index_by_name = self._config_for(layout)
+        else:
+            config = "".join(layout)
+            kw_names = [n for n, named in zip(layout_names, layout_by_name) if named]
+            if kw_names:
+                # ``layout|name,...``: the trailing entries fill BY NAME (all of
+                # them when a star group rewrote the fn to keyword-only params,
+                # else the keyword-only tail).
+                config += "|" + ",".join(kw_names)
+            # The suffix is cold-path bridge metadata for native diagnostics. It
+            # lets the inspector project the packed ``args._N`` storage back to
+            # the user-authored Python parameter names without retaining Python
+            # signature objects in the runtime.
+            input_names = [
+                name
+                for marker, name in zip(layout, layout_names)
+                if marker in _INPUT_MARKERS
+            ]
+            if input_names:
+                config += ";" + ",".join(input_names)
+            input_index_by_name = {}
+            input_index = 0
+            for marker, name in zip(layout, layout_names):
+                if marker in _INPUT_MARKERS:
+                    input_index_by_name[name] = input_index
+                    input_index += 1
         node_kwargs = {"fn": ref, "config": config, "scalars": _hgraph.any_list(scalars)}
-        input_index_by_name = {}
-        input_index = 0
-        for marker, name in zip(layout, layout_names):
-            if marker in "tuaCTUAP":
-                input_index_by_name[name] = input_index
-                input_index += 1
         recordable_state_type = None
         if self._recordable_state is not None:
             recordable_state_type = self._resolve_recordable_state(
                 self._recordable_state, scope)
             node_kwargs["recordable_state_schema"] = recordable_state_type.handle
-        for phase in ("start", "stop"):
-            lifecycle_fn = getattr(self, f"_{phase}_fn")
-            lifecycle_layout, lifecycle_scalars = [], []
-            if lifecycle_fn is not None:
-                def _hook_scalar(param, phase=phase):
-                    value = scalar_values.get(param.name, _MISSING)
+        for phase, lifecycle_plan in (("start", start_plan), ("stop", stop_plan)):
+            lifecycle_scalars = []
+            for code, payload in lifecycle_plan.entries:
+                if code == "i":
+                    lifecycle_scalars.append(input_index_by_name[payload.name])
+                elif code == "Q":
+                    lifecycle_scalars.append(payload)
+                else:
+                    value = scalar_values.get(payload.name, _MISSING)
                     if value is _MISSING:
-                        if param.default is inspect.Parameter.empty:
+                        if payload.default is inspect.Parameter.empty:
                             raise TypeError(
-                                f"{self.__name__}.{phase}: scalar '{param.name}' is not supplied by the node call"
+                                f"{self.__name__}.{phase}: scalar '{payload.name}' is not supplied by the node call"
                             )
-                        value = param.default
-                    return value
-
-                # Issue #79: eval is the signature bearer — an eval-named
-                # parameter classifies by eval's annotation, not its own.
-                lifecycle_layout, lifecycle_scalars, _, _ = _lifecycle_layout(
-                    inspect.signature(lifecycle_fn, eval_str=True).parameters.values(),
-                    annotation_of=self._lifecycle_annotation,
-                    scalar_for=_hook_scalar,
-                    recordable=True,
-                    stop_input_index=(
-                        (lambda param: input_index_by_name[param.name]) if phase == "stop" else None),
-                )
-            node_kwargs[f"{phase}_fn"] = _node_ref(lifecycle_fn or self.fn)
-            node_kwargs[f"{phase}_enabled"] = lifecycle_fn is not None
-            node_kwargs[f"{phase}_config"] = "".join(lifecycle_layout)
+                        value = payload.default
+                    lifecycle_scalars.append(value)
+            node_kwargs[f"{phase}_fn"] = lifecycle_plan.ref
+            node_kwargs[f"{phase}_enabled"] = lifecycle_plan.enabled
+            node_kwargs[f"{phase}_config"] = lifecycle_plan.config
             node_kwargs[f"{phase}_scalars"] = _hgraph.any_list(lifecycle_scalars)
         if self.has_output:
             out_tp = (_TsExpr(requested_output, f"requested[{self._out_tp!r}]")
                       if requested_output is not None else self._out_tp)
             if isinstance(out_tp, (_GenericTsExpr, _TypeVarSentinel)):
-                resolved = scope.resolve_ts(_pattern_of(out_tp))
+                resolved = scope.resolve_ts(self._out_pattern())
                 if resolved is not None:
                     out_tp = _TsExpr(resolved, f"resolved[{out_tp!r}]")
             if not isinstance(out_tp, _TsExpr):
@@ -1107,6 +1279,47 @@ class _PyNode:
                     __node_label__=self._diagnostic_label(scalar_values),
                     __resolutions__=self._declared_args(packed),
                     **node_kwargs)
+
+    def _out_pattern(self):
+        """``_pattern_of(self._out_tp)`` for the active registry generation."""
+        generation = _hgraph._registry_generation()
+        cached = self.__dict__.get("_out_pattern_cache")
+        if cached is None or cached[0] != generation:
+            cached = (generation, _pattern_of(self._out_tp))
+            self._out_pattern_cache = cached
+        return cached[1]
+
+    def _check_binding_plan(self, scope, plan, value):
+        """``_check_binding`` with the parameter's plan: the same rule and
+        messages, the union members and the type pattern taken from the plan
+        instead of being re-derived per call."""
+        if plan.is_context:
+            return
+        if plan.union_members is not None:
+            port_tp = _unwrap(value).ts_type
+            for member in plan.union_members:
+                if isinstance(member, _TsExpr) and member.handle == port_tp:
+                    return
+            raise IncorrectTypeBinding(
+                f"{self.__name__}: '{plan.name}' expects one of {plan.union_members!r}")
+        port_tp = _unwrap(value).ts_type
+        if binding_matches(plan.annotation, port_tp, scope, plan.pattern()):
+            return
+        raise IncorrectTypeBinding(
+            f"{self.__name__}: '{plan.name}' expects {plan.annotation!r}, got {port_tp!r}")
+
+    @staticmethod
+    def _requested_shape(scope, plan, value):
+        """``_requested_input_shape`` from the parameter's plan."""
+        if plan.concrete_handle is not None:
+            return plan.concrete_handle
+        if plan.requested_union is not None:
+            port_type = _unwrap(value).ts_type
+            for member in plan.requested_union:
+                if isinstance(member, _TsExpr) and member.handle == port_type:
+                    return member.handle
+            return port_type
+        return scope.resolve_ts(plan.pattern())
 
     @staticmethod
     def _declared_args(packed):

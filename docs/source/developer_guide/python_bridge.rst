@@ -846,6 +846,29 @@ Semantics are unchanged: a type attribute still wins, and a missing bundle
 field or any unknown attribute on a non-bundle view raises the generic
 ``AttributeError``.
 
+**Wiring a Python node executes a per-definition plan.** ``_PyNode.__call__``
+runs once per wired node, and in a 3,000-node Python graph its own bytecode
+was the largest single cost of construction (about 11 µs per node of the
+26 µs hgraph spent against csp's 16.6, 2026-10-10 profile) because it
+re-derived per call what the signature fixes: the lifecycle code and state
+factory of every parameter, the typing origin and arguments that mark a
+``type[...]`` carrier or a ``Union`` input, whether a parameter is a
+time-series input, the annotation's type pattern, the start/stop hooks'
+signatures (``inspect.signature`` per call) and the layout string. The
+decorator now builds a ``_ParamPlan`` per parameter and a
+``_LifecyclePlan`` per hook at decoration, caches the type patterns per
+registry generation, and, when the signature has no variadic group, no
+context input and no wiring-time policy callable, precomputes the whole
+layout string with its keyword tail, input-name suffix and input index map
+(``_precompute_static_layout``). The registry's answers for a name's
+type-argument and ``WiredFn`` parameters are cached per registry generation
+in ``_core._operator_roles``. ``binding_matches`` is unchanged as the one
+assignability rule; it accepts the cached pattern so it is not rebuilt per
+call. The call body keeps every decision that depends on the call's values
+(binding, lifting, policies, scalars) and every error message; the
+measured effect is 0.93 s → 0.56 s to wire 27,000 Python nodes on the same
+native module.
+
 Platform notes
 --------------
 
