@@ -874,6 +874,23 @@ call. The call body keeps every decision that depends on the call's values
 measured effect is 0.93 s → 0.56 s to wire 27,000 Python nodes on the same
 native module.
 
+**A Python node's scalar result is written through its prepared output
+route.** ``apply_py_result`` receives the frame's ``Out`` carrying the node's
+prepared output route (RFC 0008 stage 6, the route ``Out<TS<T>>::set`` uses;
+the erased ``Out<TsVar>`` now carries it too). For a direct native atomic
+the route holds the value memory, its binding and its value ops, so a
+non-``None`` result is converted by the value ops' **registered**
+``from_python`` strategy, the same slot the erased write reaches through
+``apply_result`` → ``from_python`` → ``atomic_native_from_python``, and
+committed with ``record_modified`` plus the parent bubble, which is what that
+write does for the first modification of the cycle. The representation
+policy therefore stays where the architecture puts it, in the concrete
+``ValueOps`` strategy; what goes is the per-tick re-derivation of the output
+view, the mutation scope and the two dispatch layers (15% of a Python
+combiner's tick, 2026-10-10 profile). ``None`` and non-native outputs keep
+the erased apply. Reads are unchanged: ``ts.value`` dispatches through the
+live endpoint's ``TSDataOps`` table as the export rule requires.
+
 Platform notes
 --------------
 

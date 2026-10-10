@@ -47,6 +47,27 @@ template <> struct arg_provider<python_bridge::PyOwnerSchedulerSupport> {
 
 namespace hgraph::python_bridge {
 void apply_py_result(nb::handle result, Out<TsVar<"O">> &out) {
+  // Prepared output route (RFC 0008 stage 6): for a direct native atomic the
+  // route holds the value memory, its binding and its value ops, so the
+  // result converts through the ops' REGISTERED from_python strategy (the
+  // same slot the atomic TSDataOps write reaches through
+  // apply_result -> from_python -> atomic_native_from_python) and commits
+  // with record_modified plus the parent bubble, which is what that write
+  // does for the first modification of the cycle. The representation policy
+  // stays with the ValueOps strategy; only the per-tick re-derivation of the
+  // output view, the mutation scope and the two dispatch layers go. None
+  // keeps the erased apply (no tick), as does a non-native output.
+  if (const auto *route = out.prepared_output();
+      route != nullptr && route->native() && !result.is_none() &&
+      route->value_ops != nullptr && route->value_ops->from_python_impl != nullptr) {
+    const DateTime time = out.evaluation_time();
+    route->value_ops->from_python_impl(route->value_ops->context, route->value_binding,
+                                       route->native_value, borrow(result));
+    if (route->tracking->record_modified(time)) {
+      route->tracking->parent.notify_child_modified(time);
+    }
+    return;
+  }
   apply_python_result(static_cast<const TSOutputView &>(out), result);
 }
 } // namespace hgraph::python_bridge
@@ -1046,7 +1067,8 @@ struct py_fast_compute_node {
   }
 
   static void eval(State<PyFastComputeStateRef> state,
-                   PyOwnerSchedulerSupport, DateTime now) {
+                   PyOwnerSchedulerSupport, DateTime now,
+                   Out<TsVar<"O">> out) {
     PyFastComputeCache *cache = state.get().cache;
     if (cache == nullptr) {
       throw std::logic_error("fast python node has no runtime cache");
@@ -1089,8 +1111,8 @@ struct py_fast_compute_node {
                            std::move(call_kwargs));
       }
 
-      auto output_view = cache->output.view(now);
-      Out<TsVar<"O">> out{std::move(output_view), now};
+      // The frame's Out carries the prepared output route (stage 6), so a
+      // scalar result can be stored without re-deriving the output view.
       apply_py_result(result, out);
       invalid.release();
       lease.invalidate();

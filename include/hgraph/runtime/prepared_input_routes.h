@@ -84,6 +84,9 @@ namespace hgraph
         void           *native_value{nullptr};
         TSDataTracking *tracking{nullptr};
         const ValueOps *value_ops{nullptr};
+        /** The native value's binding, for a writer that converts through the
+            value ops' registered strategy (the Python bridge's result apply). */
+        ValueTypeRef    value_binding{};
 
         [[nodiscard]] bool ready() const noexcept { return output != nullptr; }
         [[nodiscard]] bool native() const noexcept { return native_value != nullptr && tracking != nullptr; }
@@ -118,6 +121,7 @@ namespace hgraph
         {
             const auto *layout   = table.layout_impl(table.context);
             route->value_ops     = layout->value_binding.ops();
+            route->value_binding = layout->value_binding;
             route->native_value  = table.mutable_value_memory_impl(table.context, data.mutable_data());
             route->tracking      = table.mutable_tracking_impl(table.context, data.mutable_data());
         }
