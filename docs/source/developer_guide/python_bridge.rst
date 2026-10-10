@@ -844,7 +844,13 @@ the old hook (2026-10-10 micro-benchmark; CPython's own hook suppresses
 that exception, and the suppressing lookup is public only from 3.13).
 Semantics are unchanged: a type attribute still wins, and a missing bundle
 field or any unknown attribute on a non-bundle view raises the generic
-``AttributeError``.
+``AttributeError``. On the native ``TimeSeries`` type itself a hot name
+proves the slot — the type's own getset is exactly the attribute the generic
+lookup would find — so the getter is called directly, without the MRO walk
+and the descriptor call of ``PyObject_GenericGetAttr`` (4–8% of a Python
+node's tick on ``ts.value``, 2026-10-10 profile); an instance of any other
+type, such as a Python subclass whose override must win, keeps the generic
+lookup.
 
 **Wiring a Python node executes a per-definition plan.** ``_PyNode.__call__``
 runs once per wired node, and in a 3,000-node Python graph its own bytecode

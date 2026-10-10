@@ -355,12 +355,26 @@ namespace hgraph::python_bridge
     PyObject *py_ts_getattro(PyObject *self, PyObject *name) noexcept
     {
         // The hot getset names are interned by the compiler, so an identity
-        // match sends ``ts.value`` / ``ts.modified`` straight to the generic
-        // lookup at the cost of four pointer compares; every other name pays
-        // one frozenset probe before the view's kind is consulted.
+        // match identifies ``ts.value`` / ``ts.modified`` at the cost of four
+        // pointer compares; every other name pays one frozenset probe before
+        // the view's kind is consulted.
         static PyObject *const hot_names[] = {
             PyUnicode_InternFromString("value"), PyUnicode_InternFromString("delta_value"),
             PyUnicode_InternFromString("modified"), PyUnicode_InternFromString("valid")};
+        // On the native TimeSeries type itself the name proves the slot: the
+        // type's own getset is the attribute the generic lookup would find,
+        // so the getter is called directly instead of walking the MRO and
+        // the descriptor protocol per read (4-8% of a Python node's tick on
+        // ``ts.value``, 2026-10-10 profile). Any other type - a Python
+        // subclass, where an override must win - keeps the generic lookup.
+        static PyObject *const native_type = nb::type<PyTimeSeries>().ptr();
+        if (reinterpret_cast<PyObject *>(Py_TYPE(self)) == native_type)
+        {
+            if (name == hot_names[0]) { return py_ts_raw_get<&PyTimeSeries::value>(self, nullptr); }
+            if (name == hot_names[1]) { return py_ts_raw_get<&PyTimeSeries::delta_value>(self, nullptr); }
+            if (name == hot_names[2]) { return py_ts_raw_get<&PyTimeSeries::modified>(self, nullptr); }
+            if (name == hot_names[3]) { return py_ts_raw_get<&PyTimeSeries::valid>(self, nullptr); }
+        }
         for (PyObject *hot : hot_names)
         {
             if (hot == name) { return PyObject_GenericGetAttr(self, name); }
