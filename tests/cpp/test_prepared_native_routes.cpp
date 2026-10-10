@@ -93,7 +93,80 @@ namespace
             return (lhs + rhs).as<TS<Str>>();
         }
     };
+
+    // A map child whose terminal is a lifted kernel: the child's output is a
+    // forwarding terminal into the map's keyed slot, so the kernel's route
+    // resolves through the link to the slot's native storage.
+    struct LiftedDoubleG
+    {
+        static constexpr auto name = "stage6_lifted_double_g";
+
+        static Port<TS<Int>> compose(Wiring &, Port<TS<Int>> x)
+        {
+            using namespace hgraph::stdlib::syntax;
+            return (x + x).as<TS<Int>>();
+        }
+    };
+
+    struct LiftedStrDoubleG
+    {
+        static constexpr auto name = "stage6_lifted_str_double_g";
+
+        static Port<TS<Str>> compose(Wiring &, Port<TS<Str>> x)
+        {
+            using namespace hgraph::stdlib::syntax;
+            return (x + x).as<TS<Str>>();
+        }
+    };
+
+    struct MappedLiftedTerminalGraph
+    {
+        static constexpr auto name = "stage6_mapped_lifted_terminal_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> ts)
+        {
+            return wire<stdlib::map_>(w, fn<LiftedDoubleG>(), ts).as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct MappedLiftedStrTerminalGraph
+    {
+        static constexpr auto name = "stage6_mapped_lifted_str_terminal_graph";
+
+        static Port<TSD<Str, TS<Str>>> compose(Wiring &w, Port<TSD<Str, TS<Str>>> ts)
+        {
+            return wire<stdlib::map_>(w, fn<LiftedStrDoubleG>(), ts).as<TSD<Str, TS<Str>>>();
+        }
+    };
 }  // namespace
+
+TEST_CASE("prepared routes: a map child's lifted terminal writes through its link to the keyed slot",
+          "[rfc0008][stage6]")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    using namespace std::string_literals;
+    stdlib::register_standard_operators();
+
+    // Values land in the map's output slots; a removed key clears its slot
+    // and a re-added key is a fresh child (a fresh route); an unchanged key
+    // does not tick.
+    CHECK_OUTPUT(eval_node<MappedLiftedTerminalGraph>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}}),
+                                   dict_delta<Str, TS<Int>>({{"a"s, 5}}),
+                                   dict_delta<Str, TS<Int>>({}, {"b"s}),
+                                   dict_delta<Str, TS<Int>>({{"b"s, 7}, {"c"s, 3}}))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 2}, {"b"s, 4}}),
+                               dict_delta<Str, TS<Int>>({{"a"s, 10}}),
+                               dict_delta<Str, TS<Int>>({}, {"b"s}),
+                               dict_delta<Str, TS<Int>>({{"b"s, 14}, {"c"s, 6}})));
+
+    CHECK_OUTPUT(eval_node<MappedLiftedStrTerminalGraph>(
+                     values<Value>(dict_delta<Str, TS<Str>>({{"a"s, "x"s}, {"b"s, "y"s}}),
+                                   dict_delta<Str, TS<Str>>({{"b"s, "zz"s}}))),
+                 values<Value>(dict_delta<Str, TS<Str>>({{"a"s, "xx"s}, {"b"s, "yy"s}}),
+                               dict_delta<Str, TS<Str>>({{"b"s, "zzzz"s}})));
+}
 
 TEST_CASE("prepared routes: lifted kernels write through the prepared output route", "[rfc0008][stage6]")
 {

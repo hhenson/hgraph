@@ -888,8 +888,12 @@ policy therefore stays where the architecture puts it, in the concrete
 ``ValueOps`` strategy; what goes is the per-tick re-derivation of the output
 view, the mutation scope and the two dispatch layers (15% of a Python
 combiner's tick, 2026-10-10 profile). ``None`` and non-native outputs keep
-the erased apply. Reads are unchanged: ``ts.value`` dispatches through the
-live endpoint's ``TSDataOps`` table as the export rule requires.
+the erased apply. A map child's terminal output, a forwarding endpoint into
+the parent's keyed slot, counts as native when its target is: the route
+resolves through the link (RFC 0008, *Forwarding terminals*), so a Python
+child's result takes the same tier as a top-level node's. Reads are
+unchanged: ``ts.value`` dispatches through the live endpoint's
+``TSDataOps`` table as the export rule requires.
 
 Platform notes
 --------------

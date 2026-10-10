@@ -30,6 +30,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/runtime/node.cpp
     hgraph/runtime/node_error.cpp
     hgraph/runtime/ordered_reduce_node.cpp
+    hgraph/runtime/prepared_output_route.cpp
     hgraph/runtime/push_source_node.cpp
     hgraph/runtime/race_tsd_node.cpp
     hgraph/runtime/reduce_node.cpp

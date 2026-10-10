@@ -63,9 +63,7 @@ void apply_py_result(nb::handle result, Out<TsVar<"O">> &out) {
     const DateTime time = out.evaluation_time();
     route->value_ops->from_python_impl(route->value_ops->context, route->value_binding,
                                        route->native_value, borrow(result));
-    if (route->tracking->record_modified(time)) {
-      route->tracking->parent.notify_child_modified(time);
-    }
+    route->commit(time);
     return;
   }
   apply_python_result(static_cast<const TSOutputView &>(out), result);
