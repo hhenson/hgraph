@@ -156,8 +156,10 @@ namespace hgraph
 
         /** Endpoint parent, or null when this link targets TSData or is empty. */
         [[nodiscard]] TSDataParent *parent_endpoint() const noexcept;
-        /** The TSData / endpoint-parent bubble behind ``notify_child_modified``. */
-        void notify_child_modified_slow(DateTime mutation_time) const;
+        /** The TSData / endpoint-parent bubble behind ``notify_child_modified``.
+            Exported: the inline fast path above is instantiated in other
+            modules (the Python bridge's static-node writes). */
+        HGRAPH_EXPORT void notify_child_modified_slow(DateTime mutation_time) const;
 
         /** Input endpoint parent, or null when this link targets a different parent kind. */
         [[nodiscard]] TSInput *parent_input() const noexcept;
@@ -328,7 +330,8 @@ namespace hgraph
          * the same or a later evaluation time — delta clocks are monotonic, so
          * a record replaying an older source timestamp never rewinds state.
          */
-        [[nodiscard]] bool record_modified(DateTime modified_time);
+        /** Exported: ``Out<TS<T>>::set``'s native fast path calls it from headers. */
+        [[nodiscard]] HGRAPH_EXPORT bool record_modified(DateTime modified_time);
 
         DateTime last_modified_time{MIN_DT};
         TSParentLink parent{};
