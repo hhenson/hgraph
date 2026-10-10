@@ -69,6 +69,7 @@ namespace hgl::syntax
         KwI64,
         KwF64,
         KwStr,
+        KwBytes,
         KwDate,
         KwTime,
         KwDateTime,

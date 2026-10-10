@@ -707,3 +707,33 @@ TEST_CASE("publication predicates preserve unrelated failures", "[ordinary][delt
     CHECK_THROWS_AS(validate_complete_value(incomplete.view(),
         [](const ValueTypeMetaData *, std::size_t) -> bool { throw std::runtime_error{"storage failure"}; }), std::runtime_error);
 }
+
+TEST_CASE("bytes construction owns octets and native operations preserve unsigned identity", "[ordinary][bytes]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    const PreparedValuePlan list{scalar_descriptor<List<Int>>::value_meta()};
+    Value                   source = list.empty_list();
+    const Value             zero{Int{0}}, last{Int{255}}, invalid{Int{-1}};
+    list.push(source.view(), zero.view());
+    const Bytes captured = bytes_from_octets(source.view());
+    list.push(source.view(), last.view());
+    CHECK(bytes_length(captured) == 1);
+    CHECK(captured == Bytes{std::string{"\0", 1}});
+    const Bytes complete = bytes_from_octets(source.view());
+    CHECK(bytes_length(complete) == 2);
+    CHECK(captured < complete);
+    CHECK(Bytes{std::string{"\x7f", 1}} < Bytes{std::string{"\x80", 1}});
+    const Value a{complete}, b{bytes_from_octets(source.view())};
+    CHECK(a.schema() == scalar_descriptor<Bytes>::value_meta());
+    CHECK(a.equals(b));
+    CHECK(a.hash() == b.hash());
+    CHECK(bytes_length(bytes_from_octets(list.empty_list().view())) == 0);
+    list.push(source.view(), invalid.view());
+    try {
+        (void)bytes_from_octets(source.view());
+        FAIL("invalid octet unexpectedly constructed bytes");
+    } catch (const hgl::ExecutionError &error) { CHECK(error.code() == "value.byte_range"); }
+    CHECK(bytes_length(complete) == 2);
+    validate_key_schema(scalar_descriptor<Bytes>::value_meta());
+    validate_delta_shape(schema_descriptor<TS<Bytes>>::ts_meta());
+}

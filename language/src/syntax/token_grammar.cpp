@@ -59,12 +59,13 @@ namespace hgl::syntax
         inline constexpr auto reserved_name =
             token_choice<TokenKind::KwModule, TokenKind::KwPart, TokenKind::KwUse, TokenKind::KwAs, TokenKind::KwExport,
                          TokenKind::KwAbstract, TokenKind::KwImpl, TokenKind::KwInstantiate, TokenKind::KwOperator, TokenKind::KwFn,
-                         TokenKind::KwCpp, TokenKind::KwStruct, TokenKind::KwEnum, TokenKind::KwConst, TokenKind::KwRequires, TokenKind::KwIs,
-                         TokenKind::KwLet, TokenKind::KwVar, TokenKind::KwState, TokenKind::KwCache, TokenKind::KwInject, TokenKind::KwReturn,
-                         TokenKind::KwIf, TokenKind::KwElse, TokenKind::KwStart, TokenKind::KwWhen, TokenKind::KwStop,
-                         TokenKind::KwFor, TokenKind::KwWhile, TokenKind::KwYield, TokenKind::KwTest, TokenKind::KwAssert, TokenKind::KwEval, TokenKind::KwTrue,
-                         TokenKind::KwFalse, TokenKind::KwNull, TokenKind::KwBool, TokenKind::KwI64, TokenKind::KwF64,
-                         TokenKind::KwStr, TokenKind::KwDate, TokenKind::KwTime, TokenKind::KwDateTime, TokenKind::KwDuration,
+                         TokenKind::KwCpp, TokenKind::KwStruct, TokenKind::KwEnum, TokenKind::KwConst, TokenKind::KwRequires,
+                         TokenKind::KwIs, TokenKind::KwLet, TokenKind::KwVar, TokenKind::KwState, TokenKind::KwCache,
+                         TokenKind::KwInject, TokenKind::KwReturn, TokenKind::KwIf, TokenKind::KwElse, TokenKind::KwStart,
+                         TokenKind::KwWhen, TokenKind::KwStop, TokenKind::KwFor, TokenKind::KwWhile, TokenKind::KwYield,
+                         TokenKind::KwTest, TokenKind::KwAssert, TokenKind::KwEval, TokenKind::KwTrue, TokenKind::KwFalse,
+                         TokenKind::KwNull, TokenKind::KwBool, TokenKind::KwI64, TokenKind::KwF64, TokenKind::KwStr,
+                         TokenKind::KwBytes, TokenKind::KwDate, TokenKind::KwTime, TokenKind::KwDateTime, TokenKind::KwDuration,
                          TokenKind::KwCivilDateTime, TokenKind::KwZonedDateTime, TokenKind::KwZonedTime, TokenKind::KwTimeZone>;
 
         inline constexpr auto ordinary_name = identifier / contextual_name;
@@ -92,8 +93,8 @@ namespace hgl::syntax
         { static constexpr auto rule = dsl::p<name> >> dsl::if_(token<TokenKind::ColonColon> >> dsl::p<name>); };
 
         inline constexpr auto scalar_type = token<TokenKind::KwBool> / token<TokenKind::KwI64> / token<TokenKind::KwF64> /
-                                            token<TokenKind::KwStr> / token<TokenKind::KwDate> / token<TokenKind::KwTime> /
-                                            token<TokenKind::KwDateTime> / token<TokenKind::KwDuration> /
+                                            token<TokenKind::KwStr> / token<TokenKind::KwBytes> / token<TokenKind::KwDate> /
+                                            token<TokenKind::KwTime> / token<TokenKind::KwDateTime> / token<TokenKind::KwDuration> /
                                             token<TokenKind::KwCivilDateTime> / token<TokenKind::KwZonedDateTime> /
                                             token<TokenKind::KwZonedTime> / token<TokenKind::KwTimeZone>;
 
@@ -107,7 +108,8 @@ namespace hgl::syntax
             token<TokenKind::StringLiteral> / token<TokenKind::TemporalLiteral> / token<TokenKind::KwTrue> /
             token<TokenKind::KwFalse> / token<TokenKind::KwNull> / token<TokenKind::Minus> / token<TokenKind::Bang> /
             token<TokenKind::LParen> / token<TokenKind::LBracket> / token<TokenKind::KwFn> / token<TokenKind::KwIf> /
-            token<TokenKind::KwEval> / token<TokenKind::KwConst> / token<TokenKind::KwStr> / token<TokenKind::LBrace>;
+            token<TokenKind::KwEval> / token<TokenKind::KwConst> / token<TokenKind::KwStr> / token<TokenKind::KwBytes> /
+            token<TokenKind::LBrace>;
 
         struct size_expression;
         struct generic_argument;

@@ -115,6 +115,7 @@ namespace hgl::wiring
                     case ScalarType::I64: return types_.int_type;
                     case ScalarType::F64: return types_.float_type;
                     case ScalarType::Str: return types_.str_type;
+                    case ScalarType::Bytes: return types_.bytes_type;
                     case ScalarType::Date: return types_.date_type;
                     case ScalarType::Time: return types_.time_type;
                     case ScalarType::DateTime: return types_.datetime_type;

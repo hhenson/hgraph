@@ -41,11 +41,20 @@ namespace hgl::semantics
         constexpr std::string_view kernel_analytics = "hgraph.analytics";
 
         constexpr std::string_view intrinsics[] = {
-            "const",  "valid",    "modified",   "all_valid", "last_modified", "delta_value",  "key_set", "keys",
-            "values", "elements", "items",      "added",     "removed",       "insert", "update",  "upsert",
-            "remove", "discard",  "invalidate", "clear",     "push",          "pop",    "schemas", "contains",
-            "at",     "time_at",  "front",      "back",      "removed_value", "scheduled", "passivate", "activate",
-            "str", "len", "schedule", "schedule_at", "is_scheduled", "next_scheduled_time", "info", "get", "set",
+            "const",       "valid",         "modified",
+            "all_valid",   "last_modified", "delta_value",
+            "key_set",     "keys",          "values",
+            "elements",    "items",         "added",
+            "removed",     "insert",        "update",
+            "upsert",      "remove",        "discard",
+            "invalidate",  "clear",         "push",
+            "pop",         "schemas",       "contains",
+            "at",          "time_at",       "front",
+            "back",        "removed_value", "scheduled",
+            "passivate",   "activate",      "str",
+            "bytes",       "len",           "schedule",
+            "schedule_at", "is_scheduled",  "next_scheduled_time",
+            "info",        "get",           "set",
         };
 
         /// Tarjan's strongly connected components over an adjacency list,
@@ -1149,7 +1158,10 @@ namespace hgl::semantics
                             }
                             if (node.raises_block != ast::no_node) {
                                 const auto *literal = std::get_if<ast::StringLiteral>(&module_.expr(node.condition).node);
-                                if (!node.raises_literal || literal == nullptr || (literal->value != "yield.negative_duration" && literal->value != "yield.non_increasing_time" && literal->value != "eval.input_delta_profile" && literal->value != "value.unset_read")) {
+                                if (!node.raises_literal || literal == nullptr ||
+                                    (literal->value != "yield.negative_duration" && literal->value != "yield.non_increasing_time" &&
+                                     literal->value != "eval.input_delta_profile" && literal->value != "value.unset_read" &&
+                                     literal->value != "value.byte_range")) {
                                     diagnostics_.report(Category::Type, node.raises_argument_range,
                                                         "raises requires a literal execution error code", "test.raises_code");
                                 }

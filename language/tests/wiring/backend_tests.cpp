@@ -1681,3 +1681,67 @@ test independent_ownership { assert retained_lists() }
     INFO(unit.diagnostics.render(unit.file));
     CHECK(passed.passed);
 }
+
+TEST_CASE("bytes ordinary construction retains source values and range error identity", "[wiring][bytes]") {
+    Unit       unit{R"(module checks.byte_values
+const fn convert(value: list<i64>) -> bytes => bytes(value)
+test values {
+    let empty: bytes = bytes()
+    assert len(empty) == 0
+    assert empty == bytes([])
+    let fixed: list<i64, 2> = [0, 255]
+    assert bytes(fixed) == bytes([0, 255])
+    var octets: list<i64> = []
+    push(octets, 0)
+    let retained: bytes = bytes(octets)
+    push(octets, 255)
+    assert len(retained) == 1
+    assert retained == bytes([0])
+    assert convert(octets) == bytes([0, 255])
+    assert bytes([127]) < bytes([128])
+    assert raises("value.byte_range") { bytes([-1]) }
+    assert raises("value.byte_range") { bytes([256]) }
+}
+)"};
+    const auto result = only(unit.tests());
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("bytes constructor enforces ordinary list type and positional arity", "[wiring][bytes]") {
+    for (const auto expression : {"bytes(1)", "bytes(\"text\")", "bytes([true])", "bytes([], [])", "bytes(octets: [0])"}) {
+        Unit unit{"module checks.byte_errors\ntest invalid { assert len(" + std::string{expression} + ") == 0 }\n"};
+        INFO(expression);
+        CHECK(unit.diagnostics.has_errors());
+        CHECK(unit.has(Category::Type, ""));
+    }
+    Unit indexing{"module checks.byte_index\ntest invalid { assert bytes([0])[0] == 0 }\n"};
+    CHECK(indexing.diagnostics.has_errors());
+    Unit port{"module checks.byte_port\nfn invalid(value: list<i64>) -> bytes => bytes(value)\n"};
+    CHECK(port.has(Category::Type, "temporal port"));
+    Unit literal{"module checks.byte_literal\nfn invalid(value: i64) -> bytes { when { return bytes([value]) } }\n"};
+    CHECK(literal.diagnostics.has_errors());
+}
+
+TEST_CASE("required bytes defaults reject range failures while valid defaults execute", "[wiring][bytes]") {
+    for (const auto declaration :
+         {"const fn invalid(value: bytes = bytes([256])) -> bytes => value", "struct Invalid { value: bytes = bytes([-1]) }"}) {
+        Unit unit{"module checks.byte_default_errors\n" + std::string{declaration} + "\n"};
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(unit.has(Category::Type, "required constant evaluation"));
+    }
+    Unit       unit{R"(module checks.byte_defaults
+const fn empty(value: bytes = bytes()) -> bytes => value
+const fn octets(value: bytes = bytes([0, 255])) -> bytes => value
+struct Packet { value: bytes = bytes([0, 255]) }
+test defaults {
+    assert empty() == bytes()
+    assert octets() == bytes([0, 255])
+    let packet: Packet = Packet()
+    assert packet.value == bytes([0, 255])
+}
+)"};
+    const auto result = only(unit.tests());
+    INFO(result.message);
+    CHECK(result.passed);
+}

@@ -757,6 +757,7 @@ namespace hgl::ir
                             for (StructField &field : node.fields) {
                                 if (!field.default_value.valid()) { continue; }
                                 Expr &value = check_expr(field.default_value, field.type);
+                                validate_required_bytes(field.default_value);
                                 if (value.constant && std::holds_alternative<NullValue>(*value.constant)) {
                                     if (!field.optional) { type_error(value.range, "null is only valid for an optional field"); }
                                 } else {
@@ -965,11 +966,42 @@ namespace hgl::ir
                 check(signature.result, true);
             }
 
+            // Required defaults are source constants. Optional folding of an
+            // executed constructor must never turn BYTE-3 into source rejection.
+            void validate_required_bytes(ExprId id) {
+                if (!id.valid()) { return; }
+                const auto &value = module_.expr(id);
+                if (const auto *call = std::get_if<Call>(&value.node)) {
+                    if (value.operation.kind == OperationKind::Intrinsic && value.operation.identity == "bytes" &&
+                        call->arguments.size() == 1U) {
+                        const auto &argument = module_.expr(call->arguments.front().value);
+                        if (const auto *octets = std::get_if<Sequence>(&argument.node)) {
+                            for (const auto &entry : octets->elements) {
+                                const auto &octet  = module_.expr(entry.value);
+                                const auto *number = octet.constant ? std::get_if<std::int64_t>(&*octet.constant) : nullptr;
+                                if (number && (*number < 0 || *number > 255)) {
+                                    type_error(value.range, "bytes octet is outside 0 through 255 in required constant evaluation");
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    for (const auto &argument : call->arguments) { validate_required_bytes(argument.value); }
+                } else if (const auto *construct = std::get_if<Construct>(&value.node)) {
+                    for (const auto &argument : construct->arguments) { validate_required_bytes(argument.value); }
+                } else if (const auto *sequence = std::get_if<Sequence>(&value.node)) {
+                    for (const auto &entry : sequence->elements) { validate_required_bytes(entry.value); }
+                } else if (const auto *tuple = std::get_if<Tuple>(&value.node)) {
+                    for (const auto entry : tuple->elements) { validate_required_bytes(entry); }
+                }
+            }
+
             void check_signature_defaults(Signature &signature) {
                 for (Parameter &parameter : signature.parameters) {
                     if (!parameter.default_value.valid()) { continue; }
                     Expr &value = check_expr(parameter.default_value, parameter.type);
                     require_assignable(parameter.type, value, "parameter default");
+                    validate_required_bytes(parameter.default_value);
                     if (value.phase != Phase::Constant) {
                         diagnostics_.report(syntax::Category::Phase, value.range,
                                             "a parameter default must be a compile-time constant");
@@ -4423,6 +4455,41 @@ namespace hgl::ir
                 }
                 std::vector<ExprId> args;
                 for (const Argument &argument : call.arguments) { args.push_back(argument.value); }
+                if (name == "bytes") {
+                    if (args.size() > 1U || (!call.arguments.empty() && !call.arguments.front().name.empty())) {
+                        type_error(expression.range, "bytes takes zero arguments or one positional ordinary i64 list");
+                    }
+                    for (ExprId argument : args) {
+                        const TypeId list_context = make_type(TypeKind::List, {scalar(ScalarType::I64)});
+                        Expr        &value        = check_expr(argument, list_context);
+                        const TypeId id           = unwrap_atomic(value.type);
+                        const Type   shape        = id.valid() ? type(id) : Type{};
+                        if (shape.kind != TypeKind::List || shape.children.size() != 1U ||
+                            !same(shape.children.front(), scalar(ScalarType::I64))) {
+                            type_error(value.range, "bytes requires an ordinary fixed or unbounded i64 list");
+                        }
+                        if (value.phase == Phase::Wiring) {
+                            type_error(value.range, "bytes cannot read a temporal port during graph wiring");
+                        }
+                    }
+                    expression.type = scalar(ScalarType::Bytes);
+                    finish_call_semantics(expression, args, true);
+                    expression.operation = Operation{.kind = OperationKind::Intrinsic, .target = target, .identity = "bytes"};
+                    return;
+                }
+                if (name == "len" && args.size() == 1U) {
+                    Expr &value = check_expr(args.front());
+                    if (same(value.type, scalar(ScalarType::Bytes))) {
+                        if (!call.arguments.front().name.empty()) {
+                            type_error(expression.range, "len takes one positional value");
+                        }
+                        if (value.phase == Phase::Wiring) { type_error(value.range, "len requires an ordinary bytes value"); }
+                        expression.type = scalar(ScalarType::I64);
+                        finish_call_semantics(expression, args, true);
+                        expression.operation = Operation{.kind = OperationKind::Intrinsic, .target = target, .identity = "len"};
+                        return;
+                    }
+                }
                 if (name == "str") {
                     if (args.size() != 1U || !call.arguments.front().name.empty()) {
                         type_error(expression.range, "str takes one positional scalar value");
