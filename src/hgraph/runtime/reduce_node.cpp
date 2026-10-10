@@ -103,6 +103,16 @@ namespace hgraph
             std::vector<Value> dense_to_key{};
             /** dense leaf -> source collection slot, avoiding repeated key lookup while binding the tree. */
             std::vector<std::size_t> dense_to_source_slot{};
+            /** source collection slot -> dense leaf (npos = none): the inverse of
+                ``dense_to_source_slot``, so a modified source slot names its leaf
+                without hashing its key. A TSD slot is stable while its key lives
+                and a TSL index is its own slot, so the map is exact; the key
+                equality guard on use covers a slot reused between visits. */
+            std::vector<std::size_t> source_slot_to_leaf{};
+            /** Set when the reconcile pass already filled ``modified_leaves``
+                for this tick, so the position pass does not walk the modified
+                slots a second time. */
+            bool modified_leaves_from_reconcile{false};
             /** TSL dense leaf -> effective child source, detecting same-slot re-points. */
             std::vector<TSOutputHandle> dense_to_source_handle{};
             ankerl::unordered_dense::map<Value, std::size_t, ValueHash, ValueEqual> key_to_leaf{};
@@ -429,16 +439,54 @@ namespace hgraph
             }
         }
 
+        inline constexpr std::size_t no_leaf = static_cast<std::size_t>(-1);
+
+        void map_source_slot(ReduceNodeStorage &storage, std::size_t slot, std::size_t leaf)
+        {
+            if (slot >= storage.source_slot_to_leaf.size())
+            {
+                storage.source_slot_to_leaf.resize(std::max(slot + 1, storage.source_slot_to_leaf.size() * 2), no_leaf);
+            }
+            storage.source_slot_to_leaf[slot] = leaf;
+        }
+
+        [[nodiscard]] std::size_t leaf_for_source_slot(const ReduceNodeStorage &storage, std::size_t slot) noexcept
+        {
+            return slot < storage.source_slot_to_leaf.size() ? storage.source_slot_to_leaf[slot] : no_leaf;
+        }
+
+        /** The leaf a modified dict slot names: the slot map first, verified by
+            key equality (a slot reused for another key between visits must
+            not alias the old leaf), then the key index as the fallback. */
+        [[nodiscard]] std::size_t leaf_for_dict_slot(const ReduceNodeStorage &storage, std::size_t slot,
+                                                     const ValueView &key)
+        {
+            const std::size_t leaf = leaf_for_source_slot(storage, slot);
+            if (leaf != no_leaf && leaf < storage.dense_to_key.size() &&
+                storage.dense_to_source_slot[leaf] == slot && storage.dense_to_key[leaf].view() == key)
+            {
+                return leaf;
+            }
+            const auto found = storage.key_to_leaf.find(key);
+            return found == storage.key_to_leaf.end() ? no_leaf : found->second;
+        }
+
         void remove_leaf_at(ReduceNodeStorage &storage, std::size_t leaf)
         {
             const std::size_t last = storage.dense_to_key.size() - 1;
             storage.key_to_leaf.erase(storage.dense_to_key[leaf]);
+            if (const std::size_t removed_slot = storage.dense_to_source_slot[leaf];
+                removed_slot < storage.source_slot_to_leaf.size())
+            {
+                storage.source_slot_to_leaf[removed_slot] = no_leaf;
+            }
             if (leaf != last)
             {
                 storage.dense_to_key[leaf]                      = std::move(storage.dense_to_key[last]);
                 storage.dense_to_source_slot[leaf]              = storage.dense_to_source_slot[last];
                 storage.dense_to_source_handle[leaf]            = storage.dense_to_source_handle[last];
                 storage.key_to_leaf[storage.dense_to_key[leaf]] = leaf;
+                map_source_slot(storage, storage.dense_to_source_slot[leaf], leaf);
             }
             storage.dense_to_key.pop_back();
             storage.dense_to_source_slot.pop_back();
@@ -451,6 +499,7 @@ namespace hgraph
             storage.dense_to_source_slot.clear();
             storage.dense_to_source_handle.clear();
             storage.key_to_leaf.clear();
+            storage.source_slot_to_leaf.clear();
         }
 
         void record_removed_leaf_paths(ReduceNodeStorage &storage, std::size_t leaf)
@@ -484,6 +533,7 @@ namespace hgraph
                     storage.key_to_leaf.emplace(key, storage.dense_to_key.size());
                     storage.dense_to_key.push_back(std::move(key));
                     storage.dense_to_source_slot.push_back(slot);
+                    map_source_slot(storage, slot, storage.dense_to_source_slot.size() - 1);
                     storage.dense_to_source_handle.push_back(source.handle());
                 }
                 return true;
@@ -529,48 +579,59 @@ namespace hgraph
                 storage.key_to_leaf.emplace(typed_key, storage.dense_to_key.size());
                 storage.dense_to_key.push_back(std::move(typed_key));
                 storage.dense_to_source_slot.push_back(slot);
+                map_source_slot(storage, slot, storage.dense_to_source_slot.size() - 1);
                 storage.dense_to_source_handle.push_back(source.handle());
                 structural = true;
             }
 
+            // One walk of the modified slots serves both the structural
+            // reconcile and the position pass: each live modified slot names
+            // its leaf through the slot map (no key hash), and the leaf is
+            // recorded for the evaluation paths here instead of being looked
+            // up again by key afterwards.
+            storage.modified_leaves.clear();
             for (std::size_t slot = dict.next_modified_slot(); slot != TS_DATA_NO_CHILD_ID;
                  slot = dict.next_modified_slot(slot))
             {
                 if (!dict.slot_live(slot)) { continue; }
                 const ValueView key = dict.key_at_slot(slot);
-                const auto found = storage.key_to_leaf.find(key);
+                std::size_t leaf = leaf_for_dict_slot(storage, slot, key);
                 TSOutputView source = resolve_forwarding_source(output.at_slot(slot));
                 if (!source.valid())
                 {
-                    if (found != storage.key_to_leaf.end())
+                    if (leaf != no_leaf)
                     {
-                        record_removed_leaf_paths(storage, found->second);
-                        remove_leaf_at(storage, found->second);
+                        record_removed_leaf_paths(storage, leaf);
+                        remove_leaf_at(storage, leaf);
                         structural = true;
                     }
                     continue;
                 }
 
-                if (found == storage.key_to_leaf.end())
+                if (leaf == no_leaf)
                 {
-                    const std::size_t leaf = storage.dense_to_key.size();
+                    leaf = storage.dense_to_key.size();
                     storage.structural_leaves.push_back(leaf);
                     Value typed_key = value_impl::graph_local_value(key);
                     storage.key_to_leaf.emplace(typed_key, leaf);
                     storage.dense_to_key.push_back(std::move(typed_key));
                     storage.dense_to_source_slot.push_back(slot);
+                    map_source_slot(storage, slot, leaf);
                     storage.dense_to_source_handle.push_back(source.handle());
                     structural = true;
+                    storage.modified_leaves.push_back(leaf);
                     continue;
                 }
 
-                if (!source.handle().same_as(storage.dense_to_source_handle[found->second]))
+                if (!source.handle().same_as(storage.dense_to_source_handle[leaf]))
                 {
-                    storage.structural_leaves.push_back(found->second);
-                    storage.dense_to_source_handle[found->second] = source.handle();
+                    storage.structural_leaves.push_back(leaf);
+                    storage.dense_to_source_handle[leaf] = source.handle();
                     structural = true;
                 }
+                storage.modified_leaves.push_back(leaf);
             }
+            storage.modified_leaves_from_reconcile = true;
 
             return structural;
         }
@@ -616,6 +677,7 @@ namespace hgraph
                     storage.key_to_leaf.emplace(key, dense_leaf);
                     storage.dense_to_key.push_back(std::move(key));
                     storage.dense_to_source_slot.push_back(index);
+                    map_source_slot(storage, index, storage.dense_to_source_slot.size() - 1);
                     storage.dense_to_source_handle.push_back(
                         effective_output_handle(list_input[index].bound_output()));
                     structural = true;
@@ -662,6 +724,7 @@ namespace hgraph
                     storage.key_to_leaf.emplace(key, dense_leaf);
                     storage.dense_to_key.push_back(std::move(key));
                     storage.dense_to_source_slot.push_back(index);
+                    map_source_slot(storage, index, storage.dense_to_source_slot.size() - 1);
                     storage.dense_to_source_handle.push_back(
                         effective_output_handle(child.bound_output()));
                     structural = true;
@@ -717,8 +780,9 @@ namespace hgraph
             for (std::size_t slot = dict.next_modified_slot(); slot != TS_DATA_NO_CHILD_ID;
                  slot = dict.next_modified_slot(slot))
             {
-                const auto found = storage.key_to_leaf.find(dict.key_at_slot(slot));
-                if (found != storage.key_to_leaf.end()) { leaves.push_back(found->second); }
+                if (!dict.slot_live(slot)) { continue; }
+                const std::size_t leaf = leaf_for_dict_slot(storage, slot, dict.key_at_slot(slot));
+                if (leaf != no_leaf) { leaves.push_back(leaf); }
             }
         }
 
@@ -729,9 +793,17 @@ namespace hgraph
             auto list_data = list.data_view();
             for (const std::size_t index : list_data.modified_indices())
             {
-                const Value key{static_cast<Int>(index)};
-                const auto found = storage.key_to_leaf.find(key);
-                if (found != storage.key_to_leaf.end()) { leaves.push_back(found->second); }
+                // A list leaf's source slot is its index, so the slot map is
+                // exact; the key index remains the fallback for a dense leaf
+                // added before the map covered the index.
+                std::size_t leaf = leaf_for_source_slot(storage, index);
+                if (leaf == no_leaf)
+                {
+                    const Value key{static_cast<Int>(index)};
+                    const auto  found = storage.key_to_leaf.find(key);
+                    leaf = found == storage.key_to_leaf.end() ? no_leaf : found->second;
+                }
+                if (leaf != no_leaf) { leaves.push_back(leaf); }
             }
         }
 
@@ -1258,14 +1330,18 @@ namespace hgraph
             if (!full_scan && collection_event &&
                 context.collection_ops->available(collection_input))
             {
-                storage.modified_leaves.clear();
-                context.collection_ops->append_modified_leaves(
-                    storage, collection_input, storage.modified_leaves);
+                if (!storage.modified_leaves_from_reconcile)
+                {
+                    storage.modified_leaves.clear();
+                    context.collection_ops->append_modified_leaves(
+                        storage, collection_input, storage.modified_leaves);
+                }
                 for (const std::size_t leaf : storage.modified_leaves)
                 {
                     append_leaf_path(storage, leaf, storage.evaluation_candidates);
                 }
             }
+            storage.modified_leaves_from_reconcile = false;
 
             // The explicit zero is an operand only for a singleton. It must
             // neither schedule nor perturb a reduction containing 2+ values.
@@ -1570,6 +1646,7 @@ namespace hgraph
                     throw std::invalid_argument("reduce checkpoint leaf key is duplicated");
                 storage.dense_to_key.push_back(value_impl::graph_local_value(key));
                 storage.dense_to_source_slot.push_back(source_slot);
+                map_source_slot(storage, source_slot, storage.dense_to_source_slot.size() - 1);
                 storage.dense_to_source_handle.emplace_back();
             }
             std::vector<std::size_t> positions;

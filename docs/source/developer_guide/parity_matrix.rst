@@ -39,7 +39,7 @@ Accepted deviations (decision list, 2026-09-09)
 
 The differential parity campaign (``tools/parity``) reported 47 outstanding
 discrepancies against released hgraph 0.5.41. Each was decided individually on
-issue #810 as *accept*, *fix* or *discuss*. The twenty-three accepted here are
+issue #810 as *accept*, *fix* or *discuss*. The twenty-four accepted here are
 permanent: released behaviour this runtime deliberately does not reproduce.
 Thirteen came from #810; ``if_`` over an already-empty TSD joined them on
 2026-09-15 under the same no-change ruling as ``index_of``, and issue #819's
@@ -161,13 +161,24 @@ Pinned by a corpus recipe, bounded by a family or a fingerprint
      - Publishes an empty delta: an unbound container reference reads as an
        empty **valid** dictionary
      - Publishes nothing -- the delta nets to no change, and an unbound
-       reference is invalid here. A non-empty dictionary produces the removal
-       delta on both sides, and the scalar ``if_`` spelling never diverged.
-       The ``empty-delta-elision`` relation admits an elided re-tick only
-       where the re-emitted value is the EMPTY map, so a dropped re-tick of a
-       real entry write stays reportable
+       reference is invalid here. Withdrawal of a non-empty dictionary must
+       report its previously visible removals and is outside this acceptance,
+       as is the scalar ``if_`` spelling.
+       The ``empty-delta-elision`` relation replays source and output
+       membership: removing the final key leaves empty state, even though
+       the removal delta is not empty. It admits only an empty delta on
+       withdrawal after that state was published. Lost entry writes,
+       removals and live invalid-valued keys remain reportable
+   * - Nested ``convert[TSD]`` with an identical key tick and no value tick
+       (family ``nested-convert-key-only-no-retick``; owner decision 2026-10-10)
+     - Republishes an equal nested reference, including when its inner
+       dictionary contains a live key whose scalar value is still invalid
+     - Preserves the same keys, validity and reference designation without
+       another tick (TS-16). The bounded relation checks raw key/value inputs
+       and the exact nested payload. Initial publication, value arrival,
+       changed keys and explicit equal value writes still tick
 
-The last applies the **no-change-means-no-tick ruling** (2026-07-17, see
+These last two apply the **no-change-means-no-tick ruling** (2026-07-17, see
 :doc:`roadmap`), already accepted for ``mesh_`` over an initially empty key
 set. A ``switch_`` branch whose output dictionary looked empty was once listed
 beside it; that entry is gone, because the dictionary was not empty -- it had

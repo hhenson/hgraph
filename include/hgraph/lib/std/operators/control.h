@@ -36,6 +36,9 @@ namespace hgraph::stdlib
         Input order is the tie-breaker when several streams tick together. For keyed
         dictionaries, distinct keys from all ticking inputs are combined; the leftmost
         input wins a same-key conflict.
+        When a source disappears without another valid source ticking, select the
+        most recently modified original source still valid, breaking ties by input
+        order. An equal fallback value does not tick; explicit equal writes do.
         @param tsl Ordered input streams.
         @param disjoint When true, selects the faster TSD path and promises that input
                         dictionaries have no overlapping keys.

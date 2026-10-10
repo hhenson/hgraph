@@ -2635,7 +2635,10 @@ def test_family_gate_requires_the_documented_trace_relation():
     empty = {"$map": []}
     if_tsd_recipe = {
         "template": "flow_control",
-        "inputs": {},
+        "inputs": {
+            "condition": [None, False, True],
+            "ts": [{"a": 1}, {"a": {"$remove": True}}, None],
+        },
         "parameters": {"operation": "if_", "branch": "false", "input_type": "tsd"},
     }
     difference = compare_outcomes(
@@ -2687,12 +2690,18 @@ def test_family_gate_requires_the_documented_trace_relation():
         ok([None, payload, None]),
         families,
     )
-    # A payload still ticking beside an elided empty re-tick is the deviation.
-    mixed_reference = ok([None, payload, empty, empty])
-    mixed_candidate = ok([None, payload, empty, None])
+    # Removing the last key empties the state, but the removal DELTA is not
+    # empty. Looking only at the last delta missed #1676/#1677/#1699.
+    removed = {"$map": [["a", {"$remove": True}]]}
+    mixed_recipe = dict(if_tsd_recipe, inputs={
+        "condition": [None, False, None, True],
+        "ts": [None, {"a": 1}, {"a": {"$remove": True}}, None],
+    })
+    mixed_reference = ok([None, payload, removed, empty])
+    mixed_candidate = ok([None, payload, removed, None])
     difference = compare_outcomes(mixed_reference, mixed_candidate)
     assert is_known_family_failure(
-        if_tsd_recipe,
+        mixed_recipe,
         difference.to_dict(),
         mixed_reference,
         mixed_candidate,
@@ -4345,3 +4354,76 @@ def test_first_empty_set_result_family_admits_only_the_validating_tick():
     # Before every operand of ^ is valid there is no admitted result.
     early = dict(recipe, inputs={"a": [{"c": 1}, None], "b": [None, {"c": 1}]})
     assert not classify([None, None], [{"$map": []}, None], source=early)
+
+
+@pytest.mark.parametrize("key", ["a", "b", "c"])
+@pytest.mark.parametrize("value", [None, 7])
+def test_nested_convert_elision_requires_an_identical_key_only_tick(key, value):
+    families = _family_named("nested-convert-key-only-no-retick")
+    recipe = {
+        "template": "declaration_shape",
+        "parameters": {"declaration_shape": "nested_collection"},
+        "inputs": {"key": [key, key], "value": [value, None]},
+    }
+    inner = {"$map": [] if value is None else [[key, value]]}
+    payload = {"$map": [[key, inner]]}
+    reference = {"status": "ok", "trace": [payload, payload]}
+    candidate = {"status": "ok", "trace": [payload, None]}
+    assert _classify(recipe, reference, candidate, families)
+    for inputs in (
+        {"key": [key, "new"], "value": [value, None]},
+        {"key": [key, key], "value": [value, 7]},
+        {"key": [key, None], "value": [value, None]},
+    ):
+        assert not _classify(dict(recipe, inputs=inputs), reference, candidate, families)
+    assert not _classify(recipe, reference, {"status": "ok", "trace": [None, None]}, families)
+    assert not _classify(recipe, reference, {"status": "error", "error": "crash"}, families)
+    wrong = dict(recipe, parameters={"declaration_shape": "collection"})
+    assert not _classify(wrong, reference, candidate, families)
+    wrong_payload = {"status": "ok", "trace": [payload, {"$map": [["new", inner]]}]}
+    assert not _classify(recipe, wrong_payload, candidate, families)
+
+
+@pytest.mark.parametrize("branch", ["true", "false"])
+def test_if_empty_withdrawal_relation_replays_membership(branch):
+    families = _family_named("if-branch-empty-delta-no-retick")
+    selected = branch == "true"
+    recipe = {
+        "template": "flow_control",
+        "parameters": {"operation": "if_", "input_type": "tsd", "branch": branch},
+        "inputs": {"condition": [selected, None, not selected],
+                   "ts": [{"a": 1}, {"a": {"$remove": True}}, None]},
+    }
+    payload = {"$map": [["a", 1]]}
+    removed = {"$map": [["a", {"$remove": True}]]}
+    empty = {"$map": []}
+    reference = {"status": "ok", "trace": [payload, removed, empty]}
+    candidate = {"status": "ok", "trace": [payload, removed, None]}
+    assert _classify(recipe, reference, candidate, families)
+    # Empty deltas alone do not prove empty state or empty membership.
+    nonempty = {"status": "ok", "trace": [payload, empty, empty]}
+    assert not _classify(recipe, nonempty,
+                         {"status": "ok", "trace": [payload, empty, None]}, families)
+    invalid_child = dict(recipe, inputs=dict(recipe["inputs"],
+                         ts=[{"a": 1, "invalid": None}, {"a": {"$remove": True}}, None]))
+    assert not _classify(invalid_child, reference, candidate, families)
+    still_bound = dict(recipe, inputs=dict(recipe["inputs"], condition=[selected, None, selected]))
+    assert not _classify(still_bound, reference, candidate, families)
+    assert not _classify(recipe, reference,
+                         {"status": "ok", "trace": [payload, None, None]}, families)
+    first = dict(recipe, inputs={"condition": [not selected], "ts": [{}]})
+    assert not _classify(first, {"status": "ok", "trace": [empty]},
+                         {"status": "ok", "trace": [None]}, families)
+
+
+def test_tsd_merge_recipe_accepts_three_inputs_only_with_matching_arity():
+    raw = json.loads((CORPUS / "merge-tsd-original-source-fallback.json").read_text())
+    validate_recipe(Recipe.from_dict(raw))
+    for arity in (1, 2, 4, True):
+        changed = dict(raw, parameters={"operation": "merge", "arity": arity})
+        recipe = Recipe.from_dict(changed)
+        with pytest.raises(RecipeError):
+            validate_recipe(recipe)
+    recipe = Recipe.from_dict(dict(raw, parameters={"operation": "flip", "arity": 3}))
+    with pytest.raises(RecipeError):
+        validate_recipe(recipe)

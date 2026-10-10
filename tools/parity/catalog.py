@@ -4421,8 +4421,14 @@ def _tsd_shape(hg, shape):
 
 def _validate_tsd_operator(recipe):
     operation = _family_operation(recipe, _TSD_FAMILY)
-    _family_inputs(recipe, _TSD_INPUT_NAMES[operation])
-    _family_parameters(recipe, ("remove_empty",))
+    _family_parameters(recipe, ("remove_empty", "arity"))
+    arity = _family_bounded_int(recipe, "arity", 2, minimum=2, maximum=3)
+    if operation != "merge" and "arity" in recipe.parameters:
+        raise RecipeError("tsd_operator arity applies to merge only")
+    names = _TSD_INPUT_NAMES[operation]
+    if operation == "merge" and arity == 3:
+        names = (*names, "third")
+    _family_inputs(recipe, names)
     if operation == "uncollapse_keys":
         _family_bool(recipe, "remove_empty", True)
     elif "remove_empty" in recipe.parameters:
@@ -4490,6 +4496,13 @@ def _tsd_operator(hg, recipe):
             ts: first, keys: keys_shape
         ) -> hg.TSD[str, hg.TSD[str, hg.TS[int]]]:
             return hg.partition(ts, keys)
+
+    elif recipe.parameters.get("arity", 2) == 3:  # merge
+        names = (*names, "third")
+
+        @hg.graph
+        def parity_graph(ts: first, other: first, third: first) -> hg.TSD[str, hg.TS[int]]:
+            return hg.merge(ts, other, third)
 
     else:  # merge
         other = _tsd_shape(hg, shapes[1])

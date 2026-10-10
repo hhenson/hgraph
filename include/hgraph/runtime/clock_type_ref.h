@@ -15,7 +15,8 @@ namespace hgraph
     struct EvaluationClockOps;
     struct EvaluationClockTypeMetaData;
 
-    inline constexpr std::uint16_t CLOCK_OPS_ABI_VERSION = 1;
+    /** 2: ``EvaluationClockOps::supports_wall_clock`` appended to the table. */
+    inline constexpr std::uint16_t CLOCK_OPS_ABI_VERSION = 2;
 
     class ClockTypeRef
     {

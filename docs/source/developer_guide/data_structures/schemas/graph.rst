@@ -229,6 +229,23 @@ node's index and its delta input's prepared route there). Both offsets are
 cached in the node's own ``NodeRuntimeLayout``, so derived-type rebuilds
 resolve them from their own layout rather than inheriting a stale offset.
 
+Construction resolves nothing per instance that the type already knows: the
+runtime layout carries, next to each component's offset, the planned
+component itself (construction used to look each one up by name per node),
+and the builder caches the output type records its plain, error and
+recordable-state outputs construct with, keyed on the active type
+realization and value-storage variant (``NodeBuilder::resolved_output_types``,
+``TSOutput::resolved_type_for``): the factory lookup behind each
+``TSOutput(schema)`` constructor is a mutex and a hash probe, 5-6% of
+Python-node and ``switch_`` construction before this (2026-10-10 profile).
+The record is immutable once published: the builder keeps the one for the
+realization it last resolved under its own mutex, each construction holds a
+shared reference for its duration, and a thread constructing from the same
+builder under another realization (the realization is thread-local)
+publishes its own record without disturbing a reader. Endpoint-shaped
+outputs (nested-graph forwarding, map elements) keep their endpoint
+constructor.
+
 The node's ``NodeTypeRef`` supplies both the storage plan and the
 ``NodeOps`` table through its common record. Graph evaluation therefore does not need to know the
 concrete node type or switch on node shape. It resolves ``NodeView`` by index,

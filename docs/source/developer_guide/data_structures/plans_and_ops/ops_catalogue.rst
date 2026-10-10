@@ -152,7 +152,7 @@ values below are the ones the headers declare.
      - 7
      - ``include/hgraph/runtime/executor_type_ref.h``
    * - ``CLOCK_OPS_ABI_VERSION``
-     - 1
+     - 2
      - ``include/hgraph/runtime/clock_type_ref.h``
 
 .. _ops-catalogue-access-modes:

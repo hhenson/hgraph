@@ -18,7 +18,7 @@ namespace hgraph
             }
             if (record.ops_abi_version != CLOCK_OPS_ABI_VERSION || record.ops == nullptr)
             {
-                throw std::invalid_argument("ClockTypeRef requires clock ops ABI version 1");
+                throw std::invalid_argument("ClockTypeRef requires clock ops ABI version 2");
             }
             if (record.capabilities != clock_type_capabilities(*record.plan))
             {

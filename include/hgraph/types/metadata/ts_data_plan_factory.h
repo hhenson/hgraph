@@ -130,6 +130,14 @@ namespace hgraph
         };
         std::unordered_map<RealizedOutputKey, TSOutputTypeRef, RealizedOutputKeyHash>
             realized_output_type_cache_;
+        /** Front cache for ``output_type_for(schema, requested)`` keyed on the
+            REQUESTED storage variant (the ``value`` member is the schema's
+            canonical binding, resolved on the first call): the realized cache
+            is keyed on the effective selection, which cost a value-plan lookup
+            and a storage selection per call before the lookup could happen,
+            once per constructed Python-storage output. */
+        std::unordered_map<RealizedOutputKey, TSOutputTypeRef, RealizedOutputKeyHash>
+            requested_output_type_cache_;
     };
 }  // namespace hgraph
 
