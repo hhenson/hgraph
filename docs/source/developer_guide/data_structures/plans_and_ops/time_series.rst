@@ -934,7 +934,12 @@ records its own ``last_modified_time`` for the same evaluation time and
 continues through its own tracking link if it has one. The root
 ``TSData`` link terminates at the owning endpoint, for example
 ``TSOutput``, which records endpoint-local dirty state instead of
-recording another TSData child id.
+recording another TSData child id. The two terminal kinds, no parent and a
+node-owned endpoint, are answered inline from the tagged kind alone (every
+write to a node's own output or input root ends there); only a TSData or
+input/output-endpoint parent takes the out-of-line hop, which decodes the
+kind once and fetches the parent's ops table once for the child record, the
+parent tracking and the next link.
 
 Window TSData
 ^^^^^^^^^^^^^
