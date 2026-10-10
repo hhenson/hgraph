@@ -203,8 +203,18 @@
       "parameters_not_equal": {},
       "relation": "empty-delta-elision",
       "issue": "https://github.com/hhenson/hgraph/issues/926",
-      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst Accepted Deviations), the clause that a TSD delta netting to no change does not tick -- and only that clause. if_ routes REFs, so the off branch unbinds; an unbound container reference reads as an EMPTY VALID dictionary in released hgraph and as invalid here, so where the dictionary was already empty upstream publishes an empty delta and this runtime publishes nothing. A non-empty dictionary produces the removal delta on both sides and is unaffected. The relation admits an elided re-tick only where the re-emitted value is the EMPTY MAP: a dropped re-tick of a non-empty entry write is the issue #909-#916 defect, not this deviation (review).",
+      "reason": "Accepted no-change ruling (#926, confirmed 2026-10-10 for #1676/#1677/#1699): withdrawing an already-empty if_ dictionary branch emits nothing. Released hgraph instead emits an empty delta. Replay source and output membership to prove the dictionary is empty; a removal delta can empty it without itself being empty. Never admit a lost entry write, removal, first publication, or withdrawal of an invalid-valued live key.",
       "review_after": "2027-09-15"
+    },
+    {
+      "family": "nested-convert-key-only-no-retick",
+      "template": "declaration_shape",
+      "parameters_equal": {"declaration_shape": "nested_collection"},
+      "parameters_not_equal": {},
+      "relation": "nested-convert-key-only-elision",
+      "issue": "https://github.com/hhenson/hgraph/issues/1640",
+      "reason": "Owner ruling 2026-10-10 (#1640/#1641/#1642): prefer fewer ticks when a repeated identical key, without a value tick, leaves nested conversion structure, validity and REF designation unchanged (TS-16). This includes a live invalid-valued inner key, not merely an empty dictionary. The relation checks the raw key/value inputs and exact nested payload. Initial publication, new keys, removals, value arrivals and explicit equal value writes are not elidable.",
+      "review_after": "2027-10-10"
     },
     {
       "family": "lshift-wider-than-word",

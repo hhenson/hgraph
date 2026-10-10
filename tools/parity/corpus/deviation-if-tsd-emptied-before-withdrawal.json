@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "deviation-if-tsd-emptied-before-withdrawal",
+  "description": "Issues #1676/#1677/#1699: the removal delta empties the dictionary, so subsequent withdrawal has nothing left to remove.",
+  "template": "flow_control",
+  "parameters": {"operation": "if_", "input_type": "tsd", "branch": "true"},
+  "inputs": {
+    "condition": [true, null, false],
+    "ts": [{"a": -19}, {"a": {"$remove": true}}, null]
+  },
+  "features": ["family:flow-control", "operator:if_", "shape:TS", "shape:TSD", "topology:operator-family", "type:tsd", "deviation:no-change-elision"]
+}

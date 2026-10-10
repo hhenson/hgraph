@@ -662,8 +662,8 @@ The following are intentional unless separately re-opened:
   The upstream node is a pass-through, not a recompute: it holds a ``REF`` to
   ``value`` in every entry, so the entry ticks exactly when the referenced
   output does. The equality skip now applies only when the node ran for a key
-  change while the value stood still -- upstream elides that too, because
-  re-setting the same reference is no change there either. The boundary is the
+  change while the value stood still. Released hgraph elides this for scalar
+  entries but republishes equal references for nested entries. The boundary is the
   one the ruling already drew: an operator that DERIVES a value may elide an
   unchanged recompute; one that FORWARDS a value may not, because the tick is
   the news, not the value.
@@ -732,14 +732,25 @@ The following are intentional unless separately re-opened:
     branch to an empty reference; an unbound container reference reads as an
     empty **valid** dictionary in released hgraph and as invalid here, so
     where the dictionary was already empty upstream publishes an empty delta
-    and this runtime publishes nothing. A non-empty dictionary produces the
-    removal delta on both sides and never diverged, and neither did the
-    scalar spelling -- ``if-branch-empty-delta-no-retick`` is scoped to the
+    and this runtime publishes nothing. This acceptance does not cover
+    non-empty dictionary withdrawal, where previously visible removals must
+    remain observable, or the scalar spelling. ``if-branch-empty-delta-no-retick`` is scoped to the
     TSD one. Its relation is ``empty-delta-elision`` rather than the general
-    ``no-change-elision``: the re-emitted value must be the EMPTY MAP. A
+    ``no-change-elision``: the re-emitted delta must be empty and the source
+    and previously published dictionary state must both be empty. A removal
+    delta can establish empty state without itself being empty (#1676/#1677/#1699).
+    Live invalid-valued keys are not empty state. A
     dropped re-tick of a non-empty entry write is the issue #909-#916 defect
     and the opposite of this ruling, which says repeated TSD entry writes
     tick.
+  - **Confirmed 2026-10-10** (#1640/#1641/#1642): nested conversion keeps the
+    fewer-ticks behavior when an identical key is written with no value
+    tick. Reassigning an equal REF designation does not tick (TS-16), even
+    when a nested dictionary contains an invalid-valued live key. The key
+    remains present; only the redundant publication disappears. First
+    publication, key changes, value arrivals and explicit equal payload
+    writes remain observable. ``nested-convert-key-only-no-retick`` checks
+    this particular composition's raw inputs, not arbitrary equal deltas.
 
   The lesson repeats the one above: a fingerprint pins a recipe, not a
   behaviour. A deviation a generator can reach by a second route needs a

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "merge-tsd-original-source-fallback",
+  "description": "Issue #846: intermediate binary fallback must not replace original source recency.",
+  "template": "tsd_operator",
+  "parameters": {"operation": "merge", "arity": 3},
+  "inputs": {
+    "ts": [{"k": 1}, null, null, null],
+    "other": [{"k": 2}, null, {"k": 22}, {"k": {"$remove": true}}],
+    "third": [{"k": 3}, {"k": 33}, null, null]
+  },
+  "features": ["operator:merge", "shape:TSD", "topology:n-ary"]
+}

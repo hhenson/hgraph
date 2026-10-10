@@ -1,13 +1,16 @@
-"""Public Python wiring regressions for fixed parity issues #69, #70, #72, #74,
+"""Public Python wiring regressions for fixed parity issues and accepted ticks.
+
+Fixed issues include #69, #70, #72, #74,
 #82, #148/#161/#162 (overlapping set deltas are rejected), #149 (contains
 seeds False), #570-#604 (a CompoundScalar field projection ticks with its
 parent), #909-#916/#928/#936 (a converted dictionary entry ticks when its
 value re-sends), #925/#927 (float window aggregates carry the running
 total), and #818 items 2.4 and 2.7 (take by duration, and convert into a
-nested dictionary).
+nested dictionary), and #846 (merge fallback source recency).
 
-Each test pins the released-hgraph trace the differential harness verified;
-the corpus retains the minimized recipes as passing regressions.
+The nested-conversion and empty-branch tests pin the fewer-ticks decisions
+for #1640/#1641/#1642 and #1676/#1677/#1699, not the released trace. Corpus
+recipes and bounded relations distinguish these from real regressions.
 """
 
 import pytest
@@ -33,6 +36,81 @@ def test_float_dedup_applies_default_tolerance():
         return hg.dedup(v, 0.5)
 
     assert eval_node(dedup_tol, [1.0, 1.4, 2.0]) == [1.0, None, 2.0]
+
+
+def test_merge_fallback_preserves_original_source_recency():
+    @graph
+    def merged(a: hg.TSD[str, TS[int]], b: hg.TSD[str, TS[int]],
+               c: hg.TSD[str, TS[int]]) -> hg.TSD[str, TS[int]]:
+        return hg.merge(a, b, c)
+
+    assert eval_node(merged,
+        [{"k": 1}, None, None, None],
+        [{"k": 2}, None, {"k": 22}, {"k": hg.REMOVE}],
+        [{"k": 3}, {"k": 33}, None, None],
+    ) == [{"k": 1}, {"k": 33}, {"k": 22}, {"k": 33}]
+    assert eval_node(merged,
+        [{"k": 1}, {"k": 1}, {"k": hg.REMOVE}, None],
+        [{"k": 2}, None, None, None],
+        [{"k": 3}, None, None, None],
+    ) == [{"k": 1}, {"k": 1}, {"k": 2}, None]
+    assert eval_node(merged,
+        [{"k": 1}, {"k": hg.REMOVE}],
+        [{"k": 1}, None],
+        [{"k": 1}, None],
+    ) == [{"k": 1}, None]
+
+    @graph
+    def four(a: hg.TSD[str, TS[int]], b: hg.TSD[str, TS[int]],
+             c: hg.TSD[str, TS[int]], d: hg.TSD[str, TS[int]]) -> hg.TSD[str, TS[int]]:
+        return hg.merge(a, b, c, d)
+
+    assert eval_node(four,
+        [{"k": 1}, None, None, None, None],
+        [{"k": 2}, {"k": 20}, None, {"k": hg.REMOVE}, None],
+        [{"k": 3}, None, {"k": 30}, None, {"k": hg.REMOVE}],
+        [{"k": 4}, {"k": 40}, None, None, None],
+    ) == [{"k": 1}, {"k": 20}, {"k": 30}, None, {"k": 40}]
+
+
+@pytest.mark.parametrize("key", ["a", "b", "c"])
+def test_nested_convert_key_only_tick_preserves_invalid_child(key):
+    @graph
+    def nested(key: TS[str], value: TS[int]) -> hg.TSD[str, hg.TSD[str, TS[int]]]:
+        inner = hg.convert[hg.TSD[str, TS[int]]](key, value)
+        return hg.convert[hg.TSD[str, hg.TSD[str, TS[int]]]](key, inner)
+
+    @compute_node(valid=("key",))
+    def inspect(key: TS[str], outer: hg.TSD[str, hg.TSD[str, TS[int]]]) -> TS[int]:
+        k = key.value
+        present = (outer.valid and set(outer.keys()) == {k}
+                   and outer[k].valid and set(outer[k].keys()) == {k}
+                   and not outer[k][k].valid)
+        return (1 if outer.modified else 2) if present else 0
+
+    @graph
+    def state(key: TS[str], value: TS[int]) -> TS[int]:
+        return inspect(key, nested(key, value))
+
+    assert eval_node(nested, [key, key], [None, None]) == [{key: {}}, None]
+    assert eval_node(state, [key, key], [None, None]) == [1, 2]
+    assert eval_node(nested, [key, key], [None, 7]) == [{key: {}}, {key: {key: 7}}]
+    assert eval_node(nested, [key, key], [7, 7]) == [{key: {key: 7}}] * 2
+    assert eval_node(nested, [key, key], [7, None]) == [{key: {key: 7}}, None]
+    assert eval_node(nested, [key, "new"], [None, None]) == [
+        {key: {}}, {key: hg.REMOVE, "new": {}}]
+
+
+@pytest.mark.parametrize("branch", [True, False])
+def test_if_empty_dictionary_withdrawal_does_not_tick(branch):
+    @graph
+    def routed(condition: TS[bool], ts: hg.TSD[str, TS[int]]) -> hg.TSD[str, TS[int]]:
+        branches = hg.if_(condition, ts)
+        return branches.true if branch else branches.false
+
+    assert eval_node(routed, [branch, None, not branch],
+                     [{"a": 19}, {"a": hg.REMOVE}, None]) == [
+        {"a": 19}, {"a": hg.REMOVE}, None]
 
 
 def test_dedup_int_const_stays_int():

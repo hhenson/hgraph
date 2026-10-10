@@ -1060,6 +1060,45 @@ namespace
         }
     };
 
+    struct ConvertDoubleKeyValueGraph
+    {
+        static constexpr auto name = "convert_double_key_value_graph";
+
+        static Port<TSD<Str, TSD<Str, TS<Int>>>> compose(
+            Wiring &w, Port<TS<Str>> key, Port<TS<Int>> value)
+        {
+            auto inner = wire<stdlib::convert, TSD<Str, TS<Int>>>(w, key, value);
+            return wire<stdlib::convert, TSD<Str, TSD<Str, TS<Int>>>>(w, key, inner);
+        }
+    };
+
+    struct InspectInvalidNestedKey
+    {
+        static constexpr auto name = "inspect_invalid_nested_key";
+
+        static void eval(In<"key", TS<Str>> key,
+                         In<"outer", TSD<Str, TSD<Str, TS<Int>>>, InputValidity::Unchecked> outer,
+                         Out<TS<Int>> out)
+        {
+            const auto &k = key.value();
+            const bool present = outer.valid() && outer.size() == 1 && outer.contains(k)
+                && outer[k].valid() && outer[k].size() == 1 && outer[k].contains(k)
+                && !outer[k][k].valid();
+            out.set(present ? (outer.modified() ? Int{1} : Int{2}) : Int{0});
+        }
+    };
+
+    struct InspectDoubleConvertedKeyGraph
+    {
+        static constexpr auto name = "inspect_double_converted_key_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Str>> key, Port<TS<Int>> value)
+        {
+            auto outer = wire<ConvertDoubleKeyValueGraph>(w, key, value);
+            return wire<InspectInvalidNestedKey>(w, key, outer);
+        }
+    };
+
     struct ConvertSelectedIntGraph
     {
         static constexpr auto name = "convert_selected_int_graph";
@@ -1675,6 +1714,31 @@ namespace
         }
     };
 
+    struct MergeThreeTsdGraph
+    {
+        static constexpr auto name = "merge_three_tsd_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> first,
+                                               Port<TSD<Str, TS<Int>>> second,
+                                               Port<TSD<Str, TS<Int>>> third)
+        {
+            return wire<stdlib::merge>(w, first, second, third).as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct MergeFourTsdGraph
+    {
+        static constexpr auto name = "merge_four_tsd_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> first,
+                                               Port<TSD<Str, TS<Int>>> second,
+                                               Port<TSD<Str, TS<Int>>> third,
+                                               Port<TSD<Str, TS<Int>>> fourth)
+        {
+            return wire<stdlib::merge>(w, first, second, third, fourth).as<TSD<Str, TS<Int>>>();
+        }
+    };
+
     struct IfTrueRouteGraph
     {
         static constexpr auto name = "if_true_route_graph";
@@ -2164,6 +2228,32 @@ TEST_CASE("std operators: a converted dictionary entry may be a whole nested dic
                      values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}))),
                  values<Value>(dict_delta<Str, TSD<Str, TS<Int>>>(
                      {{"k", dict_delta<Str, TS<Int>>({{"a", 1}})}})));
+}
+
+TEST_CASE("std operators: nested conversion preserves structure without key-only reticks")
+{
+    stdlib::register_standard_operators();
+    const auto empty_inner = dict_delta<Str, TS<Int>>({});
+    const auto initial = dict_delta<Str, TSD<Str, TS<Int>>>({{"a", empty_inner}});
+    const auto seven = dict_delta<Str, TSD<Str, TS<Int>>>(
+        {{"a", dict_delta<Str, TS<Int>>({{"a", 7}})}});
+    const auto keys = values<Str>(Str{"a"}, Str{"a"});
+    CHECK_OUTPUT(eval_node<ConvertDoubleKeyValueGraph>(keys, values<Int>(none, none)),
+                 values<Value>(initial, none));
+    // An empty delta does not mean an empty dictionary: the inner key lives
+    // with an invalid scalar child, and remains present on the silent cycle.
+    CHECK_OUTPUT(eval_node<InspectDoubleConvertedKeyGraph>(keys, values<Int>(none, none)),
+                 values<Int>(1, 2));
+    CHECK_OUTPUT(eval_node<ConvertDoubleKeyValueGraph>(keys, values<Int>(none, 7)),
+                 values<Value>(initial, seven));
+    CHECK_OUTPUT(eval_node<ConvertDoubleKeyValueGraph>(keys, values<Int>(7, 7)),
+                 values<Value>(seven, seven));
+    CHECK_OUTPUT(eval_node<ConvertDoubleKeyValueGraph>(keys, values<Int>(7, none)),
+                 values<Value>(seven, none));
+    CHECK_OUTPUT(eval_node<ConvertDoubleKeyValueGraph>(
+                     values<Str>(Str{"a"}, Str{"b"}), values<Int>(none, none)),
+                 values<Value>(initial,
+                     dict_delta<Str, TSD<Str, TS<Int>>>({{"b", empty_inner}}, {Str{"a"}})));
 }
 
 TEST_CASE("std operators: the named set spellings work over dictionaries")
@@ -4878,6 +4968,54 @@ TEST_CASE("std operators: structural REF unbind publishes only previously visibl
     CHECK_OUTPUT(eval_node<InvalidTsdChildUnbindGraph>(values<Bool>(false, true),
                                                        values<Bool>(true, false)),
                  values<Value>(none, none));
+    CHECK_OUTPUT(eval_node<IfTrueTsdFilterGraph>(
+                     values<Value>(dict_delta<Int, TS<Int>>({{1, 19}}),
+                                   dict_delta<Int, TS<Int>>({}, {1}), none),
+                     values<Bool>(true, none, false)),
+                 values<Value>(dict_delta<Int, TS<Int>>({{1, 19}}),
+                               dict_delta<Int, TS<Int>>({}, {1}), none));
+}
+
+TEST_CASE("std operators: merge fallback uses original source ages")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<MergeThreeTsdGraph>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"k", 1}}), none, none, none),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"k", 2}}), none,
+                                   dict_delta<Str, TS<Int>>({{"k", 22}}),
+                                   dict_delta<Str, TS<Int>>({}, {Str{"k"}})),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"k", 3}}),
+                                   dict_delta<Str, TS<Int>>({{"k", 33}}), none, none)),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"k", 1}}),
+                               dict_delta<Str, TS<Int>>({{"k", 33}}),
+                               dict_delta<Str, TS<Int>>({{"k", 22}}),
+                               dict_delta<Str, TS<Int>>({{"k", 33}})));
+    // Equal-age fallback ties are leftmost; equal explicit writes still tick.
+    CHECK_OUTPUT(eval_node<MergeThreeTsdGraph>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"k", 1}}),
+                                   dict_delta<Str, TS<Int>>({{"k", 1}}),
+                                   dict_delta<Str, TS<Int>>({}, {Str{"k"}}), none),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"k", 2}}), none, none, none),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"k", 3}}), none, none, none)),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"k", 1}}),
+                               dict_delta<Str, TS<Int>>({{"k", 1}}),
+                               dict_delta<Str, TS<Int>>({{"k", 2}}), none));
+    // Removing an unselected source is silent. After the selected source
+    // goes away, the surviving newer original source still wins with four inputs.
+    CHECK_OUTPUT(eval_node<MergeFourTsdGraph>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"k", 1}}), none, none, none, none),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"k", 2}}),
+                                   dict_delta<Str, TS<Int>>({{"k", 20}}), none,
+                                   dict_delta<Str, TS<Int>>({}, {Str{"k"}}), none),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"k", 3}}), none,
+                                   dict_delta<Str, TS<Int>>({{"k", 30}}), none,
+                                   dict_delta<Str, TS<Int>>({}, {Str{"k"}})),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"k", 4}}),
+                                   dict_delta<Str, TS<Int>>({{"k", 40}}), none, none, none)),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"k", 1}}),
+                               dict_delta<Str, TS<Int>>({{"k", 20}}),
+                               dict_delta<Str, TS<Int>>({{"k", 30}}), none,
+                               dict_delta<Str, TS<Int>>({{"k", 40}})));
 }
 
 TEST_CASE("std operators: fixed TSL REF composition flips through an empty reference")

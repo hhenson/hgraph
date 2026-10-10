@@ -47,6 +47,7 @@ POLYMORPHIC_JSON_PRESERVES_LEAF = "polymorphic-json-preserves-leaf"
 EMPTY_SET_RENDERS_AS_BRACES = "empty-set-renders-as-braces"
 UNBOUNDED_INTEGER_WIDTH = "unbounded-integer-width"
 EMPTY_DELTA_ELISION = "empty-delta-elision"
+NESTED_CONVERT_KEY_ONLY_ELISION = "nested-convert-key-only-elision"
 IEEE_LOG_DOMAIN = "ieee-log-domain"
 N_ARY_SET_FOLD = "n-ary-set-fold"
 KEY_SET_READER_TICK = "key-set-reader-tick"
@@ -715,22 +716,80 @@ def _empty_set_renders_as_braces_relation(
     return admitted >= 1
 
 
+def _update_dictionary_keys(keys: set[str], items) -> None:
+    for key, value in items:
+        if value == {"$remove": True}:
+            keys.discard(key)
+        else:
+            keys.add(key)
+
+
+def _apply_raw_dictionary_membership(keys: set[str], delta) -> bool:
+    if delta is None:
+        return True
+    if not isinstance(delta, dict):
+        return False
+    _update_dictionary_keys(keys, delta.items())
+    return True
+
+
+def _apply_canonical_dictionary_membership(keys: set[str], delta) -> bool:
+    if delta is None:
+        return True
+    if not isinstance(delta, dict) or set(delta) != {"$map"}:
+        return False
+    _update_dictionary_keys(keys, delta["$map"])
+    return True
+
+
+def _is_empty_branch_withdrawal(ref, cand, published, output_keys, source_keys,
+                               condition, selected) -> bool:
+    return (
+        cand is None
+        and ref == {"$map": []}
+        and published
+        and not output_keys
+        and not source_keys
+        and condition is not None
+        and condition != selected
+    )
+
+
+def _empty_branch_elision_trace(reference_trace, candidate_trace, conditions,
+                               source, selected) -> bool:
+    source_keys: set[str] = set()
+    output_keys: set[str] = set()
+    condition = None
+    published = False
+    elided = 0
+    for tick, (ref, cand) in enumerate(zip(reference_trace, candidate_trace)):
+        condition = conditions[tick] if conditions[tick] is not None else condition
+        if not _apply_raw_dictionary_membership(source_keys, source[tick]):
+            return False
+        if cand != ref:
+            if not _is_empty_branch_withdrawal(
+                ref, cand, published, output_keys, source_keys, condition, selected
+            ):
+                return False
+            elided += 1
+        if not _apply_canonical_dictionary_membership(output_keys, ref):
+            return False
+        published = published or ref is not None
+    return elided >= 1
+
+
 def _empty_delta_elision_relation(
-    _recipe: dict[str, Any],
+    recipe: dict[str, Any],
     difference: dict[str, Any],
     reference: dict[str, Any],
     candidate: dict[str, Any],
     _family: dict[str, Any],
 ) -> bool:
-    """Issue #926: the no-change ruling's clause that a keyed delta netting to
-    no change does not tick, and ONLY that clause. Every position must match
-    exactly, or be a candidate ``None`` where the reference re-emitted an
-    EMPTY MAP it had already emitted.
+    """Admit only withdrawal of an already-empty if_ branch (#926/#1676).
 
-    The general ``no-change-elision`` relation is wrong here. It would also
-    admit a dropped re-tick of a non-empty entry write, which is the opposite
-    of the ruling -- "repeated TSD entry writes" tick, and issues #909-#916
-    were that exact defect (review)."""
+    A removal delta can leave the dictionary empty without itself being an
+    empty delta. Replay membership, including invalid children from the raw
+    source, rather than comparing the last two emitted deltas."""
     if difference.get("classification") != "value":
         return False
     reference_trace = reference.get("trace")
@@ -741,20 +800,83 @@ def _empty_delta_elision_relation(
         or len(reference_trace) != len(candidate_trace)
     ):
         return False
-    empty_map = {"$map": []}
-    last: Any = object()   # nothing emitted yet — never equal to a value
-    elided = 0
-    for ref, cand in zip(reference_trace, candidate_trace):
-        unchanged = ref is not None and ref == last
-        if ref is not None:
-            last = ref
-        if cand == ref:
-            continue
-        if cand is None and unchanged and ref == empty_map:
-            elided += 1
-            continue
+    inputs = recipe.get("inputs", {})
+    conditions, source = inputs.get("condition"), inputs.get("ts")
+    branch = recipe.get("parameters", {}).get("branch", "true")
+    if (
+        branch not in ("true", "false")
+        or not isinstance(conditions, list)
+        or not isinstance(source, list)
+        or len(conditions) != len(reference_trace)
+        or len(source) != len(reference_trace)
+    ):
         return False
+    if any(item is not None and type(item) is not bool for item in conditions):
+        return False
+    return _empty_branch_elision_trace(
+        reference_trace, candidate_trace, conditions, source, branch == "true"
+    )
+
+
+def _is_nested_key_only_elision(ref, cand, published, key, key_repeated,
+                               value, value_tick) -> bool:
+    inner = {"$map": [] if value is None else [[key, value]]}
+    return (
+        published
+        and key_repeated
+        and value_tick is None
+        and cand is None
+        and ref == {"$map": [[key, inner]]}
+    )
+
+
+def _nested_convert_elision_trace(refs, cands, keys, values) -> bool:
+    key = None
+    value = None
+    published = False
+    elided = 0
+    for key_tick, value_tick, ref, cand in zip(keys, values, refs, cands):
+        previous_key = key
+        key = key_tick if key_tick is not None else key
+        value = value_tick if value_tick is not None else value
+        if ref != cand:
+            if not _is_nested_key_only_elision(
+                ref, cand, published, key,
+                key_tick is not None and key == previous_key, value, value_tick
+            ):
+                return False
+            elided += 1
+        published = published or ref is not None
     return elided >= 1
+
+
+def _nested_convert_key_only_elision_relation(
+    recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Equal key-only writes do not reassign an unchanged nested REF.
+
+    This particular template composes two key/value conversions. Its raw
+    inputs prove no key, payload or designation changed at an elided tick;
+    equal explicit payload writes and new keys must still match exactly.
+    """
+    if difference.get("classification") != "value":
+        return False
+    refs, cands = reference.get("trace"), candidate.get("trace")
+    inputs = recipe.get("inputs", {})
+    keys, values = inputs.get("key"), inputs.get("value")
+    if not all(isinstance(items, list) for items in (refs, cands, keys, values)):
+        return False
+    if not (len(refs) == len(cands) == len(keys) == len(values)):
+        return False
+    if any(item is not None and not isinstance(item, str) for item in keys):
+        return False
+    if any(item is not None and type(item) is not int for item in values):
+        return False
+    return _nested_convert_elision_trace(refs, cands, keys, values)
 
 
 def _unbounded_integer_width_relation(
@@ -1347,6 +1469,7 @@ RELATIONS = {
     EMPTY_SET_RENDERS_AS_BRACES: _empty_set_renders_as_braces_relation,
     UNBOUNDED_INTEGER_WIDTH: _unbounded_integer_width_relation,
     EMPTY_DELTA_ELISION: _empty_delta_elision_relation,
+    NESTED_CONVERT_KEY_ONLY_ELISION: _nested_convert_key_only_elision_relation,
     IEEE_LOG_DOMAIN: _ieee_log_domain_relation,
     N_ARY_SET_FOLD: _n_ary_set_fold_relation,
     KEY_SET_READER_TICK: _key_set_reader_tick_relation,
