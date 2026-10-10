@@ -217,6 +217,19 @@ namespace hgraph
                 throw std::invalid_argument("lifted function argument count does not match the kernel arity");
             }
             R result = invoke<F>(args[I].template checked_as<tuple_arg_t<tuple, I>>()...);
+            // Typed in-place tier (the ``Out<TS<T>>::set`` middle path): a
+            // pure-native atomic slot whose realized ops match R assigns and
+            // commits via mark_modified; representation variants fall
+            // through to the erased copy.
+            if (auto slot_value = destination.mutable_value(); slot_value.valid())
+            {
+                if (R *slot = slot_value.template try_mutable_as<R>())
+                {
+                    *slot = std::move(result);
+                    destination.mark_modified();
+                    return;
+                }
+            }
             const ValueView source{destination.value().binding(),
                                    static_cast<const void *>(&result)};
             static_cast<void>(destination.copy_value_from(source));
@@ -415,12 +428,38 @@ namespace hgraph
                 (routes != nullptr && routes[I].ready() ? root.child_from_prepared(routes[I])
                                                         : input.at(I))...};
             if (!(children[I].valid() && ...)) { return true; }
-            auto output = view.output(evaluation_time);
 
             using tuple = arg_tuple_t<F>;
-            result_t<F> result =
-                invoke<F>(read_lifted_arg<tuple_arg_t<tuple, I>>(children[I])...);
+            using R     = result_t<F>;
+            R result    = invoke<F>(read_lifted_arg<tuple_arg_t<tuple, I>>(children[I])...);
+
+            // Prepared output route (RFC 0008 stage 6, the lifted twin of
+            // ``Out<TS<T>>::set``): the output's native slot and tracking
+            // were resolved at start, so a matching kernel result stores and
+            // records the modification directly instead of re-deriving the
+            // output view, opening a mutation scope and copying through the
+            // erased value ops per tick.
+            if (const auto *route = prepared_output_route_for(view);
+                route != nullptr && route->native() && route->value_ops == &ops_for<R>())
+            {
+                *static_cast<R *>(route->native_value) = std::move(result);
+                if (route->tracking->record_modified(evaluation_time))
+                {
+                    route->tracking->parent.notify_child_modified(evaluation_time);
+                }
+                return true;
+            }
+            auto output   = view.output(evaluation_time);
             auto mutation = output.begin_mutation(evaluation_time);
+            if (auto slot_value = mutation.mutable_value(); slot_value.valid())
+            {
+                if (R *slot = slot_value.template try_mutable_as<R>())
+                {
+                    *slot = std::move(result);
+                    mutation.mark_modified();
+                    return true;
+                }
+            }
             auto destination = mutation.value();
             const ValueView source{destination.binding(), static_cast<const void *>(&result)};
             static_cast<void>(mutation.copy_value_from(source));
@@ -488,21 +527,36 @@ namespace hgraph
             static const std::byte runtime_type_token{};
             descriptor.callbacks.evaluate = &evaluate_lifted_node_callback<F, Identity>;
             descriptor.ops.evaluate_impl  = &evaluate_lifted_node<F, Identity>;
+            // Prepared routes (RFC 0008 stages 5 and 6): the same planned
+            // fields and acquire/clear lifecycle as static nodes, for the
+            // input slots and for the node's own output.
             if constexpr (arity_v<F> > 0)
             {
-                // Prepared routes (RFC 0008 stage 5): same planned field and
-                // acquire/clear lifecycle as static nodes.
                 if (input_schema != nullptr)
                 {
-                    const std::array storage_fields{prepared_routes_storage_field<arity_v<F>>()};
+                    const std::array storage_fields{prepared_routes_storage_field<arity_v<F>>(),
+                                                    prepared_output_storage_field()};
                     descriptor.storage_plan = &node_storage_plan_for(descriptor.schema, storage_fields);
                     descriptor.callbacks.start = [](const NodeView &node, DateTime evaluation_time) {
                         acquire_prepared_input_routes<arity_v<F>>(node, evaluation_time);
+                        acquire_prepared_output_route(node, evaluation_time);
                     };
                     descriptor.callbacks.stop = [](const NodeView &node, DateTime) {
+                        clear_prepared_output_route(node);
                         clear_prepared_input_routes<arity_v<F>>(node);
                     };
                 }
+            }
+            else
+            {
+                const std::array storage_fields{prepared_output_storage_field()};
+                descriptor.storage_plan = &node_storage_plan_for(descriptor.schema, storage_fields);
+                descriptor.callbacks.start = [](const NodeView &node, DateTime evaluation_time) {
+                    acquire_prepared_output_route(node, evaluation_time);
+                };
+                descriptor.callbacks.stop = [](const NodeView &node, DateTime) {
+                    clear_prepared_output_route(node);
+                };
             }
 
             NodeBuilder builder = NodeBuilder::from_canonical_descriptor(

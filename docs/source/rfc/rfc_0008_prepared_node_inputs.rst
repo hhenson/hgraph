@@ -619,10 +619,22 @@ the derived facts to the same write:
   stores and calls ``record_modified`` directly, the same commit
   ``mark_modified`` performs; the invocation frame constructs the ``Out``
   view from the output pointer. Non-native outputs keep the pointer and fall
-  back for the write. Lifted kernels keep their erased write for now.
+  back for the write.
+* Lifted kernels (``lift<F>``, every standard arithmetic operator) plan the
+  same ``prepared_output`` field next to their stage-5 input routes and
+  acquire and clear it in the same framework callbacks. ``evaluate_lifted_children``
+  stores a kernel result whose ops match the route's into the native slot
+  and calls ``record_modified`` directly, exactly as ``Out<TS<T>>::set``
+  does; otherwise it opens the mutation scope and, for a native slot whose
+  realized ops match, assigns in place and commits through ``mark_modified``
+  before falling back to the erased copy. The reduce tree's combiner
+  evaluation (``eval_into``) takes the same in-place tier. (Added
+  2026-10-10: the per-tick output view, mutation scope and erased
+  ``copy_value_from`` were 20-30% of the lifted node's evaluation in the
+  dense native cells and 68% of a fan-in of lifted adds.)
 
 Memory: 32 bytes per active-trie node, 16 per prepared slot, 32 per static
-node with an output. Semantics: the fast paths are exact subsets of the
+node or lifted kernel with an output. Semantics: the fast paths are exact subsets of the
 resolving paths and switch off wherever the resolving path's answer depends
 on something the record does not capture.
 
