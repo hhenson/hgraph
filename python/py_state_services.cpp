@@ -290,9 +290,14 @@ namespace hgraph::python_bridge
         if (cached_type == type && cached_names != nullptr) { return cached_names; }
         nb::handle type_handle{reinterpret_cast<PyObject *>(type)};
         nb::object names = nb::steal(PySet_New(nullptr));
-        for (nb::handle base : nb::tuple(type_handle.attr("__mro__")))
+        // Materialise the accessors before converting: MSVC rejects the
+        // direct ``nb::tuple(handle.attr(...))`` function-style cast.
+        const nb::object mro_object = type_handle.attr("__mro__");
+        const nb::tuple  mro        = nb::borrow<nb::tuple>(mro_object);
+        for (nb::handle base : mro)
         {
-            for (nb::handle key : nb::iter(base.attr("__dict__")))
+            const nb::object base_dict = base.attr("__dict__");
+            for (nb::handle key : nb::iter(base_dict))
             {
                 if (PySet_Add(names.ptr(), key.ptr()) != 0) { throw nb::python_error(); }
             }
