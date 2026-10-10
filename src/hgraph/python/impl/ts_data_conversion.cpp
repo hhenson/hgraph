@@ -503,8 +503,19 @@ namespace hgraph::python_bridge
                 return *mutation;
             };
 
+            // A result that repeats last cycle's keys in their insertion order
+            // (the common dense case) lands each key in the slot of its
+            // ordinal, so that slot is tried first and taken when it holds
+            // the key — one key equality instead of a hash probe. Anything
+            // else (a new key, another order, a reused slot) falls through to
+            // the ordinary find-or-insert, which is exactly as correct.
+            const TSDDataView current = dict_out.data_view();
+            const std::size_t slot_capacity = current.slot_capacity();
+            std::size_t ordinal = 0;
+
             for (auto [key, item] : source)
             {
+                const std::size_t hint = ordinal++;
                 if (item.is_none()) { continue; }
                 from_python(layout.key_binding, key_memory, key);
                 if (strict_sentinel.is_valid() && item.is(strict_sentinel))
@@ -530,7 +541,14 @@ namespace hgraph::python_bridge
                     // skips the per-element output view, mutation scope and
                     // erased dispatch; anything else applies through its own
                     // Python ops.
-                    auto child = ensure_mutation().at(key_view);
+                    auto &dict_mutation = ensure_mutation();
+                    // The hinted slot is read through the dictionary's own
+                    // slot protocol; the element's storage is the same either
+                    // way, and the write below records through its tracking.
+                    auto  child = hint < slot_capacity && current.slot_live(hint) &&
+                                         current.key_at_slot(hint).equals(key_view)
+                                      ? current.at_slot(hint)
+                                      : dict_mutation.at(key_view);
                     if (!apply_native_atomic_result(child, evaluation_time, item))
                     {
                         child_ops.apply_result_impl(TSOutputView{output.output(), child, evaluation_time},
