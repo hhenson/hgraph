@@ -846,23 +846,22 @@ Semantics are unchanged: a type attribute still wins, and a missing bundle
 field or any unknown attribute on a non-bundle view raises the generic
 ``AttributeError``.
 
-**Native scalars cross the boundary without the ops tables.** A Python
-node's ``TimeSeries`` argument records, when its evaluation data is
-refreshed, whether the atomic behind it is a direct native int, float or
-bool (the realized value ops compared by identity with ``ops_for<Int>``,
-``ops_for<Float>``, ``ops_for<Bool>``) and where its value memory is;
-``ts.value`` then calls ``PyLong_FromLongLong`` / ``PyFloat_FromDouble`` /
-the bool singletons on that memory instead of dispatching through the TS
-ops' ``to_python`` slot and the value ops' thunk. On the way back,
-``apply_py_result`` receives the frame's ``Out`` with the node's prepared
-output route (RFC 0008 stage 6, the same route ``Out<TS<T>>::set`` uses):
-an **exact** ``int`` (not a ``bool``), ``float`` or ``bool`` result whose
-route is that native scalar is stored into the value memory and committed
-with ``record_modified`` plus the parent bubble, which is what the atomic
-``from_python`` slot does for a first write in the cycle. Everything else,
-``None`` (no tick), an overflowing int, a subclass or a cross-type value,
-takes the erased apply so its conversion rules and errors are untouched. The
-two paths were 7% and 15% of a Python combiner's tick (2026-10-10 profile).
+**A Python node's scalar result is written through its prepared output
+route.** ``apply_py_result`` receives the frame's ``Out`` carrying the node's
+prepared output route (RFC 0008 stage 6, the route ``Out<TS<T>>::set`` uses;
+the erased ``Out<TsVar>`` now carries it too). For a direct native atomic
+the route holds the value memory, its binding and its value ops, so a
+non-``None`` result is converted by the value ops' **registered**
+``from_python`` strategy, the same slot the erased write reaches through
+``apply_result`` → ``from_python`` → ``atomic_native_from_python``, and
+committed with ``record_modified`` plus the parent bubble, which is what that
+write does for the first modification of the cycle. The representation
+policy therefore stays where the architecture puts it, in the concrete
+``ValueOps`` strategy; what goes is the per-tick re-derivation of the output
+view, the mutation scope and the two dispatch layers (15% of a Python
+combiner's tick, 2026-10-10 profile). ``None`` and non-native outputs keep
+the erased apply. Reads are unchanged: ``ts.value`` dispatches through the
+live endpoint's ``TSDataOps`` table as the export rule requires.
 
 Platform notes
 --------------

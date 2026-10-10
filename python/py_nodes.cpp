@@ -46,49 +46,26 @@ template <> struct arg_provider<python_bridge::PyOwnerSchedulerSupport> {
 } // namespace hgraph::static_node_detail
 
 namespace hgraph::python_bridge {
-namespace {
-/** Exact-type scalar results stored through the node's prepared output
- * route (RFC 0008 stage 6): the same assignment the atomic from_python slot
- * performs for an exact int, float or bool, followed by the same commit
- * (record the first modification of the cycle, bubble to the parent). Any
- * other result, an overflowing int included, takes the erased path so its
- * conversion rules and errors are unchanged. */
-[[nodiscard]] bool apply_native_scalar_result(const PreparedOutputRoute &route,
-                                              nb::handle result, DateTime time) {
-  if (route.value_ops == &ops_for<Int>()) {
-    if (!PyLong_CheckExact(result.ptr())) {
-      return false;
-    }
-    const long long value = PyLong_AsLongLong(result.ptr());
-    if (value == -1 && PyErr_Occurred()) {
-      PyErr_Clear();
-      return false;
-    }
-    *static_cast<Int *>(route.native_value) = static_cast<Int>(value);
-  } else if (route.value_ops == &ops_for<Float>()) {
-    if (!PyFloat_CheckExact(result.ptr())) {
-      return false;
-    }
-    *static_cast<Float *>(route.native_value) = PyFloat_AsDouble(result.ptr());
-  } else if (route.value_ops == &ops_for<Bool>()) {
-    if (!PyBool_Check(result.ptr())) {
-      return false;
-    }
-    *static_cast<Bool *>(route.native_value) = result.ptr() == Py_True;
-  } else {
-    return false;
-  }
-  if (route.tracking->record_modified(time)) {
-    route.tracking->parent.notify_child_modified(time);
-  }
-  return true;
-}
-} // namespace
-
 void apply_py_result(nb::handle result, Out<TsVar<"O">> &out) {
+  // Prepared output route (RFC 0008 stage 6): for a direct native atomic the
+  // route holds the value memory, its binding and its value ops, so the
+  // result converts through the ops' REGISTERED from_python strategy (the
+  // same slot the atomic TSDataOps write reaches through
+  // apply_result -> from_python -> atomic_native_from_python) and commits
+  // with record_modified plus the parent bubble, which is what that write
+  // does for the first modification of the cycle. The representation policy
+  // stays with the ValueOps strategy; only the per-tick re-derivation of the
+  // output view, the mutation scope and the two dispatch layers go. None
+  // keeps the erased apply (no tick), as does a non-native output.
   if (const auto *route = out.prepared_output();
       route != nullptr && route->native() && !result.is_none() &&
-      apply_native_scalar_result(*route, result, out.evaluation_time())) {
+      route->value_ops != nullptr && route->value_ops->from_python_impl != nullptr) {
+    const DateTime time = out.evaluation_time();
+    route->value_ops->from_python_impl(route->value_ops->context, route->value_binding,
+                                       route->native_value, borrow(result));
+    if (route->tracking->record_modified(time)) {
+      route->tracking->parent.notify_child_modified(time);
+    }
     return;
   }
   apply_python_result(static_cast<const TSOutputView &>(out), result);

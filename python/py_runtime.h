@@ -1570,22 +1570,11 @@ namespace hgraph::python_bridge
         const void        *collection_identity{nullptr};
         /** Public child depth, excluding the bridge's hidden packed input root. */
         std::size_t        topology_depth{0};
-        /** Direct native scalar behind ``value()`` (RFC 0008 stage 6 on the
-            read side): when the atomic's realized value ops are the int,
-            float or bool ops, ``value()`` converts straight from the value
-            memory instead of dispatching through the TS and value ops
-            tables. Set with ``python_value_ops`` per refresh; last so positional
-            aggregate initialisers of the view stay valid. */
-        enum class NativeScalar : std::uint8_t { None, Int, Float, Bool };
-        NativeScalar       native_scalar_kind{NativeScalar::None};
-        const void        *native_scalar{nullptr};
 
         void refresh_evaluation_data(TSDataStorageRef<> storage,
                                      bool has_current_value)
         {
-            evaluation_data    = storage;
-            native_scalar_kind = NativeScalar::None;
-            native_scalar      = nullptr;
+            evaluation_data = storage;
             if (!has_current_value || !storage.has_value())
             {
                 python_value_ops = nullptr;
@@ -1593,17 +1582,6 @@ namespace hgraph::python_bridge
             }
             const auto *ops = storage.type_ref().ops();
             python_value_ops = ops != nullptr && ops->kind == TSTypeKind::TS ? ops : nullptr;
-            if (python_value_ops != nullptr && ops->direct_native_value && ops->value_view_impl == nullptr)
-            {
-                const ValueOps *value_ops = ops->layout_impl(ops->context)->value_binding.ops();
-                if (value_ops == &ops_for<Int>()) { native_scalar_kind = NativeScalar::Int; }
-                else if (value_ops == &ops_for<Float>()) { native_scalar_kind = NativeScalar::Float; }
-                else if (value_ops == &ops_for<Bool>()) { native_scalar_kind = NativeScalar::Bool; }
-                if (native_scalar_kind != NativeScalar::None)
-                {
-                    native_scalar = ops->value_memory_impl(ops->context, storage.data());
-                }
-            }
         }
 
         /** Throws when the view outlived its node's evaluation. */
@@ -1713,17 +1691,6 @@ namespace hgraph::python_bridge
                 // its common ``ts.value`` read avoids both a schema lookup and
                 // a duplicate has-current-value dispatch.
                 require_alive();
-                switch (native_scalar_kind)
-                {
-                    case NativeScalar::Int:
-                        return nb::steal(PyLong_FromLongLong(
-                            static_cast<long long>(*static_cast<const Int *>(native_scalar))));
-                    case NativeScalar::Float:
-                        return nb::steal(PyFloat_FromDouble(*static_cast<const Float *>(native_scalar)));
-                    case NativeScalar::Bool:
-                        return nb::borrow(*static_cast<const Bool *>(native_scalar) ? Py_True : Py_False);
-                    case NativeScalar::None: break;
-                }
                 return python_bridge::take(python_value_ops->to_python_impl(
                     python_value_ops->context, evaluation_data.data()));
             }
