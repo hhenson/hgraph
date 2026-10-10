@@ -891,6 +891,28 @@ combiner's tick, 2026-10-10 profile). ``None`` and non-native outputs keep
 the erased apply. Reads are unchanged: ``ts.value`` dispatches through the
 live endpoint's ``TSDataOps`` table as the export rule requires.
 
+**An atomic element of a structured result takes the same tier.** A
+dictionary, list or bundle result is applied element by element, and every
+atomic element used to pay the resolving path again: an output view and a
+mutation scope per element, the erased ``from_python`` dispatch to the
+atomic strategy and the reported-modification commit — about half of a
+200-key source node's cost after the generator itself (30% of the dense
+keyed-reduce cell, 2026-10-10 profile). ``apply_native_atomic_result`` is
+the per-element twin of the output route, resolved from the element's
+**live** ``TSDataOps`` table rather than a stored route: when that table is
+a direct native atomic (``direct_native_value`` without a whole-view
+projection), the element's value binding's registered ``from_python``
+strategy converts straight into the slot and the write commits with
+``record_modified`` plus the parent bubble, exactly what
+``atomic_native_from_python`` → ``record_reported_modification`` did for
+the first modification of the cycle. ``apply_replacement_result`` takes
+the tier for every atomic apply, and the dictionary apply calls it before
+it would construct the per-element output view; python-cached storage,
+``REF``, structural kinds, target links and a ``None`` result keep the
+resolving path and its rules. The dictionary apply also converts each key
+into one scratch payload through the key binding's strategy instead of
+re-validating the scratch view per key.
+
 Platform notes
 --------------
 

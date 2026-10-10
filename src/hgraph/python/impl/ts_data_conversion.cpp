@@ -121,9 +121,38 @@ namespace hgraph::python_bridge
                 schema_of(type, "TSW delta_from_python").delta_value_schema);
         }
 
+        /**
+         * The native tier of an atomic result apply — the per-element twin of
+         * the node output's prepared route (RFC 0008 stage 6): a direct native
+         * atomic converts through its value binding's registered strategy
+         * straight into the slot and commits with ``record_modified`` and the
+         * parent notification, with no output view, mutation scope or erased
+         * dispatch per element. Every other representation (python-cached,
+         * REF, structural, target links) and a ``None`` result return false
+         * for the resolving path, which keeps their own rules.
+         */
+        [[nodiscard]] bool apply_native_atomic_result(const TSDataView &data, DateTime evaluation_time,
+                                                      nb::handle result)
+        {
+            if (result.is_none() || evaluation_time == MIN_DT || !data.valid()) { return false; }
+            const auto &table = data.ops();
+            if (table.python_family != PythonTSDataFamily::atomic || !table.direct_native_value ||
+                table.value_view_impl != nullptr)
+            {
+                return false;
+            }
+            void       *memory = data.mutable_data();
+            const auto *layout = table.layout_impl(table.context);
+            from_python(layout->value_binding, table.mutable_value_memory_impl(table.context, memory), result);
+            auto *tracking = table.mutable_tracking_impl(table.context, memory);
+            if (tracking->record_modified(evaluation_time)) { tracking->parent.notify_child_modified(evaluation_time); }
+            return true;
+        }
+
         void apply_replacement_result(const TSOutputView &output,
                                       nb::handle result)
         {
+            if (apply_native_atomic_result(output.data_view(), output.evaluation_time(), result)) { return; }
             static_cast<void>(
                 python_bridge::from_python(output.begin_mutation(output.evaluation_time()), result));
         }
@@ -457,7 +486,12 @@ namespace hgraph::python_bridge
             const auto &child_ops = python_ops_for(layout.element_type);
             const nb::handle strict_sentinel = removed_sentinel_slot();
             const nb::handle lenient_sentinel = remove_if_exists_sentinel_slot();
-            Value key_scratch{layout.key_binding};
+            // One writable scratch key for the whole apply: its payload is
+            // live and stable, so each key converts straight into it through
+            // the key binding's registered strategy.
+            Value           key_scratch{layout.key_binding};
+            const ValueView key_view   = key_scratch.view();
+            void           *key_memory = const_cast<void *>(key_view.data());
 
             std::optional<TSDDataMutationView> mutation;
             const auto ensure_mutation = [&]() -> TSDDataMutationView & {
@@ -472,8 +506,7 @@ namespace hgraph::python_bridge
             for (auto [key, item] : source)
             {
                 if (item.is_none()) { continue; }
-                python_bridge::assign_from_python(key_scratch.view(), key);
-                const auto key_view = key_scratch.view();
+                from_python(layout.key_binding, key_memory, key);
                 if (strict_sentinel.is_valid() && item.is(strict_sentinel))
                 {
                     if (!ensure_mutation().erase(key_view))
@@ -493,8 +526,16 @@ namespace hgraph::python_bridge
                 }
                 else
                 {
+                    // The native tier first: a direct native atomic element
+                    // skips the per-element output view, mutation scope and
+                    // erased dispatch; anything else applies through its own
+                    // Python ops.
                     auto child = ensure_mutation().at(key_view);
-                    child_ops.apply_result_impl(TSOutputView{output.output(), child, evaluation_time}, borrow(item));
+                    if (!apply_native_atomic_result(child, evaluation_time, item))
+                    {
+                        child_ops.apply_result_impl(TSOutputView{output.output(), child, evaluation_time},
+                                                    borrow(item));
+                    }
                 }
             }
             // Touch LAST, only when something applied — mirrors
