@@ -833,9 +833,11 @@ node tick on ``ts.value`` alone (2026-10-07 bake-off profile). The slot
 decides **before** the generic lookup whether a name can only be a bundle
 field: the four hot getset names short-circuit by interned identity, every
 other name is probed against a frozenset of the type's MRO attribute names
-(built once; instances carry no ``__dict__``, so a name absent from it can
-never be satisfied generically), and only then is a bundle view asked for
-the field. Letting ``PyObject_GenericGetAttr`` fail first is not an option
+(built per type and rebuilt when the length of the type's own ``__dict__``
+changes, so an attribute added to or removed from ``TimeSeries`` after first
+use is seen before the next lookup; instances carry no ``__dict__``, so a
+name absent from the set can never be satisfied generically), and only then
+is a bundle view asked for the field. Letting ``PyObject_GenericGetAttr`` fail first is not an option
 in the limited API: the failure materialises an ``AttributeError`` with a
 formatted message per read, which made ``bundle.field`` 1.7x slower than
 the old hook (2026-10-10 micro-benchmark; CPython's own hook suppresses

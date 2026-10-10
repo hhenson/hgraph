@@ -278,17 +278,44 @@ namespace hgraph::python_bridge
     namespace
     {
     /** Attribute names defined on the TimeSeries type and its bases, as a
-        frozenset, built once from the first instance's ``__mro__``. A name
-        absent from it cannot be satisfied by the generic lookup (instances
-        carry no ``__dict__``), so a bundle view resolves such a name as a
-        field directly instead of letting ``PyObject_GenericGetAttr`` fail
-        first. Keyed on the type object so a re-created type rebuilds it. */
+        frozenset built from the type's ``__mro__``. A name absent from it
+        cannot be satisfied by the generic lookup (instances carry no
+        ``__dict__``), so a bundle view resolves such a name as a field
+        directly instead of letting ``PyObject_GenericGetAttr`` fail first.
+
+        Staleness: the set is keyed on the type object and on the live length
+        of the type's own ``__dict__``. The limited API has no
+        ``PyType_GetDict`` (it is a ``cpython/`` header symbol), so the
+        ``type.__dict__`` mapping proxy is fetched once per type and kept;
+        ``PyObject_Size`` on it answers from the underlying dict without an
+        allocation. Adding or removing an attribute on ``hgraph.TimeSeries``
+        after first use therefore rebuilds the set before the next non-hot
+        lookup; replacing an attribute's value keeps the membership the set
+        records, and a remove paired with an add between two lookups is not
+        seen until the length moves again. Base-class dictionaries
+        (nanobind's and ``object``'s) are not expected to change during a run
+        and are read only on a rebuild. */
     PyObject *py_ts_type_attribute_names(PyTypeObject *type)
     {
-        static PyTypeObject *cached_type  = nullptr;
-        static PyObject     *cached_names = nullptr;
-        if (cached_type == type && cached_names != nullptr) { return cached_names; }
+        static PyTypeObject *cached_type      = nullptr;
+        static PyObject     *cached_names     = nullptr;
+        static PyObject     *cached_dict_view = nullptr;  // type.__dict__ mapping proxy
+        static Py_ssize_t    cached_dict_size = -1;
         nb::handle type_handle{reinterpret_cast<PyObject *>(type)};
+        if (cached_type != type)
+        {
+            // The proxy and the name set always describe cached_type; drop
+            // both before fetching so a failed fetch leaves no stale pair.
+            Py_CLEAR(cached_dict_view);
+            Py_CLEAR(cached_names);
+            cached_type      = nullptr;
+            cached_dict_view = PyObject_GetAttrString(type_handle.ptr(), "__dict__");
+            if (cached_dict_view == nullptr) { throw nb::python_error(); }
+            cached_type = type;
+        }
+        const Py_ssize_t dict_size = PyObject_Size(cached_dict_view);
+        if (dict_size < 0) { throw nb::python_error(); }
+        if (cached_names != nullptr && cached_dict_size == dict_size) { return cached_names; }
         nb::object names = nb::steal(PySet_New(nullptr));
         // Materialise the accessors before converting: MSVC rejects the
         // direct ``nb::tuple(handle.attr(...))`` function-style cast.
@@ -305,8 +332,8 @@ namespace hgraph::python_bridge
         nb::object frozen = nb::steal(PyFrozenSet_New(names.ptr()));
         if (!frozen.is_valid()) { throw nb::python_error(); }
         Py_XDECREF(cached_names);
-        cached_names = frozen.release().ptr();
-        cached_type  = type;
+        cached_names     = frozen.release().ptr();
+        cached_dict_size = dict_size;
         return cached_names;
     }
 
