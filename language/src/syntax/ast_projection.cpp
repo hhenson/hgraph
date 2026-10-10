@@ -195,6 +195,7 @@ namespace hgl::syntax
                     case TokenKind::KwI64: return ast::ScalarType::I64;
                     case TokenKind::KwF64: return ast::ScalarType::F64;
                     case TokenKind::KwStr: return ast::ScalarType::Str;
+                    case TokenKind::KwBytes: return ast::ScalarType::Bytes;
                     case TokenKind::KwDate: return ast::ScalarType::Date;
                     case TokenKind::KwTime: return ast::ScalarType::Time;
                     case TokenKind::KwDateTime: return ast::ScalarType::DateTime;
@@ -508,7 +509,7 @@ namespace hgl::syntax
                 // keyword qualifier cannot reach here: it is no expression start.
                 std::vector<ast::Name> names = direct_names(id);
                 bool string_call = false;
-                if (names.size() == 1U && names.front().text == "str") {
+                if (names.size() == 1U && (names.front().text == "str" || names.front().text == "bytes")) {
                     const auto tokens = descendant_tokens(id);
                     const std::size_t next = syntax_token(tokens.back()).source_token_index + 1U;
                     string_call = next < lexed_.tokens.size() && lexed_.tokens[next].kind == TokenKind::LParen;

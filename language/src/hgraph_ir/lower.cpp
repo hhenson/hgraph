@@ -283,7 +283,9 @@ namespace hgl::hgraph_ir
                     target.kind = ConstExprKind::Tuple;
                     for (hir::ExprId item : tuple->elements) { target.items.push_back(lower_const_expr(item, source.range, role)); }
                 } else if (const auto *call = std::get_if<hir::Call>(&source.node);
-                           call != nullptr && source.operation.kind == hir::OperationKind::Constructor) {
+                           call != nullptr &&
+                           (source.operation.kind == hir::OperationKind::Constructor ||
+                            (source.operation.kind == hir::OperationKind::Intrinsic && source.operation.identity == "bytes"))) {
                     target.kind             = ConstExprKind::Construct;
                     target.constructed_type = lower_type(source.type);
                     for (const hir::Argument &argument : call->arguments) {
@@ -468,7 +470,9 @@ namespace hgl::hgraph_ir
                         target.items.push_back(lower_const_expr(item, bindings, source.range, role));
                     }
                 } else if (const auto *call = std::get_if<hir::Call>(&source.node);
-                           call != nullptr && source.operation.kind == hir::OperationKind::Constructor) {
+                           call != nullptr &&
+                           (source.operation.kind == hir::OperationKind::Constructor ||
+                            (source.operation.kind == hir::OperationKind::Intrinsic && source.operation.identity == "bytes"))) {
                     target.kind             = ConstExprKind::Construct;
                     target.constructed_type = lower_type(source.type, bindings);
                     for (const hir::Argument &argument : call->arguments) {

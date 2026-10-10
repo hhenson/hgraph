@@ -36,6 +36,7 @@ namespace hgl::native
         ZonedDateTime,
         ZonedTime,
         TimeZone,
+        Bytes,
     };
 
     enum class ValueTypeCategory : std::uint8_t {
@@ -101,7 +102,11 @@ namespace hgl::native
         /// An ordinary publication delta retaining its originating temporal shape.
         /// Native ABI admission remains subject to the package safety envelope.
         [[nodiscard]] static ValueType delta(ValueType shape) {
-            if (shape.category == ValueTypeCategory::Scalar && (shape.scalar <= ScalarType::ZonedTime || shape.scalar == ScalarType::TimeZone)) { return shape; }
+            if (shape.category == ValueTypeCategory::Scalar &&
+                (shape.scalar <= ScalarType::ZonedTime || shape.scalar == ScalarType::TimeZone ||
+                 shape.scalar == ScalarType::Bytes)) {
+                return shape;
+            }
             return ValueType{.category = ValueTypeCategory::Delta, .children = {std::move(shape)}};
         }
 

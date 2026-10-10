@@ -906,6 +906,14 @@ namespace hgl::wiring
                     }
                 case gir::ConstExprKind::Construct:
                     {
+                        if (value_meta(expression.constructed_type) == types_.bytes_type) {
+                            if (expression.arguments.empty()) {
+                                return make_const(hgraph::Value{hgraph::Bytes{}}, expression.range);
+                            }
+                            const Slot source = eval_typed_collection_child(expression.arguments.front().value,
+                                                                            registry_.list(types_.int_type), frame);
+                            return make_const(hgraph::Value{ordinary::bytes_from_octets(source.value.view())}, expression.range);
+                        }
                         const auto kind = value_meta(expression.constructed_type)->try_value_kind();
                         if (!expression.delta && (kind == hgraph::ValueTypeKind::Map || kind == hgraph::ValueTypeKind::Set)) {
                             const auto &entries = module_.const_exprs[expression.arguments.front().value.value].elements;
@@ -1773,6 +1781,12 @@ namespace hgl::wiring
 
         Slot Compiler::eval_intrinsic(std::string_view name, const std::vector<gir::Argument> &arguments, SourceRange range,
                                       Frame &frame) {
+            if (name == "bytes") {
+                if (arguments.empty()) { return make_const(hgraph::Value{hgraph::Bytes{}}, range); }
+                const Slot item = eval_value(arguments.front().value, frame);
+                if (!item.is_const()) { backend(range, "bytes requires a checked ordinary list value"); }
+                return make_const(hgraph::Value{ordinary::bytes_from_octets(item.value.view())}, range);
+            }
             if (name == "len") {
                 Slot item = eval_value(arguments.front().value, frame);
                 if (item.kind == Slot::Kind::Sequence) {
@@ -1781,6 +1795,9 @@ namespace hgl::wiring
                         backend(range, "harness sequence length is not representable as i64");
                     }
                     return make_const(hgraph::Value{static_cast<hgraph::Int>(item.elements.size())}, range);
+                }
+                if (item.is_const() && item.meta() == types_.bytes_type) {
+                    return make_const(hgraph::Value{ordinary::bytes_length(item.value.view().checked_as<hgraph::Bytes>())}, range);
                 }
                 if (!item.is_const() || !item.value.view().is_list()) { backend(range, "len requires an ordinary list"); }
                 const ordinary::PreparedValuePlan plan{item.value.binding()};

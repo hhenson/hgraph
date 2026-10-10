@@ -22,6 +22,7 @@ namespace hgl::semantics
         I64,
         F64,
         Str,
+        Bytes,
         Date,
         Time,
         DateTime,

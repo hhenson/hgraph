@@ -14,10 +14,11 @@ namespace hgl::ordinary
         using namespace hgraph;
         if (!value) { return nullptr; }
         auto &registry = TypeRegistry::instance();
-        const std::array leaves{scalar_descriptor<Bool>::value_meta(), scalar_descriptor<Int>::value_meta(),
-            scalar_descriptor<Float>::value_meta(), scalar_descriptor<Str>::value_meta(),
-            scalar_descriptor<Date>::value_meta(), scalar_descriptor<Time>::value_meta(),
-            scalar_descriptor<DateTime>::value_meta(), scalar_descriptor<TimeDelta>::value_meta()};
+        const std::array leaves{scalar_descriptor<Bool>::value_meta(),     scalar_descriptor<Int>::value_meta(),
+                                scalar_descriptor<Float>::value_meta(),    scalar_descriptor<Str>::value_meta(),
+                                scalar_descriptor<Date>::value_meta(),     scalar_descriptor<Time>::value_meta(),
+                                scalar_descriptor<DateTime>::value_meta(), scalar_descriptor<TimeDelta>::value_meta(),
+                                scalar_descriptor<Bytes>::value_meta()};
         if (std::ranges::find(leaves, value) != leaves.end()) { return registry.ts(value); }
         switch (value->value_kind()) {
             case ValueTypeKind::Set:

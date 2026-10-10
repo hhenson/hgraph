@@ -25,6 +25,7 @@ namespace hgl::descriptor
             if (type.scalar_name == "i64") { return ImportedScalarType::I64; }
             if (type.scalar_name == "f64") { return ImportedScalarType::F64; }
             if (type.scalar_name == "str") { return ImportedScalarType::Str; }
+            if (type.scalar_name == "bytes") { return ImportedScalarType::Bytes; }
             if (type.scalar_name == "date") { return ImportedScalarType::Date; }
             if (type.scalar_name == "time") { return ImportedScalarType::Time; }
             if (type.scalar_name == "datetime") { return ImportedScalarType::DateTime; }

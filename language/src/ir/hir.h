@@ -55,6 +55,7 @@ namespace hgl::ir::hir
         I64,
         F64,
         Str,
+        Bytes,
         Date,
         Time,
         DateTime,

@@ -617,6 +617,15 @@ if(TARGET hgraph::analytics)
     list(APPEND _hgl_generated_test_libraries hgl_basic_examples_fixture)
 endif()
 
+hgl_add_module(hgl_bytes_fixture STATIC HGL codegen/bytes-values.hgl)
+hgl_apply_warnings(hgl_bytes_fixture)
+list(APPEND _hgl_generated_test_sources codegen/generated_bytes_tests.cpp)
+list(APPEND _hgl_generated_test_libraries hgl_bytes_fixture)
+if(NOT WIN32)
+    add_test(NAME hgraph_language_bytes_values
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/bytes-values.hgl)
+endif()
+
 add_executable(hgl_generated_tests ${_hgl_generated_test_sources})
 target_compile_features(hgl_generated_tests PRIVATE cxx_std_23)
 target_link_libraries(hgl_generated_tests PRIVATE
@@ -820,7 +829,24 @@ if(UNIX)
             --part ${HGRAPH_STD}/tests/temporal_retention_values.hgl
             --part ${HGRAPH_STD}/tests/recursive_eval_values.hgl
             --part ${HGRAPH_STD}/tests/record_observation_values.hgl
+            --part ${HGRAPH_STD}/tests/bytes_values.hgl
             --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
+    add_test(NAME hgraph_language_test_bytes_shared
+        COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${HGRAPH_STD}/standard.hgl
+            --part ${HGRAPH_STD}/control.hgl
+            --part ${HGRAPH_STD}/stream.hgl
+            --part ${HGRAPH_STD}/temporal.hgl
+            --part ${HGRAPH_STD}/impl/standard.hgl
+            --part ${HGRAPH_STD}/impl/control.hgl
+            --part ${HGRAPH_STD}/impl/stream.hgl
+            --part ${HGRAPH_STD}/impl/temporal.hgl
+            --part ${HGRAPH_STD}/replay_record.hgl
+            --part ${HGRAPH_STD}/impl/replay_record.hgl
+            --part ${HGRAPH_STD}/tests/bytes_values.hgl
+            --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
+    set_tests_properties(hgraph_language_test_bytes_shared PROPERTIES
+        ENVIRONMENT_MODIFICATION "CPLUS_INCLUDE_PATH=path_list_prepend:${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/include"
+        ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     add_test(NAME hgraph_language_test_operator_bodies
         COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${HGRAPH_STD}/operators.hgl
             --part ${HGRAPH_STD}/impl/operators.hgl

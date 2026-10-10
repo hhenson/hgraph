@@ -30,6 +30,7 @@ namespace hgl::wiring
                 case hir::ScalarType::I64: return types.int_type;
                 case hir::ScalarType::F64: return types.float_type;
                 case hir::ScalarType::Str: return types.str_type;
+                case hir::ScalarType::Bytes: return types.bytes_type;
                 case hir::ScalarType::Date: return types.date_type;
                 case hir::ScalarType::Time: return types.time_type;
                 case hir::ScalarType::DateTime: return types.datetime_type;

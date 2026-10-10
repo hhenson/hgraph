@@ -36,6 +36,31 @@ namespace hgl::ordinary
         require_payload(value, true);
         return value.as<T>();
     }
+    // BYTE-1–5: retain a complete ordinary i64 list once, then check octets.
+    // Construction is an execution recipe; callers decide whether evaluation
+    // is required at compile time or belongs to an executed test/node.
+    [[nodiscard]] inline hgraph::Bytes bytes_from_octets(const hgraph::ValueView &value) {
+        require_payload(value, true);
+        const auto octets = value.as_list();
+        if (octets.size() > static_cast<std::size_t>(std::numeric_limits<hgraph::Int>::max())) {
+            throw std::length_error("bytes length is not representable as i64");
+        }
+        hgraph::Bytes result;
+        result.data.reserve(octets.size());
+        for (std::size_t index = 0; index < octets.size(); ++index) {
+            const auto octet = required_scalar<hgraph::Int>(octets.at(index));
+            if (octet < 0 || octet > 255) { throw hgl::ExecutionError{"value.byte_range", "bytes octet is outside 0 through 255"}; }
+            result.data.push_back(static_cast<char>(static_cast<unsigned char>(octet)));
+        }
+        return result;
+    }
+    [[nodiscard]] inline hgraph::Int bytes_length(const hgraph::Bytes &value) {
+        if (value.data.size() > static_cast<std::size_t>(std::numeric_limits<hgraph::Int>::max())) {
+            throw std::length_error("bytes length is not representable as i64");
+        }
+        return static_cast<hgraph::Int>(value.data.size());
+    }
+
     // Only explicit publication predicates use this marker. Allocation and
     // storage failures retain their original exception identity.
     class PublicationProfileError : public std::invalid_argument {
@@ -100,12 +125,18 @@ namespace hgl::ordinary
             return;
         }
         const std::array leaves{hgraph::scalar_descriptor<hgraph::Bool>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::Int>::value_meta(), hgraph::scalar_descriptor<hgraph::Float>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::Str>::value_meta(), hgraph::scalar_descriptor<hgraph::Date>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::Time>::value_meta(), hgraph::scalar_descriptor<hgraph::DateTime>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta(), hgraph::scalar_descriptor<hgraph::CivilDateTime>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta(), hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::ZonedTime>::value_meta()};
+                                hgraph::scalar_descriptor<hgraph::Int>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::Float>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::Str>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::Bytes>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::Date>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::Time>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::DateTime>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::CivilDateTime>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::ZonedTime>::value_meta()};
         if (!schema->is_enum() && std::ranges::find(leaves, schema) == leaves.end()) {
             throw std::invalid_argument("unsupported collection key type");
         }
@@ -119,14 +150,18 @@ namespace hgl::ordinary
     inline void validate_atomic_schema(const hgraph::ValueTypeMetaData *schema,
                                        std::unordered_set<const hgraph::ValueTypeMetaData *> &visiting) {
         const std::array leaves{hgraph::scalar_descriptor<hgraph::Bool>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::Int>::value_meta(), hgraph::scalar_descriptor<hgraph::Float>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::Str>::value_meta(), hgraph::scalar_descriptor<hgraph::Date>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::Time>::value_meta(), hgraph::scalar_descriptor<hgraph::DateTime>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::CivilDateTime>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::ZonedTime>::value_meta()};
+                                hgraph::scalar_descriptor<hgraph::Int>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::Float>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::Str>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::Bytes>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::Date>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::Time>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::DateTime>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::CivilDateTime>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta(),
+                                hgraph::scalar_descriptor<hgraph::ZonedTime>::value_meta()};
         if (schema->is_enum() || std::ranges::find(leaves, schema) != leaves.end()) { return; }
         if (schema->is_owned()) {
             if (schema->element_type->is_abstract_bundle()) { throw std::invalid_argument("recursive family publication payload"); }
@@ -226,14 +261,19 @@ namespace hgl::ordinary
     inline void validate_delta_shape(const hgraph::TSValueTypeMetaData *root) {
         const auto *boolean = hgraph::scalar_descriptor<hgraph::Bool>::value_meta();
         const auto *integer = hgraph::scalar_descriptor<hgraph::Int>::value_meta();
-        const std::array leaves{boolean, integer, hgraph::scalar_descriptor<hgraph::Float>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::Str>::value_meta(), hgraph::scalar_descriptor<hgraph::Date>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::Time>::value_meta(), hgraph::scalar_descriptor<hgraph::DateTime>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::CivilDateTime>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::ZonedTime>::value_meta()};
+        const std::array                                 leaves{boolean,
+                                                                integer,
+                                                                hgraph::scalar_descriptor<hgraph::Float>::value_meta(),
+                                                                hgraph::scalar_descriptor<hgraph::Str>::value_meta(),
+                                                                hgraph::scalar_descriptor<hgraph::Bytes>::value_meta(),
+                                                                hgraph::scalar_descriptor<hgraph::Date>::value_meta(),
+                                                                hgraph::scalar_descriptor<hgraph::Time>::value_meta(),
+                                                                hgraph::scalar_descriptor<hgraph::DateTime>::value_meta(),
+                                                                hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta(),
+                                                                hgraph::scalar_descriptor<hgraph::CivilDateTime>::value_meta(),
+                                                                hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta(),
+                                                                hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta(),
+                                                                hgraph::scalar_descriptor<hgraph::ZonedTime>::value_meta()};
         std::vector<const hgraph::TSValueTypeMetaData *> pending{root};
         while (!pending.empty()) {
             const auto *shape = pending.back();

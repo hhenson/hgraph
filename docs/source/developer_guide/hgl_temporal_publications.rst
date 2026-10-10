@@ -1,8 +1,8 @@
 HGL temporal scalar publications
 ================================
 
-The HGL publication profile admits twelve scalar leaves: ``bool``, ``i64``,
-``f64``, ``str``, ``date``, ``time``, ``datetime``, ``duration``,
+The HGL publication profile admits thirteen scalar leaves: ``bool``, ``i64``,
+``f64``, ``str``, ``bytes``, ``date``, ``time``, ``datetime``, ``duration``,
 ``civil_datetime``, ``timezone``, ``zoned_datetime`` and ``zoned_time``. ``delta<S>`` and ``atomic<S>`` normalize to ``S`` for each
 admitted leaf. The same admission is recursive through existing structural
 and finite atomic shapes; it does not relax collection

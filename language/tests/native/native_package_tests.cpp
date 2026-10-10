@@ -286,3 +286,28 @@ TEST_CASE("native package delta patterns canonicalize admitted scalar origins") 
     source.declarations[1].parameters[1].type = structural;
     CHECK_THROWS_WITH(descriptor_json(source), Catch::Matchers::ContainsSubstring("outside the scalar"));
 }
+
+TEST_CASE("native bytes signatures retain scalar delta identity and existing enum ordinals", "[native][bytes]") {
+    using namespace hgl::native;
+    static_assert(static_cast<unsigned>(ScalarType::Date) == 4);
+    static_assert(static_cast<unsigned>(ScalarType::TimeZone) == 11);
+    const auto bytes = ValueType::canonical(ScalarType::Bytes);
+    CHECK(ValueType::delta(bytes) == bytes);
+    const Package source{
+        .module_identity  = "checks.byte_package",
+        .language_version = "0.1-test",
+        .declarations     = {Declaration{
+            .identity    = "checks.byte_package::identity",
+            .cpp_symbol  = "checks::byte_identity",
+            .parameters  = {Parameter{.name = "value", .type = bytes}},
+            .result_type = bytes,
+            .phases      = {Phase::Wiring, Phase::Evaluation},
+        }},
+    };
+    const auto parsed = hgl::descriptor::read_json(descriptor_json(source));
+    REQUIRE(parsed);
+    REQUIRE(parsed.value->native_declarations.size() == 1);
+    const auto &signature = parsed.value->native_declarations.front().signature;
+    CHECK(parsed.value->types[signature.result].scalar_name == "bytes");
+    CHECK(signature.parameters.front().type == signature.result);
+}

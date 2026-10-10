@@ -1527,7 +1527,11 @@ namespace hgl::codegen
                 case gir::ConstExprKind::Field: unsupported(range, "a field-read generated constant expression");
                 case gir::ConstExprKind::Sequence: unsupported(range, "a generated list or map constant");
                 case gir::ConstExprKind::Tuple: unsupported(range, "a generated tuple constant");
-                case gir::ConstExprKind::Construct: unsupported(range, "a generated struct constant");
+                case gir::ConstExprKind::Construct:
+                    if (planned_type(expression.constructed_type, range).is(hir::ScalarType::Bytes)) {
+                        return planned_construct(expression, range, nullptr);
+                    }
+                    unsupported(range, "a generated struct constant");
                 case gir::ConstExprKind::Literal: break;
             }
             backend(range, "hgraph IR contains an incomplete constant expression");
@@ -1564,6 +1568,7 @@ namespace hgl::codegen
                             case ScalarType::I64: return scalar_type(hir::ScalarType::I64);
                             case ScalarType::F64: return scalar_type(hir::ScalarType::F64);
                             case ScalarType::Str: return scalar_type(hir::ScalarType::Str);
+                            case ScalarType::Bytes: return scalar_type(hir::ScalarType::Bytes);
                             case ScalarType::Date: return scalar_type(hir::ScalarType::Date);
                             case ScalarType::Time: return scalar_type(hir::ScalarType::Time);
                             case ScalarType::DateTime: return scalar_type(hir::ScalarType::DateTime);
@@ -1889,6 +1894,14 @@ namespace hgl::codegen
                 HType inner = std::move(type.children.front());
                 type        = std::move(inner);
             }
+            if (type.is(hir::ScalarType::Bytes)) {
+                if (expression.arguments.empty()) { return make_const("hgraph::Bytes{}", type, range); }
+                HType octets;
+                octets.kind = HType::Kind::List;
+                octets.children.push_back(scalar_type(hir::ScalarType::I64));
+                const auto source = planned_collection_child(expression.arguments.front().value, octets, range, bindings);
+                return make_const("hgl::ordinary::bytes_from_octets(" + ordinary_view(source) + ")", type, range);
+            }
             if (type.kind == HType::Kind::Map || type.kind == HType::Kind::Set) {
                 const auto &entries = graph_.const_exprs[expression.arguments.front().value.value].elements;
                 return construct_ordinary_collection(type, entries.size(),
@@ -2000,6 +2013,7 @@ namespace hgl::codegen
                         case hir::ScalarType::I64: return "hgraph::Int";
                         case hir::ScalarType::F64: return "hgraph::Float";
                         case hir::ScalarType::Str: return "hgraph::Str";
+                        case hir::ScalarType::Bytes: return "hgraph::Bytes";
                         case hir::ScalarType::Date: return "hgraph::Date";
                         case hir::ScalarType::Time: return "hgraph::Time";
                         case hir::ScalarType::DateTime: return "hgraph::DateTime";
@@ -4449,6 +4463,23 @@ namespace hgl::codegen
                 value.borrowed_value = true;
                 value.raw_delta = true;
                 return value;
+            }
+            if (name == "bytes") {
+                const std::string code = call.arguments.empty()
+                                             ? "hgraph::Bytes{}"
+                                             : "hgl::ordinary::bytes_from_octets(" +
+                                                   ordinary_view(eval_planned_expr(call.arguments.front().value, frame)) + ")";
+                return frame.runtime ? make_runtime(code, scalar_type(hir::ScalarType::Bytes), range)
+                                     : make_const(code, scalar_type(hir::ScalarType::Bytes), range);
+            }
+            if (name == "len" && call.arguments.size() == 1U) {
+                const Value value = eval_planned_expr(call.arguments.front().value, frame);
+                if (value.type.is(hir::ScalarType::Bytes)) {
+                    const std::string code =
+                        "hgl::ordinary::bytes_length(" + as_runtime(value, value.type, range, "bytes length") + ")";
+                    return value.is_const() ? make_const(code, scalar_type(hir::ScalarType::I64), range)
+                                            : make_runtime(code, scalar_type(hir::ScalarType::I64), range);
+                }
             }
             if (name == "str") {
                 if (call.arguments.size() != 1U) { backend(range, "str requires exactly one scalar argument"); }
