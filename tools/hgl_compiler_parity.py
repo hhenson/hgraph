@@ -93,7 +93,7 @@ def cpp_command(source, build, module, files):
         anchor = 'standard.hgl' if module == 'hgraph.std' else 'operators.hgl'
         files = sorted(files, key=lambda p: (p.name != anchor, str(p)))
         extra = ['--module-descriptor', str(generated / 'src/native.hgl-module.json')]
-        if module == 'hgraph.std' and any(file.name == 'atomic_values_fixture.hgl' for file in files):
+        if module == 'hgraph.std':
             # The native interface is source data; its checked C++ fixture
             # contract must accompany it, just as for the core native module.
             atomic = build / 'language/tests/native-atomic-standard.hgl-module.json'
@@ -105,9 +105,9 @@ def cpp_command(source, build, module, files):
     for file in files[1:]:
         command += ['--part', str(file)]
     env = dict(os.environ)
-    env['CPLUS_INCLUDE_PATH'] = os.pathsep.join(filter(None, [str(generated / 'include'),
-        str(source / 'language/stdlib/cpp'), str(source / 'language/tests/driver/include'),
-        env.get('CPLUS_INCLUDE_PATH')]))
+    includes = [str(source / 'language/tests/driver/include')] if module == 'hgraph.std' else []
+    env['CPLUS_INCLUDE_PATH'] = os.pathsep.join(filter(None, [*includes, str(generated / 'include'),
+        str(source / 'language/stdlib/cpp'), env.get('CPLUS_INCLUDE_PATH')]))
     env['HGL_CACHE_DIR'] = str(build / 'language/tests/parity-cache')
     return command + extra, env, native
 
