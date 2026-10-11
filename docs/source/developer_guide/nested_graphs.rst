@@ -76,13 +76,26 @@ in-place child before the raw slot can be reused. ``switch_`` expresses the
 same rule with its active/previous A/B slots; ``reduce`` expresses it with its
 active/previous banks.
 
+Stopping a child also retires its owned endpoints logically. A generation
+guard is prepared with each child graph. A weak cycle-boundary callback
+invalidates subscriptions in that graph's owned output, error and recordable
+trees before the next engine cycle, even when physical slot reclamation is
+delayed. The stop cycle remains readable. The callback does not retain graph
+storage; destroying or reusing the slot cancels it. Ownership traversal does
+not follow REF values or captured input links, so an exported reference to a
+parent producer keeps the parent's lifetime. Endpoint kinds are prepared in
+the graph context, without a name or schema lookup during expiry.
+Final root teardown does not queue future expiry work. The C++ testing mock
+supports the same FIFO-before/LIFO-after notifications through its manually
+evaluated root lifecycle, including the root clock update at each cycle.
+
 Map normally mirrors the authoritative key-set slots directly. If the bound
 key-set handle itself is replaced, the replacement may reuse the same slot ids
 before the old handle can emit erase callbacks. Map therefore alternates two
 ``InPlaceGraphSlotStore`` banks for that case: it stops and retires the old
 bank, builds the replacement in the inactive bank, and destroys the retired
 bank only on a later evaluation time. This is the dynamic counterpart of the
-switch A/B protocol and does not introduce per-entry ownership allocations.
+switch A/B protocol and does not introduce per-entry graph payload allocations.
 
 Steady-state nested evaluation avoids temporary pointer bookkeeping. Boundary
 paths are traversed as spans, forwarding-chain cycle detection uses constant
@@ -114,6 +127,24 @@ specs at ``finish_subgraph``.
 A boundary source composes with the rest of wiring uniformly: it can feed any
 child node input directly or appear as a child of a structural source (the
 binding target path is extended into the structural slot).
+
+**Fresh internal REF observations.** Graph preparation records internal edges
+that adapt an ordinary endpoint to a REF input. Instantiating the adaptation
+creates its designation before the child starts; its construction timestamp
+must not suppress the first observation when that child starts in a later
+engine cycle. Activation samples these input positions once and schedules
+their active consumers in rank order. This uses the existing sampled-input
+contract (TS-14), without changing the scalar producer's timestamps or making
+input activation itself schedule work (TS-8). Already REF-typed sources retain
+their normal publication and equal-designation behavior (TS-16). The prepared
+edge recipe avoids schema tests or name lookup during steady-state evaluation.
+
+Generic structural delta projection keeps each child's input-link facade.
+Unwrapping directly to a producer would discard the sample timestamp when an
+exported REF tree changes one retained child. TS/REF leaf delta callbacks are
+selected during type preparation; a sampled leaf contributes its current
+value at the sample time, while an unchanged child contributes only its
+producer's actual delta. Sampling leaves producer clocks unchanged.
 
 **Pass-through outputs (``alias_parent_input``).** A sub-graph ``compose`` may
 return a boundary input directly. This compiles to the ``ParentInput`` output

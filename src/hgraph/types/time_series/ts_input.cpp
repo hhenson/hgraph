@@ -1303,13 +1303,20 @@ namespace hgraph
                                                                 const void *memory,
                                                                 std::size_t index)
         {
+            const auto *state = static_cast<const InputBindingContext *>(context);
+            if (index >= state->children.size()) { return false; }
+            const DateTime time = input_tracking(context, memory)->last_modified_time;
+            const auto    *link = child_target_storage(state->children[index], memory);
+            if (link != nullptr && link->tracking.last_modified_time == time && link->target_view().has_current_value()) {
+                return true;
+            }
             const auto type = input_value_storage_type(context, memory, index);
             const auto *data = input_element_memory(context, memory, index);
             if (!type || data == nullptr) { return false; }
 
             const auto &ops = *type.ops();
             const auto *tracking = ops.tracking_impl(ops.context, data);
-            return tracking != nullptr && tracking->last_modified_time == input_tracking(context, memory)->last_modified_time;
+            return tracking != nullptr && tracking->last_modified_time == time;
         }
 
         [[nodiscard]] ValueView input_child_delta_view(const void *context,
@@ -1323,10 +1330,12 @@ namespace hgraph
                 return ValueView{binding, nullptr};
             }
 
-            const auto child_type = input_value_storage_type(context, memory, index);
-            const auto *child_data = input_element_memory(context, memory, index);
-            const auto &child_ops = *child_type.ops();
-            return ValueView{binding, child_ops.delta_memory_impl(child_ops.context, child_data)};
+            // Preserve the child's link facade: its sample clock can be newer
+            // than the producer's clock after a structural REF retarget.
+            const auto *state      = static_cast<const InputBindingContext *>(context);
+            const auto  child_type = state->children[index].input_type;
+            const auto *child_data = input_element_storage_memory(context, memory, index);
+            return TSDataView{child_type, child_data}.delta_value(input_tracking(context, memory)->last_modified_time);
         }
 
         [[nodiscard]] std::size_t input_view_hash(ValueView view)

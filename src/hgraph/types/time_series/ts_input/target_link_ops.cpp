@@ -214,6 +214,25 @@ namespace hgraph::detail
             return target.delta_value(evaluation_time);
         }
 
+        [[nodiscard]] ValueView target_link_atomic_delta_view(const void *context, const void *memory, DateTime evaluation_time) {
+            const auto *link   = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
+            const auto  target = link != nullptr ? link->target_view() : TSDataView{};
+            // A sampled scalar designation participates in an enclosing
+            // structural delta even when its producer's last tick is older.
+            // Read the link clock; sampling never advances the producer.
+            if (link != nullptr && link->tracking.last_modified_time == evaluation_time &&
+                target.last_modified_time() < evaluation_time && target.has_current_value()) {
+                return target.value();
+            }
+            return target.delta_value(evaluation_time);
+        }
+
+        [[nodiscard]] const void *target_link_atomic_delta_memory(const void *context, const void *memory) {
+            const auto *link            = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
+            const auto  evaluation_time = link != nullptr ? link->tracking.last_modified_time : MIN_DT;
+            return target_link_atomic_delta_view(context, memory, evaluation_time).data();
+        }
+
         [[nodiscard]] TSDataView target_link_target_view(const void *context, const void *memory)
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
@@ -1349,6 +1368,7 @@ namespace hgraph::detail
 
         [[nodiscard]] TSDataOps target_link_base_ops(TSInputTargetLinkContext &context)
         {
+            const bool atomic_delta  = context.schema->kind == TSTypeKind::TS || context.schema->kind == TSTypeKind::REF;
             const auto capture_delta = [&]() -> Value (*)(const TSInputView &) {
                 switch (context.schema->kind)
                 {
@@ -1364,34 +1384,32 @@ namespace hgraph::detail
                 return &ts_data_detail::capture_delta_ts;
             }();
             return TSDataOps{
-                .context                   = &context,
-                .kind                      = context.schema->kind,
-                .allows_mutation           = true,
-                .is_target_link            = true,
-                .ownership_ops             = &target_link_ownership_ops(),
-                .current_state_ops =
-                    &ts_current_state_detail::current_state_ops_for(context.schema->kind),
-                .layout_impl               = &target_link_layout,
-                .tracking_impl             = &target_link_tracking,
-                .mutable_tracking_impl     = &target_link_mutable_tracking,
-                .has_current_value_impl    = &target_link_has_current_value,
-                .all_valid_impl            = &target_link_all_valid,
-                .value_view_impl           = &target_link_value_view,
-                .delta_view_impl           = &target_link_delta_view,
-                .value_memory_impl         = &target_link_value_memory,
-                .delta_memory_impl         = &target_link_delta_memory,
+                .context                    = &context,
+                .kind                       = context.schema->kind,
+                .allows_mutation            = true,
+                .is_target_link             = true,
+                .ownership_ops              = &target_link_ownership_ops(),
+                .current_state_ops          = &ts_current_state_detail::current_state_ops_for(context.schema->kind),
+                .layout_impl                = &target_link_layout,
+                .tracking_impl              = &target_link_tracking,
+                .mutable_tracking_impl      = &target_link_mutable_tracking,
+                .has_current_value_impl     = &target_link_has_current_value,
+                .all_valid_impl             = &target_link_all_valid,
+                .value_view_impl            = &target_link_value_view,
+                .delta_view_impl            = atomic_delta ? &target_link_atomic_delta_view : &target_link_delta_view,
+                .value_memory_impl          = &target_link_value_memory,
+                .delta_memory_impl          = atomic_delta ? &target_link_atomic_delta_memory : &target_link_delta_memory,
                 .record_child_modified_impl = &target_link_record_child_modified,
-                .copy_value_from_impl      = &target_link_copy_value_from,
-                .move_value_from_impl      = &target_link_move_value_from,
-                .capture_delta_impl        = capture_delta,
-                .delta_has_effect_impl     = &target_link_delta_has_effect_op,
-                .apply_delta_impl          = &target_link_apply_delta_op,
+                .copy_value_from_impl       = &target_link_copy_value_from,
+                .move_value_from_impl       = &target_link_move_value_from,
+                .capture_delta_impl         = capture_delta,
+                .delta_has_effect_impl      = &target_link_delta_has_effect_op,
+                .apply_delta_impl           = &target_link_apply_delta_op,
                 // The bound target's value / delta convert on the bridge
                 // (RFC 0035); authoring goes through the target's own family.
-                .python_family             = PythonTSDataFamily::target_link,
-                .to_python_impl            = &python_ops_detail::forwarder<&PythonOps::TSData::target_link_to_python>::call,
-                .delta_to_python_impl =
-                    &python_ops_detail::forwarder<&PythonOps::TSData::target_link_delta_to_python>::call,
+                .python_family        = PythonTSDataFamily::target_link,
+                .to_python_impl       = &python_ops_detail::forwarder<&PythonOps::TSData::target_link_to_python>::call,
+                .delta_to_python_impl = &python_ops_detail::forwarder<&PythonOps::TSData::target_link_delta_to_python>::call,
             };
         }
 
