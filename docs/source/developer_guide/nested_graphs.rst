@@ -96,6 +96,14 @@ lifetime. Endpoint kinds are prepared in the graph context, without a name or sc
 Final root teardown does not queue future expiry work. The C++ testing mock
 supports the same FIFO-before/LIFO-after notifications through its manually
 evaluated root lifecycle, including the root clock update at each cycle.
+Repeated manual or externally driven evaluations at the stop timestamp retain
+the removal-cycle observation. Pending expiry alternates across the after and
+before queues until the root clock advances, never re-enqueuing into the queue
+currently being drained. The callback caches a non-owning root view at stop;
+root stopping or already stopped cancels it without leaving future callbacks.
+This implements the removal-cycle readability and subsequent expiry in
+``external/hgraph_spec/runtime/graph.md`` (GRF-25) and
+``external/hgraph_spec/runtime/time_series.md`` (TS-23).
 
 Map normally mirrors the authoritative key-set slots directly. If the bound
 key-set handle itself is replaced, the replacement may reuse the same slot ids
@@ -146,6 +154,15 @@ contract (TS-14), without changing the scalar producer's timestamps or making
 input activation itself schedule work (TS-8). Already REF-typed sources retain
 their normal publication and equal-designation behavior (TS-16). The prepared
 edge recipe avoids schema tests or name lookup during steady-state evaluation.
+Checkpoint preparation uses ``clear_restored_schedule`` to suppress this fresh
+sampling for each selected restored node before any start hook runs. A cold,
+per-node bitmap, allocated only for graphs with ordinary-to-REF edges,
+leaves unselected nodes' first observations intact and is
+discarded after startup. Restored REF input clocks survive unchanged; real
+publications at the restart boundary still schedule active consumers. The
+coordinator's existing post-start activity and schedule restoration remains the
+authority for those new events. Bitmap initialization and node marking keep
+restore preparation linear in graph size, alongside the prepared edge pass.
 
 Generic structural delta projection keeps each child's input-link facade.
 Unwrapping directly to a producer would discard the sample timestamp when an

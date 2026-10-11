@@ -108,6 +108,12 @@ Recovery uses these phases:
 2. Prepare supported dynamic owners and their children at the saved slots,
    importing owned endpoint values and source baselines without starting graphs.
    Queue reference fixups while restoring their original endpoint clocks.
+   Mark each selected node through the existing `clear_restored_schedule` cold
+   seam so graph startup cannot overwrite a restored REF observation clock with
+   fresh activation sampling. Unselected nodes still start fresh. This prevents
+   replaying a pre-cut event into a stateful consumer; source events newly
+   admitted at the restart boundary remain observable under the existing
+   restored-start activity checks.
 3. Allocate the recorded synthetic adapters without publishing or following
    unresolved references; every owning endpoint now has a stable address.
 4. Resolve internal reference locators, then restore adapter bindings and clocks.

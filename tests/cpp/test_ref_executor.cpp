@@ -415,6 +415,61 @@ TEST_CASE("REF owner export: manual root cycles expire retired owners and teardo
     }
 }
 
+TEST_CASE("REF owner export: repeated same-time root cycles preserve queued expiry") {
+    NodeBuilder source;
+    source.implementation<ReuseExportSource>();
+    GraphBuilder builder;
+    builder.add_node(source);
+    MockRootGraph root{builder};
+    auto          parent = root.graph();
+    parent.start(MIN_ST);
+    REQUIRE(parent.evaluate(MIN_ST));
+    auto child   = builder.make_nested_graph(parent.node_at(0).pointer());
+    auto sibling = builder.make_nested_graph(parent.node_at(0).pointer());
+    child.view().start(MIN_ST);
+    sibling.view().start(MIN_ST);
+    REQUIRE(child.view().evaluate(MIN_ST));
+    REQUIRE(sibling.view().evaluate(MIN_ST));
+    TimeSeriesReference retired{child.view().node_at(0).output(MIN_ST)};
+    TimeSeriesReference live{sibling.view().node_at(0).output(MIN_ST)};
+    child.view().stop(MIN_ST);
+    for (int repeat = 0; repeat < 4; ++repeat) {
+        REQUIRE(parent.evaluate(MIN_ST));
+        CHECK(retired.is_valid(MIN_ST));
+        CHECK(live.is_valid(MIN_ST));
+    }
+    REQUIRE(parent.evaluate(MIN_ST + MIN_TD));
+    CHECK(retired.is_empty());
+    CHECK(live.is_valid(MIN_ST + MIN_TD));
+    sibling.view().stop(MIN_ST + MIN_TD);
+    parent.stop(MIN_ST + MIN_TD);
+    auto &queues = mock_runtime_detail::mock_executor_storage(const_cast<void *>(root.executor().data()));
+    CHECK(queues.before_evaluation_notifications.empty());
+    CHECK(queues.after_evaluation_notifications.empty());
+}
+
+TEST_CASE("REF owner export: root stop drains same-time expiry without retaining callbacks") {
+    for (const bool move_to_before : {false, true}) {
+        NodeBuilder source;
+        source.implementation<ReuseExportSource>();
+        GraphBuilder builder;
+        builder.add_node(source);
+        MockRootGraph root{builder};
+        auto          parent = root.graph();
+        parent.start(MIN_ST);
+        REQUIRE(parent.evaluate(MIN_ST));
+        auto child = builder.make_nested_graph(parent.node_at(0).pointer());
+        child.view().start(MIN_ST);
+        REQUIRE(child.view().evaluate(MIN_ST));
+        child.view().stop(MIN_ST);
+        if (move_to_before) { REQUIRE(parent.evaluate(MIN_ST)); }
+        parent.stop(MIN_ST);
+        auto &queues = mock_runtime_detail::mock_executor_storage(const_cast<void *>(root.executor().data()));
+        CHECK(queues.before_evaluation_notifications.empty());
+        CHECK(queues.after_evaluation_notifications.empty());
+    }
+}
+
 TEST_CASE("REF owner export: same-address reconstruction cancels copied expiry at either queue boundary") {
     for (const bool arm_before_queue : {false, true}) {
         for (const bool copy_notification : {false, true}) {

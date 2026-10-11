@@ -168,6 +168,9 @@ struct GraphRuntimeBaseStorage {
   bool stopping{false};
   bool evaluating{false};
   bool evaluation_failed{false};
+  // Restore-only cold state: marked before start so activation cannot
+  // overwrite a selected node's saved REF observation clocks.
+  std::vector<bool> restored_reference_nodes{};
   /** Graph traits (parent-chained key-value metadata; GraphView::trait_or).
       The same value-layer ``Map<string, Any>`` store as GlobalState. */
   // Most graphs have no local traits. Keep that case allocation-free: a
@@ -863,18 +866,18 @@ void nested_set_child_schedule_observer_impl(const void *context, void *memory,
 class NestedGraphExpiry final : public Notifiable
 {
   public:
-    NestedGraphExpiry(TSDataObserverSet &observers, EngineControlView engine, const GraphRuntimeContext &context, void *memory,
+    NestedGraphExpiry(TSDataObserverSet &observers, EngineControlView engine, GraphPtr root, const GraphRuntimeContext &context, void *memory,
                       DateTime stop_time)
-        : observers_(&observers), engine_(engine), context_(&context), memory_(memory), stop_time_(stop_time) {
+        : observers_(&observers), engine_(engine), root_(root), context_(&context), memory_(memory), stop_time_(stop_time) {
         observers_->subscribe(this);
     }
     NestedGraphExpiry(const NestedGraphExpiry &other)
-        : observers_(other.observers_), engine_(other.engine_), context_(other.context_), memory_(other.memory_),
+        : observers_(other.observers_), engine_(other.engine_), root_(other.root_), context_(other.context_), memory_(other.memory_),
           stop_time_(other.stop_time_), before_(other.before_) {
         if (observers_ != nullptr) { observers_->subscribe(this); }
     }
     NestedGraphExpiry(NestedGraphExpiry &&other) noexcept
-        : observers_(std::exchange(other.observers_, nullptr)), engine_(other.engine_), context_(other.context_),
+        : observers_(std::exchange(other.observers_, nullptr)), engine_(other.engine_), root_(other.root_), context_(other.context_),
           memory_(other.memory_), stop_time_(other.stop_time_), before_(other.before_) {
         if (observers_ != nullptr) { observers_->replace(&other, this); }
     }
@@ -886,12 +889,20 @@ class NestedGraphExpiry final : public Notifiable
 
     void operator()() {
         if (observers_ == nullptr) { return; }
+        const GraphView root{root_};
+        if (root.is_stopping() || !root.started()) { return; }
         if (!before_) {
             before_ = true;
             engine_.add_before_evaluation_notification(std::move(*this));
             return;
         }
-        if (engine_.evaluation_clock().evaluation_time() <= stop_time_) { return; }
+        if (engine_.evaluation_clock().evaluation_time() <= stop_time_) {
+            // A before queue drains new before callbacks immediately. Bridge
+            // through after instead, keeping same-time continuations readable.
+            before_ = false;
+            engine_.add_after_evaluation_notification(std::move(*this));
+            return;
+        }
         for (const auto &[index, kind] : context_->owned_outputs) {
             auto output = edge_source_root(graph_node_view(*context_, memory_, index), stop_time_, kind);
             detail::invalidate_owned_ts_data_tree(output.data_view().borrowed_ref());
@@ -901,6 +912,7 @@ class NestedGraphExpiry final : public Notifiable
   private:
     TSDataObserverSet         *observers_;
     EngineControlView          engine_;
+    GraphPtr                   root_;
     const GraphRuntimeContext *context_;
     void                      *memory_;
     DateTime                   stop_time_;
@@ -928,6 +940,7 @@ void start_impl(const void *context, const GraphView &graph,
   // Sample its first input observation at activation, preserving every
   // producer timestamp and leaving already-REF sources alone.
   for (const auto &edge : runtime.initial_reference_edges) {
+      if (!state.restored_reference_nodes.empty() && state.restored_reference_nodes[edge.target_node]) { continue; }
       auto source =
           output_at_path(edge_source_root(graph_node_view(runtime, graph.data(), graph_edge_source_node(edge.source_node)),
                                           start_time, graph_edge_source_kind(edge.source_node)),
@@ -1003,6 +1016,9 @@ void start_impl(const void *context, const GraphView &graph,
       }
       if (active && input.valid() && input.modified()) { graph.schedule_node(edge.target_node, start_time); }
   }
+  // This marker is only a startup recipe; activity restoration and genuine
+  // boundary publications already determine the live schedule above.
+  state.restored_reference_nodes.clear();
   state.next_scheduled_time = MAX_DT;
   for (std::size_t index = 0; index < runtime.layout.node_count; ++index) {
     const DateTime scheduled = graph_schedule(runtime, graph.data(), index);
@@ -1081,9 +1097,10 @@ void stop_impl(const void *context, const GraphView &graph,
       // before the next root evaluation. Owned-tree traversal never follows REF
       // values or input target links into a captured parent producer.
       const auto engine = graph.executor().engine_control();
-      if (engine.valid() && !graph.root().is_stopping()) {
+      const auto root = graph.root();
+      if (engine.valid() && !root.is_stopping()) {
           engine.add_after_evaluation_notification(
-              NestedGraphExpiry{state.expiry_observers, engine, runtime, graph.data(), stop_time});
+              NestedGraphExpiry{state.expiry_observers, engine, root.pointer(), runtime, graph.data(), stop_time});
       }
   }
   if (exceptions.has_exception()) {
@@ -1119,6 +1136,10 @@ void clear_restored_schedule_impl(const void *context, const GraphView &graph, s
   if (index >= runtime.layout.node_count) { throw std::out_of_range("Restored node index out of range"); }
   auto &state = graph_header<Storage>(runtime, graph.data());
   if (graph.evaluating()) { throw std::logic_error("Cannot restore a schedule during evaluation"); }
+  if (!runtime.initial_reference_edges.empty()) {
+    if (state.restored_reference_nodes.empty()) { state.restored_reference_nodes.resize(runtime.layout.node_count, false); }
+    state.restored_reference_nodes[index] = true;
+  }
   graph_schedule(runtime, graph.data(), index) = MIN_DT;
   // Recovery clears one node at a time from its post-start hook. start_impl
   // takes the minimum over every schedule once the last node has started, so
