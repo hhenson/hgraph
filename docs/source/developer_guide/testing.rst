@@ -334,10 +334,10 @@ oracle: the sweep wires the same consumer two ways and requires identical
    (every std operator that accepts the shape, field access, ``combine``,
    ``collect``, ``mesh_``, ``dispatch``, a Python compute node). The plain
    source is the oracle arm and is asserted on its own, so a consumer
-   definition mistake cannot masquerade as a runtime defect. The ``modified``
-   arm passes through a declared ``TS[int]`` graph parameter: a direct
-   ``SIGNAL`` consumer of a REF instead observes designation ticks, including
-   its first empty publication. ``test_ref_signal_views.py`` independently
+   definition mistake cannot masquerade as a runtime defect. The ``valid`` and
+   ``modified`` arms consume the REF directly: a ``SIGNAL`` dereferences a REF
+   like every consumer that does not declare ``REF`` (TS-18), so the sweep's
+   equivalence holds for them too. ``test_ref_signal_views.py`` independently
    checks validity/modification, sampling, unchanged designations, target-only
    ticks and selected-empty behavior for concrete and generic ordinary graph
    parameters, explicit REF parameters and SIGNAL parameters. Its first run

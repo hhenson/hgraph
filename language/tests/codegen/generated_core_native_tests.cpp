@@ -107,9 +107,9 @@ TEST_CASE("the HGL core native library exposes erased endpoint metadata", "[code
                  values<Bool>(true));
     CHECK_OUTPUT((eval_node<EndpointValidGraph<TSW<Int, 3, 1>>>(values<Int>(1, 2))), values<Bool>(true, true));
     CHECK_OUTPUT((eval_node<EndpointValidGraph<TSWDuration<Int, 10, 1>>>(values<Int>(1, 2))), values<Bool>(true, true));
-    // SIGNAL over an opaque REF wakes on designation publications (TS-16).
-    // The explicit ordinary view continues to observe target value ticks.
-    CHECK_OUTPUT(eval_node<ReferenceEndpointValidGraph>(values<Int>(1, 2)), values<Bool>(true, none));
+    // SIGNAL over an opaque REF follows the designated output (TS-18), the
+    // same as the explicit ordinary view.
+    CHECK_OUTPUT(eval_node<ReferenceEndpointValidGraph>(values<Int>(1, 2)), values<Bool>(true, true));
     CHECK_OUTPUT(eval_node<OrdinaryReferenceEndpointValidGraph>(values<Int>(1, 2)), values<Bool>(true, true));
     CHECK_OUTPUT(eval_node<EndpointValidGraph<SIGNAL>>(values<Bool>(true, true)), values<Bool>(true, true));
 }

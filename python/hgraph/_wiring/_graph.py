@@ -921,8 +921,10 @@ class _GraphFn:
                 getattr(self, "_seed_bindings", None),
                 declared_port_types=declared_port_types))
         # A graph parameter is a declared port view, just like native Port<T>.
-        # Resolve it once while wiring so downstream SIGNAL consumers observe
-        # this declaration instead of the physical producer's REF schema.
+        # Resolve it once while wiring so the declaration travels with the
+        # edge (manifests, nested bindings). It does not change what a
+        # consumer observes: a SIGNAL or ordinary input dereferences a REF
+        # either way (TS-18); only a REF-declared input observes designations.
         for name, param in self._signature.parameters.items():
             value = bound.arguments.get(name)
             declared = (param.annotation.handle if isinstance(param.annotation, _TsExpr)

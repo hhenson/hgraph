@@ -2,7 +2,7 @@
 
 Design record: ``docs/source/developer_guide/testing.rst`` ("Authoring-shape
 sweeps"). The rule under test is the one the developer guide states twice: a
-ordinary typed consumer observes the dereferenced value because
+consumer that does not declare ``REF`` observes the dereferenced value because
 binding inserts the from-REF adaptation, and a type variable binds the
 dereferenced schema. The 2026-09-04 fix-series retrospective found that rule
 patched at ten consumers (collect, mesh keys, CompoundScalar fields, ungroup,
@@ -11,9 +11,9 @@ exists.
 
 Oracle: for every (shape, source, consumer) product, the graph that feeds the
 consumer through a REF-producing source yields the same ``eval_node`` trace
-as the graph that feeds it the plain source. Metadata-only SIGNAL consumers
-use an explicit ordinary graph parameter; direct REF signals instead observe
-designation metadata (covered separately). No released-hgraph oracle is
+as the graph that feeds it the plain source. That includes the metadata-only
+``SIGNAL`` consumers ``valid`` and ``modified``: a SIGNAL dereferences a REF
+like every non-REF input (TS-18). No released-hgraph oracle is
 needed, so the sweep also covers C++-first-only shapes. Equivalent native
 public-wiring coverage lives in ``test_graph_wiring.cpp`` (scalar, TSS, TSD,
 fixed TSL, TSB, and nested collection REF round trips) and
@@ -214,17 +214,6 @@ _SOURCE_SHAPES: dict[str, tuple[str, ...]] = {
 # --------------------------------------------------------------------------
 
 
-@graph
-def _ordinary_valid(ts: TS[int]) -> TS[bool]:
-    return valid(ts)
-
-
-@graph
-def _ordinary_modified(ts: TS[int]) -> TS[bool]:
-    # SIGNAL observes this declared scalar view, not the physical REF producer.
-    return modified(ts)
-
-
 @compute_node
 def _py_int(ts: TS[int]) -> TS[int]:
     return ts.value * 10
@@ -305,8 +294,8 @@ CONSUMERS: dict[str, dict[str, Callable]] = {
         "combine_tsl": lambda ts: combine[TSL](ts, ts),
         "tsl_from_ts": lambda ts: TSL.from_ts(ts, ts)[1],
         "switch_": lambda ts: switch_(const("a"), {"a": lambda t: t + 1}, ts),
-        "valid": _ordinary_valid,
-        "modified": _ordinary_modified,
+        "valid": lambda ts: valid(ts),
+        "modified": lambda ts: modified(ts),
         "python_node": lambda ts: _py_int(ts),
     },
     "TS[Point]": {

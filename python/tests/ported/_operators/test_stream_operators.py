@@ -188,14 +188,14 @@ def test_sample_accepts_anonymous_structural_signal():
     assert eval_node(g, [1, 2, None], [10, None, 11], ["a", "b", "c"]) == ["a", "b", "c"]
 
 
-def test_sample_observes_reference_designation_including_empty():
+def test_sample_observes_the_selected_reference_branch():
     @graph
     def g(ts: TS[int]) -> TS[int]:
         zero, _ = if_(ts == 0, ts)
         return sample(zero, 1)
 
-    # REF-SAMPLE: the first empty designation is a valid REF publication.
-    assert eval_node(g, [3, 2, 1, 0]) == [1, None, None, 1]
+    # TS-18: a non-REF input dereferences; the empty designation is not a tick.
+    assert eval_node(g, [3, 2, 1, 0]) == [None, None, None, 1]
 
 
 def test_sample_observes_selected_payload_through_declared_scalar_alias():

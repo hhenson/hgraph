@@ -2344,17 +2344,20 @@ TEST_CASE("public REF writes tick only when their designation changes", "[refere
         values<Int>(1, 1, 1, 1, 1, 1, 1, 1)) == values<Bool>(true, false, false, true, false, false, true, false));
 }
 
-TEST_CASE("signal inputs observe REF designation metadata without following target traffic", "[reference][publication][signal]") {
+TEST_CASE("signal inputs follow the designated output through an opaque REF", "[reference][publication][signal]") {
     using namespace hgraph;
     using namespace hgraph::testing;
+    // TS-18: a SIGNAL never binds to the reference. It samples on each
+    // re-pointing and ticks with the designated output; a repeated equal
+    // designation (TS-16) and a quiet target are not ticks.
     signal_observation_locks = 0;
     CHECK(eval_node<SignalReferenceDesignationGraph>(values<Int>(0, std::nullopt, 0, 1, std::nullopt, 1, 0, std::nullopt),
         values<Int>(7, 8, std::nullopt, std::nullopt, 9), values<Int>(7, 20, std::nullopt, std::nullopt, 21),
-        values<Int>(1, 1, 1, 1, 1, 1, 1, 1)) == values<Bool>(true, false, false, true, false, false, true, false));
+        values<Int>(1, 1, 1, 1, 1, 1, 1, 1)) == values<Bool>(true, true, false, true, true, false, true, false));
     CHECK(signal_observation_locks == 0);
 }
 
-TEST_CASE("signal inputs keep explicit ordinary REF views on target metadata", "[reference][publication][signal]") {
+TEST_CASE("signal inputs over an explicit ordinary REF view observe the same target metadata", "[reference][publication][signal]") {
     using namespace hgraph;
     using namespace hgraph::testing;
     signal_observation_locks = 0;
@@ -2454,7 +2457,7 @@ TEST_CASE("declared nested source views reuse output-owned routes without type-s
     CHECK_FALSE(another.handle().same_as(initial));
 }
 
-TEST_CASE("typed signal graph facades preserve declared observation without payload capability",
+TEST_CASE("typed signal graph facades follow the designated output without payload capability",
           "[reference][signal][wiring]") {
     using namespace hgraph;
     using namespace hgraph::testing;
@@ -2462,8 +2465,10 @@ TEST_CASE("typed signal graph facades preserve declared observation without payl
     const auto first = values<Int>(7, 8, std::nullopt, std::nullopt, 9);
     const auto second = values<Int>(7, 20, std::nullopt, std::nullopt, 21);
     const auto steps = values<Int>(1, 1, 1, 1, 1, 1, 1, 1);
+    // A SIGNAL facade over the opaque REF and over its ordinary view observe
+    // the same thing: the designated output's ticks (TS-18).
     CHECK(eval_node<WrappedSignalReferenceGraph<false>>(indices, first, second, steps) ==
-          values<Bool>(true, false, false, true, false, false, true, false));
+          values<Bool>(true, true, false, true, true, false, true, false));
     CHECK(eval_node<WrappedSignalReferenceGraph<true>>(indices, first, second, steps) ==
           values<Bool>(true, true, false, true, true, false, true, false));
     stdlib::register_standard_operators();
@@ -2555,10 +2560,11 @@ TEST_CASE("ordinary scalar SIGNAL aliases clear metadata when an if branch becom
     const auto clock = values<Int>(1, 1, 1, 1, 1, 1, 1, 1, 1);
     empty_scalar_observation_locks = 0;
     empty_scalar_metadata_errors = 0;
-    // Bit 1 records validity; bit 0 records modification. Empty is a valid
-    // REF designation but has no valid or modified followed scalar.
+    // Bit 1 records validity; bit 0 records modification. A SIGNAL offered the
+    // REF follows the selected scalar exactly as the ordinary views below do
+    // (TS-18): an empty designation leaves nothing valid or modified.
     CHECK(eval_node<ConditionalSignalMetadataGraph<false>>(select, source, clock) ==
-          values<Int>(3, 2, 3, 3, 3, 2, 3, 2, 3));
+          values<Int>(3, 3, 0, 3, 0, 0, 3, 2, 0));
     const auto observed = eval_node<ConditionalSignalMetadataGraph<true>>(select, source, clock);
     const auto scalar_observed = eval_node<ConditionalSignalMetadataGraph<true, false>>(select, source, clock);
     const std::array<Int, 9> expected{3, 3, 0, 3, 0, 0, 3, 2, 0};

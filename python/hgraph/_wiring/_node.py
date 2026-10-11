@@ -10,7 +10,7 @@ from functools import lru_cache
 
 import _hgraph
 
-from .._types import (AUTO_RESOLVE, SIGNAL, TS,
+from .._types import (AUTO_RESOLVE, TS,
                       default_type_var_of as _default_type_var_of,
                       wiring_signature_of as _wiring_signature_of,
                       _ContextExpr, _GenericTsExpr, _Required, _TsExpr,
@@ -1198,13 +1198,10 @@ class _PyNode:
                 layout_by_name.append(by_name)
                 ports.append(_unwrap(value))
                 requested = self._requested_shape(scope, plan, value)
-                # SIGNAL observes the supplied endpoint. Non-peered sources
-                # retain their exact assembled shape, including REF children;
-                # following those children would change designation metadata
-                # into payload metadata.
+                # A SIGNAL dereferences like every input that does not declare
+                # REF (TS-18): an assembled source's REF children are followed,
+                # not observed as designations.
                 reference_shapes.append(
-                    (_unwrap(value).ts_type if _unwrap(value).is_structural else requested)
-                    if plan.annotation is SIGNAL else
                     requested if requested is not None and _contains_ref(requested)
                     else False)
             else:
