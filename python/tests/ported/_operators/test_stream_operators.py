@@ -188,11 +188,25 @@ def test_sample_accepts_anonymous_structural_signal():
     assert eval_node(g, [1, 2, None], [10, None, 11], ["a", "b", "c"]) == ["a", "b", "c"]
 
 
-def test_sample_observes_the_selected_reference_branch():
+def test_sample_observes_reference_designation_including_empty():
     @graph
     def g(ts: TS[int]) -> TS[int]:
         zero, _ = if_(ts == 0, ts)
         return sample(zero, 1)
+
+    # REF-SAMPLE: the first empty designation is a valid REF publication.
+    assert eval_node(g, [3, 2, 1, 0]) == [1, None, None, 1]
+
+
+def test_sample_observes_selected_payload_through_declared_scalar_alias():
+    @graph
+    def on_payload(value: TS[int]) -> TS[int]:
+        return sample(value, 1)
+
+    @graph
+    def g(ts: TS[int]) -> TS[int]:
+        zero, _ = if_(ts == 0, ts)
+        return on_payload(zero)
 
     assert eval_node(g, [3, 2, 1, 0]) == [None, None, None, 1]
 

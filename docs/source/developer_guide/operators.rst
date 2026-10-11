@@ -330,7 +330,14 @@ from a C++ template (this is the load-bearing Python seam):
   unbound output variable is a **non-match** (reject with a reason), never an
   exception — an operator overload whose output is a free variable with no
   resolver can never produce a typed port and is ill-formed.
-  ``requires_`` has the same map-only and context-aware forms.
+  ``requires_`` has the same map-only and context-aware forms. Structural
+  ``getattr_``/``getitem_`` projections preserve the supplied endpoint through
+  an erased port parameter, then select the admitted bundle or fixed-List
+  shape with these cold predicates. Public inventory renders that parameter
+  as ``TIME_SERIES_TYPE`` and deduplicates identical displayed signatures;
+  the broad spelling does not bypass the shape predicate. Distinct internal
+  overloads can therefore share a displayed scalar-index signature without
+  adding per-tick dispatch.
 - A **Python** candidate (Phase 4) fills the *same* struct: ``params`` built
   directly as ``TypePattern``s over shared interned metas, and a ``wire`` closure
   that can create a Python-backed runtime node. The registry and dispatcher are

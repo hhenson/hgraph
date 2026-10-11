@@ -10,7 +10,7 @@ from functools import lru_cache
 
 import _hgraph
 
-from .._types import (AUTO_RESOLVE, TS,
+from .._types import (AUTO_RESOLVE, SIGNAL, TS,
                       default_type_var_of as _default_type_var_of,
                       wiring_signature_of as _wiring_signature_of,
                       _ContextExpr, _GenericTsExpr, _Required, _TsExpr,
@@ -1198,9 +1198,14 @@ class _PyNode:
                 layout_by_name.append(by_name)
                 ports.append(_unwrap(value))
                 requested = self._requested_shape(scope, plan, value)
+                # Peered SIGNAL arguments retain endpoint metadata, including
+                # a REF designation. Non-peered bundles still need their
+                # existing assembled input shape to combine child notifications.
                 reference_shapes.append(
                     requested
-                    if requested is not None and _contains_ref(requested)
+                    if requested is not None and (
+                        _contains_ref(requested)
+                        or (plan.annotation is SIGNAL and not _unwrap(value).is_structural))
                     else False)
             else:
                 layout.append("s")

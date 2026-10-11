@@ -256,14 +256,19 @@ Each entry names the layer that owns the rule:
 * the runtime probing ``TSTypeKind::REF`` per tick, when a node's REF handling
   mode is fixed when the node is built (RFC 0036: a
   structural hop goes through ``TSOutputView::through_reference()`` and the
-  shared-output capture reads the record its link wrote at bind). The one
-  counted exception is ``BoundaryTransfer::Plan`` construction in
+  shared-output capture reads the record its link wrote at bind). One
+  counted cold exception is ``BoundaryTransfer::Plan`` construction in
   ``runtime/distributed_boundary.cpp``: its exhaustive schema switch rejects
   REF while compiling a materialized transport codec at wiring time. It does
   not follow references or select REF behavior during capture/apply; input
   binding owns materialization. A companion ratchet test pins this occurrence
-  to the constructor's rejection case, so the baseline of one does not allow
-  a new per-tick probe;
+  to the constructor's rejection case. Three additional occurrences are
+  confined to ``graph_runtime_context_for`` in ``runtime/graph.cpp``:
+  traversing a source path through REF metadata and classifying the source
+  and target of an initial reference edge. They prepare immutable graph
+  context and validate declared source views before evaluation. A companion
+  test confines all three to that construction function; the baseline of
+  four does not allow any per-tick probe;
 * Python wiring choosing a type carrier by operator name, or keeping a shadow
   schema-to-Python-type dictionary, when the resolver and the registry own
   both (the dictionaries are gone since RFC 0033's PR C: the bridge's
@@ -318,7 +323,7 @@ oracle: the sweep wires the same consumer two ways and requires identical
 ``eval_node`` traces. That also lets them cover C++-first-only shapes.
 
 ``python/tests/test_ref_consumer_sweep.py``
-   The rule: a consumer that does not declare ``REF`` observes the
+   The rule: an ordinary typed consumer observes the
    dereferenced value, because binding inserts the from-REF adaptation and the
    type-pattern matcher binds the dereferenced schema. Axes: input shape
    (``TS`` scalar, ``CompoundScalar`` including derived leaves, tuple, ``TSD``
@@ -329,7 +334,13 @@ oracle: the sweep wires the same consumer two ways and requires identical
    (every std operator that accepts the shape, field access, ``combine``,
    ``collect``, ``mesh_``, ``dispatch``, a Python compute node). The plain
    source is the oracle arm and is asserted on its own, so a consumer
-   definition mistake cannot masquerade as a runtime defect. Its first run
+   definition mistake cannot masquerade as a runtime defect. The ``modified``
+   arm passes through a declared ``TS[int]`` graph parameter: a direct
+   ``SIGNAL`` consumer of a REF instead observes designation ticks, including
+   its first empty publication. ``test_ref_signal_views.py`` independently
+   checks validity/modification, sampling, unchanged designations, target-only
+   ticks and selected-empty behavior for concrete and generic ordinary graph
+   parameters, explicit REF parameters and SIGNAL parameters. Its first run
    found #649 (``reduce`` and ``mesh_`` reject a REF-valued collection) and
    #650 (a REF-output ``switch_`` goes silent after any branch change),
    neither of which any existing test or parity recipe reached; both are

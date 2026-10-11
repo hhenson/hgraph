@@ -102,6 +102,13 @@ invalidation, and does not suppress structural withdrawal deltas or REF
 designation ticks. Metadata follows only these cached links, without schema
 discovery or registry lookup.
 
+Python graph parameters establish the same declared view through ``value_port``
+while wiring, after generic resolution. Python node argument packs retain
+explicit SIGNAL declarations on peered endpoints as well as explicit REF
+shapes; a SIGNAL field therefore observes the supplied endpoint's metadata without implicitly
+following a REF target. Non-peered structural arguments retain their assembled
+input shape to combine child metadata.
+
 Fixed List endpoint projection
 ------------------------------
 
