@@ -581,7 +581,7 @@ References
 * The 2026-09-04 fix-series retrospective, invariant 1.
 
 Declared source views at graph binding
--------------------------------------
+--------------------------------------
 
 A wiring port's declared view can differ from its producer's physical output:
 ``REF<TS<Int>>`` may be presented as an ordinary ``TS<Int>`` view. The declared
