@@ -118,8 +118,10 @@ def compare_reports(
 
         baseline_median = finite_float(expected, "median_ns_per_op", f"baseline {name}")
         current_median = finite_float(actual, "median_ns_per_op", f"current {name}")
+        # A zero baseline has no percentage change; finite_float() has already
+        # rejected NaN and infinities, so truthiness is the exact zero test.
         change_percent = (
-            0.0 if baseline_median == 0.0 else (current_median - baseline_median) * 100.0 / baseline_median
+            (current_median - baseline_median) * 100.0 / baseline_median if baseline_median else 0.0
         )
         if not skip_timing and current_median > baseline_median:
             baseline_mad = finite_float(expected, "mad_ns_per_op", f"baseline {name}")

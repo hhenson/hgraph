@@ -495,14 +495,17 @@ def baseline_identity(
 
 def _validated_result_path(path: Path) -> Path:
     """Resolve a benchmark artifact path confined beneath ``RESULTS_DIR``."""
-    resolved = path.expanduser().resolve()
-    results_root = RESULTS_DIR.resolve()
-    try:
-        resolved.relative_to(results_root)
-    except ValueError as exc:
+    resolved = Path(os.path.realpath(path.expanduser()))
+    results_root = Path(os.path.realpath(RESULTS_DIR))
+    # Canonical paths, compared with the separator appended and in the
+    # platform's case convention: a sibling such as ``results-private`` does
+    # not pass, a symbolic link that leaves the results tree does not pass,
+    # and on Windows a spelling that differs only by case still does.
+    inside = os.path.normcase(str(resolved)).startswith(os.path.normcase(str(results_root)) + os.sep)
+    if resolved == results_root or not inside:
         raise ValueError(
             f"benchmark result path must be inside {results_root}: {path}"
-        ) from exc
+        )
     return resolved
 
 

@@ -7,6 +7,7 @@ import base64
 import csv
 import hashlib
 import io
+import posixpath
 import re
 import stat
 import tarfile
@@ -27,6 +28,9 @@ def _safe_archive_name(name: str, *, required_root: str | None = None) -> str:
         or "\\" in name
         or path.is_absolute()
         or any(part in {"", ".", ".."} for part in normalized.split("/"))
+        # Normalisation must be the identity: a name that normpath would
+        # rewrite still carries a traversal or a redundant segment.
+        or posixpath.normpath(normalized) != normalized
         or (required_root is not None and path.parts[0] != required_root)
     ):
         raise ValueError(f"unsafe archive member path: {name!r}")
