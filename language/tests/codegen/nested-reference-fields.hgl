@@ -1,0 +1,51 @@
+module codegen.nested_reference_fields
+
+struct Nested { child: ref<i64> }
+struct Outer { nested: Nested }
+struct Generic<T> { child: ref<T> }
+
+fn selected(value: ref<Nested>) -> ref<i64> => value.child
+fn selected_generic<T>(value: ref<Generic<T>>) -> ref<T> => value.child
+fn selected_outer(value: ref<Outer>) -> ref<i64> => value.nested.child
+fn read(value: i64) -> i64 { when { return value } }
+fn choose(index: i64, first: ref<i64>, second: ref<i64>) -> ref<i64> {
+    when valid(index) {
+        if index == 0 {
+            if valid(first) && modified(index, first) { return first }
+        } else {
+            if valid(second) && modified(index, second) { return second }
+        }
+    }
+}
+fn choose_parent(index: i64, first: ref<Outer>, second: ref<Outer>) -> ref<Outer> {
+    when valid(index) {
+        if index == 0 {
+            if valid(first) && modified(index, first) { return first }
+        } else {
+            if valid(second) && modified(index, second) { return second }
+        }
+    }
+}
+export fn child_changes(index: i64, first: i64, second: i64) -> i64 {
+    read(selected(Nested(child: choose(index, first, second))))
+}
+export fn generic_changes(index: i64, first: i64, second: i64) -> i64 {
+    read(selected_generic(Generic<i64>(child: choose(index, first, second))))
+}
+export fn parent_and_child_changes(outer: i64, inner: i64, first: i64, second: i64, third: i64) -> i64 {
+    let changing = Outer(nested: Nested(child: choose(inner, first, second)))
+    let other = Outer(nested: Nested(child: third))
+    read(selected_outer(choose_parent(outer, changing, other)))
+}
+
+test nested_reference_fields_retarget_without_nested_ref_boundaries {
+    assert eval(child_changes, index: [0, _, 1, _, 0, _],
+        first: [7, 8, 9, 10, 11, 12], second: [18, 19, 20, 21, 22, 23]
+    ) == [7, 8, 20, 21, 11, 12]
+    assert eval(generic_changes, index: [0, _, 1, _, 0, _],
+        first: [7, 8, 9, 10, 11, 12], second: [18, 19, 20, 21, 22, 23]
+    ) == [7, 8, 20, 21, 11, 12]
+    assert eval(parent_and_child_changes, outer: [0, _, 1, _, 0], inner: [0, 1],
+        first: [7, 8, 9, 10, 11], second: [19, 20, 20, 20, 21], third: [28, 29, 30, 31, 32]
+    ) == [7, 20, 30, 31, 21]
+}

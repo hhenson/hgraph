@@ -787,12 +787,12 @@ namespace hgl::codegen
             [[nodiscard]] static bool ordinary_scalar_variable(const HType &type) {
                 return ordinary_aggregate(type) && type.kind != HType::Kind::List && type.kind != HType::Kind::Delta;
             }
-            [[nodiscard]] static bool contains_window(const HType &type) {
-                if (type.kind == HType::Kind::Rolling) { return true; }
+            [[nodiscard]] static bool contains_endpoint_storage(const HType &type) {
+                if (type.kind == HType::Kind::Rolling || type.kind == HType::Kind::Reference) { return true; }
                 if (type.kind != HType::Kind::List && type.kind != HType::Kind::Map && type.kind != HType::Kind::Tuple) {
                     return false;
                 }
-                return std::ranges::any_of(type.children, contains_window);
+                return std::ranges::any_of(type.children, contains_endpoint_storage);
             }
             [[nodiscard]] std::string storage_type(const HType &type, SourceRange range) {
                 return ordinary_aggregate(type) ? "hgraph::Value" : value_type(type, range);
@@ -7663,9 +7663,9 @@ namespace hgl::codegen
                     temporal_fields.push_back("hgraph::Field<" + quote(field.name) + ", hgraph::TS<" + edge + ">>");
                     continue;
                 }
-                // Window-bearing fields have held storage, but no ordinary HGL
+                // REF/window-bearing fields have held storage, but no ordinary HGL
                 // value type. Keep their exact endpoint schema in temporal_fields.
-                const std::string held = contains_window(type)
+                const std::string held = contains_endpoint_storage(type)
                     ? "hgl::ordinary::Held<" + schema(type, planned.range) + ">" : value_type(type, planned.range);
                 value_fields.push_back("hgraph::Field<" + quote(field.name) + ", " + held + ">");
                 if (type.kind == HType::Kind::Delta) { temporal_admitted = false; }

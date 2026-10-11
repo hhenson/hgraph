@@ -458,7 +458,8 @@ hgl_add_module(hgl_stateful_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec
 hgl_apply_warnings(hgl_stateful_fixture)
 hgl_add_module(hgl_lifecycle_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/lifecycle-capabilities.hgl)
 hgl_apply_warnings(hgl_lifecycle_fixture)
-hgl_add_module(hgl_reference_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/reference-routing.hgl)
+hgl_add_module(hgl_reference_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/reference-routing.hgl
+    codegen/nested-reference-fields.hgl)
 hgl_apply_warnings(hgl_reference_fixture)
 hgl_add_module(hgl_reference_identity_fixture STATIC INCLUDE_TEST_CONTEXTS
     HGL ${HGRAPH_SPEC}/language/examples/reference-identity-equality.hgl
@@ -1037,6 +1038,11 @@ if(UNIX)
         NAME hgraph_language_test_runtime
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
     )
+    add_test(NAME hgraph_language_test_nested_reference_fields
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/nested-reference-fields.hgl)
+    set_tests_properties(hgraph_language_test_nested_reference_fields PROPERTIES
+        PASS_REGULAR_EXPRESSION "1 test, 0 failed"
+        ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     add_test(NAME hgraph_language_test_held_source_retention
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/held-source-retention.hgl)
     set_tests_properties(hgraph_language_test_held_source_retention PROPERTIES

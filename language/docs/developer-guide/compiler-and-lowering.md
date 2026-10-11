@@ -1670,9 +1670,19 @@ specification's atomic scalar equivalence and finite atomic
 publication contracts without adding a second runtime representation.
 
 Rolling children retain their exact TSW schema inside sparse list, tuple,
-nominal and map shapes. A window-bearing nominal field obtains its held storage
+nominal and map shapes. A REF- or window-bearing nominal field obtains its held storage
 metadata from that temporal schema in both the direct bridge and generated
-`Held<Shape>` descriptor; this does not admit an ordinary `rolling` value.
+`Held<Shape>` descriptor; this does not admit an ordinary `ref` or `rolling` value.
+The checker recursively inspects effective nominal fields and parents in ordinary
+contexts (including const signatures, atomic payloads, keys and window values).
+Cold admission uses an iterative closure walk with indexed imported declarations
+and results memoized by canonical type. Shared nominal children are visited once;
+a failed walk never caches unrelated siblings as failures. Deep imported chains
+consume heap worklist storage rather than recursive stack frames.
+Graph projections preserve an already-reference child instead of wrapping it in
+another REF; the runtime's canonical REF schema performs the same normalization.
+These rules implement the canonical Spec's [Types grammar](../../../external/hgraph_spec/language/docs/developer-guide/syntax-and-semantics.md#types)
+and [wiring-time access](../../../external/hgraph_spec/language/docs/design/type-extensions.md#wiring-time-access).
 The runtime parameter plan admits `const delta<T>` as ordinary publication data,
 with its exact originating shape and the same prepared ownership rules as other
 ordinary const arguments. Generated scalar selectors retain the delta's schema

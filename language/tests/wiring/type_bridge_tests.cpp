@@ -18,6 +18,8 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <cstdio>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -1509,4 +1511,45 @@ fn identity(value: Child) -> Child => value
     CHECK_FALSE(bridge.optional_field(temporal->value_schema, 1));
     CHECK(bridge.optional_field(temporal->value_schema, 2));
     CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
+TEST_CASE("ordinary admission walks imported chains iteratively with shared cold results", "[wiring][types][scaling]") {
+    for (const std::size_t depth : {1000U, 2000U, 4000U, 8000U}) {
+        hgl::semantics::ModuleCatalog    catalog;
+        hgl::semantics::ImportableModule module;
+        module.identity = "checks.admission_chain";
+        for (std::size_t index = 0; index < depth; ++index) {
+            hgl::semantics::ImportedStruct link;
+            link.module_identity = module.identity;
+            link.name            = "A" + std::to_string(index);
+            link.identity        = module.identity + "." + link.name;
+            link.fields          = {{"id", hgl::semantics::ImportedScalarType::I64, false, false}};
+            if (index + 1 < depth) {
+                link.fields.push_back({"next", symbol(module.identity + ".A" + std::to_string(index + 1)), false, false});
+            }
+            module.structs.push_back(std::move(link));
+        }
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        hgl::syntax::SourceFile     file{"admission.hgl", R"(module checks.admission
+use checks.admission_chain as shapes
+fn atomic_value(value:atomic<shapes::A0>)->atomic<shapes::A0> => value
+fn ordinary_value(const value:shapes::A0)->i64 => 1
+)"};
+        hgl::syntax::DiagnosticSink diagnostics;
+        const auto                  ast = hgl::syntax::parse(file, diagnostics);
+        const auto resolved = hgl::semantics::resolve(file, ast, catalog, [](std::string_view) { return true; }, diagnostics);
+        auto       hir      = hgl::ir::lower_to_hir(ast, resolved, diagnostics);
+        REQUIRE_FALSE(diagnostics.has_errors());
+        const hgl::ir::OperatorResolver operators = [](const hgl::ir::hir::Module &, const hgl::ir::OperatorQuery &query) {
+            return hgl::ir::OperatorSelection{.result = query.expected_result, .deferred = true};
+        };
+        const auto start     = std::chrono::steady_clock::now();
+        const bool completed = hgl::ir::complete_hir(hir, operators, diagnostics);
+        const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
+        INFO(diagnostics.render(file));
+        REQUIRE(completed);
+        REQUIRE_FALSE(diagnostics.has_errors());
+        std::printf("ordinary imported admission: %zu structs, %.2f ns/struct\n", depth,
+                    static_cast<double>(elapsed) / static_cast<double>(depth));
+    }
 }

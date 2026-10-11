@@ -4606,3 +4606,18 @@ export fn wrong(value: Fields) -> i64 {
     CHECK_FALSE(sibling.emit());
     CHECK(sibling.has(Category::Type, "may be invalid here"));
 }
+
+TEST_CASE("emit-cpp holds temporal REF fields without admitting a scalar REF", "[codegen][ref]") {
+    Unit       unit{R"(module nested_reference_probe
+struct Nested { child:ref<i64> }
+struct Group { children:list<ref<i64>,2> }
+fn selected(value:ref<Nested>)->ref<i64> => value.child
+)"};
+    const auto generated = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(generated);
+    CHECK(generated->header.find("hgl::ordinary::Held<hgraph::REF<hgraph::TS<hgraph::Int>>>") != std::string::npos);
+    CHECK(generated->header.find("hgl::ordinary::Held<hgraph::TSL<hgraph::REF<hgraph::TS<hgraph::Int>>, 2>>") != std::string::npos);
+    CHECK(generated->header.find("hgraph::REF<hgraph::REF<") == std::string::npos);
+}

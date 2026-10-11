@@ -1945,3 +1945,16 @@ TEST_CASE("required Any defaults follow composed ordinary selectors", "[wiring][
         CHECK(unit.diagnostics.diagnostics().front().code == "value.constant_capability");
     }
 }
+
+TEST_CASE("direct HGL wiring holds a nominal REF child", "[wiring][ref]") {
+    Unit       unit{R"(module direct_nested_reference
+struct Nested { child:ref<i64> }
+fn selected(value:ref<Nested>)->ref<i64> => value.child
+fn observed(value:i64)->i64 => selected(Nested(child:value)) + 0
+test child { assert eval(observed,value:[7,8,_,11]) == [7,8,_,11] }
+)"};
+    const auto result = only(unit.tests());
+    INFO(result.message);
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK(result.passed);
+}

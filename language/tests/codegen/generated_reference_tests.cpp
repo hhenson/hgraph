@@ -1,4 +1,5 @@
 #include <reference-routing.h>
+#include <nested-reference-fields.h>
 #include <reference-identity-equality.h>
 #include <reference-wiring-projections.h>
 
@@ -187,4 +188,18 @@ TEST_CASE("reference projection rejects an incompatible declared output during w
           "[codegen][generated][ref][projection]") {
     hgl::wiring::ensure_session();
     CHECK_THROWS(eval_node<IncompatibleProjectedOutput>(values<Value>()));
+}
+
+TEST_CASE("generated REF bearing nominal fields follow child and parent retargeting", "[codegen][generated][ref]") {
+    hgl::wiring::ensure_session();
+    namespace nested = codegen::nested_reference_fields;
+    CHECK(eval_node<nested::child_changes>(values<Int>(0, std::nullopt, 1, std::nullopt, 0, std::nullopt),
+                                           values<Int>(7, 8, 9, 10, 11, 12),
+                                           values<Int>(18, 19, 20, 21, 22, 23)) == values<Int>(7, 8, 20, 21, 11, 12));
+    CHECK(eval_node<nested::generic_changes>(values<Int>(0, std::nullopt, 1, std::nullopt, 0, std::nullopt),
+                                             values<Int>(7, 8, 9, 10, 11, 12),
+                                             values<Int>(18, 19, 20, 21, 22, 23)) == values<Int>(7, 8, 20, 21, 11, 12));
+    CHECK(eval_node<nested::parent_and_child_changes>(values<Int>(0, std::nullopt, 1, std::nullopt, 0), values<Int>(0, 1),
+                                                      values<Int>(7, 8, 9, 10, 11), values<Int>(19, 20, 20, 20, 21),
+                                                      values<Int>(28, 29, 30, 31, 32)) == values<Int>(7, 20, 30, 31, 21));
 }

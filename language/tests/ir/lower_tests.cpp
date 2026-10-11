@@ -4691,3 +4691,35 @@ TEST_CASE("typed HIR keeps graph reference projections declared and node referen
         CHECK_FALSE(complete(rejected));
     }
 }
+
+TEST_CASE("REF bearing nominal types remain excluded from ordinary value contexts", "[ir][typed][ref]") {
+    const std::string declarations = R"(module nested_reference_admission
+struct Nested { child:ref<i64> }
+struct Outer { inner:Nested }
+struct Generic<T> { child:ref<T> }
+abstract struct Base { child:ref<i64> }
+struct Derived:Base {}
+)";
+    for (const std::string definition : {
+             "fn bad(value:atomic<Nested>)->i64 => 1",
+             "fn bad(value:rolling<Outer,2>)->i64 => 1",
+             "fn bad(value:atomic<Derived>)->i64 => 1",
+             "fn bad(value:map<Outer,i64>)->i64 => 1",
+             "fn bad(value:set<Generic<i64>>)->i64 => 1",
+             "fn bad(const value:Outer)->i64 => 1",
+             "const fn bad(value:Nested)->Nested => value",
+             "fn bad(value:Nested)->any { when { return any(value) } }",
+             "fn bad(value:i64)->i64 { let ordinary = Nested(child:1)\n value }",
+             "fn bad(value:Nested)->i64 { when { let ordinary:Nested = value\n return 1 } }",
+         }) {
+        Lowered rejected{declarations + definition + "\n"};
+        require_clean(rejected);
+        INFO(definition);
+        CHECK_FALSE(complete(rejected));
+        CHECK(std::any_of(rejected.diagnostics.diagnostics().begin(), rejected.diagnostics.diagnostics().end(),
+                          [](const auto &diagnostic) { return diagnostic.category == hgl::syntax::Category::Type; }));
+    }
+    Lowered admitted{declarations + "fn selected(value:ref<Outer>)->ref<i64> => value.inner.child\n"};
+    require_clean(admitted);
+    CHECK(complete(admitted));
+}
