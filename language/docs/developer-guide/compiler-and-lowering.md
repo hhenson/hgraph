@@ -1840,12 +1840,18 @@ explicitly materialized generic operator implementations, fixed and duration
 windows, sparse struct
 deltas, concise `map` functions, scalar and collection runtime inputs, borrowed
 collection traversal, fixed-list and independent dynamic graph traversal,
-explicit reference schemas, guarded fixed-list reference routing, `out`,
+explicit reference schemas, guarded fixed-list reference routing, opaque node
+reference identity equality, `out`,
 `logger`, state, and lifecycle hooks. File-based
 `test` and `run` compile/load supported runtime modules on Unix; portable native
 loading and the remaining language-depth items are still staged. Declaration
 and module planning now come from hgraph IR, as do callable/operator interfaces,
 nominal struct layouts, construction defaults, and local/state binding types.
+Node `==` and `!=` on identical resolved `ref<T>` operands lower directly to
+`TimeSeriesReference` designation identity. This intrinsic does not require
+comparison capabilities on `T` or inspect its payload. The planner still
+requires both operands to be readable; heterogeneous reference comparisons,
+ordering, and node traversal below a reference remain rejected.
 Internal callable dependency ordering also walks the hgraph-IR body graph.
 Concise composition expressions and concise `map` functions are emitted from
 those graph-IR values and bindings. Composition and runtime blocks also emit

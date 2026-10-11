@@ -2819,6 +2819,47 @@ TEST_CASE("typed HIR enforces rolling and list size rules", "[ir][typed][shape]"
               .find("a list size must be an i64 constant or 'unbounded'") != std::string::npos);
 }
 
+TEST_CASE("typed HIR admits opaque reference identity only for identical reference types", "[ir][typed][ref]") {
+    CHECK(completes(R"(
+module checks.references
+fn same<T>(first: ref<T>, second: ref<T>) -> bool {
+    when valid(first, second) { return first == second }
+}
+fn different(first: ref<i64>, second: ref<i64>) -> bool {
+    when valid(first, second) { return first != second }
+}
+)"));
+    Lowered native{R"(
+module checks.native_values
+native type TextOnly
+fn same(first: ref<TextOnly>, second: ref<TextOnly>) -> bool {
+    when valid(first, second) { return first == second }
+}
+)", atomic_native_catalog()};
+    require_clean(native);
+    CHECK(complete(native));
+
+    for (const auto parameters : {"first: ref<i64>, second: ref<f64>", "first: ref<i64>, second: i64"}) {
+        const auto source = std::string{"module checks.references\nfn wrong("} + parameters +
+                            ") -> bool { when valid(first, second) { return first == second } }\n";
+        CHECK(completion_diagnostics(source).find("same resolved ref<T> type") != std::string::npos);
+    }
+    CHECK(completion_diagnostics(R"(
+module checks.references
+struct First { number: i64 }
+struct Second { number: i64 }
+fn wrong(first: ref<First>, second: ref<Second>) -> bool {
+    when valid(first, second) { return first == second }
+}
+)").find("same resolved ref<T> type") != std::string::npos);
+    CHECK(completion_diagnostics(R"(
+module checks.references
+fn wrong(first: ref<i64>, second: ref<i64>) -> bool {
+    when valid(first, second) { return first < second }
+}
+)").find("cannot read through ref<T>") != std::string::npos);
+}
+
 TEST_CASE("typed HIR admits only approved injectables", "[ir][typed][injectable]") {
     CHECK(completes("module checks.inject_ok\n"
                     "fn f(value: f64) -> f64 {\n"

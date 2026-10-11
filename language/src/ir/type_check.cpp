@@ -2325,7 +2325,21 @@ namespace hgl::ir
                     type_error(expression.range, "structural delta values do not support ordinary operators");
                 }
                 if (runtime_owner(expression.owner) && (reference(lhs.type) || reference(rhs.type))) {
-                    type_error(expression.range, "node evaluation cannot read through ref<T>");
+                    const bool equality = node.op == BinaryOp::Equal || node.op == BinaryOp::NotEqual;
+                    if (!equality) {
+                        type_error(expression.range, "node evaluation cannot read through ref<T>");
+                    } else if (!reference(lhs.type) || !reference(rhs.type) || !same(lhs.type, rhs.type)) {
+                        type_error(expression.range, "reference identity comparison requires the same resolved ref<T> type");
+                    }
+                    // REF-EQ-1 observes only designation identity. The target's
+                    // scalar/operator capabilities do not participate, and
+                    // normal runtime readability checks still apply to both inputs.
+                    expression.type = scalar(ScalarType::Bool);
+                    expression.phase = join_phase(lhs.phase, rhs.phase);
+                    expression.effects = lhs.effects | rhs.effects;
+                    expression.value_kind = value_kind_for_phase(expression.phase);
+                    expression.operation = Operation{.kind = OperationKind::Intrinsic, .identity = "ref.compare"};
+                    return;
                 }
                 if (!lhs.type.valid() && rhs.type.valid()) { contextualize(lhs, rhs.type); }
                 expression.phase     = join_phase(lhs.phase, rhs.phase);

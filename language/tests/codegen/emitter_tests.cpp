@@ -2971,6 +2971,32 @@ export fn forward(values: map<str, ref<f64>>) -> map<str, ref<f64>> => values
     CHECK_FALSE(contains(emitted->header, "hgraph::REF<hgraph::TSD<"));
 }
 
+TEST_CASE("emit-cpp compares readable opaque references without dereferencing", "[codegen][ref]") {
+    Unit unit{R"(
+module t
+export fn same(first: ref<i64>, second: ref<i64>) -> bool {
+    when valid(first, second) { return first == second }
+}
+export fn different(first: ref<i64>, second: ref<i64>) -> bool {
+    when valid(first, second) { return first != second }
+}
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "first.value() == second.value()"));
+    CHECK(contains(emitted->header, "first.value() != second.value()"));
+    CHECK_FALSE(contains(emitted->header, "target_output()"));
+
+    Unit unreadable{R"(
+module t
+export fn wrong(first: ref<i64>, second: ref<i64>, step: i64) -> bool {
+    when valid(step) { return first == second }
+}
+)"};
+    CHECK_FALSE(unreadable.emit());
+    CHECK(unreadable.has(Category::Type, "may be invalid here; guard the read with valid(first)"));
+}
+
 TEST_CASE("emit-cpp proves selected reference validity by selector", "[codegen][ref][validity]") {
     SECTION("a different selected child is not covered") {
         Unit unit{R"(

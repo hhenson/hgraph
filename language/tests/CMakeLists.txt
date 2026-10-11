@@ -446,6 +446,10 @@ hgl_add_module(hgl_lifecycle_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spe
 hgl_apply_warnings(hgl_lifecycle_fixture)
 hgl_add_module(hgl_reference_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/reference-routing.hgl)
 hgl_apply_warnings(hgl_reference_fixture)
+hgl_add_module(hgl_reference_identity_fixture STATIC
+    HGL ${HGRAPH_SPEC}/language/examples/reference-identity-equality.hgl
+    PARTS codegen/reference-identity-public.hgl)
+hgl_apply_warnings(hgl_reference_identity_fixture)
 add_library(hgl_native_scalar_dependency INTERFACE)
 add_library(checks::native_dependency ALIAS hgl_native_scalar_dependency)
 target_include_directories(hgl_native_scalar_dependency INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/driver/include")
@@ -654,6 +658,7 @@ set(_hgl_generated_test_libraries
     hgl_stateful_fixture
     hgl_lifecycle_fixture
     hgl_reference_fixture
+    hgl_reference_identity_fixture
     hgl_native_scalar_import_fixture
     hgl_native_atomic_fixture
     hgl_inline_native_consumer_fixture
