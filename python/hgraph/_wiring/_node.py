@@ -1198,14 +1198,14 @@ class _PyNode:
                 layout_by_name.append(by_name)
                 ports.append(_unwrap(value))
                 requested = self._requested_shape(scope, plan, value)
-                # Peered SIGNAL arguments retain endpoint metadata, including
-                # a REF designation. Non-peered bundles still need their
-                # existing assembled input shape to combine child notifications.
+                # SIGNAL observes the supplied endpoint. Non-peered sources
+                # retain their exact assembled shape, including REF children;
+                # following those children would change designation metadata
+                # into payload metadata.
                 reference_shapes.append(
-                    requested
-                    if requested is not None and (
-                        _contains_ref(requested)
-                        or (plan.annotation is SIGNAL and not _unwrap(value).is_structural))
+                    (_unwrap(value).ts_type if _unwrap(value).is_structural else requested)
+                    if plan.annotation is SIGNAL else
+                    requested if requested is not None and _contains_ref(requested)
                     else False)
             else:
                 layout.append("s")

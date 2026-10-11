@@ -107,7 +107,9 @@ while wiring, after generic resolution. Python node argument packs retain
 explicit SIGNAL declarations on peered endpoints as well as explicit REF
 shapes; a SIGNAL field therefore observes the supplied endpoint's metadata without implicitly
 following a REF target. Non-peered structural arguments retain their assembled
-input shape to combine child metadata.
+input shape to combine child metadata, including any declared REF children.
+The pack preserves that schema exactly: recursively dereferencing its fields
+would incorrectly turn designation signals into followed-payload signals.
 
 Fixed List endpoint projection
 ------------------------------

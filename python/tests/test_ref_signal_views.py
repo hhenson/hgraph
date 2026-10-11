@@ -1,7 +1,9 @@
 """REF-SAMPLE: designation signals and declared ordinary views stay distinct."""
 import pytest
 
-from hgraph import REF, SCALAR, SIGNAL, TIME_SERIES_TYPE, TS, compute_node, graph, if_, modified, sample, valid
+from hgraph import (REF, SCALAR, SIGNAL, TIME_SERIES_TYPE, TS, TSB, TSL,
+                    Size, TimeSeriesSchema, combine, compute_node, graph,
+                    if_, modified, sample, valid)
 from hgraph.test import eval_node
 
 
@@ -79,3 +81,42 @@ def test_empty_retarget_clears_ordinary_metadata_after_old_target_ticks(declarat
 
     assert eval_node(app, [True, False], [7, 8], [1, 1]) == [
         (True, True), (False, False)]
+
+
+class _ReferencePair(TimeSeriesSchema):
+    left: REF[TS[int]]
+    right: REF[TS[int]]
+
+
+class _ValuePair(TimeSeriesSchema):
+    left: TS[int]
+    right: TS[int]
+
+
+@pytest.mark.parametrize("shape", ["bundle", "fixed-list"])
+def test_assembled_signal_preserves_declared_reference_children(shape):
+    def ordinary(value, clock):
+        return _metadata(value, clock)
+
+    ordinary.__annotations__ = {
+        "value": TSB[_ValuePair] if shape == "bundle" else TSL[TS[int], Size[2]],
+        "clock": TS[int],
+    }
+    observe_ordinary = graph(ordinary)
+
+    @graph
+    def app(select: TS[bool], value: TS[int], clock: TS[int]):
+        selected = if_(select, value).true
+        assembled = (TSB[_ReferencePair].from_ts(left=selected, right=selected)
+                     if shape == "bundle" else
+                     TSL[REF[TS[int]], Size[2]].from_ts(selected, selected))
+        return combine(designation=_metadata(assembled, clock),
+                       payload=observe_ordinary(assembled, clock))
+
+    designation = [(True, True), (True, False)] * 4
+    payload = [(False, False), (False, False), (True, True), (True, True),
+               (False, False), (False, False), (True, True), (True, False)]
+    repeated_designations = [False, False, True, True, False, False, True, True]
+    assert eval_node(app, repeated_designations, _VALUE, [1] * len(_SELECT)) == [
+        {"designation": direct, "payload": followed}
+        for direct, followed in zip(designation, payload)]
