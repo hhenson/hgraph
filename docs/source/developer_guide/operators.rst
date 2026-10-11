@@ -1328,7 +1328,7 @@ library it generates. The design record is
 ``language/docs/design/migration-catalogue.md``.
 
 Prepared REF child projections
------------------------------
+------------------------------
 
 A declared REF field or fixed List projection binds the source twice: its
 opaque designation input is active, and its declared container observation is
