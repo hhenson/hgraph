@@ -367,11 +367,11 @@ TEST_CASE("TimeSeriesReference: equality and hash respect kind, target_schema, a
     // hash should distinguish between kinds.
     REQUIRE(empty_a.hash() != peered_a.hash());
 
-    // unordered_set should accept TimeSeriesReference via std::hash specialisation.
-    std::unordered_set<TimeSeriesReference> seen;
-    seen.insert(empty_a);
-    seen.insert(peered_a);
-    REQUIRE(seen.size() == 2);
+    // A live designation can become empty without a write to its token, so
+    // neither C++ nor erased scalar containers may retain it as a hash key.
+    STATIC_REQUIRE_FALSE(hgraph::detail::Hashable<TimeSeriesReference>);
+    CHECK_FALSE(registry.register_scalar<TimeSeriesReference>("TimeSeriesReference")->is_hashable());
+    CHECK(hgraph::ops_for<TimeSeriesReference>().hash_impl == nullptr);
 }
 
 TEST_CASE("TimeSeriesReference: input view construction handles peered terminals and non-peered prefixes")
@@ -2173,8 +2173,10 @@ TEST_CASE("expired reference identity and hash use the current empty designation
     // An assembled designation retains its child tree; expiry does not erase
     // the distinction between that tree and an empty whole-container token.
     CHECK_FALSE(children == TimeSeriesReference::empty(list));
-    std::unordered_set<TimeSeriesReference> expired{first, second, empty};
-    CHECK(expired.size() == 1);
+    // Current-designation comparison remains correct; hashing is only an
+    // immediate observation and does not advertise resident-key stability.
+    const Value expired_value{first};
+    CHECK_THROWS_AS(expired_value.hash(), std::logic_error);
 }
 
 TEST_CASE("references saved by a public node compare empty after their graph endpoints expire",

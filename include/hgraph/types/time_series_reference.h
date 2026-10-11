@@ -154,8 +154,9 @@ namespace hgraph
          * structural and compare their children's current designations.
          */
         [[nodiscard]] bool        operator==(const TimeSeriesReference &other) const noexcept;
-        /** Hash the current designation, compatible with equality and
-            ``std::hash<TimeSeriesReference>``. Expiry can change the hash. */
+        /** Hash the designation observed now. Expiry changes both equality
+            and this digest: it is not a key for a persistent hash container.
+            TimeSeriesReference deliberately has no std::hash specialization. */
         [[nodiscard]] std::size_t hash() const noexcept;
         /** Human-readable representation; primarily for diagnostics. */
         [[nodiscard]] std::string to_string() const;
@@ -210,14 +211,5 @@ namespace hgraph
         };
     }  // namespace static_schema_detail
 }  // namespace hgraph
-
-namespace std
-{
-    /** Hash specialization so ``TimeSeriesReference`` works in unordered containers. */
-    template <> struct hash<hgraph::TimeSeriesReference>
-    {
-        std::size_t operator()(const hgraph::TimeSeriesReference &ref) const noexcept { return ref.hash(); }
-    };
-}  // namespace std
 
 #endif  // HGRAPH_CPP_ROOT_TIME_SERIES_REFERENCE_H
