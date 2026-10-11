@@ -595,6 +595,7 @@ namespace hgl::hgraph_ir
         out << "structures\n";
         for (const StructContract &structure : module.structures) {
             out << "  ";
+            if (structure.test_only) { out << "test-only "; }
             if (structure.exported) { out << "export "; }
             if (structure.abstract) { out << "abstract "; }
             out << "struct " << structure.identity;

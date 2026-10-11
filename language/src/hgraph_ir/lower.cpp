@@ -703,8 +703,9 @@ namespace hgl::hgraph_ir
                 for (const hir::Declaration &declaration : source_.declarations) {
                     if (const auto *enumeration = std::get_if<hir::EnumDecl>(&declaration.node)) {
                         EnumContract contract;
-                        contract.identity = symbol_identity(declaration.symbol);
-                        contract.exported = enumeration->exported;
+                        contract.identity  = symbol_identity(declaration.symbol);
+                        contract.exported  = enumeration->exported;
+                        contract.test_only = declaration.test_only;
                         for (const auto &member : enumeration->members) { contract.members.emplace_back(member.name, member.number); }
                         result_.enums.push_back(std::move(contract));
                     }
@@ -716,6 +717,7 @@ namespace hgl::hgraph_ir
                     declarations_.emplace(declaration.id.value, id);
                     target.identity     = symbol_identity(declaration.symbol);
                     target.exported     = source->exported;
+                    target.test_only    = declaration.test_only;
                     target.abstract     = source->abstract;
                     target.requirements = lower_constraint(source->requirements);
                     target.range        = declaration.range;

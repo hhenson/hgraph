@@ -356,10 +356,12 @@ Status entries audited against main on 2026-09-19. The dated anchor is
 retained for existing links.
 
 Unnamed `test { ... }` contexts now provide module-wide, cross-part private
-helpers. Production compilation excludes helper code, registrations, and
-native dependencies used only by tests; test execution and the REPL include
-them. The first slice accepts private `fn`/`const fn` helpers and named cases,
-not test-local types or operator implementations. See
+helpers and test-local types. Production compilation excludes helper code,
+registrations, test-local `struct`/`enum` declarations, and native
+dependencies used only by tests; test execution and the REPL include them.
+The accepted items are private `fn`/`const fn` helpers, unexported
+`struct`/`enum` declarations, and named cases; operator implementations,
+imports, native declarations and nested contexts remain outside. See
 [Test-only helpers](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/user-guide/testing-and-running.md#test-only-helpers-and-module-parts).
 
 This table is the single status record for the language surface. Every

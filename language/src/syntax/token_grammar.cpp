@@ -816,10 +816,13 @@ namespace hgl::syntax
         struct test_decl
         { static constexpr auto rule = token<TokenKind::KwTest> >> dsl::p<name> + dsl::p<block>; };
 
+        /// A helper function, a test-local type or a named case. The
+        /// projection rejects anything but private helpers and unexported
+        /// types, so the grammar accepts the ordinary declaration forms.
         struct test_context_item
         {
-            static constexpr auto rule =
-                (dsl::p<function_decl> | dsl::p<test_decl>) >> (dsl::p<line_end> | dsl::peek(token<TokenKind::RBrace>));
+            static constexpr auto rule = (dsl::p<function_decl> | dsl::p<struct_decl> | dsl::p<enum_decl> | dsl::p<test_decl>) >>
+                                         (dsl::p<line_end> | dsl::peek(token<TokenKind::RBrace>));
         };
 
         struct test_context

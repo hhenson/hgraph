@@ -1560,6 +1560,16 @@ counterpart selection within the declaration's scope. Test helper canonical
 identities use a compiler-only `$test` suffix so a helper shadowing a production
 function cannot register over that function.
 
+A `struct` or `enum` declared in a test context is a test-local type. The
+resolver validates it with the module's other structs but binds its name only
+in the test overlay, so production declarations cannot name it and another
+module cannot import it; the projection rejects `export` on it. Unlike a
+helper, a test-local type cannot shadow a production declaration or import:
+its identity is the module's ordinary `<module>.<Name>` schema name, with no
+`$test` suffix, so the resolver reports a conflict instead. HGraph IR marks
+the resulting `StructContract`/`EnumContract` `test_only`, and the C++ emitter
+omits those declarations unless test contexts are requested.
+
 HGraph IR carries test ownership on callables and expression origins. A
 generated value-function lift is test-only if all its uses are test-only; a
 production use promotes that shared lift into the production artifact. The

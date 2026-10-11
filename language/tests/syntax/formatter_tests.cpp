@@ -72,6 +72,13 @@ TEST_CASE("formatter handles nested test declarations without reformatting bodie
                                                                      "    test works { assert a(1) == 1 }\n}\n");
 }
 
+TEST_CASE("formatter spaces test-local types like other test context items") {
+    REQUIRE(formatted("module demo\ntest {\n    struct P { a: i64 }\n    enum K { first = 1 }\n"
+                      "    test works { assert P(a: 1).a == 1 }\n}\n") ==
+            "module demo\n\ntest {\n    struct P { a: i64 }\n\n    enum K { first = 1 }\n\n"
+            "    test works { assert P(a: 1).a == 1 }\n}\n");
+}
+
 TEST_CASE("formatter preserves CRLF and literal spelling") {
     REQUIRE(formatted("module demo\r\nfn text()->str => \"properties { # \\\"quoted\\\" }\"\r\n") ==
             "module demo\r\n\r\nfn text()->str => \"properties { # \\\"quoted\\\" }\"\r\n");
