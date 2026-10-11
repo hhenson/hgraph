@@ -14,6 +14,7 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series_reference.h>
 #include <hgraph/types/utils/memory_utils.h>
+#include <hgraph/types/utils/counted_mutex.h>
 #include <hgraph/types/value/value.h>
 
 #include <algorithm>
@@ -1917,4 +1918,83 @@ TEST_CASE("TimeSeriesReference: registry pairs the type with a real plan via Val
     const auto *plan = factory.find(ref_atom);
     REQUIRE(plan != nullptr);
     REQUIRE(plan == &MemoryUtils::plan_for<TimeSeriesReference>());
+}
+
+TEST_CASE("prepared input reference routes retain finite children and follow their live bindings", "[reference][prepared]") {
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *leaf = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    const auto *list = registry.tsl(leaf, 2);
+    const auto *schema = registry.tsb("PreparedReferenceRoot", {{"leaf", leaf}, {"items", list}});
+    const auto endpoint = TSEndpointSchema::non_peered(schema, {
+        TSEndpointSchema::peered(leaf), TSEndpointSchema::non_peered_list(list, TSEndpointSchema::peered(leaf))});
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, endpoint)};
+    TSOutput first{*leaf};
+    TSOutput second{*leaf};
+    TSOutput replacement{*leaf};
+    auto root = input.view();
+    auto selected = root.indexed_child_at(0);
+    selected.bind_output(first.view());
+    auto items = root.indexed_child_at(1);
+    items.indexed_child_at(0).bind_output(second.view());
+    const auto prepared = root.prepare_reference_route();
+    const auto initial = prepared.read(MIN_ST);
+    REQUIRE(initial.is_non_peered());
+    CHECK(initial[0] == TimeSeriesReference{first.view()});
+    CHECK(initial[1][0] == TimeSeriesReference{second.view()});
+    CHECK(initial[1][1].is_empty());
+    CHECK(initial[1][1].target_schema() == leaf);
+    items.indexed_child_at(1).bind_output(replacement.view());
+    selected.bind_output(replacement.view());
+    const auto locks = type_system_lock_count();
+    for (int iteration = 0; iteration < 8; ++iteration) {
+        const auto current = prepared.read(MIN_ST);
+        CHECK(current[0] == TimeSeriesReference{replacement.view()});
+        CHECK(current[1][1] == TimeSeriesReference{replacement.view()});
+    }
+    CHECK(type_system_lock_count() == locks);
+    TimeSeriesReference saved;
+    {
+        TSOutput temporary{*leaf};
+        selected.bind_output(temporary.view());
+        saved = prepared.read(MIN_ST)[0];
+        REQUIRE(saved.has_output());
+    }
+    CHECK(saved.is_empty());
+    CHECK(prepared.read(MIN_ST)[0].is_empty());
+}
+
+TEST_CASE("prepared input reference routes borrow typed REF values and retain cold binding checks", "[reference][prepared]") {
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *leaf = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    const auto *ref = registry.ref(leaf);
+    TSOutput first{*leaf};
+    TSOutput second{*leaf};
+    TSOutput reference{*ref};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*ref, TSEndpointSchema::peered(ref))};
+    input.view().bind_output(reference.view());
+    const auto prepared = input.view().prepare_reference_route();
+    CHECK(prepared.read(MIN_ST).is_empty());
+    const std::array<Value, 2> references{Value{TimeSeriesReference{first.view()}}, Value{TimeSeriesReference{second.view()}}};
+    const auto locks = type_system_lock_count();
+    auto time = MIN_ST;
+    for (const auto &value : references) {
+        {
+            auto transaction = reference.view(time).begin_mutation(time);
+            REQUIRE(transaction.copy_value_from(value.view()));
+        }
+        CHECK(prepared.read(time) == value.as<TimeSeriesReference>());
+        time += TimeDelta{1};
+    }
+    CHECK(type_system_lock_count() == locks);
+
+    const auto *left = registry.tsb("PreparedReferenceNominalLeft", {{"value", leaf}});
+    const auto *text = registry.ts(registry.register_scalar<std::string>("str"));
+    const auto *right = registry.tsb("PreparedReferenceNominalRight", {{"value", text}});
+    TSInput named{TSInputBuilderFactory::checked_builder_for(*left, TSEndpointSchema::peered(left))};
+    TSOutput wrong{*right};
+    CHECK_THROWS(named.view().bind_output(wrong.view()));
+    // Failed cold binding cannot manufacture a designation of an incompatible child.
+    CHECK(named.view().prepare_reference_route().read(MIN_ST).is_empty());
 }

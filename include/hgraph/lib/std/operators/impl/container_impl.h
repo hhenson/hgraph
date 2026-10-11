@@ -42,6 +42,14 @@ struct FieldProjectionState {
   Int field{-1};
 };
 
+/** Selected input route and native REF publication slots, prepared once at
+    start; only designation/presence/lifetime observations run during eval. */
+struct PreparedRefProjectionState {
+  PreparedInputReferenceRoute child{};
+  TimeSeriesReference *destination{nullptr};
+  TSDataTracking *tracking{nullptr};
+};
+
 /** A REF-declared container projection's state (lock-free per-tick ruling,
     RFC 0036): the referenced container's shape, observed once in start (the
     declared REF<S> as the value it refers to); the materialized output shape
@@ -65,6 +73,11 @@ struct scalar_name<stdlib::container_impl_detail::GetItemTsdKeyState> {
 template <>
 struct scalar_name<stdlib::container_impl_detail::FieldProjectionState> {
   static constexpr std::string_view value{"stdlib.field_projection_state"};
+};
+
+template <>
+struct scalar_name<stdlib::container_impl_detail::PreparedRefProjectionState> {
+  static constexpr std::string_view value{"stdlib.prepared_ref_projection_state"};
 };
 
 template <>
@@ -564,13 +577,13 @@ struct getitem_tsl_by_index {
 
     // Fixed-size scalar indexing is a structural wiring projection
     // (tsl_element) when the port is DIRECTLY TSL-shaped. A
-    // REF-wrapped fixed TSL has no structural form - it takes this
-    // dynamic path (the from-REF adaptation resolves the input).
+    // REF-wrapped fixed TSL takes the prepared designation projection when
+    // its index is scalar; temporal keys retain this dynamic path.
     const auto *port_schema = context.args[0].port.schema;
     const bool direct =
         port_schema != nullptr && port_schema->kind == TSTypeKind::TSL;
     if (context.args[1].kind == WiringArg::Kind::Scalar &&
-        !schema->is_unbounded_tsl() && direct) {
+        !schema->is_unbounded_tsl() && (direct || container_impl_detail::ref_tsl_schema(context.args[0]) != nullptr)) {
       return false;
     }
     return true;
@@ -1577,90 +1590,94 @@ struct getattr_tsb {
   }
 };
 
-/** Field projection over REF[TSB]: a runtime node reading the incoming
-    reference VALUE and emitting a reference to the FIELD (hgraph's
-    _tsb_ref_item). Wiring-time structural projection cannot work here -
-    the referenced output only exists at runtime. */
+/** Internal REF projection: activation observes only the designation; the
+    passive declared observation delegates shape validation and retargeting to
+    TargetLink. The selected reference route and native output binding are cold. */
+struct prepared_ref_child_projection {
+  static constexpr auto name = "prepared_ref_child_projection";
+  static constexpr bool schedule_on_start = true;
+  using signature_args = std::tuple<
+      In<"designation", REF<TsVar<"S">>, InputValidity::Unchecked>,
+      In<"observed", TsVar<"S">, InputActivity::Passive, InputValidity::Unchecked>,
+      Scalar<"index", Int>, TypeArg<"child", TsVar<"E">>,
+      State<container_impl_detail::PreparedRefProjectionState>, Out<REF<TsVar<"E">>>>;
+
+  static void start(In<"observed", TsVar<"S">, InputActivity::Passive, InputValidity::Unchecked> observed,
+                    Scalar<"index", Int> index, State<container_impl_detail::PreparedRefProjectionState> state,
+                    Out<REF<TsVar<"E">>> out) {
+    auto child = observed.base().indexed_child_at(static_cast<std::size_t>(index.value()));
+    const auto &data = out.data_view();
+    const auto &ops = data.ops();
+    if (!ops.direct_native_value || ops.value_view_impl != nullptr ||
+        ops.layout_impl(ops.context)->value_binding.ops() != &ops_for<TimeSeriesReference>()) {
+      throw std::logic_error("REF projection requires its prepared native reference output binding");
+    }
+    state.set(container_impl_detail::PreparedRefProjectionState{
+        child.prepare_reference_route(),
+        static_cast<TimeSeriesReference *>(ops.mutable_value_memory_impl(ops.context, data.mutable_data())),
+        ops.mutable_tracking_impl(ops.context, data.mutable_data())});
+  }
+
+  static void eval(In<"designation", REF<TsVar<"S">>, InputValidity::Unchecked> designation,
+                   State<container_impl_detail::PreparedRefProjectionState> state, Out<REF<TsVar<"E">>> out) {
+    static_cast<void>(designation);
+    // State<T> and REF output storage were fixed by static-node preparation.
+    // Borrow native state/reference bytes without checked_as per value.
+    const auto &prepared = *static_cast<const container_impl_detail::PreparedRefProjectionState *>(state.view().data());
+    auto reference = prepared.child.read(out.evaluation_time());
+    if (out.valid() && *prepared.destination == reference) { return; }
+    *prepared.destination = std::move(reference);
+    const auto time = out.evaluation_time();
+    if (prepared.tracking->record_modified(time)) { prepared.tracking->parent.notify_child_modified(time); }
+  }
+};
+
+/** Field projection over REF[TSB] prepares one declared child route. */
 template <typename KeyT, fixed_string KeyName, fixed_string OpName>
 struct tsb_ref_field_node {
   static constexpr const char *name = OpName.value;
-  // A directly bound REF is already value-valid before graph start. The
-  // initial field reference is therefore an explicit startup sample;
-  // input activation only establishes the subscription used by later
-  // rebinds.
-  static constexpr bool schedule_on_start = true;
 
-  [[nodiscard]] static const TSValueTypeMetaData *
-  field_schema(OperatorCallContext context) {
-    if (context.args.size() != 2) {
-      return nullptr;
-    }
+  [[nodiscard]] static const TSValueTypeMetaData *field_schema(OperatorCallContext context) {
+    if (context.args.size() != 2) { return nullptr; }
     const auto *bundle = container_impl_detail::ref_tsb_schema(context.args[0]);
     const KeyT *key = context.scalar_as<KeyT>(KeyName.sv());
-    if (bundle == nullptr || key == nullptr) {
-      return nullptr;
-    }
-    return container_impl_detail::tsb_field_schema(*bundle, *key);
+    return bundle != nullptr && key != nullptr ? container_impl_detail::tsb_field_schema(*bundle, *key) : nullptr;
   }
+  static bool requires_(const ResolutionMap &, OperatorCallContext context) { return field_schema(context) != nullptr; }
+  static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context) {
+    if (!output_bound(resolution)) {
+      if (const auto *field = field_schema(context)) { bind_output(resolution, TypeRegistry::instance().ref(field)); }
+    }
+  }
+  static WiringPortRef compose(Wiring &w, NamedPort<"ts", void> ts, Scalar<KeyName, KeyT> key) {
+    const auto *bundle = time_series_schema_as<AnyTSB>(ts.erased().schema);
+    const auto index = *container_impl_detail::find_tsb_field_index(*bundle, key.value());
+    return wire<prepared_ref_child_projection>(w, arg<"designation">(Port<void>{w, ts.erased()}),
+        arg<"observed">(Port<void>{w, ts.erased()}), arg<"index">(Int{static_cast<Int>(index)}),
+        arg<"child">(TypeCarrier::of_ts(bundle->fields()[index].type))).erased();
+  }
+};
 
+/** Constant fixed-List projection over an explicit REF. Dynamic/direct List
+    indexing continues through its existing operators. */
+struct getitem_fixed_tsl_ref {
   static bool requires_(const ResolutionMap &, OperatorCallContext context) {
-    return field_schema(context) != nullptr;
+    if (context.args.size() != 2) { return false; }
+    const auto *list = container_impl_detail::ref_tsl_schema(context.args[0]);
+    return list != nullptr && !list->is_unbounded_tsl() && context.scalar_as<Int>("key") != nullptr;
   }
-
-  static void resolve_default_types(ResolutionMap &resolution,
-                                    OperatorCallContext context) {
-    if (output_bound(resolution)) {
-      return;
+  static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context) {
+    if (output_bound(resolution)) { return; }
+    if (const auto *list = container_impl_detail::ref_tsl_schema(context.args[0])) {
+      bind_output(resolution, TypeRegistry::instance().ref(list->element_ts()));
     }
-    const auto *field = field_schema(context);
-    if (field == nullptr) {
-      return;
-    }
-    bind_output(resolution, TypeRegistry::instance().ref(field));
   }
-
-  static void start(In<"ts", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
-                    State<container_impl_detail::RefContainerState> state) {
-    // The referenced bundle's shape is wiring-fixed: observe the declared
-    // reference once here (a start-time lookup), never per tick.
-    const auto *bundle = time_series_schema_as<AnyTSB>(ts.base().schema());
-    if (bundle == nullptr) {
-      throw std::logic_error(std::string{name} + ": input is not REF[TSB]");
-    }
-    state.set(container_impl_detail::RefContainerState{bundle});
-  }
-
-  static void eval(In<"ts", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
-                   Scalar<KeyName, KeyT> key,
-                   State<container_impl_detail::RefContainerState> state,
-                   Out<TsVar<"__out__">> out) {
-    const auto &erased = static_cast<const TSOutputView &>(out);
-    const auto reference = ts.base().reference();
-    const auto *bundle = state.get().container;
-    const auto index =
-        container_impl_detail::find_tsb_field_index(*bundle, key.value());
-    if (!index.has_value()) {
-      return;
-    }
-    const std::string field_label = [&] {
-      if constexpr (std::same_as<KeyT, Str>) {
-        return key.value();
-      } else {
-        return std::to_string(key.value());
-      }
-    }();
-    const std::string_view operation =
-        KeyName.sv() == std::string_view{"attr"} ? "getattr_" : "getitem_";
-    auto current = state.get();
-    const auto *validated = current.validated_target;
-    auto result = container_impl_detail::project_tsb_reference_field(
-        reference, *bundle, *index, erased.evaluation_time(), operation,
-        field_label, current.validated_target);
-    if (current.validated_target != validated) {
-      state.set(current);
-    }
-    container_impl_detail::set_reference_if_changed(erased,
-                                                    std::move(result));
+  static WiringPortRef compose(Wiring &w, NamedPort<"ts", void> ts, Scalar<"key", Int> key) {
+    const auto *list = time_series_schema_as<AnyTSL>(ts.erased().schema);
+    const auto index = container_impl_detail::normalize_item_index(key.value(), list->fixed_size(), "TSL");
+    return wire<prepared_ref_child_projection>(w, arg<"designation">(Port<void>{w, ts.erased()}),
+        arg<"observed">(Port<void>{w, ts.erased()}), arg<"index">(Int{static_cast<Int>(index)}),
+        arg<"child">(TypeCarrier::of_ts(list->element_ts()))).erased();
   }
 };
 

@@ -654,6 +654,120 @@ namespace hgraph
         return ops.reference(*this);
     }
 
+    PreparedInputReferenceRoute TSInputView::prepare_reference_route() const
+    {
+        PreparedInputReferenceRoute route;
+        const auto *declared = schema();
+        if (declared == nullptr) { throw std::logic_error("prepare_reference_route requires a typed input"); }
+        route.schema_ = declared;
+        route.value_ = data_.value_data.storage_ref();
+        if (is_target_position())
+        {
+            route.link_ = data_.link_storage();
+            const auto *root_schema = detail::target_link_schema(data_.raw_data);
+            if (route.link_ == nullptr || root_schema == nullptr) {
+                throw std::logic_error("prepare_reference_route requires target-link storage");
+            }
+            std::vector<std::size_t> indices;
+            for (const auto *node = data_.target_path_node(); node != nullptr && node->parent != nullptr; node = node->parent) {
+                indices.push_back(node->slot);
+            }
+            const auto *parent_schema = root_schema;
+            for (auto position = indices.rbegin(); position != indices.rend(); ++position) {
+                const auto &ops = detail::input_endpoint_ops_for(parent_schema);
+                if (ops.target_child == nullptr || ops.child_schema == nullptr) {
+                    throw std::logic_error("prepare_reference_route requires a declared child path");
+                }
+                route.path_.push_back({ops.target_child, *position});
+                parent_schema = ops.child_schema(parent_schema, *position);
+            }
+        }
+        if (declared->kind == TSTypeKind::REF)
+        {
+            route.schema_ = declared->referenced_ts();
+            route.read_ = route.link_ != nullptr ? &PreparedInputReferenceRoute::read_link_reference
+                                                  : &PreparedInputReferenceRoute::read_reference;
+        }
+        else if (is_target_position())
+        {
+            route.read_ = &PreparedInputReferenceRoute::read_target;
+        }
+        else
+        {
+            const auto &ops = detail::input_endpoint_ops_for(declared);
+            if (ops.reference != nullptr)
+            {
+                if (ops.child_count == nullptr || (declared->kind == TSTypeKind::TSL && declared->is_unbounded_tsl())) {
+                    throw std::logic_error("prepare_reference_route requires a finite non-peered endpoint");
+                }
+                const auto count = ops.child_count(declared);
+                route.children_.reserve(count);
+                for (std::size_t index = 0; index < count; ++index)
+                {
+                    route.children_.push_back(indexed_child_at(index).prepare_reference_route());
+                }
+                route.read_ = &PreparedInputReferenceRoute::read_children;
+            }
+        }
+        return route;
+    }
+
+    TSOutputHandle PreparedInputReferenceRoute::target() const
+    {
+        if (!link_->bound()) { return {}; }
+        auto current = link_->target_view();
+        for (const auto &step : path_) {
+            current = step.project(current, step.index);
+            if (!current.valid()) { return {}; }
+        }
+        return TSOutputHandle{link_->target_output().output(), current};
+    }
+
+    TimeSeriesReference PreparedInputReferenceRoute::read(DateTime evaluation_time) const
+    {
+        return read_(*this, evaluation_time);
+    }
+
+    TimeSeriesReference PreparedInputReferenceRoute::read_empty(const PreparedInputReferenceRoute &route, DateTime)
+    {
+        return TimeSeriesReference::empty(route.schema_);
+    }
+
+    TimeSeriesReference PreparedInputReferenceRoute::read_reference(const PreparedInputReferenceRoute &route, DateTime)
+    {
+        auto value = TSDataView{route.value_}.value();
+        if (!value.has_value()) { return TimeSeriesReference::empty(route.schema_); }
+        // The REF native binding was established during input construction and
+        // selected once in prepare_reference_route; no per-value type test.
+        return *static_cast<const TimeSeriesReference *>(value.data());
+    }
+
+    TimeSeriesReference PreparedInputReferenceRoute::read_link_reference(const PreparedInputReferenceRoute &route, DateTime)
+    {
+        auto source = route.target();
+        if (!source.bound()) { return TimeSeriesReference::empty(route.schema_); }
+        auto value = source.data_view().value();
+        if (!value.has_value()) { return TimeSeriesReference::empty(route.schema_); }
+        return *static_cast<const TimeSeriesReference *>(value.data());
+    }
+
+    TimeSeriesReference PreparedInputReferenceRoute::read_target(const PreparedInputReferenceRoute &route, DateTime)
+    {
+        auto target = route.target();
+        if (!target.bound()) { return TimeSeriesReference::empty(route.schema_); }
+        const auto *inner = detail::target_link_storage(target.data_view());
+        if (inner != nullptr && !inner->bound()) { return TimeSeriesReference::empty(route.schema_); }
+        return TimeSeriesReference{std::move(target)};
+    }
+
+    TimeSeriesReference PreparedInputReferenceRoute::read_children(const PreparedInputReferenceRoute &route, DateTime time)
+    {
+        std::vector<TimeSeriesReference> items;
+        items.reserve(route.children_.size());
+        for (const auto &child : route.children_) { items.push_back(child.read(time)); }
+        return TimeSeriesReference::non_peered(route.schema_, std::move(items));
+    }
+
     void TSInputView::bind_output(const TSOutputView &output)
     {
         if (!is_bindable())

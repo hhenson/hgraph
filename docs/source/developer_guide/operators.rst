@@ -1326,3 +1326,34 @@ The imported-module scripted tests use a dedicated CLI test host linked with
 the native value provider; the build-time compiler remains independent of the
 library it generates. The design record is
 ``language/docs/design/migration-catalogue.md``.
+
+Prepared REF child projections
+-----------------------------
+
+A declared REF field or fixed List projection binds the source twice: its
+opaque designation input is active, and its declared container observation is
+passive. The existing TargetLink and from-REF alternative own validation,
+retargeting, and lifetime. A sibling payload publication therefore cannot
+activate the projection node.
+
+The node resolves the declared child index and native REF output slot and tracking once
+at start. ``TSInputView::prepare_reference_route`` extends the RFC 0008 input
+route cache with reference extraction. It selects a native REF borrow, a
+TargetLink endpoint, or finite non-peered child routes from immutable endpoint
+metadata. The non-owning route keeps the exact input storage/path and is
+cleared with node state at stop; it does not capture a particular selected
+output. Runtime reads dispatch through its cached function and preserve
+presence and expiry without schema tests, name searches, or registry queries.
+Malformed and descriptive targets still pass through the binding owner's
+validation; preparation does not introduce an unchecked schema adapter.
+
+The projection's explicit static ``signature_args`` retains the passive
+observation and scalar index for cold wiring/start preparation. Its evaluation
+hook receives only the active designation, native state and output; it neither
+constructs nor checks a scalar index selector per tick.
+
+The projector verifies the canonical native REF output ops during start and
+caches its destination and tracking through the same owner contract as the
+RFC 0008 prepared output route. Evaluation compares the current designation,
+then move-assigns and commits the tracking record; it does not select a write
+strategy or repeat value-binding compatibility checks per publication.

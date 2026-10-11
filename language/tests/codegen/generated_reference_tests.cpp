@@ -45,6 +45,46 @@ namespace
             return wire<reference_identity::compare_lists>(w, left, right, step);
         }
     };
+
+    using ReferenceChildBundle = TSB<"ProjectedReferenceChild", Field<"child", REF<TS<Int>>>>;
+
+    struct SelectReferenceChild
+    {
+        static void eval(In<"index", TS<Int>> index, In<"first", REF<TS<Int>>> first,
+                         In<"second", REF<TS<Int>>> second, Out<ReferenceChildBundle> out) {
+            out.field<"child">().set(index.value() == 0 ? first.value() : second.value());
+        }
+    };
+
+    struct ForwardReferenceParent
+    {
+        static void eval(In<"value", REF<ReferenceChildBundle>> value, Out<REF<ReferenceChildBundle>> out) {
+            out.set(value.value());
+        }
+    };
+
+    struct ReadProjectedInt
+    {
+        static void eval(In<"value", TS<Int>> value, Out<TS<Int>> out) { out.set(value.value()); }
+    };
+
+    struct ProjectReferenceChild
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> index, Port<TS<Int>> first, Port<TS<Int>> second) {
+            auto source = wire<SelectReferenceChild>(w, index, first, second);
+            auto parent = wire<ForwardReferenceParent>(w, source);
+            auto child = wire<stdlib::getattr_>(w, parent, Str{"child"});
+            return wire<ReadProjectedInt>(w, child);
+        }
+    };
+
+    struct IncompatibleProjectedOutput
+    {
+        static Port<REF<TS<Str>>> compose(Wiring &w, Port<ReferenceChildBundle> source) {
+            auto parent = wire<ForwardReferenceParent>(w, source);
+            return wire<stdlib::getattr_, REF<TS<Str>>>(w, parent, Str{"child"});
+        }
+    };
 }  // namespace
 
 TEST_CASE("generated reference operators retain their public schema", "[codegen][generated][ref]") {
@@ -133,4 +173,18 @@ TEST_CASE("generated reference projections follow only their selected declared c
         values<Int>(0, std::nullopt, 1), values<Value>(tsb_delta<Quote>(Int{7}, std::nullopt)),
         values<Value>(tsb_delta<Quote>(Int{8}, std::nullopt)), values<Value>(tsb_delta<Quote>(Int{20}, std::nullopt))) ==
         values<Int>(7, 8, std::nullopt, std::nullopt, 7));
+}
+
+TEST_CASE("prepared reference projection follows a REF child while its parent designation is unchanged",
+          "[codegen][generated][ref][projection]") {
+    hgl::wiring::ensure_session();
+    CHECK(eval_node<ProjectReferenceChild>(values<Int>(0, 1, std::nullopt, std::nullopt, 0),
+        values<Int>(7, std::nullopt, 9, std::nullopt, 11),
+        values<Int>(8, std::nullopt, std::nullopt, 10)) == values<Int>(7, 8, std::nullopt, 10, 11));
+}
+
+TEST_CASE("reference projection rejects an incompatible declared output during wiring",
+          "[codegen][generated][ref][projection]") {
+    hgl::wiring::ensure_session();
+    CHECK_THROWS(eval_node<IncompatibleProjectedOutput>(values<Value>()));
 }
