@@ -599,10 +599,11 @@ change the consumer's logical schema. Ordinary and REF consumers retain their
 existing consumer-schema binding normalization, including collapse of an
 already-REF producer. An ordinary observation descriptor must not introduce
 an intervening ordinary-to-REF owner when an opaque REF consumer binds it.
-This is significant for ``SIGNAL``: a direct REF observes designation metadata,
-while an explicitly ordinary view observes the followed target. Both retain
-the same Boolean signal value/delta facade. ``SIGNAL`` is a metadata consumer,
-so source adaptation does not first erase its REF declaration.
+``SIGNAL`` is no exception (TS-18): a direct REF and an explicitly ordinary
+view both give a signal the followed target's metadata, with the same Boolean
+signal value/delta facade; the declared view changes the descriptor, not the
+observation. Source adaptation dereferences a SIGNAL's REF source exactly as
+it does for any consumer that does not declare ``REF``.
 
 Nested input owners retain two borrowed handles: the offered producer and its
 resolved declared view. The declaration is immutable for that input position.

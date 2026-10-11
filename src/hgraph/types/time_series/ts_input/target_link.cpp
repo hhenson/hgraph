@@ -87,10 +87,14 @@ namespace hgraph::detail
                                                         const TSOutputView &output)
         {
             const bool closed_union_narrowing = is_closed_union_narrowing(schema, output.schema());
-            // SIGNAL observes the supplied endpoint's metadata. A supplied
-            // REF therefore contributes designation ticks, rather than the
-            // payload traffic of its referenced target.
-            return schema.kind == TSTypeKind::SIGNAL || closed_union_narrowing
+            const bool signal_from_reference =
+                schema.kind == TSTypeKind::SIGNAL && output.schema() != nullptr &&
+                output.schema()->kind == TSTypeKind::REF;
+            // SIGNAL accepts every concrete time-series shape, but it never
+            // binds to a reference (TS-18): offered a REF, it binds to the
+            // designated output through the same adapter as an ordinary
+            // input, and ticks with that output rather than the designation.
+            return (schema.kind == TSTypeKind::SIGNAL && !signal_from_reference) || closed_union_narrowing
                        ? output.handle()
                        : output.binding_for(schema);
         }

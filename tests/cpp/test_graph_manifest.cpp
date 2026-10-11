@@ -383,19 +383,22 @@ TEST_CASE("values without a canonical encoding are refused with a reason", "[man
     CHECK_FALSE(reason.empty());
 }
 
-TEST_CASE("declared edge views distinguish otherwise identical signal graph descriptors", "[manifest][reference][signal]") {
+TEST_CASE("signal graph descriptors do not depend on a source being offered as a REF", "[manifest][reference][signal]") {
+    // TS-18: a SIGNAL dereferences a REF source when the edge is wired, so a
+    // signal observing the REF view of an output and one observing the output
+    // itself have the same edges, declared source views, type and manifest.
     const auto ordinary = wire_signal_view_graph(false);
     const auto designation = wire_signal_view_graph(true);
     const auto repeated = wire_signal_view_graph(true);
     REQUIRE(ordinary.edges().size() == designation.edges().size());
     REQUIRE_FALSE(ordinary.edges().empty());
     CHECK(ordinary.edge_source_views().front()->kind == TSTypeKind::TS);
-    CHECK(designation.edge_source_views().front()->kind == TSTypeKind::REF);
-    CHECK_FALSE(ordinary.type() == designation.type());
+    CHECK(designation.edge_source_views().front()->kind == TSTypeKind::TS);
+    CHECK(ordinary.type() == designation.type());
     CHECK(designation.type() == repeated.type());
     const auto ordinary_manifest = manifest::capture(ordinary);
     const auto designation_manifest = manifest::capture(designation);
-    CHECK_FALSE(manifest::validate(ordinary_manifest, designation_manifest).identical());
+    CHECK(manifest::validate(ordinary_manifest, designation_manifest).identical());
     CHECK(manifest::validate(designation_manifest, manifest::capture(repeated)).identical());
     GraphBuilder wrong;
     for (const auto &node : ordinary.nodes()) { wrong.add_node(node); }

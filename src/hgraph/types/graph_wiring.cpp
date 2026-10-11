@@ -1182,8 +1182,10 @@ WiringPortRef adapt_source_for_input_impl(Wiring &w,
   if (input_schema == nullptr) {
     return source;
   }
+  // A SIGNAL is a value consumer for adaptation: it dereferences a REF
+  // source like any input that does not declare REF (TS-18).
   const bool consumes_value =
-      value_consumer && input_schema->kind != TSTypeKind::REF && input_schema->kind != TSTypeKind::SIGNAL;
+      value_consumer && input_schema->kind != TSTypeKind::REF;
 
   auto &registry = TypeRegistry::instance();
   const auto *input = registry.dereference(input_schema);

@@ -1,4 +1,10 @@
-"""REF-SAMPLE: designation signals and declared ordinary views stay distinct."""
+"""TS-18 and REF-SAMPLE: every consumer that does not declare REF dereferences.
+
+A SIGNAL, a concrete or generic ordinary parameter, and a REF-declared graph
+parameter handed on to a non-REF consumer all observe the designated output:
+its validity, ticks and samples. Only a consumer that itself declares REF
+observes designations.
+"""
 import pytest
 
 from hgraph import (REF, SCALAR, SIGNAL, TIME_SERIES_TYPE, TS, TSB, TSL,
@@ -12,12 +18,25 @@ def _metadata(value: SIGNAL, clock: TS[int]) -> TS[tuple[bool, bool]]:
     return value.valid, value.modified
 
 
-_DESIGNATIONS = [REF[TS[int]], REF[TS[SCALAR]], SIGNAL]
-_DECLARATIONS = [TS[int], TS[SCALAR], TIME_SERIES_TYPE, *_DESIGNATIONS]
+@compute_node(valid=(), active=("clock",))
+def _designation(value: REF[TS[int]], clock: TS[int]) -> TS[tuple[bool, bool]]:
+    return value.valid, value.modified
+
+
+_DECLARATIONS = [TS[int], TS[SCALAR], TIME_SERIES_TYPE, REF[TS[int]], REF[TS[SCALAR]], SIGNAL]
 _IDS = ["concrete-value", "scalar-generic", "series-generic",
         "reference", "generic-reference", "signal"]
 _SELECT = [False, None, True, None, False, None, True, None]
 _VALUE = [7, 8, None, 9, None, 10, None, None]
+# What every non-REF consumer sees: the designated output's validity, its
+# sampled bind and its ticks, and nothing while the designation is empty.
+_FOLLOWED_METADATA = [(False, False), (False, False), (True, True), (True, True),
+                      (False, False), (False, False), (True, True), (True, False)]
+_FOLLOWED_SAMPLE = [None, None, 1, 1, None, None, 1, None]
+_FOLLOWED_MODIFIED = [False, None, True, True, False, None, True, False]
+# What only a REF-declared consumer sees: designation publications, the
+# first of them empty, and no wake for target ticks.
+_DESIGNATION_METADATA = [(True, True), (True, False)] * 4
 
 
 def _run(declaration, consume):
@@ -35,28 +54,22 @@ def _run(declaration, consume):
 
 
 @pytest.mark.parametrize("declaration", _DECLARATIONS, ids=_IDS)
-def test_declared_view_metadata_from_independent_clock(declaration):
-    designation = declaration in _DESIGNATIONS
-    expected = ([(True, True), (True, False)] * 4 if designation else
-                [(False, False), (False, False), (True, True), (True, True),
-                 (False, False), (False, False), (True, True), (True, False)])
-    assert _run(declaration, _metadata) == expected
+def test_signal_metadata_follows_the_designated_output(declaration):
+    assert _run(declaration, _metadata) == _FOLLOWED_METADATA
 
 
 @pytest.mark.parametrize("declaration", _DECLARATIONS, ids=_IDS)
-def test_sample_uses_declared_view_including_selected_empty(declaration):
-    designation = declaration in _DESIGNATIONS
-    expected = ([1, None, 1, None, 1, None, 1, None] if designation else
-                [None, None, 1, 1, None, None, 1, None])
-    assert _run(declaration, lambda value, clock: sample(value, 1)) == expected
+def test_sample_follows_the_designated_output(declaration):
+    assert _run(declaration, lambda value, clock: sample(value, 1)) == _FOLLOWED_SAMPLE
 
 
 @pytest.mark.parametrize("declaration", _DECLARATIONS, ids=_IDS)
-def test_modified_uses_declared_view(declaration):
-    designation = declaration in _DESIGNATIONS
-    expected = ([True, False, True, False, True, False, True, False] if designation else
-                [False, None, True, True, False, None, True, False])
-    assert _run(declaration, lambda value, clock: modified(value)) == expected
+def test_modified_follows_the_designated_output(declaration):
+    assert _run(declaration, lambda value, clock: modified(value)) == _FOLLOWED_MODIFIED
+
+
+def test_only_a_ref_consumer_observes_designations():
+    assert _run(REF[TS[int]], _designation) == _DESIGNATION_METADATA
 
 
 def test_valid_of_explicit_reference_observes_empty_designations():
@@ -67,8 +80,8 @@ def test_valid_of_explicit_reference_observes_empty_designations():
         False, None, True, None, False, None, True, None]
 
 
-@pytest.mark.parametrize("declaration", _DECLARATIONS[:3], ids=_IDS[:3])
-def test_empty_retarget_clears_ordinary_metadata_after_old_target_ticks(declaration):
+@pytest.mark.parametrize("declaration", _DECLARATIONS, ids=_IDS)
+def test_empty_retarget_clears_metadata_after_old_target_ticks(declaration):
     def observe(value, clock):
         return _metadata(value, clock)
 
@@ -94,7 +107,7 @@ class _ValuePair(TimeSeriesSchema):
 
 
 @pytest.mark.parametrize("shape", ["bundle", "fixed-list"])
-def test_assembled_signal_preserves_declared_reference_children(shape):
+def test_assembled_signal_follows_declared_reference_children(shape):
     def ordinary(value, clock):
         return _metadata(value, clock)
 
@@ -110,13 +123,14 @@ def test_assembled_signal_preserves_declared_reference_children(shape):
         assembled = (TSB[_ReferencePair].from_ts(left=selected, right=selected)
                      if shape == "bundle" else
                      TSL[REF[TS[int]], Size[2]].from_ts(selected, selected))
-        return combine(designation=_metadata(assembled, clock),
-                       payload=observe_ordinary(assembled, clock))
+        return combine(direct=_metadata(assembled, clock),
+                       declared=observe_ordinary(assembled, clock))
 
-    designation = [(True, True), (True, False)] * 4
-    payload = [(False, False), (False, False), (True, True), (True, True),
-               (False, False), (False, False), (True, True), (True, False)]
+    # A SIGNAL over an assembled structure follows its REF children exactly
+    # as the ordinary declared view does; a repeated equal designation is
+    # not a tick (TS-16), a target tick is (TS-18).
+    followed = [(False, False), (False, False), (True, True), (True, True),
+                (False, False), (False, False), (True, True), (True, False)]
     repeated_designations = [False, False, True, True, False, False, True, True]
     assert eval_node(app, repeated_designations, _VALUE, [1] * len(_SELECT)) == [
-        {"designation": direct, "payload": followed}
-        for direct, followed in zip(designation, payload)]
+        {"direct": metadata, "declared": metadata} for metadata in followed]
