@@ -758,6 +758,13 @@ TEST_CASE("wiring contract: a pattern covers what it accepts, never more (WIR-23
     // Fields pair by name, in any order.
     CHECK(ts_pattern_covers(to_pattern<UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<ScalarVar<"T">>>>>(),
                             to_pattern<UnNamedTSB<Field<"b", TS<Float>>, Field<"a", TS<Int>>>>()));
+    // A finite scalar variable domain can refine a concrete configuration.
+    const auto integer_config = to_scalar_pattern<Int>();
+    CHECK(scalar_pattern_covers(integer_config, to_scalar_pattern<ScalarVar<"Config", Int>>()));
+    CHECK(scalar_pattern_covers(integer_config, to_scalar_pattern<ScalarVar<"Config", Int>>(), PatternCoverageMode::TypeCarrier));
+    CHECK_FALSE(scalar_pattern_covers(integer_config, to_scalar_pattern<ScalarVar<"Config", Float>>()));
+    CHECK_FALSE(scalar_pattern_covers(integer_config, to_scalar_pattern<ScalarVar<"Config", Int, Float>>()));
+    CHECK_FALSE(scalar_pattern_covers(integer_config, to_scalar_pattern<ScalarVar<"Config">>()));
     // A nominal subtype refines its base, as input matching accepts it.
     {
         auto &registry = TypeRegistry::instance();
@@ -766,6 +773,10 @@ TEST_CASE("wiring contract: a pattern covers what it accepts, never more (WIR-23
         const auto *derived = registry.bundle("tests.wiring_contract", "CoverDerived", {{"a", integer}, {"b", integer}}, {base});
         CHECK(scalar_pattern_covers(ScalarPattern::concrete(base), ScalarPattern::concrete(derived)));
         CHECK_FALSE(scalar_pattern_covers(ScalarPattern::concrete(derived), ScalarPattern::concrete(base)));
+        CHECK(scalar_pattern_covers(ScalarPattern::concrete(base), ScalarPattern::var("Config", {derived})));
+        CHECK_FALSE(scalar_pattern_covers(ScalarPattern::concrete(base), ScalarPattern::var("Config", {derived}),
+                                          PatternCoverageMode::TypeCarrier));
+        CHECK_FALSE(scalar_pattern_covers(ScalarPattern::concrete(derived), ScalarPattern::var("Config", {base})));
     }
     // A generic nominal bundle covers only its own origin.
     ScalarPattern origin_a = ScalarPattern::bundle();

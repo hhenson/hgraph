@@ -13,6 +13,16 @@ Held and delta generic schema projections reconstruct the canonical Any
 scalar shape from its ordinary metadata at preparation time. They retain that
 shape without inspecting a box's contents.
 
+Generated node configuration uses erased ordinary scalar selectors for Any
+constants. A forwarding composition recovers a concrete declared output schema
+from the erased native port at wiring time. The node retains its configured
+box during preparation, including an empty box, and compares it with live
+observations through the same checked equality operation.
+Registration recognizes a finite constrained scalar variable as refining a
+concrete declared parameter only when the declaration covers every allowed
+type. An unbounded variable or a constraint set admitting other types still fails the
+operator's shape check.
+
 Any is one scalar temporal leaf. Its ordinary C++ representation uses the
 same owning ``Value`` and borrowed ``ValueView`` conventions as aggregates.
 That representation also selects aggregate lexical borrowing for global-state
