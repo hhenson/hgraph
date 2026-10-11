@@ -3569,8 +3569,18 @@ namespace hgl::codegen
                                                             expression.range),
                                     {operand.code}, expression.range);
                     } else if constexpr (std::is_same_v<T, gir::Binary>) {
-                        const Value lhs = eval_planned_expr(node.lhs, frame);
-                        const Value rhs = eval_planned_expr(node.rhs, frame);
+                        Value lhs = eval_planned_expr(node.lhs, frame);
+                        Value rhs = eval_planned_expr(node.rhs, frame);
+                        if (expression.operation.identity == "ref.compare") {
+                            // Compare borrowed designation tokens. In<REF>::value()
+                            // owns a copy and would clone non-peered child vectors.
+                            for (auto *operand : {&lhs, &rhs}) {
+                                if (!operand->selector.empty()) {
+                                    operand->code = operand->selector +
+                                        ".base().value().template checked_as<hgraph::TimeSeriesReference>()";
+                                }
+                            }
+                        }
                         if ((lhs.is_const() || lhs.is_runtime()) && (rhs.is_const() || rhs.is_runtime())) {
                             return fold_binary(node.op, lhs, rhs, expression.range);
                         }

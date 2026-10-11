@@ -14,6 +14,9 @@ export fn generic_distinct(first: f64, second: f64, step: i64) -> bool => same_g
 fn same_list(first: ref<list<i64, 2>>, second: ref<list<i64, 2>>, step: i64) -> bool {
     when valid(first, second, step) && modified(step) { return first == second }
 }
+export fn compare_lists(first: ref<list<i64, 2>>, second: ref<list<i64, 2>>, step: i64) -> bool {
+    when valid(first, second, step) && modified(step) { return first == second }
+}
 export fn aliased_list(value: list<i64, 2>, step: i64) -> bool => same_list(value, value, step)
 export fn distinct_lists(first: list<i64, 2>, second: list<i64, 2>, step: i64) -> bool => same_list(first, second, step)
 

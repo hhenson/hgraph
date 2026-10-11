@@ -1852,6 +1852,8 @@ Node `==` and `!=` on identical resolved `ref<T>` operands lower directly to
 comparison capabilities on `T` or inspect its payload. The planner still
 requires both operands to be readable; heterogeneous reference comparisons,
 ordering, and node traversal below a reference remain rejected.
+Comparison operands borrow the prepared reference input's designation token,
+so comparing non-peered child trees does not clone their owning child vectors.
 Each separately supplied `eval` temporal argument has an independent endpoint,
 even when two sample sequences are equal. The harness prepares a distinct replay
 key and exact temporal type carrier for each argument. Structural HGL delta

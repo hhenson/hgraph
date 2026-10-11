@@ -2983,8 +2983,11 @@ export fn different(first: ref<i64>, second: ref<i64>) -> bool {
 )"};
     const auto emitted = unit.emit();
     REQUIRE(emitted);
-    CHECK(contains(emitted->header, "first.value() == second.value()"));
-    CHECK(contains(emitted->header, "first.value() != second.value()"));
+    const std::string first = "first.base().value().template checked_as<hgraph::TimeSeriesReference>()";
+    const std::string second = "second.base().value().template checked_as<hgraph::TimeSeriesReference>()";
+    CHECK(contains(emitted->header, first + " == " + second));
+    CHECK(contains(emitted->header, first + " != " + second));
+    CHECK_FALSE(contains(emitted->header, "first.value()"));
     CHECK_FALSE(contains(emitted->header, "target_output()"));
 
     Unit unreadable{R"(

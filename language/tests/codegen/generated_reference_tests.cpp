@@ -24,6 +24,25 @@ namespace
             return wire<reference_routing::operators::route3>(w, index, values).as<TS<Float>>();
         }
     };
+
+    struct CompareChildTrees
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>> first, Port<TS<Int>> second,
+                                     Port<TS<Int>> equal_contents, Port<TS<Int>> step) {
+            auto left = stdlib::to_tsl(w, first, second);
+            auto right = stdlib::to_tsl(w, first, equal_contents);
+            return wire<reference_identity::compare_lists>(w, left, right, step);
+        }
+    };
+
+    struct CompareAliasedChildTrees
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>> first, Port<TS<Int>> second, Port<TS<Int>> step) {
+            auto left = stdlib::to_tsl(w, first, second);
+            auto right = stdlib::to_tsl(w, first, second);
+            return wire<reference_identity::compare_lists>(w, left, right, step);
+        }
+    };
 }  // namespace
 
 TEST_CASE("generated reference operators retain their public schema", "[codegen][generated][ref]") {
@@ -66,4 +85,8 @@ TEST_CASE("generated composite reference identity preserves distinct endpoints",
     const auto bundle = values<Value>(tsb_delta<Fields>(Int{7}, Int{8}));
     CHECK(eval_node<reference_identity::aliased_bundle>(bundle, step) == values<Bool>(true, true, true));
     CHECK(eval_node<reference_identity::distinct_bundles>(bundle, bundle, step) == values<Bool>(false, false, false));
+    const auto first = values<Int>(7);
+    const auto second = values<Int>(8);
+    CHECK(eval_node<CompareAliasedChildTrees>(first, second, step) == values<Bool>(true, true, true));
+    CHECK(eval_node<CompareChildTrees>(first, second, second, step) == values<Bool>(false, false, false));
 }
