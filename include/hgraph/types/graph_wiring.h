@@ -114,6 +114,14 @@ namespace hgraph
         };
 
         const TSValueTypeMetaData *schema{nullptr};
+        /** Cold source observation beneath a metadata-only facade. The
+            logical schema continues to enforce SIGNAL capabilities. */
+        const TSValueTypeMetaData *observation_schema{nullptr};
+
+        [[nodiscard]] const TSValueTypeMetaData *declared_source_view() const noexcept
+        {
+            return observation_schema != nullptr ? observation_schema : schema;
+        }
 
         [[nodiscard]] static WiringPortRef peered_source(const WiringInstance *node,
                                                          std::vector<std::size_t> path,
@@ -1483,7 +1491,18 @@ namespace hgraph
         // parameter receives (e.g. ``Port<TSL<TsVar<"V">>>``).
         void stamp_schema() noexcept
         {
-            if (const auto *meta = schema_descriptor<Schema>::ts_meta(); meta != nullptr) { ref_.schema = meta; }
+            if (const auto *meta = schema_descriptor<Schema>::ts_meta(); meta != nullptr)
+            {
+                if (meta->kind == TSTypeKind::SIGNAL)
+                {
+                    if (ref_.schema != nullptr && ref_.schema->kind != TSTypeKind::SIGNAL)
+                    {
+                        ref_.observation_schema = ref_.schema;
+                    }
+                }
+                else { ref_.observation_schema = nullptr; }
+                ref_.schema = meta;
+            }
         }
 
         Wiring        *wiring_{nullptr};
@@ -2480,7 +2499,7 @@ namespace hgraph
             {
                 const auto &field = input_schema->fields()[index];
                 const auto *field_schema = field.type;
-                const auto *source_schema = sources[index].schema;
+                const auto *source_schema = sources[index].declared_source_view();
                 const bool fixed_structural_signal =
                     field_schema != nullptr && field_schema->kind == TSTypeKind::SIGNAL &&
                     sources[index].is_structural_source() && source_schema != nullptr &&

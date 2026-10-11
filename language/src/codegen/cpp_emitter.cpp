@@ -170,6 +170,9 @@ namespace hgl::codegen
             /// Runtime values backed by an endpoint keep its selector spelling
             /// so metadata intrinsics and assignments do not read the payload.
             std::string selector{};
+            /// Output capabilities expose their value directly; inputs expose
+            /// it through their base cursor. Keep that distinction checked.
+            bool output_selector{false};
             /// A borrowed map-key projection keeps its source endpoint for
             /// membership deltas and evaluation time; it never copies keys.
             std::string key_set_source{};
@@ -784,12 +787,12 @@ namespace hgl::codegen
             [[nodiscard]] static bool ordinary_scalar_variable(const HType &type) {
                 return ordinary_aggregate(type) && type.kind != HType::Kind::List && type.kind != HType::Kind::Delta;
             }
-            [[nodiscard]] static bool contains_window(const HType &type) {
-                if (type.kind == HType::Kind::Rolling) { return true; }
+            [[nodiscard]] static bool contains_endpoint_storage(const HType &type) {
+                if (type.kind == HType::Kind::Rolling || type.kind == HType::Kind::Reference) { return true; }
                 if (type.kind != HType::Kind::List && type.kind != HType::Kind::Map && type.kind != HType::Kind::Tuple) {
                     return false;
                 }
-                return std::ranges::any_of(type.children, contains_window);
+                return std::ranges::any_of(type.children, contains_endpoint_storage);
             }
             [[nodiscard]] std::string storage_type(const HType &type, SourceRange range) {
                 return ordinary_aggregate(type) ? "hgraph::Value" : value_type(type, range);
@@ -2788,7 +2791,7 @@ namespace hgl::codegen
             if (!value.is_port()) { fail(Category::Type, range, "a time-series value is required"); }
             // A symbolic target is a wiring pattern, not concrete metadata
             // that Port::as can validate. Let wire infer its exact schema.
-            if (symbolic(temporal) ||
+            if (temporal.kind == HType::Kind::Signal || symbolic(temporal) ||
                 (value.type.kind != HType::Kind::Unknown && same_type(value.type, temporal))) { return value.code; }
             return value.code + ".as<" + s + ">()";
         }
@@ -3569,8 +3572,18 @@ namespace hgl::codegen
                                                             expression.range),
                                     {operand.code}, expression.range);
                     } else if constexpr (std::is_same_v<T, gir::Binary>) {
-                        const Value lhs = eval_planned_expr(node.lhs, frame);
-                        const Value rhs = eval_planned_expr(node.rhs, frame);
+                        Value lhs = eval_planned_expr(node.lhs, frame);
+                        Value rhs = eval_planned_expr(node.rhs, frame);
+                        if (expression.operation.identity == "ref.compare") {
+                            // Compare borrowed designation tokens. In<REF>::value()
+                            // owns a copy and would clone non-peered child vectors.
+                            for (auto *operand : {&lhs, &rhs}) {
+                                if (!operand->selector.empty()) {
+                                    operand->code = "hgl::ordinary::reference_argument(" + operand->selector +
+                                        (operand->output_selector ? ".value())" : ".base().value())");
+                                }
+                            }
+                        }
                         if ((lhs.is_const() || lhs.is_runtime()) && (rhs.is_const() || rhs.is_runtime())) {
                             return fold_binary(node.op, lhs, rhs, expression.range);
                         }
@@ -3671,6 +3684,16 @@ namespace hgl::codegen
                             return make_runtime(selector + ".value()", target.type.children.front(), expression.range, selector);
                         }
                         if (!target.is_port()) { unsupported(expression.range, "indexing a constant"); }
+                        if (target.type.kind == HType::Kind::List && target.type.concrete_size) {
+                            const auto position = integer_value(index);
+                            if (position && *position >= 0 && *position < *target.type.concrete_size) {
+                                // An ordinary fixed List's constant child is a
+                                // graph port path, rather than a runtime getitem
+                                // node. Retain its exact child schema and identity.
+                                return make_port("hgraph::tsl_element(" + target.code + ", " + std::to_string(*position) + ")",
+                                                 target.type.children.front(), expression.range);
+                            }
+                        }
                         const std::string marker = planned_operator_marker(
                             expression.operation.identity,
                             expression.operation.registry_name.empty() ? std::string_view{"getitem_"}
@@ -6794,16 +6817,21 @@ namespace hgl::codegen
             if (include_output && info.out_binding.valid()) {
                 const HType result = planned_type(planned.result, planned.range);
                 Value       value;
-                if (result.kind == HType::Kind::List || result.kind == HType::Kind::Rolling) {
+                if (result.kind == HType::Kind::List || result.kind == HType::Kind::Rolling ||
+                    result.kind == HType::Kind::Reference) {
                     value.kind     = Value::Kind::Runtime;
                     value.type     = result;
                     value.range    = planned_binding(info.out_binding, planned.range).range;
                     value.selector = "hgl_output";
+                    if (result.kind == HType::Kind::Reference) {
+                        value.code = "hgl::ordinary::reference_argument(hgl_output.value())";
+                    }
                 } else {
                     value = make_runtime("hgl_output.value().checked_as<" +
                                              value_type(result, graph_type(planned.result, planned.range).range) + ">()",
                                          result, planned_binding(info.out_binding, planned.range).range, "hgl_output");
                 }
+                value.output_selector = true;
                 if (!frame.planned_bindings.emplace(info.out_binding.value, std::move(value)).second) {
                     backend(planned.range, "hgraph IR callable repeats the output capability binding");
                 }
@@ -7645,9 +7673,9 @@ namespace hgl::codegen
                     temporal_fields.push_back("hgraph::Field<" + quote(field.name) + ", hgraph::TS<" + edge + ">>");
                     continue;
                 }
-                // Window-bearing fields have held storage, but no ordinary HGL
+                // REF/window-bearing fields have held storage, but no ordinary HGL
                 // value type. Keep their exact endpoint schema in temporal_fields.
-                const std::string held = contains_window(type)
+                const std::string held = contains_endpoint_storage(type)
                     ? "hgl::ordinary::Held<" + schema(type, planned.range) + ">" : value_type(type, planned.range);
                 value_fields.push_back("hgraph::Field<" + quote(field.name) + ", " + held + ">");
                 if (type.kind == HType::Kind::Delta) { temporal_admitted = false; }

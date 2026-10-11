@@ -1198,9 +1198,11 @@ class _PyNode:
                 layout_by_name.append(by_name)
                 ports.append(_unwrap(value))
                 requested = self._requested_shape(scope, plan, value)
+                # A SIGNAL dereferences like every input that does not declare
+                # REF (TS-18): an assembled source's REF children are followed,
+                # not observed as designations.
                 reference_shapes.append(
-                    requested
-                    if requested is not None and _contains_ref(requested)
+                    requested if requested is not None and _contains_ref(requested)
                     else False)
             else:
                 layout.append("s")

@@ -78,6 +78,23 @@ namespace
         return metas;
     }
 
+    struct ObserveSignalForManifest {
+        static void eval(In<"value", SIGNAL> value, Out<TS<Bool>> out) { out.set(value.modified()); }
+    };
+
+    GraphBuilder wire_signal_view_graph(bool reference_view) {
+        stdlib::register_standard_operators();
+        Wiring w;
+        auto value = wire<stdlib::const_, TS<Int>>(w, Int{7});
+        const auto output = reference_view
+            ? wire<ObserveSignalForManifest>(w, value.as<REF<TS<Int>>>())
+            : wire<ObserveSignalForManifest>(w, value);
+        const auto metas = runtime_metas();
+        call_operator(w, "record", {ts_arg(output.erased()),
+                      scalar_arg(Value{Str{"manifest::signal"}}, metas.str_meta)}, false);
+        return std::move(w).finish();
+    }
+
     // A small static graph: const lhs + const rhs -> add_ -> record sink.
     GraphBuilder wire_sum_graph(Int lhs_value, Int rhs_value)
     {
@@ -364,4 +381,29 @@ TEST_CASE("values without a canonical encoding are refused with a reason", "[man
     reason.clear();
     CHECK_FALSE(manifest::manifest_scalar_encodable(registry.queue(int_meta, 4), &reason));
     CHECK_FALSE(reason.empty());
+}
+
+TEST_CASE("signal graph descriptors do not depend on a source being offered as a REF", "[manifest][reference][signal]") {
+    // TS-18: a SIGNAL dereferences a REF source when the edge is wired, so a
+    // signal observing the REF view of an output and one observing the output
+    // itself have the same edges, declared source views, type and manifest.
+    const auto ordinary = wire_signal_view_graph(false);
+    const auto designation = wire_signal_view_graph(true);
+    const auto repeated = wire_signal_view_graph(true);
+    REQUIRE(ordinary.edges().size() == designation.edges().size());
+    REQUIRE_FALSE(ordinary.edges().empty());
+    CHECK(ordinary.edge_source_views().front()->kind == TSTypeKind::TS);
+    CHECK(designation.edge_source_views().front()->kind == TSTypeKind::TS);
+    CHECK(ordinary.type() == designation.type());
+    CHECK(designation.type() == repeated.type());
+    const auto ordinary_manifest = manifest::capture(ordinary);
+    const auto designation_manifest = manifest::capture(designation);
+    CHECK(manifest::validate(ordinary_manifest, designation_manifest).identical());
+    CHECK(manifest::validate(designation_manifest, manifest::capture(repeated)).identical());
+    GraphBuilder wrong;
+    for (const auto &node : ordinary.nodes()) { wrong.add_node(node); }
+    for (auto edge : ordinary.edges()) {
+        wrong.add_edge(std::move(edge), TypeRegistry::instance().ts(scalar_descriptor<Str>::value_meta()));
+    }
+    CHECK_THROWS_AS(wrong.type(), std::invalid_argument);
 }

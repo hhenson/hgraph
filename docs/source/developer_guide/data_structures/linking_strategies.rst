@@ -101,6 +101,16 @@ non-``REF`` shape but the output position being bound is a ``REF``
 shape. It is not part of the normal input binding path and it is not a
 public way for user code to dereference a ``TimeSeriesReference``.
 
+Reference equality observes the current designation defined by TS-16 and
+TS-23. An expired peered token compares equal to a typed empty token with
+the same declared target schema; its saved endpoint address is no longer an
+identity. The C++ hash follows that same effective designation. Both operations
+retain non-peered child trees and recursively compare/hash their current
+children, without collapsing an assembled tree into a whole empty token.
+Expiry can therefore change a saved token's hash; a hashed container whose
+keys outlive endpoints must rebuild its index at that lifetime boundary.
+This is the existing C++ scalar hash contract and adds no HGL REF hashing.
+
 A ``RefLinkState`` is logically split into three pieces:
 
 - the **REF source subscriber** — observes the output position where the

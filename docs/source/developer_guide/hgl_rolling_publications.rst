@@ -19,3 +19,17 @@ arrival snapshots and their actual publication times, including list and
 struct payloads. No rolling-delta constructor or ordinary rolling value is
 introduced. The pinned ``rolling-publications.md`` specification defines the
 admitted profile.
+
+Nominal temporal fields
+-----------------------
+
+Generated and direct HGL wiring use the endpoint's held value metadata for
+REF- or window-bearing nominal fields, including list, tuple and map
+children. This is a physical storage recipe, not an ordinary HGL scalar
+admission. Effective nominal fields and parents are checked recursively for
+const parameters and value functions, atomic payloads, collection keys and
+window values. Temporal REF fields remain legal; a graph projection through
+an outer REF retains an already-REF child boundary rather than nesting it.
+The canonical contracts are the Spec's
+``language/docs/developer-guide/syntax-and-semantics.md`` Types section and
+``language/docs/design/type-extensions.md`` wiring-time access section.

@@ -10,6 +10,9 @@
 // nothing about the transport form.
 
 #include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/std/component.h>
+#include <hgraph/lib/testing/check_output.h>
+#include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/runtime/checkpoint_codec.h>
 #include <hgraph/runtime/distributed_child.h>
 #include <hgraph/runtime/executor.h>
@@ -30,6 +33,7 @@ namespace
 {
     using namespace hgraph;
     using namespace hgraph::distributed;
+    using namespace hgraph::testing;
     using Catch::Matchers::ContainsSubstring;
 
     using KeyedInts    = TSD<Int, TS<Int>>;
@@ -134,6 +138,59 @@ namespace
             auto       in        = wire<boundary_source_impl, TS<Int>>(w, Str{"in"});
             wire<boundary_sink_impl>(w, wire<ArmedAtStart>(w, in), Str{"out"});
             (void)w.checkpoint_component(enclosing);
+        }
+    };
+
+    struct CountReferenceObservations
+    {
+        static constexpr auto name = "worker_checkpoint_count_reference_observations";
+        static void           eval(In<"ts", REF<TS<Int>>> ts, In<"values", TS<Int>, InputValidity::Unchecked> values,
+                                   RecordableState<RunningState> state, Out<TS<Int>> out) {
+            if (!ts.modified() && !values.modified()) { return; }
+            auto      total = state.field<"total">();
+            const Int count = (total.valid() ? total.value().checked_as<Int>() : 0) + 1;
+            total.set(count);
+            out.set(count);
+        }
+    };
+    struct ReferenceObservationWorker
+    {
+        static constexpr auto name = "worker_checkpoint_reference_observation_graph";
+        static void           compose(Wiring &w) {
+            const auto enclosing = w.checkpoint_component("worker");
+            auto       input     = wire<boundary_source_impl, TS<Int>>(w, Str{"in"});
+            wire<boundary_sink_impl>(w, wire<CountReferenceObservations>(w, input, input), Str{"out"});
+            (void)w.checkpoint_component(enclosing);
+        }
+    };
+    struct SelectedReferenceObservationWorker
+    {
+        static constexpr auto name = "worker_checkpoint_selected_reference_observation_graph";
+        static void           compose(Wiring &w) {
+            for (const auto component : {"saved", "fresh"}) {
+                const auto enclosing = w.checkpoint_component(component);
+                auto       input     = wire<boundary_source_impl, TS<Int>>(w, Str{component} + "_in");
+                wire<boundary_sink_impl>(w, wire<CountReferenceObservations>(w, input, input), Str{component} + "_out");
+                (void)w.checkpoint_component(enclosing);
+            }
+        }
+    };
+    struct ReferenceObservationBody
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"ts", TS<Int>> input) {
+            return wire<CountReferenceObservations>(w, input, input);
+        }
+    };
+    struct ImmediateReferenceInput
+    {
+        static void start(Scalar<"value", Int> value, Out<TS<Int>> out) { out.set(value.value()); }
+        static void eval(Scalar<"value", Int>, Out<TS<Int>>) {}
+    };
+    template <Int Value> struct ImmediateReferenceComponent
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>>) {
+            return stdlib::component<ReferenceObservationBody>(w, "reference_observations",
+                                                               wire<ImmediateReferenceInput>(w, Int{Value}));
         }
     };
 
@@ -269,6 +326,70 @@ TEST_CASE("worker graph checkpoint: starting from an image ticks nothing", "[che
     resumed.stop();
 }
 
+TEST_CASE("worker graph checkpoint: restored REF observations do not repeat the pre-cut event", "[checkpoint][worker][reference]") {
+    register_types();
+    std::string bytes;
+    {
+        DistributedChildHost host{build_graph<ReferenceObservationWorker>(), test_end};
+        host.start(MIN_ST);
+        host.stage("in", Value{Int{7}}.view());
+        REQUIRE(host.step(cycle_time(0)));
+        const auto first = host.collect("out");
+        REQUIRE(first.has_value());
+        CHECK(first.view().checked_as<Int>() == 1);
+        encode_graph_checkpoint(host.capture(), bytes, cycle_time(1));
+        host.stop();
+    }
+    DistributedChildHost resumed{build_graph<ReferenceObservationWorker>(), test_end};
+    resumed.start_restored(cycle_time(1), decode_graph_checkpoint(bytes));
+    CHECK(resumed.next_scheduled_time() == MAX_DT);
+    std::size_t observed = 0;
+    for (std::size_t index = 0; index < resumed.graph().node_count(); ++index) {
+        const auto node = resumed.graph().node_at(index);
+        if (!node.has_recordable_state()) { continue; }
+        ++observed;
+        const auto reference = node.input(cycle_time(1)).indexed_child_at(0);
+        CHECK(reference.last_modified_time() == cycle_time(0));
+        CHECK_FALSE(reference.modified());
+    }
+    CHECK(observed == 1);
+    REQUIRE(resumed.step(cycle_time(1)));
+    CHECK_FALSE(resumed.collect("out").has_value());
+    resumed.stage("in", Value{Int{9}}.view());
+    REQUIRE(resumed.step(cycle_time(2)));
+    const auto next = resumed.collect("out");
+    REQUIRE(next.has_value());
+    CHECK(next.view().checked_as<Int>() == 2);
+    resumed.stop();
+
+    // A newly constructed graph still observes its first designation at
+    // activation, including an initially invalid ordinary producer.
+    DistributedChildHost fresh{build_graph<ReferenceObservationWorker>(), test_end};
+    fresh.start(cycle_time(1));
+    REQUIRE(fresh.step(cycle_time(1)));
+    const auto initial = fresh.collect("out");
+    REQUIRE(initial.has_value());
+    CHECK(initial.view().checked_as<Int>() == 1);
+    fresh.stop();
+}
+
+TEST_CASE("component checkpoint: restored REF consumers preserve a new start-boundary publication",
+          "[checkpoint][component][reference]") {
+    register_types();
+    GlobalContext                      context;
+    std::optional<ComponentCheckpoint> saved;
+    configure_component_recovery(context.state().view(), {.component_id = "reference_observations",
+                                                          .load         = [&] { return saved; },
+                                                          .commit       = [&](const auto &image) { saved = image; }});
+    CHECK_OUTPUT(eval_node_with_options<ImmediateReferenceComponent<7>>({.start_time = cycle_time(0), .end_time = cycle_time(1)},
+                                                                        values<Int>(none)),
+                 values<Int>(1));
+    REQUIRE(saved);
+    CHECK_OUTPUT(eval_node_with_options<ImmediateReferenceComponent<9>>({.start_time = cycle_time(1), .end_time = cycle_time(2)},
+                                                                        values<Int>(none)),
+                 values<Int>(2));
+}
+
 TEST_CASE("worker graph checkpoint: an image of another graph is refused and nothing starts",
           "[checkpoint][worker]")
 {
@@ -284,6 +405,37 @@ TEST_CASE("worker graph checkpoint: an image of another graph is refused and not
     auto               view     = executor.view();
     REQUIRE_THROWS_WITH(view.start_external_restored(cycle_time(2), image), ContainsSubstring("incompatible node"));
     CHECK_FALSE(view.graph().started());
+}
+
+TEST_CASE("worker graph checkpoint: REF sampling suppression follows the selected component", "[checkpoint][worker][reference]") {
+    register_types();
+    const auto  selection = GraphCheckpointSelection::owned_by("saved");
+    std::string bytes;
+    {
+        DistributedChildHost host{build_graph<SelectedReferenceObservationWorker>(), test_end};
+        host.start(MIN_ST);
+        host.stage("saved_in", Value{Int{7}}.view());
+        host.stage("fresh_in", Value{Int{8}}.view());
+        REQUIRE(host.step(cycle_time(0)));
+        CHECK(host.collect("saved_out").view().checked_as<Int>() == 1);
+        CHECK(host.collect("fresh_out").view().checked_as<Int>() == 1);
+        encode_graph_checkpoint(host.capture(selection), bytes, cycle_time(1));
+        host.stop();
+    }
+    DistributedChildHost resumed{build_graph<SelectedReferenceObservationWorker>(), test_end};
+    resumed.start_restored(cycle_time(1), decode_graph_checkpoint(bytes), selection);
+    REQUIRE(resumed.step(cycle_time(1)));
+    CHECK_FALSE(resumed.collect("saved_out").has_value());
+    const auto fresh = resumed.collect("fresh_out");
+    REQUIRE(fresh.has_value());
+    CHECK(fresh.view().checked_as<Int>() == 1);
+    resumed.stage("saved_in", Value{Int{9}}.view());
+    REQUIRE(resumed.step(cycle_time(2)));
+    const auto saved = resumed.collect("saved_out");
+    REQUIRE(saved.has_value());
+    CHECK(saved.view().checked_as<Int>() == 2);
+    CHECK_FALSE(resumed.collect("fresh_out").has_value());
+    resumed.stop();
 }
 
 TEST_CASE("worker graph checkpoint: restored state must precede the start", "[checkpoint][worker]")

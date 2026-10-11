@@ -330,7 +330,14 @@ from a C++ template (this is the load-bearing Python seam):
   unbound output variable is a **non-match** (reject with a reason), never an
   exception — an operator overload whose output is a free variable with no
   resolver can never produce a typed port and is ill-formed.
-  ``requires_`` has the same map-only and context-aware forms.
+  ``requires_`` has the same map-only and context-aware forms. Structural
+  ``getattr_``/``getitem_`` projections preserve the supplied endpoint through
+  an erased port parameter, then select the admitted bundle or fixed-List
+  shape with these cold predicates. Public inventory renders that parameter
+  as ``TIME_SERIES_TYPE`` and deduplicates identical displayed signatures;
+  the broad spelling does not bypass the shape predicate. Distinct internal
+  overloads can therefore share a displayed scalar-index signature without
+  adding per-tick dispatch.
 - A **Python** candidate (Phase 4) fills the *same* struct: ``params`` built
   directly as ``TypePattern``s over shared interned metas, and a ``wire`` closure
   that can create a Python-backed runtime node. The registry and dispatcher are
@@ -1326,3 +1333,40 @@ The imported-module scripted tests use a dedicated CLI test host linked with
 the native value provider; the build-time compiler remains independent of the
 library it generates. The design record is
 ``language/docs/design/migration-catalogue.md``.
+
+Prepared REF child projections
+------------------------------
+
+A declared REF field or fixed List projection binds the source twice: its
+opaque designation input is active, and its declared container observation is
+passive. The existing TargetLink and from-REF alternative own validation,
+retargeting, and lifetime. A sibling payload publication therefore cannot
+activate the projection node.
+
+The node resolves the declared child index and output publication route once
+at start. ``TSInputView::prepare_reference_route`` extends the RFC 0008 input
+route cache with reference extraction. It selects a native REF borrow, a
+TargetLink endpoint, or finite non-peered child routes from immutable endpoint
+metadata. The non-owning route keeps the exact input storage/path and is
+retained with node state and never applied after stop; it does not capture a
+particular selected output. Runtime reads dispatch through its cached function and preserve
+presence and expiry without schema tests, name searches, or registry queries.
+Malformed and descriptive targets still pass through the binding owner's
+validation; preparation does not introduce an unchecked schema adapter.
+
+The projection's explicit static ``signature_args`` retains the passive
+observation and scalar index for cold wiring/start preparation. Its evaluation
+hook receives only the active designation, native state and output; it neither
+constructs nor checks a scalar index selector per tick.
+
+The projector verifies the canonical REF value ops during start and retains
+that exact source binding. The RFC 0008 prepared output route supplies native
+storage for an owned output or a forwarding terminal with a native target.
+Evaluation rechecks the terminal target identity before using cached storage,
+compares the designation, then move-assigns and commits target and terminal
+tracking in owner order. A retargeted terminal or forwarding chain uses the
+existing output-owner mutation with the already prepared source binding.
+Neither path discovers a schema or searches a registry during publication.
+
+The canonical rules and source cases are linked from
+:doc:`../reference/operators`.

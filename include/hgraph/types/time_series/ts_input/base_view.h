@@ -16,6 +16,8 @@ namespace hgraph
 {
     class GraphView;
     class NodeView;
+    class PreparedInputReferenceRoute;
+    class TSInputView;
 
     namespace detail
     {
@@ -23,6 +25,10 @@ namespace hgraph
         struct TSInputTargetActiveNode;
         struct TSInputTargetLinkStorage;
         struct TSInputViewOps;
+        /** Owner-internal binding helper. The declared schema is immutable
+            for this input position over the child graph's lifetime. */
+        [[nodiscard]] HGRAPH_EXPORT TSOutputView declared_source_view(
+            TSInputView &target, TSOutputView source, const TSValueTypeMetaData *declared_schema);
 
         /**
          * A prepared canonical-slot route (RFC 0008 stage 5): the per-tick
@@ -165,6 +171,12 @@ namespace hgraph
          */
         [[nodiscard]] TimeSeriesReference reference() const;
 
+        /** RFC 0008 implementation detail: prepare reference extraction once
+            for this exact input endpoint. The route borrows input storage and
+            expires with it; retargets continue through its existing TargetLink.
+            Reading the route performs no schema/kind discovery. */
+        [[nodiscard]] PreparedInputReferenceRoute prepare_reference_route() const;
+
         /** For bindable target-link views, true when an output target is bound. */
         [[nodiscard]] bool bound() const noexcept;
 
@@ -280,12 +292,15 @@ namespace hgraph
 
       private:
         friend class TSInput;
+        friend TSOutputView detail::declared_source_view(
+            TSInputView &, TSOutputView, const TSValueTypeMetaData *);
         friend class TSBInputView;
         friend class TSLInputView;
         friend class TSSInputView;
         friend class TSDInputView;
         friend class TSWInputView;
         friend struct detail::TSInputViewOps;
+        friend class PreparedInputReferenceRoute;
 
         struct InputDataCursor
         {
@@ -393,6 +408,43 @@ namespace hgraph
         InputDataCursor           data_{};
         Notifiable               *scheduling_notifier_{nullptr};
         DateTime             evaluation_time_{MIN_DT};
+    };
+
+    /** Cold-prepared reference extraction for one exact input endpoint.
+        This is a non-owning node implementation cache, not a reference value
+        or a stable extension API. Copying a route copies only borrowed routes
+        and its finite prepared child plans; graph stop discards the cache. */
+    class HGRAPH_CLASS_EXPORT PreparedInputReferenceRoute
+    {
+      public:
+        PreparedInputReferenceRoute() noexcept = default;
+        PreparedInputReferenceRoute(const PreparedInputReferenceRoute &) = default;
+        PreparedInputReferenceRoute &operator=(const PreparedInputReferenceRoute &) = default;
+        PreparedInputReferenceRoute(PreparedInputReferenceRoute &&) noexcept;
+        PreparedInputReferenceRoute &operator=(PreparedInputReferenceRoute &&) noexcept;
+        [[nodiscard]] TimeSeriesReference read(DateTime evaluation_time) const;
+
+      private:
+        friend class TSInputView;
+        friend class detail::PreparedReferencePublication;
+        using read_fn = TimeSeriesReference (*)(const PreparedInputReferenceRoute &, DateTime);
+        [[nodiscard]] TSOutputHandle target() const;
+        static TimeSeriesReference read_link_reference(const PreparedInputReferenceRoute &, DateTime);
+        static TimeSeriesReference read_reference(const PreparedInputReferenceRoute &, DateTime);
+        static TimeSeriesReference read_target(const PreparedInputReferenceRoute &, DateTime);
+        static TimeSeriesReference read_children(const PreparedInputReferenceRoute &, DateTime);
+        static TimeSeriesReference read_empty(const PreparedInputReferenceRoute &, DateTime);
+
+        read_fn read_{&read_empty};
+        const TSValueTypeMetaData *schema_{nullptr};
+        struct TargetStep {
+            TSDataView (*project)(const TSDataView &, std::size_t){nullptr};
+            std::size_t index{0};
+        };
+        TSDataStorageRef<> value_{};
+        const detail::TSInputTargetLinkStorage *link_{nullptr};
+        std::vector<TargetStep> path_{};
+        std::vector<PreparedInputReferenceRoute> children_{};
     };
 
 }  // namespace hgraph

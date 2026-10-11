@@ -25,6 +25,14 @@ distinct tags, optional fields retain presence, and mutable children are owned
 independently by captures. Generic pass-through, ordinary containers, replay
 and recording preserve both the declared family and concrete values.
 
+The eval harness's independent keyed replay buffers retain inputs through a
+cold native-delta binding resolved by the existing closed-family realization.
+Canonical schema-only storage is insufficient here: an abstract Bundle's
+ordinary field layout cannot store a concrete member, and the same restriction
+applies to family children inside complete Lists and Bundles. The prepared
+native-delta binding owns the full concrete member before seeding the buffer;
+replay publication uses that retained binding without registry discovery.
+
 Structural family roots, recursive family publications and unresolved
 multiple-parent field ordering remain outside this admission. The normative
 contract is ``abstract-atomic-publications.md`` in the pinned specification.

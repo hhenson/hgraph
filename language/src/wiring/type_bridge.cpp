@@ -257,7 +257,7 @@ namespace hgl::wiring
 
     const hgraph::ValueTypeMetaData *TypeBridge::field_value(const hgraph_ir::StructField &field, const Bindings &applied) {
         if (!field.recursive) {
-            // A window has held storage without becoming an ordinary source
+            // A REF/window has held storage without becoming an ordinary source
             // value. Only temporal field layout may ask for that projection.
             std::vector<hgraph_ir::TypeId> pending{field.type};
             while (!pending.empty()) {
@@ -265,7 +265,7 @@ namespace hgl::wiring
                 pending.pop_back();
                 if (!id.valid() || id.value >= module_.types.size()) { continue; }
                 const auto &type = module_.types[id.value];
-                if (type.kind == hir::TypeKind::Rolling) {
+                if (type.kind == hir::TypeKind::Rolling || type.kind == hir::TypeKind::Reference) {
                     const auto *temporal = schema(field.type, applied);
                     return temporal ? temporal->value_schema : nullptr;
                 }

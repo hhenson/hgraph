@@ -105,7 +105,7 @@ RATCHETS: tuple[Ratchet, ...] = (
     # --- REF ownership at nested boundaries is a build-time property (family 2) ---
     Ratchet(
         id="runtime-ref-kind-probes",
-        baseline=1,
+        baseline=4,
         roots=("src/hgraph/runtime", "include/hgraph/runtime"),
         suffixes=(".cpp", ".h"),
         pattern=r"TSTypeKind::REF",
@@ -115,8 +115,9 @@ RATCHETS: tuple[Ratchet, ...] = (
         "capture reads the link's bind-time record "
         "(TSInputView::bound_target_is_reference()), a reference to a possibly "
         "referenced schema is TypeRegistry::ref (idempotent) -- RFC 0036. "
-        "The sole exception is BoundaryTransfer::Plan rejecting REF during "
-        "wiring-time codec construction; testing.rst documents this boundary",
+        "Cold exceptions are BoundaryTransfer::Plan codec validation and "
+        "graph_runtime_context_for declared-view validation/initial-edge planning; "
+        "testing.rst documents these construction boundaries",
     ),
     # --- Type carriers are resolved by the resolver (family 3) ---
     Ratchet(
@@ -375,3 +376,14 @@ def test_runtime_ref_probe_is_boundary_plan_validation():
     assert re.search(
         r"case TSTypeKind::REF:\s*throw std::invalid_argument\(", constructor
     )
+
+
+@pytest.mark.skipif(not _SOURCE_PRESENT, reason="ratchets read the source tree")
+def test_runtime_ref_probes_in_graph_are_cold_context_planning():
+    source = (REPO_ROOT / "src/hgraph/runtime/graph.cpp").read_text()
+    context = source.split("GraphRuntimeContext graph_runtime_context_for(", 1)[1].split(
+        "template <typename Header>", 1)[0]
+    assert context.count("TSTypeKind::REF") == 3
+    assert source.count("TSTypeKind::REF") == context.count("TSTypeKind::REF")
+    assert "context.initial_reference_edges.push_back(edge)" in context
+    assert "const auto schema_at_path" in context

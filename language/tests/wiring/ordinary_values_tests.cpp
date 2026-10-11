@@ -838,6 +838,45 @@ TEST_CASE("family preflight rejects unrelated native payloads before publication
     CHECK(plan.index(retained.view(), 0).checked_as<Int>() == 1);
 }
 
+TEST_CASE("native delta retention realizes atomic family children before replay", "[ordinary][family][delta]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    auto                   &registry = TypeRegistry::instance();
+    const auto             *integer  = scalar_descriptor<Int>::value_meta();
+    const auto             *family   = registry.bundle("ordinary.replay_family", "Family", {{"value", integer}}, {}, true);
+    const auto             *member   = registry.bundle("ordinary.replay_family", "Member", {{"value", integer}}, {family});
+    const PreparedValuePlan member_plan{member};
+    const Value             one{Int{1}};
+    const std::pair<std::size_t, ValueView> fields[]{{0, one.view()}};
+    auto                                    concrete = member_plan.bundle(fields);
+    const PreparedValuePlan                 family_plan{family};
+    auto                                    source   = family_plan.retain(concrete.view());
+    const auto                             *declared = family;
+
+    SECTION("complete family leaf") {}
+    SECTION("family inside an ordinary list") {
+        declared = registry.list(family);
+        const PreparedValuePlan plan{declared};
+        auto                    list = plan.empty_list();
+        plan.push(list.view(), source.view());
+        source = std::move(list);
+    }
+    SECTION("family inside an ordinary bundle") {
+        declared = registry.bundle("ordinary.replay_family", "Envelope", {{"event", family}});
+        const std::pair<std::size_t, ValueView> envelope_fields[]{{0, source.view()}};
+        source = PreparedValuePlan{declared}.bundle(envelope_fields);
+    }
+    const PreparedDeltaPlan plan{registry.ts(declared)};
+    const auto              before   = type_system_lock_count();
+    const auto              retained = plan.native_plan().retain(plan.payload(source.view()));
+    CHECK(retained.schema() == declared);
+    const auto leaf = declared == family ? retained.view() : retained.view().as_indexed_view().at(0);
+    CHECK(leaf.concrete().schema() == member);
+    concrete.as_bundle().begin_mutation().at(0).set(Int{2});
+    CHECK(leaf.concrete().as_bundle().at(0).checked_as<Int>() == 1);
+    CHECK(type_system_lock_count() == before);
+}
+
 TEST_CASE("composite keys reject deep NaN and compare full retained values", "[ordinary][composite-keys]") {
     using namespace hgraph;
     using namespace hgl::ordinary;

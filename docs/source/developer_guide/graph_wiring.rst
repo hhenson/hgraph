@@ -559,6 +559,29 @@ Slices:
    ``WiringPortRef`` whose peered leaves expand to one edge each at ``finish``. A
    structural source bound to a ``REF`` input is adapted through a synthetic
    reference node. Tests: ``tests/cpp/test_graph_wiring.cpp``.
+
+   The synthetic reference owner resolves its input extraction and native output
+   publication once at start. Its private ``PreparedReferencePublication`` cache
+   primes finite child slots without publishing them and retains spare finite
+   vector capacity across designation-kind changes. Evaluation updates those
+   slots in one pass and commits the existing output tracking only for a first
+   publication or changed designation. Unchanged child payload traffic neither
+   reconstructs a reference tree nor queries scalar registries. Stop releases
+   the borrowed cache before input teardown.
+
+   This cache occupies the existing planned ``node_runtime_cache_field``
+   component, with its ordinary C++ lifecycle operations. It is derived
+   implementation storage, rather than author-visible or recordable node state.
+
+   ``PreparedReferenceAssignment`` retains exact native REF tokens and their
+   target schemas. Cold function selection covers finite bundles/fixed Lists;
+   recursive schema boundaries, dynamic containers, and opaque tokens retain
+   their existing owning-copy behavior. The runtime's closed reference kinds
+   and live/expired endpoint identity determine changes; no schema-kind or
+   name discovery occurs during application. Malformed descriptive tokens
+   remain subject to the existing binding owner's validation. New endpoint
+   designations still create their normal lifetime guards; finite tree capacity
+   and unchanged tokens are reused, rather than copied into a fresh vector.
 7. **Special source roots — done.** ``recordable_state(port)`` and
    ``error_output(port)`` expose a node's hidden recordable-state or error output
    as explicit C++ wiring ports. They emit a packed ``GraphEdgeSourceKind`` in

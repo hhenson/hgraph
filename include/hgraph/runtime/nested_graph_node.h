@@ -22,6 +22,8 @@ namespace hgraph
     {
         std::vector<std::size_t> source_path{};
         NestedGraphEndpoint      target{};
+        /** Declared child-port view retained across the outer boundary. */
+        const TSValueTypeMetaData *source_view_schema{nullptr};
     };
 
     struct HGRAPH_CLASS_EXPORT SingleNestedGraphNodeSpec

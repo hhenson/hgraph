@@ -2819,6 +2819,47 @@ TEST_CASE("typed HIR enforces rolling and list size rules", "[ir][typed][shape]"
               .find("a list size must be an i64 constant or 'unbounded'") != std::string::npos);
 }
 
+TEST_CASE("typed HIR admits opaque reference identity only for identical reference types", "[ir][typed][ref]") {
+    CHECK(completes(R"(
+module checks.references
+fn same<T>(first: ref<T>, second: ref<T>) -> bool {
+    when valid(first, second) { return first == second }
+}
+fn different(first: ref<i64>, second: ref<i64>) -> bool {
+    when valid(first, second) { return first != second }
+}
+)"));
+    Lowered native{R"(
+module checks.native_values
+native type TextOnly
+fn same(first: ref<TextOnly>, second: ref<TextOnly>) -> bool {
+    when valid(first, second) { return first == second }
+}
+)", atomic_native_catalog()};
+    require_clean(native);
+    CHECK(complete(native));
+
+    for (const auto parameters : {"first: ref<i64>, second: ref<f64>", "first: ref<i64>, second: i64"}) {
+        const auto source = std::string{"module checks.references\nfn wrong("} + parameters +
+                            ") -> bool { when valid(first, second) { return first == second } }\n";
+        CHECK(completion_diagnostics(source).find("same resolved ref<T> type") != std::string::npos);
+    }
+    CHECK(completion_diagnostics(R"(
+module checks.references
+struct First { number: i64 }
+struct Second { number: i64 }
+fn wrong(first: ref<First>, second: ref<Second>) -> bool {
+    when valid(first, second) { return first == second }
+}
+)").find("same resolved ref<T> type") != std::string::npos);
+    CHECK(completion_diagnostics(R"(
+module checks.references
+fn wrong(first: ref<i64>, second: ref<i64>) -> bool {
+    when valid(first, second) { return first < second }
+}
+)").find("cannot read through ref<T>") != std::string::npos);
+}
+
 TEST_CASE("typed HIR admits only approved injectables", "[ir][typed][injectable]") {
     CHECK(completes("module checks.inject_ok\n"
                     "fn f(value: f64) -> f64 {\n"
@@ -4620,4 +4661,65 @@ const fn indirect() -> bool => missing()
     CHECK_FALSE(complete(required));
     REQUIRE(required.diagnostics.diagnostics().size() == 1);
     CHECK(required.diagnostics.diagnostics().front().code == "value.constant_capability");
+}
+
+TEST_CASE("typed HIR keeps graph reference projections declared and node references opaque", "[ir][typed][ref]") {
+    const std::string declarations = "module checks.ref_projection\nstruct Quote { bid:i64\n ask:i64 }\n";
+    for (const auto definition : {
+        "fn field(value:ref<Quote>)->ref<i64> => value.bid",
+        "fn index(value:ref<list<i64,2>>)->ref<i64> => value[1]",
+    }) {
+        Lowered admitted{declarations + definition + "\n"};
+        require_clean(admitted);
+        INFO(admitted.diagnostics.render(admitted.file));
+        CHECK(complete(admitted));
+    }
+    for (const auto definition : {
+        "fn field(value:ref<Quote>)->ref<i64> => value.missing",
+        "fn index(value:ref<list<i64,2>>)->ref<i64> => value[2]",
+        "fn index(value:ref<list<i64,2>>)->ref<i64> => value[-1]",
+        "fn index(value:ref<list<i64>>)->ref<i64> => value[0]",
+        "fn index(value:ref<list<i64,2>>,position:i64)->ref<i64> => value[position]",
+        "fn field(value:ref<atomic<Quote>>)->ref<i64> => value.bid",
+        "fn field(value:ref<Quote>)->i64 { when {return value.bid} }",
+        "fn index(value:ref<list<i64,2>>)->i64 {when {return value[1]} }",
+        "fn field(value:ref<Quote>)->ref<bool> => value.bid",
+    }) {
+        Lowered rejected{declarations + definition + "\n"};
+        require_clean(rejected);
+        INFO(definition);
+        CHECK_FALSE(complete(rejected));
+    }
+}
+
+TEST_CASE("REF bearing nominal types remain excluded from ordinary value contexts", "[ir][typed][ref]") {
+    const std::string declarations = R"(module nested_reference_admission
+struct Nested { child:ref<i64> }
+struct Outer { inner:Nested }
+struct Generic<T> { child:ref<T> }
+abstract struct Base { child:ref<i64> }
+struct Derived:Base {}
+)";
+    for (const std::string definition : {
+             "fn bad(value:atomic<Nested>)->i64 => 1",
+             "fn bad(value:rolling<Outer,2>)->i64 => 1",
+             "fn bad(value:atomic<Derived>)->i64 => 1",
+             "fn bad(value:map<Outer,i64>)->i64 => 1",
+             "fn bad(value:set<Generic<i64>>)->i64 => 1",
+             "fn bad(const value:Outer)->i64 => 1",
+             "const fn bad(value:Nested)->Nested => value",
+             "fn bad(value:Nested)->any { when { return any(value) } }",
+             "fn bad(value:i64)->i64 { let ordinary = Nested(child:1)\n value }",
+             "fn bad(value:Nested)->i64 { when { let ordinary:Nested = value\n return 1 } }",
+         }) {
+        Lowered rejected{declarations + definition + "\n"};
+        require_clean(rejected);
+        INFO(definition);
+        CHECK_FALSE(complete(rejected));
+        CHECK(std::any_of(rejected.diagnostics.diagnostics().begin(), rejected.diagnostics.diagnostics().end(),
+                          [](const auto &diagnostic) { return diagnostic.category == hgl::syntax::Category::Type; }));
+    }
+    Lowered admitted{declarations + "fn selected(value:ref<Outer>)->ref<i64> => value.inner.child\n"};
+    require_clean(admitted);
+    CHECK(complete(admitted));
 }

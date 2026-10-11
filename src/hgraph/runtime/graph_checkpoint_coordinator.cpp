@@ -648,6 +648,9 @@ namespace hgraph
                 if (saved->output) { restore_ts_checkpoint(node.output(start).data_view(), *saved->output, &reference_context); }
                 if (saved->error) { restore_ts_checkpoint(node.error_output(start).data_view(), *saved->error, &reference_context); }
                 if (saved->recordable_state) { restore_ts_checkpoint(node.recordable_state(start).data_view(), *saved->recordable_state, &reference_context); }
+                // Suppress fresh REF activation sampling before graph.start;
+                // post-start cleanup is too late to preserve saved clocks.
+                graph.clear_restored_schedule(i);
                 restoring.emplace(node.data(), saved);
             }
             for (std::size_t ordinal = 0; ordinal < matched.size(); ++ordinal)

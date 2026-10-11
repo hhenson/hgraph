@@ -149,7 +149,8 @@ void bind_branch_inputs(const NodeView &view,
     if (!binding.source_path.empty() &&
         binding.source_path.back() == ts_key_set_path_component) {
       auto source =
-          walk_source_to_output(root_input.borrowed_ref(), binding.source_path);
+          detail::declared_source_view(target, walk_source_to_output(root_input.borrowed_ref(), binding.source_path),
+                                       binding.source_view_schema);
       if (sampled) {
         bind_sampled_input_to_source(std::move(target), source,
                                      evaluation_time);
@@ -175,7 +176,7 @@ void bind_branch_inputs(const NodeView &view,
                 ": " + error.what());
           });
       bind_nested_input_to_source(std::move(target), std::move(source),
-                                  evaluation_time, sampled);
+                                  evaluation_time, sampled, binding.source_view_schema);
     }
   }
 }

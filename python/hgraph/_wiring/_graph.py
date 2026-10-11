@@ -6,7 +6,7 @@ from collections.abc import Mapping
 
 import _hgraph
 
-from .._types import (_ContextExpr, _GenericTsExpr, _TsExpr,
+from .._types import (SIGNAL, _ContextExpr, _GenericTsExpr, _TsExpr,
                       _TypeVarSentinel, _pattern_of, _type_var_name)
 from ._core import (IncorrectTypeBinding, ParseError,
                     RequirementsNotMetWiringError, WiringError, WiringPort,
@@ -493,7 +493,7 @@ class _ResolvedSize:
 
 def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
                         seed_bindings=None, argument_types=None,
-                        expected_output=None):
+                        expected_output=None, declared_port_types=None):
     """Fill ``x: type[SENTINEL] = AUTO_RESOLVE`` graph parameters: match
     every time-series parameter's TYPE PATTERN against its wired port in a
     C++ resolution scope, then read each sentinel's binding from it."""
@@ -574,6 +574,13 @@ def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
             reason = verdict if isinstance(verdict, str) else "requirements not met"
             raise RequirementsNotMetWiringError(
                 f"graph requirements not met: {reason}")
+    if declared_port_types is not None:
+        for name, param in signature.parameters.items():
+            if isinstance(arguments.get(name), WiringPort) and isinstance(
+                    param.annotation, (_GenericTsExpr, _TypeVarSentinel)):
+                declared = scope.resolve_ts(_pattern_of(param.annotation))
+                if declared is not None:
+                    declared_port_types[name] = declared
     return resolved
 
 class _Component:
@@ -690,6 +697,7 @@ class _GraphFn:
             or self._requires is not None
             or any(
                 parameter.default is AUTO_RESOLVE
+                or isinstance(parameter.annotation, (_GenericTsExpr, _TypeVarSentinel))
                 for parameter in self._signature.parameters.values()
             )
         )
@@ -906,10 +914,26 @@ class _GraphFn:
                     and _is_time_series_annotation(param.annotation)):
                 bound.arguments[param.name] = _lift_time_series_argument(
                     value, param.annotation)
+        declared_port_types = {}
         if self._needs_auto_resolution:
             bound.arguments.update(_graph_auto_resolve(
                 self._signature, bound.arguments, self._resolvers, self._requires,
-                getattr(self, "_seed_bindings", None)))
+                getattr(self, "_seed_bindings", None),
+                declared_port_types=declared_port_types))
+        # A graph parameter is a declared port view, just like native Port<T>.
+        # Resolve it once while wiring so the declaration travels with the
+        # edge (manifests, nested bindings). It does not change what a
+        # consumer observes: a SIGNAL or ordinary input dereferences a REF
+        # either way (TS-18); only a REF-declared input observes designations.
+        for name, param in self._signature.parameters.items():
+            value = bound.arguments.get(name)
+            declared = (param.annotation.handle if isinstance(param.annotation, _TsExpr)
+                        else declared_port_types.get(name))
+            if (isinstance(value, WiringPort) and declared is not None
+                    and param.annotation is not SIGNAL
+                    and _hgraph.contains_ref(_unwrap(value).ts_type)):
+                bound.arguments[name] = WiringPort(_hgraph.value_port(
+                    _current_wiring(), _unwrap(value), declared))
         result = (
             self.fn(**bound.arguments)
             if self._has_var_group

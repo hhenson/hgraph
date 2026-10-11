@@ -5,9 +5,11 @@
 #include <hgraph/runtime/lifecycle_observer.h>
 
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace hgraph::testing
 {
@@ -18,7 +20,7 @@ namespace hgraph::testing
             return std::chrono::time_point_cast<std::chrono::microseconds>(engine_clock::now());
         }
 
-        struct MockGraphExecutorStorage
+        struct MockGraphExecutorStorage : LifecycleObserver
         {
             MockGraphExecutorStorage(const GraphBuilder &builder,
                                      ExecutorTypeRef type,
@@ -31,6 +33,37 @@ namespace hgraph::testing
                   evaluation_time(start),
                   cycle_wall_start(current_wall_time())
             {
+                lifecycle_observers.add(this);
+            }
+
+            ~MockGraphExecutorStorage() override { lifecycle_observers.remove(this); }
+
+            void drain_notifications(std::vector<std::function<void()>> &queue, bool before) {
+                while (!queue.empty()) {
+                    std::vector<std::function<void()>> pending;
+                    pending.swap(queue);
+                    if (before) {
+                        for (auto &fn : pending) { fn(); }
+                    } else {
+                        for (auto it = pending.rbegin(); it != pending.rend(); ++it) { (*it)(); }
+                    }
+                }
+            }
+
+            void on_before_graph_evaluation(const GraphView &view) override {
+                if (view.data() != graph_value.view().data()) { return; }
+                set_evaluation_time(view.evaluation_time());
+                drain_notifications(before_evaluation_notifications, true);
+            }
+            void on_after_graph_evaluation(const GraphView &view) override {
+                if (view.data() != graph_value.view().data()) { return; }
+                drain_notifications(after_evaluation_notifications, false);
+            }
+            void on_after_stop_graph(const GraphView &view) override {
+                if (view.data() != graph_value.view().data()) { return; }
+                set_evaluation_time(view.evaluation_time());
+                drain_notifications(after_evaluation_notifications, false);
+                drain_notifications(before_evaluation_notifications, true);
             }
 
             void set_evaluation_time(DateTime value) noexcept
@@ -45,6 +78,8 @@ namespace hgraph::testing
             }
 
             LifecycleObserverList lifecycle_observers{};
+            std::vector<std::function<void()>> before_evaluation_notifications{};
+            std::vector<std::function<void()>> after_evaluation_notifications{};
             GraphValue      graph_value{};
             DateTime        start_time{MIN_ST};
             DateTime        end_time{MAX_ET};
@@ -125,6 +160,11 @@ namespace hgraph::testing
             mock_executor_storage(memory).stop_requested = true;
         }
 
+        inline void add_evaluation_notification_impl(const void *, void *memory, std::function<void()> fn, bool before) {
+            auto &state = mock_executor_storage(memory);
+            (before ? state.before_evaluation_notifications : state.after_evaluation_notifications).push_back(std::move(fn));
+        }
+
         [[nodiscard]] inline bool stop_requested_impl(const void *, const void *memory) noexcept
         {
             return mock_executor_storage(memory).stop_requested;
@@ -158,15 +198,16 @@ namespace hgraph::testing
         [[nodiscard]] inline const GraphExecutorOps &mock_executor_ops() noexcept
         {
             static const GraphExecutorOps table{
-                .context = &mock_runtime_context(),
-                .run_impl = &run_impl,
-                .request_stop_impl = &request_stop_impl,
-                .stop_requested_impl = &stop_requested_impl,
-                .start_time_impl = &start_time_impl,
-                .end_time_impl = &end_time_impl,
-                .graph_impl = &graph_impl,
-                .evaluation_clock_ptr_impl = &evaluation_clock_ptr_impl,
-                .lifecycle_observers_impl = &lifecycle_observers_impl,
+                .context                          = &mock_runtime_context(),
+                .run_impl                         = &run_impl,
+                .request_stop_impl                = &request_stop_impl,
+                .add_evaluation_notification_impl = &add_evaluation_notification_impl,
+                .stop_requested_impl              = &stop_requested_impl,
+                .start_time_impl                  = &start_time_impl,
+                .end_time_impl                    = &end_time_impl,
+                .graph_impl                       = &graph_impl,
+                .evaluation_clock_ptr_impl        = &evaluation_clock_ptr_impl,
+                .lifecycle_observers_impl         = &lifecycle_observers_impl,
             };
             return table;
         }

@@ -194,6 +194,20 @@ def test_sample_observes_the_selected_reference_branch():
         zero, _ = if_(ts == 0, ts)
         return sample(zero, 1)
 
+    # TS-18: a non-REF input dereferences; the empty designation is not a tick.
+    assert eval_node(g, [3, 2, 1, 0]) == [None, None, None, 1]
+
+
+def test_sample_observes_selected_payload_through_declared_scalar_alias():
+    @graph
+    def on_payload(value: TS[int]) -> TS[int]:
+        return sample(value, 1)
+
+    @graph
+    def g(ts: TS[int]) -> TS[int]:
+        zero, _ = if_(ts == 0, ts)
+        return on_payload(zero)
+
     assert eval_node(g, [3, 2, 1, 0]) == [None, None, None, 1]
 
 

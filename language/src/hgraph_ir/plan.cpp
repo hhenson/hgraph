@@ -392,6 +392,12 @@ namespace hgl::hgraph_ir
                                  "selected temporal input may be invalid here; guard the read with valid(...)");
                         }
                     } else if constexpr (std::is_same_v<T, gir::Field>) {
+                        if (const auto key = runtime_selector_key(id, decl); key && valid.contains(*key)) {
+                            // A proven selected child is read through its endpoint,
+                            // without reading the parent's aggregate payload.
+                            check_runtime_selector(id, decl, valid);
+                            return;
+                        }
                         check_runtime_expr(node.target, decl, valid);
                     } else if constexpr (std::is_same_v<T, gir::Sequence>) {
                         for (const gir::SequenceElement &element : node.elements) {

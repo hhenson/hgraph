@@ -2427,6 +2427,14 @@ namespace hgl::wiring
                                         : make_marker(Slot::Kind::Null, expression.range);
                         }
                         if (target.is_port()) {
+                            if (target.port.schema != nullptr && target.port.schema->kind == hgraph::TSTypeKind::TSL &&
+                                !target.port.schema->is_unbounded_tsl() && index.is_const() && index.meta() == types_.int_type) {
+                                const auto position = index.value.view().checked_as<hgraph::Int>();
+                                if (position >= 0 && static_cast<std::size_t>(position) < target.port.schema->fixed_size()) {
+                                    return make_port(hgraph::subgraph_wiring_detail::tsl_element_ref(target.port,
+                                        static_cast<std::size_t>(position), target.port.schema->element_ts()), expression.range);
+                                }
+                            }
                             const std::string name =
                                 expression.operation.registry_name.empty() ? "getitem_" : expression.operation.registry_name;
                             return wire(name, {argument_of(target, {}), argument_of(index, {})}, expression.range);
@@ -2969,12 +2977,12 @@ namespace hgl::wiring
             std::vector<std::vector<std::optional<hgraph::Value>>> inputs;
             std::size_t                                            cycles = 0;
             std::size_t                                            temporal_inputs = 0;
-            const auto timed_type = [&](const hgraph::TSValueTypeMetaData *shape) {
-                const auto *origin = ordinary::origin_schema(shape);
-                return registry_.bundle("hgraph.std", "TimedValue[" + std::string{origin->name()} + "]",
-                    {{"time", standard_types().datetime_type}, {"value", ordinary::delta_schema(shape)}},
-                    {}, false, "__type__", {origin});
-            };
+            std::unordered_set<std::string> excluded_keys;
+            for (const auto &constant : module_.const_exprs) {
+                if (constant.literal) {
+                    if (const auto *text = std::get_if<std::string>(&*constant.literal)) { excluded_keys.insert(*text); }
+                }
+            }
             // Materialize and retain supplied arguments in written order, before
             // binding defaults or constructing any replay/target node.
             std::unordered_map<std::uint32_t, std::size_t> parameter_for;
@@ -3061,23 +3069,25 @@ namespace hgl::wiring
                         }
                     }
                     cycles = std::max(cycles, inputs.back().size());
-                    const auto *sample_schema = timed_type(parameter_schema);
-                    ordinary::PreparedValuePlan sample_plan{sample_schema};
-                    ordinary::PreparedValuePlan list_plan{registry_.list(sample_schema)};
-                    auto samples = list_plan.empty_list();
-                    for (std::size_t slot = 0; slot < inputs.back().size(); ++slot) {
-                        if (!inputs.back()[slot]) { continue; }
-                        if (slot > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max())) {
-                            backend(range, "eval harness is too long to schedule safely");
-                        }
-                        const hgraph::Value time{hgraph::checked_add(hgraph::MIN_ST, hgraph::TimeDelta{static_cast<std::int64_t>(slot)})};
-                        hgraph::BundleBuilder sample{sample_plan.binding()};
-                        sample.set(0, time.view()).set(1, inputs.back()[slot]->view());
-                        auto retained = sample.build();
-                        list_plan.push(samples.view(), retained.view());
+                    // Each separately supplied harness parameter is an independent
+                    // endpoint, including parameters with identical samples. Keyed
+                    // replay retains that identity without changing graph interning.
+                    std::string input_key = "hgl::in::" + std::to_string(index);
+                    for (std::size_t suffix = 0; excluded_keys.contains(input_key) ||
+                         local_wiring.global_state().contains(input_key) || local_wiring.has_global_entry(input_key); ++suffix) {
+                        input_key = "hgl::in::" + std::to_string(index) + "::" + std::to_string(suffix);
                     }
+                    std::vector<std::optional<hgraph::Value>> replay_inputs;
+                    replay_inputs.reserve(inputs.back().size());
+                    for (const auto &item : inputs.back()) {
+                        if (item) { replay_inputs.emplace_back(input_plan.native_plan().retain(input_plan.payload(item->view()))); }
+                        else { replay_inputs.emplace_back(std::nullopt); }
+                    }
+                    hgraph::testing::set_replay_deltas(local_wiring.global_state(), input_key, replay_inputs);
                     callee.bindings[parameter.binding.value] =
-                        wire("hgraph.std.replay", {scalar_arg(std::move(samples), "values")}, range, true, parameter_schema);
+                        wire("replay", {scalar_arg(hgraph::Value{input_key}, "key"),
+                                        scalar_arg(hgraph::Value{hgraph::TypeCarrier::of_ts(parameter_schema)}, "tp")},
+                             range, true, parameter_schema);
                 }
             }
             if (temporal_inputs == 0) { backend(range, "eval requires a temporal harness input"); }
@@ -3093,12 +3103,6 @@ namespace hgl::wiring
             if (result.is_const()) { result = wire_constant(result, registry_.ts(result.meta())); }
             const hgraph::TSValueTypeMetaData *output_schema = nullptr;
             std::string recording_key = "hgl::out";
-            std::unordered_set<std::string> excluded_keys;
-            for (const auto &constant : module_.const_exprs) {
-                if (constant.literal) {
-                    if (const auto *text = std::get_if<std::string>(&*constant.literal)) { excluded_keys.insert(*text); }
-                }
-            }
             for (std::size_t suffix = 0; excluded_keys.contains(recording_key) || local_wiring.global_state().contains(recording_key) ||
                  local_wiring.has_global_entry(recording_key); ++suffix) {
                 recording_key = "hgl::out::" + std::to_string(suffix);

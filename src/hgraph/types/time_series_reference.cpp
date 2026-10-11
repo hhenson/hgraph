@@ -264,19 +264,21 @@ namespace hgraph
 
     bool TimeSeriesReference::operator==(const TimeSeriesReference &other) const noexcept
     {
-        if (kind_ != other.kind_) { return false; }
         if (target_schema_ != other.target_schema_) { return false; }
-        if (kind_ == Kind::PEERED) { return has_output() == other.has_output() && storage_.target->target.same_as(other.storage_.target->target); }
-        if (kind_ == Kind::NON_PEERED) { return storage_.items == other.storage_.items; }
+        const auto designation_kind = kind();
+        if (designation_kind != other.kind()) { return false; }
+        if (designation_kind == Kind::PEERED) { return storage_.target->target.same_as(other.storage_.target->target); }
+        if (designation_kind == Kind::NON_PEERED) { return storage_.items == other.storage_.items; }
         return true;
     }
 
     std::size_t TimeSeriesReference::hash() const noexcept
     {
-        std::size_t seed = static_cast<std::size_t>(kind_);
+        const auto designation_kind = kind();
+        std::size_t seed = static_cast<std::size_t>(designation_kind);
         seed = hash_combine(seed, std::hash<const void *>{}(static_cast<const void *>(target_schema_)));
-        if (kind_ == Kind::PEERED) { seed = hash_combine(seed, hash_output_handle(storage_.target->target)); }
-        if (kind_ == Kind::NON_PEERED)
+        if (designation_kind == Kind::PEERED) { seed = hash_combine(seed, hash_output_handle(storage_.target->target)); }
+        if (designation_kind == Kind::NON_PEERED)
         {
             for (const auto &item : storage_.items) { seed = hash_combine(seed, item.hash()); }
         }

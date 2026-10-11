@@ -969,6 +969,48 @@ test defaults_apply {
     }
 }
 
+TEST_CASE("eval keyed inputs retain complete atomic families and nested members", "[wiring][harness][family]") {
+    Unit             unit{R"(
+module t.eval_family
+
+abstract struct Event { label: str }
+struct First: Event { items: list<i64>
+    count: i64 = null }
+struct Second: Event { items: list<i64>
+    count: i64 = null }
+struct Envelope { event: Event }
+fn forward(value: atomic<Event>) -> atomic<Event> => value
+fn forward_list(value: atomic<list<Event>>) -> atomic<list<Event>> => value
+fn forward_envelope(value: atomic<Envelope>) -> atomic<Envelope> => value
+
+test complete_families {
+    var source: First = First(label: "same", items: [1])
+    let first: Event = source
+    source.label = "changed"
+    push(source.items, 2)
+    let second: Event = Second(label: "same", items: [1], count: 0)
+    assert eval(forward, [first, first, _, second, first]) == [
+        First(label: "same", items: [1]), First(label: "same", items: [1]), _,
+        Second(label: "same", items: [1], count: 0), First(label: "same", items: [1])
+    ]
+    var events: list<Event> = []
+    push(events, first)
+    let retained: list<Event> = events
+    push(events, second)
+    assert eval(forward_list, [retained, events, _, retained]) == [retained, events, _, retained]
+    let a = Envelope(event: first)
+    let b = Envelope(event: second)
+    assert eval(forward_envelope, [a, b, _, a]) == [a, b, _, a]
+    assert eval(forward, []) == []
+    assert eval(forward, [_, _]) == [_, _]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
 TEST_CASE("eval rejects a target without a temporal sequence input", "[wiring][harness]") {
     Unit             unit{R"(
 module t
@@ -1902,4 +1944,17 @@ TEST_CASE("required Any defaults follow composed ordinary selectors", "[wiring][
         CHECK(unit.diagnostics.diagnostics().front().category == Category::Type);
         CHECK(unit.diagnostics.diagnostics().front().code == "value.constant_capability");
     }
+}
+
+TEST_CASE("direct HGL wiring holds a nominal REF child", "[wiring][ref]") {
+    Unit       unit{R"(module direct_nested_reference
+struct Nested { child:ref<i64> }
+fn selected(value:ref<Nested>)->ref<i64> => value.child
+fn observed(value:i64)->i64 => selected(Nested(child:value)) + 0
+test child { assert eval(observed,value:[7,8,_,11]) == [7,8,_,11] }
+)"};
+    const auto result = only(unit.tests());
+    INFO(result.message);
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK(result.passed);
 }

@@ -302,6 +302,14 @@ token to obtain an output handle or output view. Internal binding and
 output-alternative machinery may access the handle through a restricted
 interface.
 
+Equality observes the current designation (TS-16): an expired peered token
+compares as typed empty. Its equality and observational ``hash()`` digest can
+therefore change without assigning the token. ``TimeSeriesReference`` has no
+``std::hash`` specialization and its registered scalar binding is not hashable;
+it cannot be a persistent unordered-container key. The explicit digest is for
+an immediate observation, not a stable identity retained across cycles. See
+``external/hgraph_spec/runtime/time_series.md`` and ``cases_references.md``.
+
 This is a deliberate design boundary. The runtime currently supports
 dereferencing only inside the time-series alternative mapping logic,
 where a ``REF<T>`` output is exposed as ``T`` for a bound input. Public

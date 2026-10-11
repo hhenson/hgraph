@@ -70,6 +70,20 @@ foreach(_example IN LISTS _hgl_examples)
 endforeach()
 unset(_hgl_examples)
 
+add_test(NAME hgraph_language_reference_identity
+    COMMAND hgl_reference_test_driver test ${HGRAPH_SPEC}/language/examples/reference-identity-equality.hgl
+        --part ${CMAKE_CURRENT_SOURCE_DIR}/codegen/reference-identity-public.hgl)
+set_tests_properties(hgraph_language_reference_identity PROPERTIES
+    PASS_REGULAR_EXPRESSION "Executed: 1 test, 0 failed"
+    ENVIRONMENT "HGL_CXX=hgl-scripted-compiler-must-not-run;HGL_DISABLE_CACHE=1")
+
+add_test(NAME hgraph_language_reference_projections
+    COMMAND hgl_reference_test_driver test ${HGRAPH_SPEC}/language/examples/reference-wiring-projections.hgl
+        --part ${CMAKE_CURRENT_SOURCE_DIR}/codegen/reference-projection-public.hgl)
+set_tests_properties(hgraph_language_reference_projections PROPERTIES
+    PASS_REGULAR_EXPRESSION "Executed: 1 test, 0 failed"
+    ENVIRONMENT "HGL_CXX=hgl-scripted-compiler-must-not-run;HGL_DISABLE_CACHE=1")
+
 add_test(
     NAME hgraph_language_dump_hir
     COMMAND $<TARGET_FILE:hgl> check ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/stateful-node.hgl --dump-hir
@@ -444,8 +458,48 @@ hgl_add_module(hgl_stateful_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec
 hgl_apply_warnings(hgl_stateful_fixture)
 hgl_add_module(hgl_lifecycle_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/lifecycle-capabilities.hgl)
 hgl_apply_warnings(hgl_lifecycle_fixture)
-hgl_add_module(hgl_reference_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/reference-routing.hgl)
+hgl_add_module(hgl_reference_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/reference-routing.hgl
+    codegen/nested-reference-fields.hgl)
 hgl_apply_warnings(hgl_reference_fixture)
+hgl_add_module(hgl_reference_identity_fixture STATIC INCLUDE_TEST_CONTEXTS
+    HGL ${HGRAPH_SPEC}/language/examples/reference-identity-equality.hgl
+    PARTS codegen/reference-identity-public.hgl)
+hgl_apply_warnings(hgl_reference_identity_fixture)
+hgl_add_module(hgl_reference_projection_fixture STATIC INCLUDE_TEST_CONTEXTS
+    HGL ${HGRAPH_SPEC}/language/examples/reference-wiring-projections.hgl
+    PARTS codegen/reference-projection-public.hgl)
+hgl_apply_warnings(hgl_reference_projection_fixture)
+add_executable(hgl_reference_test_driver driver/reference_test_driver.cpp)
+target_link_libraries(hgl_reference_test_driver PRIVATE hgl::driver
+    hgl_eval_library hgl_reference_identity_fixture hgl_reference_projection_fixture)
+hgl_link_runtime_executable(hgl_reference_test_driver)
+hgl_stage_runtime_dlls(hgl_reference_test_driver)
+hgl_apply_warnings(hgl_reference_test_driver)
+set(_hgl_ref_owner_shared_parts
+    ${HGRAPH_STD}/control.hgl ${HGRAPH_STD}/stream.hgl ${HGRAPH_STD}/temporal.hgl
+    ${HGRAPH_STD}/impl/standard.hgl ${HGRAPH_STD}/impl/control.hgl ${HGRAPH_STD}/impl/stream.hgl
+    ${HGRAPH_STD}/impl/temporal.hgl ${HGRAPH_STD}/replay_record.hgl ${HGRAPH_STD}/impl/replay_record.hgl
+    ${HGRAPH_STD}/tests/reference_conditional_expiry.hgl ${HGRAPH_STD}/tests/reference_owner_export_values.hgl)
+hgl_add_module(hgl_ref_owner_shared_fixture STATIC INCLUDE_TEST_CONTEXTS SOURCE_PARTS 3
+    HGL ${HGRAPH_STD}/standard.hgl PARTS ${_hgl_ref_owner_shared_parts}
+    LINK_LIBRARIES hgl::core_native)
+hgl_apply_warnings(hgl_ref_owner_shared_fixture)
+add_executable(hgl_ref_owner_test_driver negative/stdlib_generated_driver.cpp)
+target_link_libraries(hgl_ref_owner_test_driver PRIVATE hgl::driver hgl_ref_owner_shared_fixture)
+hgl_link_runtime_executable(hgl_ref_owner_test_driver)
+hgl_stage_runtime_dlls(hgl_ref_owner_test_driver)
+hgl_apply_warnings(hgl_ref_owner_test_driver)
+set(_hgl_ref_owner_shared_args)
+foreach(_part IN LISTS _hgl_ref_owner_shared_parts)
+    list(APPEND _hgl_ref_owner_shared_args --part ${_part})
+endforeach()
+add_test(NAME hgraph_language_ref_owner_precompiled_shared
+    COMMAND hgl_ref_owner_test_driver test ${HGRAPH_STD}/standard.hgl ${_hgl_ref_owner_shared_args}
+        --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
+set_tests_properties(hgraph_language_ref_owner_precompiled_shared PROPERTIES
+    PASS_REGULAR_EXPRESSION "4 tests?, 0 failed"
+    FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_CXX=hgl-scripted-compiler-must-not-run;HGL_DISABLE_CACHE=1")
 add_library(hgl_native_scalar_dependency INTERFACE)
 add_library(checks::native_dependency ALIAS hgl_native_scalar_dependency)
 target_include_directories(hgl_native_scalar_dependency INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/driver/include")
@@ -654,6 +708,8 @@ set(_hgl_generated_test_libraries
     hgl_stateful_fixture
     hgl_lifecycle_fixture
     hgl_reference_fixture
+    hgl_reference_identity_fixture
+    hgl_reference_projection_fixture
     hgl_native_scalar_import_fixture
     hgl_native_atomic_fixture
     hgl_inline_native_consumer_fixture
@@ -982,6 +1038,11 @@ if(UNIX)
         NAME hgraph_language_test_runtime
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
     )
+    add_test(NAME hgraph_language_test_nested_reference_fields
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/nested-reference-fields.hgl)
+    set_tests_properties(hgraph_language_test_nested_reference_fields PROPERTIES
+        PASS_REGULAR_EXPRESSION "1 test, 0 failed"
+        ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     add_test(NAME hgraph_language_test_held_source_retention
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/held-source-retention.hgl)
     set_tests_properties(hgraph_language_test_held_source_retention PROPERTIES

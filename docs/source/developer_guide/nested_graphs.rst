@@ -76,13 +76,42 @@ in-place child before the raw slot can be reused. ``switch_`` expresses the
 same rule with its active/previous A/B slots; ``reduce`` expresses it with its
 active/previous banks.
 
+Stopping a child also retires its owned endpoints logically. The nested
+header carries an inline compact observer set. A cycle-boundary notification
+subscribes there without retaining graph storage, and invalidates subscriptions
+in that graph's owned output, error and recordable trees before the next engine
+cycle, even when physical slot reclamation is delayed. The stop cycle remains
+readable. Disposing the header cancels every notification copy before the slot
+can be reconstructed. Moving a notification replaces its observer pointer
+without allocating or using shared reference counts. Notification copies keep
+independent subscriptions and unregister on destruction; multiple copies may
+grow the observer set. The executor's existing notification queues and erased
+callbacks can also allocate at these lifecycle boundaries; this is not an
+allocation-free stop claim. The inline observer construction and ordinary single-observer transfers do not allocate.
+A stopped graph is terminal: reuse disposes and reconstructs it, following the
+Spec's stopped-to-dispose transition; restarting the stopped object is not
+supported. Ownership traversal does not follow REF values or captured input
+links, so an exported reference to a parent producer keeps the parent's
+lifetime. Endpoint kinds are prepared in the graph context, without a name or schema lookup during expiry.
+Final root teardown does not queue future expiry work. The C++ testing mock
+supports the same FIFO-before/LIFO-after notifications through its manually
+evaluated root lifecycle, including the root clock update at each cycle.
+Repeated manual or externally driven evaluations at the stop timestamp retain
+the removal-cycle observation. Pending expiry alternates across the after and
+before queues until the root clock advances, never re-enqueuing into the queue
+currently being drained. The callback caches a non-owning root view at stop;
+root stopping or already stopped cancels it without leaving future callbacks.
+This implements the removal-cycle readability and subsequent expiry in
+``external/hgraph_spec/runtime/graph.md`` (GRF-25) and
+``external/hgraph_spec/runtime/time_series.md`` (TS-23).
+
 Map normally mirrors the authoritative key-set slots directly. If the bound
 key-set handle itself is replaced, the replacement may reuse the same slot ids
 before the old handle can emit erase callbacks. Map therefore alternates two
 ``InPlaceGraphSlotStore`` banks for that case: it stops and retires the old
 bank, builds the replacement in the inactive bank, and destroys the retired
 bank only on a later evaluation time. This is the dynamic counterpart of the
-switch A/B protocol and does not introduce per-entry ownership allocations.
+switch A/B protocol and does not introduce per-entry graph payload allocations.
 
 Steady-state nested evaluation avoids temporary pointer bookkeeping. Boundary
 paths are traversed as spans, forwarding-chain cycle detection uses constant
@@ -114,6 +143,33 @@ specs at ``finish_subgraph``.
 A boundary source composes with the rest of wiring uniformly: it can feed any
 child node input directly or appear as a child of a structural source (the
 binding target path is extended into the structural slot).
+
+**Fresh internal REF observations.** Graph preparation records internal edges
+that adapt an ordinary endpoint to a REF input. Instantiating the adaptation
+creates its designation before the child starts; its construction timestamp
+must not suppress the first observation when that child starts in a later
+engine cycle. Activation samples these input positions once and schedules
+their active consumers in rank order. This uses the existing sampled-input
+contract (TS-14), without changing the scalar producer's timestamps or making
+input activation itself schedule work (TS-8). Already REF-typed sources retain
+their normal publication and equal-designation behavior (TS-16). The prepared
+edge recipe avoids schema tests or name lookup during steady-state evaluation.
+Checkpoint preparation uses ``clear_restored_schedule`` to suppress this fresh
+sampling for each selected restored node before any start hook runs. A cold,
+per-node bitmap, allocated only for graphs with ordinary-to-REF edges,
+leaves unselected nodes' first observations intact and is
+discarded after startup. Restored REF input clocks survive unchanged; real
+publications at the restart boundary still schedule active consumers. The
+coordinator's existing post-start activity and schedule restoration remains the
+authority for those new events. Bitmap initialization and node marking keep
+restore preparation linear in graph size, alongside the prepared edge pass.
+
+Generic structural delta projection keeps each child's input-link facade.
+Unwrapping directly to a producer would discard the sample timestamp when an
+exported REF tree changes one retained child. TS/REF leaf delta callbacks are
+selected during type preparation; a sampled leaf contributes its current
+value at the sample time, while an unchanged child contributes only its
+producer's actual delta. Sampling leaves producer clocks unchanged.
 
 **Pass-through outputs (``alias_parent_input``).** A sub-graph ``compose`` may
 return a boundary input directly. This compiles to the ``ParentInput`` output

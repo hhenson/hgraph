@@ -2169,7 +2169,7 @@ TEST_CASE("TypeRegistry::synthetic_atomic interns by name") {
   const auto *synthetic = registry.value_type("TimeSeriesReference");
   REQUIRE(synthetic != nullptr);
   REQUIRE(synthetic->value_kind() == ValueTypeKind::Atomic);
-  REQUIRE(synthetic->is_hashable());
+  REQUIRE_FALSE(synthetic->is_hashable());
   REQUIRE(synthetic->is_equatable());
 }
 

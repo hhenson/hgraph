@@ -2971,6 +2971,36 @@ export fn forward(values: map<str, ref<f64>>) -> map<str, ref<f64>> => values
     CHECK_FALSE(contains(emitted->header, "hgraph::REF<hgraph::TSD<"));
 }
 
+TEST_CASE("emit-cpp compares readable opaque references without dereferencing", "[codegen][ref]") {
+    Unit unit{R"(
+module t
+export fn same(first: ref<i64>, second: ref<i64>) -> bool {
+    when valid(first, second) { return first == second }
+}
+export fn different(first: ref<i64>, second: ref<i64>) -> bool {
+    when valid(first, second) { return first != second }
+}
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    const std::string first = "hgl::ordinary::reference_argument(first.base().value())";
+    const std::string second = "hgl::ordinary::reference_argument(second.base().value())";
+    CHECK(contains(emitted->header, first + " == " + second));
+    CHECK(contains(emitted->header, first + " != " + second));
+    CHECK_FALSE(contains(emitted->header, "first.value()"));
+    CHECK_FALSE(contains(emitted->header, "checked_as<hgraph::TimeSeriesReference>"));
+    CHECK_FALSE(contains(emitted->header, "target_output()"));
+
+    Unit unreadable{R"(
+module t
+export fn wrong(first: ref<i64>, second: ref<i64>, step: i64) -> bool {
+    when valid(step) { return first == second }
+}
+)"};
+    CHECK_FALSE(unreadable.emit());
+    CHECK(unreadable.has(Category::Type, "may be invalid here; guard the read with valid(first)"));
+}
+
 TEST_CASE("emit-cpp proves selected reference validity by selector", "[codegen][ref][validity]") {
     SECTION("a different selected child is not covered") {
         Unit unit{R"(
@@ -4548,4 +4578,72 @@ export fn list_sample(value: list<i64>, step: i64) -> i64 => sample(value, step)
     CHECK(contains(emitted->source, ".as<hgraph::TS<hgraph::Tuple<hgraph::Bool, hgraph::Bool, hgraph::Bool>>>()"));
     CHECK(contains(emitted->source, "hgraph::wire<sample>(w,"));
     CHECK(contains(emitted->source, ".as<hgraph::TS<hgraph::Int>>()"));
+}
+
+TEST_CASE("emit-cpp accepts exact selected-child proofs without a parent payload read", "[codegen][validity][ref]") {
+    Unit selected{R"(
+module t
+struct Fields { left: i64
+    right: i64 }
+struct Nested { fields: Fields
+    sibling: i64 }
+export fn read(value: Fields) -> i64 {
+    when valid(value.left) && modified(value.left) { return value.left }
+}
+export fn deep(value: Nested) -> i64 {
+    when valid(value.fields.left) { return value.fields.left }
+}
+)"};
+    REQUIRE(selected.emit());
+    Unit sibling{R"(
+module t
+struct Fields { left: i64
+    right: i64 }
+export fn wrong(value: Fields) -> i64 {
+    when valid(value.right) { return value.left }
+}
+)"};
+    CHECK_FALSE(sibling.emit());
+    CHECK(sibling.has(Category::Type, "may be invalid here"));
+}
+
+TEST_CASE("emit-cpp keeps a fixed List's literal child as its original graph endpoint", "[codegen][ref][projection]") {
+    Unit unit{R"(
+module t
+fn relay(value: ref<i64>) -> ref<i64> { when { return value } }
+fn read(value: i64) -> i64 { when { return delta_value(value) } }
+export fn selected(value: list<i64, 2>) -> i64 => read(relay(value[1]))
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::tsl_element(value, 1)"));
+    CHECK_FALSE(contains(emitted->source, "hgraph::wire<hgraph::stdlib::getitem_>"));
+}
+
+TEST_CASE("emit-cpp retains exact declared endpoint types at signal calls", "[codegen][ref][signal]") {
+    Unit unit{R"(
+module t
+fn observed(value: signal) -> bool { when { return modified(value) } }
+export fn opaque(value: ref<i64>) -> bool => observed(value)
+export fn ordinary(value: i64) -> bool => observed(value)
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK_FALSE(contains(emitted->source, ".as<hgraph::SIGNAL>()"));
+    CHECK(occurrences(emitted->source, "hgraph::wire<observed>(w, hgl_call_arg_0)") == 2U);
+}
+
+TEST_CASE("emit-cpp holds temporal REF fields without admitting a scalar REF", "[codegen][ref]") {
+    Unit       unit{R"(module nested_reference_probe
+struct Nested { child:ref<i64> }
+struct Group { children:list<ref<i64>,2> }
+fn selected(value:ref<Nested>)->ref<i64> => value.child
+)"};
+    const auto generated = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(generated);
+    CHECK(generated->header.find("hgl::ordinary::Held<hgraph::REF<hgraph::TS<hgraph::Int>>>") != std::string::npos);
+    CHECK(generated->header.find("hgl::ordinary::Held<hgraph::TSL<hgraph::REF<hgraph::TS<hgraph::Int>>, 2>>") != std::string::npos);
+    CHECK(generated->header.find("hgraph::REF<hgraph::REF<") == std::string::npos);
 }

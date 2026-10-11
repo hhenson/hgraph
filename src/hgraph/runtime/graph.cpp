@@ -1,5 +1,6 @@
 #include <hgraph/runtime/graph.h>
 
+#include "../types/time_series/ts_data/ownership.h"
 #include "registry_snapshot_detail.h"
 
 #include <hgraph/types/metadata/type_realization.h>
@@ -7,6 +8,7 @@
 
 #include <hgraph/runtime/executor.h>
 #include <hgraph/runtime/lifecycle_observer.h>
+#include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/types/metadata/debug_descriptor.h>
 #include <hgraph/types/metadata/type_record_registry.h>
 #include <hgraph/types/time_series/ts_output.h>
@@ -167,6 +169,9 @@ struct GraphRuntimeBaseStorage {
   bool stopping{false};
   bool evaluating{false};
   bool evaluation_failed{false};
+  // Restore-only cold state: marked before start so activation cannot
+  // overwrite a selected node's saved REF observation clocks.
+  std::vector<bool> restored_reference_nodes{};
   /** Graph traits (parent-chained key-value metadata; GraphView::trait_or).
       The same value-layer ``Map<string, Any>`` store as GlobalState. */
   // Most graphs have no local traits. Keep that case allocation-free: a
@@ -202,6 +207,11 @@ struct RootGraphRuntimeStorage : GraphRuntimeBaseStorage {
 
 struct NestedGraphRuntimeStorage : GraphRuntimeBaseStorage {
   NestedGraphRuntimeStorage() = default;
+  ~NestedGraphRuntimeStorage() { expiry_observers.invalidate(nullptr); }
+
+  // Existing non-owning observer protocol: disposal cancels queued expiry
+  // before the header's address may be used by another graph incarnation.
+  TSDataObserverSet expiry_observers{};
 
   [[nodiscard]] NodeView parent_node() { return NodeView{parent_node_ptr}; }
 
@@ -231,6 +241,8 @@ struct GraphRuntimeStorageLayout {
 struct GraphRuntimeContext {
   GraphRuntimeStorageLayout layout{};
   std::vector<GraphNodeRuntimeLocation> node_locations{};
+  std::vector<GraphEdge>                                   initial_reference_edges{};
+  std::vector<std::pair<std::size_t, GraphEdgeSourceKind>> owned_outputs{};
 };
 
 [[nodiscard]] const GraphRuntimeContext &graph_context(const void *context) {
@@ -268,43 +280,88 @@ graph_storage_plan_for(const std::vector<NodeBuilder> &nodes) {
   return graph_storage_plan_for(MemoryUtils::plan_for<Header>(), nodes);
 }
 
-[[nodiscard]] GraphRuntimeContext
-graph_runtime_context_for(const MemoryUtils::StoragePlan &plan,
-                          const std::vector<NodeBuilder> &node_builders) {
-  const auto &header = plan.component(graph_header_field_name);
-  const auto &node_storage = plan.component(graph_nodes_field_name);
-  const auto &schedule = plan.component(graph_schedule_field_name);
-  if (!node_storage.plan->is_tuple() ||
-      node_storage.plan->component_count() != node_builders.size()) {
-    throw std::logic_error(
-        "Graph storage plan has an invalid node storage tuple");
-  }
-  if (!schedule.plan->is_array() ||
-      schedule.plan->array_count() != node_builders.size()) {
-    throw std::logic_error("Graph storage plan has an invalid schedule array");
-  }
-
-  GraphRuntimeContext context;
-  context.layout = GraphRuntimeStorageLayout{
-      .node_count = node_builders.size(),
-      .header_offset = header.offset,
-      .schedule_offset = schedule.offset,
-      .schedule_stride = schedule.plan->array_stride(),
-  };
-  context.node_locations.reserve(node_builders.size());
-  for (std::size_t index = 0; index < node_builders.size(); ++index) {
-    const auto node_type = node_builders[index].type();
-    const auto &node_component = node_storage.plan->component(index);
-    if (node_component.plan != node_type.plan()) {
-      throw std::logic_error(
-          "Graph storage plan node component does not match node type");
+[[nodiscard]] GraphRuntimeContext graph_runtime_context_for(const MemoryUtils::StoragePlan &plan,
+                                                            const std::vector<NodeBuilder> &node_builders,
+                                                            const std::vector<GraphEdge>   &edges,
+                                                            const std::vector<const TSValueTypeMetaData *> &source_views) {
+    const auto &header       = plan.component(graph_header_field_name);
+    const auto &node_storage = plan.component(graph_nodes_field_name);
+    const auto &schedule     = plan.component(graph_schedule_field_name);
+    if (!node_storage.plan->is_tuple() || node_storage.plan->component_count() != node_builders.size()) {
+        throw std::logic_error("Graph storage plan has an invalid node storage tuple");
     }
-    context.node_locations.push_back(GraphNodeRuntimeLocation{
-        .type = node_type,
-        .offset = node_storage.offset + node_component.offset,
-    });
-  }
-  return context;
+    if (!schedule.plan->is_array() || schedule.plan->array_count() != node_builders.size()) {
+        throw std::logic_error("Graph storage plan has an invalid schedule array");
+    }
+
+    GraphRuntimeContext context;
+    context.layout = GraphRuntimeStorageLayout{
+        .node_count      = node_builders.size(),
+        .header_offset   = header.offset,
+        .schedule_offset = schedule.offset,
+        .schedule_stride = schedule.plan->array_stride(),
+    };
+    context.node_locations.reserve(node_builders.size());
+    for (std::size_t index = 0; index < node_builders.size(); ++index) {
+        const auto  node_type      = node_builders[index].type();
+        const auto &node_component = node_storage.plan->component(index);
+        if (node_component.plan != node_type.plan()) {
+            throw std::logic_error("Graph storage plan node component does not match node type");
+        }
+        context.node_locations.push_back(GraphNodeRuntimeLocation{
+            .type   = node_type,
+            .offset = node_storage.offset + node_component.offset,
+        });
+        const auto *schema = node_builders[index].type().schema();
+        if (schema->output_schema != nullptr) { context.owned_outputs.emplace_back(index, GraphEdgeSourceKind::Output); }
+        if (schema->error_output_schema != nullptr) { context.owned_outputs.emplace_back(index, GraphEdgeSourceKind::ErrorOutput); }
+        if (schema->recordable_state_schema != nullptr) {
+            context.owned_outputs.emplace_back(index, GraphEdgeSourceKind::RecordableState);
+        }
+    }
+    const auto schema_at_path = [](const TSValueTypeMetaData *schema, const std::vector<std::size_t> &path, bool output) {
+        for (const auto component : path) {
+            if (output) {
+                while (schema != nullptr && schema->kind == TSTypeKind::REF) { schema = schema->referenced_ts(); }
+            }
+            if (schema == nullptr) { return schema; }
+            if (output && component == ts_key_set_path_component) {
+                schema = schema->kind == TSTypeKind::TSD ? TypeRegistry::instance().tss(schema->key_type()) : nullptr;
+            } else if (schema->kind == TSTypeKind::TSB) {
+                schema = component < schema->field_count() ? schema->fields()[component].type : nullptr;
+            } else {
+                schema = schema->element_ts();
+            }
+        }
+        return schema;
+    };
+    for (std::size_t ordinal = 0; ordinal < edges.size(); ++ordinal) {
+        const auto &edge = edges[ordinal];
+        const auto *source_view = source_views.empty() ? nullptr : source_views.at(ordinal);
+        const auto source_node = graph_edge_source_node(edge.source_node);
+        if (source_node >= node_builders.size() || edge.target_node >= node_builders.size()) { continue; }
+        const auto                *source_meta = node_builders[source_node].type().schema();
+        const auto                *target_meta = node_builders[edge.target_node].type().schema();
+        const TSValueTypeMetaData *source      = nullptr;
+        switch (graph_edge_source_kind(edge.source_node)) {
+            case GraphEdgeSourceKind::Output: source = source_meta->output_schema; break;
+            case GraphEdgeSourceKind::ErrorOutput: source = source_meta->error_output_schema; break;
+            case GraphEdgeSourceKind::RecordableState: source = source_meta->recordable_state_schema; break;
+        }
+        source             = schema_at_path(source, edge.source_path, true);
+        if (source_view != nullptr && source_view->kind != TSTypeKind::SIGNAL)
+        {
+            if (!TSOutput::binding_compatible(source, *source_view))
+            {
+                throw std::invalid_argument("Graph edge declared source view is incompatible with its producer");
+            }
+        }
+        const auto *target = schema_at_path(target_meta->input_schema, edge.target_path, false);
+        if (source != nullptr && target != nullptr && source->kind != TSTypeKind::REF && target->kind == TSTypeKind::REF) {
+            context.initial_reference_edges.push_back(edge);
+        }
+    }
+    return context;
 }
 
 template <typename Header>
@@ -340,7 +397,8 @@ template <typename Header>
 }
 
 void bind_edges(const GraphRuntimeContext &context, void *memory,
-                const std::vector<GraphEdge> &edges) {
+                const std::vector<GraphEdge> &edges,
+                const std::vector<const TSValueTypeMetaData *> &source_views) {
   const auto path_label = [](const std::vector<std::size_t> &path) {
     std::string label;
     for (const auto component : path) {
@@ -351,7 +409,9 @@ void bind_edges(const GraphRuntimeContext &context, void *memory,
     }
     return label;
   };
-  for (const auto &edge : edges) {
+  for (std::size_t ordinal = 0; ordinal < edges.size(); ++ordinal) {
+    const auto &edge = edges[ordinal];
+    const auto *declared_source_schema = source_views.empty() ? nullptr : source_views.at(ordinal);
     const std::size_t source_node = graph_edge_source_node(edge.source_node);
     if (source_node >= context.layout.node_count ||
         edge.target_node >= context.layout.node_count) {
@@ -370,6 +430,10 @@ void bind_edges(const GraphRuntimeContext &context, void *memory,
       target = input_at_path(
           graph_node_view(context, memory, edge.target_node).input(MIN_DT),
           edge.target_path);
+      if (target.schema()->kind == TSTypeKind::SIGNAL)
+      {
+          source = declared_source_view(std::move(source), declared_source_schema);
+      }
     } catch (const std::exception &error) {
       throw std::invalid_argument(
           "Graph edge from " + node_identity(source_view, source_node) +
@@ -552,7 +616,7 @@ void construct_graph_storage(GraphTypeRef type, const GraphBuilder &builder,
     ++constructed_schedule;
   }
   graph_complete = true;
-  bind_edges(context, memory, builder.edges());
+  bind_edges(context, memory, builder.edges(), builder.edge_source_views());
   rollback.release();
 }
 
@@ -814,6 +878,65 @@ void nested_set_child_schedule_observer_impl(const void *context, void *memory,
   state.child_schedule_observer_context = observer_context;
 }
 
+// Cycle queues own this functor, never the nested graph. Copying registers
+// another non-owning observer; moving replaces the subscriber pointer without
+// growing the compact observer set. Header disposal cancels every queued copy.
+class NestedGraphExpiry final : public Notifiable
+{
+  public:
+    NestedGraphExpiry(TSDataObserverSet &observers, EngineControlView engine, GraphPtr root, const GraphRuntimeContext &context, void *memory,
+                      DateTime stop_time)
+        : observers_(&observers), engine_(engine), root_(root), context_(&context), memory_(memory), stop_time_(stop_time) {
+        observers_->subscribe(this);
+    }
+    NestedGraphExpiry(const NestedGraphExpiry &other)
+        : observers_(other.observers_), engine_(other.engine_), root_(other.root_), context_(other.context_), memory_(other.memory_),
+          stop_time_(other.stop_time_), before_(other.before_) {
+        if (observers_ != nullptr) { observers_->subscribe(this); }
+    }
+    NestedGraphExpiry(NestedGraphExpiry &&other) noexcept
+        : observers_(std::exchange(other.observers_, nullptr)), engine_(other.engine_), root_(other.root_), context_(other.context_),
+          memory_(other.memory_), stop_time_(other.stop_time_), before_(other.before_) {
+        if (observers_ != nullptr) { observers_->replace(&other, this); }
+    }
+    ~NestedGraphExpiry() override {
+        if (observers_ != nullptr) { observers_->unsubscribe(this); }
+    }
+    void notify(DateTime) override {}
+    void source_invalidated(const TSDataTracking *) noexcept override { observers_ = nullptr; }
+
+    void operator()() {
+        if (observers_ == nullptr) { return; }
+        const GraphView root{root_};
+        if (root.is_stopping() || !root.started()) { return; }
+        if (!before_) {
+            before_ = true;
+            engine_.add_before_evaluation_notification(std::move(*this));
+            return;
+        }
+        if (engine_.evaluation_clock().evaluation_time() <= stop_time_) {
+            // A before queue drains new before callbacks immediately. Bridge
+            // through after instead, keeping same-time continuations readable.
+            before_ = false;
+            engine_.add_after_evaluation_notification(std::move(*this));
+            return;
+        }
+        for (const auto &[index, kind] : context_->owned_outputs) {
+            auto output = edge_source_root(graph_node_view(*context_, memory_, index), stop_time_, kind);
+            detail::invalidate_owned_ts_data_tree(output.data_view().borrowed_ref());
+        }
+    }
+
+  private:
+    TSDataObserverSet         *observers_;
+    EngineControlView          engine_;
+    GraphPtr                   root_;
+    const GraphRuntimeContext *context_;
+    void                      *memory_;
+    DateTime                   stop_time_;
+    bool                       before_{false};
+};
+
 template <typename Storage>
 void start_impl(const void *context, const GraphView &graph,
                 DateTime start_time) {
@@ -831,6 +954,18 @@ void start_impl(const void *context, const GraphView &graph,
   state.lifecycle_observers->notify_before_start_graph(graph);
 
   state.evaluation_time = start_time;
+  // Fresh ordinary-to-REF adaptations have a designation before start.
+  // Sample its first input observation at activation, preserving every
+  // producer timestamp and leaving already-REF sources alone.
+  for (const auto &edge : runtime.initial_reference_edges) {
+      if (!state.restored_reference_nodes.empty() && state.restored_reference_nodes[edge.target_node]) { continue; }
+      auto source =
+          output_at_path(edge_source_root(graph_node_view(runtime, graph.data(), graph_edge_source_node(edge.source_node)),
+                                          start_time, graph_edge_source_kind(edge.source_node)),
+                         edge.source_path);
+      auto target = input_at_path(graph_node_view(runtime, graph.data(), edge.target_node).input(start_time), edge.target_path);
+      target.bind_output_sampled(source, start_time);
+  }
   std::size_t started_nodes = 0;
   auto rollback = UnwindCleanupGuard([&] {
     for (std::size_t index = started_nodes; index > 0; --index) {
@@ -890,6 +1025,18 @@ void start_impl(const void *context, const GraphView &graph,
     node_start_failed.release();
   }
 
+  for (const auto &edge : runtime.initial_reference_edges) {
+      auto input  = graph_node_view(runtime, graph.data(), edge.target_node).input(start_time);
+      bool active = input.active();
+      for (const auto component : edge.target_path) {
+          input  = input.indexed_child_at(component);
+          active = active || input.active();
+      }
+      if (active && input.valid() && input.modified()) { graph.schedule_node(edge.target_node, start_time); }
+  }
+  // This marker is only a startup recipe; activity restoration and genuine
+  // boundary publications already determine the live schedule above.
+  state.restored_reference_nodes.clear();
   state.next_scheduled_time = MAX_DT;
   for (std::size_t index = 0; index < runtime.layout.node_count; ++index) {
     const DateTime scheduled = graph_schedule(runtime, graph.data(), index);
@@ -962,6 +1109,18 @@ void stop_impl(const void *context, const GraphView &graph,
   release_alternative_subscriptions(runtime, graph.data(),
                                     state.evaluation_time);
   state.started = false;
+  if constexpr (std::is_same_v<Storage, NestedGraphRuntimeStorage>) {
+      // TS-23 separates logical removal from lazy storage reclamation. Keep
+      // endpoints readable through the stop cycle, then withdraw their routes
+      // before the next root evaluation. Owned-tree traversal never follows REF
+      // values or input target links into a captured parent producer.
+      const auto engine = graph.executor().engine_control();
+      const auto root = graph.root();
+      if (engine.valid() && !root.is_stopping()) {
+          engine.add_after_evaluation_notification(
+              NestedGraphExpiry{state.expiry_observers, engine, root.pointer(), runtime, graph.data(), stop_time});
+      }
+  }
   if (exceptions.has_exception()) {
     state.lifecycle_observers->notify_stop_graph_failed(graph);
   }
@@ -995,6 +1154,10 @@ void clear_restored_schedule_impl(const void *context, const GraphView &graph, s
   if (index >= runtime.layout.node_count) { throw std::out_of_range("Restored node index out of range"); }
   auto &state = graph_header<Storage>(runtime, graph.data());
   if (graph.evaluating()) { throw std::logic_error("Cannot restore a schedule during evaluation"); }
+  if (!runtime.initial_reference_edges.empty()) {
+    if (state.restored_reference_nodes.empty()) { state.restored_reference_nodes.resize(runtime.layout.node_count, false); }
+    state.restored_reference_nodes[index] = true;
+  }
   graph_schedule(runtime, graph.data(), index) = MIN_DT;
   // Recovery clears one node at a time from its post-start hook. start_impl
   // takes the minimum over every schedule once the last node has started, so
@@ -1193,11 +1356,14 @@ struct GraphRuntimeRegistry {
     for (const NodeBuilder &node : builder.nodes()) {
       result = combine_hash(result, std::hash<NodeTypeRef>{}(node.type()));
     }
-    for (const GraphEdge &edge : builder.edges()) {
+    for (std::size_t ordinal = 0; ordinal < builder.edges().size(); ++ordinal) {
+      const auto &edge = builder.edges()[ordinal];
+      const auto *source_view = builder.edge_source_views().empty() ? nullptr : builder.edge_source_views()[ordinal];
       result = combine_hash(result, edge.source_node);
       for (const std::size_t component : edge.source_path) {
         result = combine_hash(result, component);
       }
+      result = combine_hash(result, std::hash<const TSValueTypeMetaData *>{}(source_view));
       result = combine_hash(result, edge.target_node);
       for (const std::size_t component : edge.target_path) {
         result = combine_hash(result, component);
@@ -1219,6 +1385,7 @@ struct GraphRuntimeRegistry {
     if (entry.schema.name() != builder.label() ||
         entry.schema.nodes.size() != builder.nodes().size() ||
         entry.schema.edges.size() != builder.edges().size() ||
+        entry.schema.edge_source_views != builder.edge_source_views() ||
         entry.schema.push_source_nodes_end !=
             compute_push_source_nodes_end(builder)) {
       return false;
@@ -1257,6 +1424,7 @@ struct GraphRuntimeRegistry {
           GraphNodeEntry{builder.nodes()[index].type().schema(), index});
     }
     meta.edges = builder.edges();
+    meta.edge_source_views = builder.edge_source_views();
     meta.push_source_nodes_end = compute_push_source_nodes_end(builder);
 
     return meta;
@@ -1279,7 +1447,7 @@ struct GraphRuntimeRegistry {
 
     const auto &root_plan =
         graph_storage_plan_for<RootGraphRuntimeStorage>(builder.nodes());
-    entry.root_context = graph_runtime_context_for(root_plan, builder.nodes());
+    entry.root_context = graph_runtime_context_for(root_plan, builder.nodes(), builder.edges(), builder.edge_source_views());
     entry.root_ops = make_root_ops(&entry.root_context);
     entry.root_type = intern_graph_type(entry.schema, root_plan, entry.root_ops,
                                         "hgraph.graph.root");
@@ -1287,8 +1455,7 @@ struct GraphRuntimeRegistry {
     if (entry.schema.push_source_nodes_end == 0) {
       const auto &nested_plan =
           graph_storage_plan_for<NestedGraphRuntimeStorage>(builder.nodes());
-      entry.nested_context =
-          graph_runtime_context_for(nested_plan, builder.nodes());
+      entry.nested_context = graph_runtime_context_for(nested_plan, builder.nodes(), builder.edges(), builder.edge_source_views());
       entry.nested_ops = make_nested_ops(&entry.nested_context);
       entry.nested_type = intern_graph_type(
           entry.schema, nested_plan, entry.nested_ops, "hgraph.graph.nested");
@@ -1997,7 +2164,16 @@ GraphBuilder &GraphBuilder::add_node(NodeBuilder node) {
 }
 
 GraphBuilder &GraphBuilder::add_edge(GraphEdge edge) {
+  return add_edge(std::move(edge), nullptr);
+}
+
+GraphBuilder &GraphBuilder::add_edge(GraphEdge edge, const TSValueTypeMetaData *source_view_schema) {
   edges_.push_back(std::move(edge));
+  if (source_view_schema != nullptr || !edge_source_views_.empty()) {
+    if (edge_source_views_.empty()) { edge_source_views_.resize(edges_.size(), nullptr); }
+    else { edge_source_views_.push_back(nullptr); }
+    edge_source_views_.back() = source_view_schema;
+  }
   invalidate_types();
   return *this;
 }
@@ -2091,6 +2267,11 @@ bool GraphBuilder::requires_phase_runner() const noexcept {
 const std::vector<GraphEdge> &GraphBuilder::edges() const noexcept {
   return edges_;
 }
+
+const std::vector<const TSValueTypeMetaData *> &GraphBuilder::edge_source_views() const noexcept {
+  return edge_source_views_;
+}
+
 
 NodeBuilder &GraphBuilder::node_at(std::size_t index) {
   if (index >= nodes_.size()) {

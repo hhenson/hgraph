@@ -62,12 +62,18 @@ namespace hgraph::ts_data_plan_factory_detail
                 .delta_memory_impl         = &atomic_delta_memory,
                 .mutable_delta_memory_impl = &atomic_mutable_delta_memory,
                 .copy_value_from_impl =
-                    value_storage ==
+                    kind == TSTypeKind::REF
+                        ? (value_storage == ValueStorageVariant::NativeWithPythonCache
+                               ? &atomic_copy_value_from<true, true> : &atomic_copy_value_from<false, true>)
+                        : value_storage ==
                             ValueStorageVariant::NativeWithPythonCache
                         ? &atomic_copy_value_from<true>
                         : &atomic_copy_value_from<false>,
                 .move_value_from_impl =
-                    value_storage ==
+                    kind == TSTypeKind::REF
+                        ? (value_storage == ValueStorageVariant::NativeWithPythonCache
+                               ? &atomic_move_value_from<true, true> : &atomic_move_value_from<false, true>)
+                        : value_storage ==
                             ValueStorageVariant::NativeWithPythonCache
                         ? &atomic_move_value_from<true>
                         : &atomic_move_value_from<false>,
@@ -216,7 +222,7 @@ namespace hgraph::ts_data_plan_factory_detail
             return source.plan() == bound.plan();
         }
 
-        template <bool InvalidatePythonCache>
+        template <bool InvalidatePythonCache, bool SuppressEqualDesignation = false>
         [[nodiscard]] static bool atomic_copy_value_from(
             const void *context, void *memory, const ValueView &source,
             DateTime modified_time)
@@ -249,6 +255,12 @@ namespace hgraph::ts_data_plan_factory_detail
             const auto *tracking       = atomic_tracking(context, memory);
             const bool  first_for_time = tracking->last_modified_time != modified_time;
 
+            if constexpr (SuppressEqualDesignation)
+            {
+                if (tracking->last_modified_time != MIN_DT && layout->value_binding.ops_ref().equals(
+                        atomic_value_memory(context, memory), source.data())) { return false; }
+            }
+
             if constexpr (InvalidatePythonCache)
             {
                 invalidate_python_value(context, memory);
@@ -261,7 +273,7 @@ namespace hgraph::ts_data_plan_factory_detail
             return first_for_time;
         }
 
-        template <bool InvalidatePythonCache>
+        template <bool InvalidatePythonCache, bool SuppressEqualDesignation = false>
         [[nodiscard]] static bool atomic_move_value_from(
             const void *context, void *memory, ValueView source,
             DateTime modified_time)
@@ -291,6 +303,12 @@ namespace hgraph::ts_data_plan_factory_detail
 
             const auto *tracking       = atomic_tracking(context, memory);
             const bool  first_for_time = tracking->last_modified_time != modified_time;
+
+            if constexpr (SuppressEqualDesignation)
+            {
+                if (tracking->last_modified_time != MIN_DT && layout->value_binding.ops_ref().equals(
+                        atomic_value_memory(context, memory), source.data())) { return false; }
+            }
 
             if constexpr (InvalidatePythonCache)
             {

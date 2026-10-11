@@ -1670,9 +1670,19 @@ specification's atomic scalar equivalence and finite atomic
 publication contracts without adding a second runtime representation.
 
 Rolling children retain their exact TSW schema inside sparse list, tuple,
-nominal and map shapes. A window-bearing nominal field obtains its held storage
+nominal and map shapes. A REF- or window-bearing nominal field obtains its held storage
 metadata from that temporal schema in both the direct bridge and generated
-`Held<Shape>` descriptor; this does not admit an ordinary `rolling` value.
+`Held<Shape>` descriptor; this does not admit an ordinary `ref` or `rolling` value.
+The checker recursively inspects effective nominal fields and parents in ordinary
+contexts (including const signatures, atomic payloads, keys and window values).
+Cold admission uses an iterative closure walk with indexed imported declarations
+and results memoized by canonical type. Shared nominal children are visited once;
+a failed walk never caches unrelated siblings as failures. Deep imported chains
+consume heap worklist storage rather than recursive stack frames.
+Graph projections preserve an already-reference child instead of wrapping it in
+another REF; the runtime's canonical REF schema performs the same normalization.
+These rules implement the canonical Spec's [Types grammar](../../../external/hgraph_spec/language/docs/developer-guide/syntax-and-semantics.md#types)
+and [wiring-time access](../../../external/hgraph_spec/language/docs/design/type-extensions.md#wiring-time-access).
 The runtime parameter plan admits `const delta<T>` as ordinary publication data,
 with its exact originating shape and the same prepared ownership rules as other
 ordinary const arguments. Generated scalar selectors retain the delta's schema
@@ -1840,12 +1850,42 @@ explicitly materialized generic operator implementations, fixed and duration
 windows, sparse struct
 deltas, concise `map` functions, scalar and collection runtime inputs, borrowed
 collection traversal, fixed-list and independent dynamic graph traversal,
-explicit reference schemas, guarded fixed-list reference routing, `out`,
+explicit reference schemas, guarded fixed-list reference routing, opaque node
+reference identity equality, `out`,
 `logger`, state, and lifecycle hooks. File-based
 `test` and `run` compile/load supported runtime modules on Unix; portable native
 loading and the remaining language-depth items are still staged. Declaration
 and module planning now come from hgraph IR, as do callable/operator interfaces,
 nominal struct layouts, construction defaults, and local/state binding types.
+Node `==` and `!=` on identical resolved `ref<T>` operands lower directly to
+`TimeSeriesReference` designation identity. This intrinsic does not require
+comparison capabilities on `T` or inspect its payload. The planner still
+requires both operands to be readable; heterogeneous reference comparisons,
+ordering, and node traversal below a reference remain rejected.
+Comparison operands borrow the prepared reference endpoint's designation token,
+so comparing non-peered child trees does not clone their owning child vectors.
+An injected REF `out` reads its value directly from the output cursor; it has
+no input `base()` wrapper. Its readable token is also retained when `out` is
+returned or assigned to itself, independently of its metadata selector.
+The HGL-private borrower relies on the native `TimeSeriesReference` representation
+registered by REF metadata and selected during cold TSData/node preparation.
+Its runtime guard checks payload presence, while designation comparison keeps the
+existing lifetime checks; neither path discovers a type or compares an ops address.
+An explicit `valid(value.field)` proof permits reading that selected temporal
+field without an additional parent-payload proof. Selector preparation still
+checks any intervening index bounds; a sibling field's proof does not establish
+the selected field's validity. This supports guarded consumers of partially valid
+bundles reached through ordinary reference-following connections.
+Each separately supplied `eval` temporal argument has an independent endpoint,
+even when two sample sequences are equal. The harness prepares a distinct replay
+key and exact temporal type carrier for each argument. Structural HGL delta
+wrappers are projected through their prepared native payload plan before seeding
+the replay buffer; holes and the original cycle positions remain unchanged.
+That native plan resolves its declared delta schema through the existing cold
+closed-family realization, preserving concrete members and recursively realized
+family children inside complete ordinary containers. It does not use an
+abstract parent's canonical field-only storage for a concrete publication.
+Aliasing a single graph input still preserves that input's reference identity.
 Internal callable dependency ordering also walks the hgraph-IR body graph.
 Concise composition expressions and concise `map` functions are emitted from
 those graph-IR values and bindings. Composition and runtime blocks also emit
@@ -2459,3 +2499,9 @@ same source parts supplied to `test`. Generate its runtime helpers with
 `emit-cpp --include-test-contexts`, or `hgl_add_module(INCLUDE_TEST_CONTEXTS)`;
 the default production artifacts continue to omit test contexts. This path
 runs the usual parsed test harness without requiring a scripted compiler.
+
+Graph REF child projections resolve the declared target shape during type completion.
+A declared record field or a constant in-range fixed List index produces the
+selected child's REF type; an Atomic target remains opaque. Node evaluation
+retains the separate prohibition on reading through REF. Dynamic or growing
+List selection is not admitted by this graph projection profile.

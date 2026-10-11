@@ -11,7 +11,9 @@ exists.
 
 Oracle: for every (shape, source, consumer) product, the graph that feeds the
 consumer through a REF-producing source yields the same ``eval_node`` trace
-as the graph that feeds it the plain source. No released-hgraph oracle is
+as the graph that feeds it the plain source. That includes the metadata-only
+``SIGNAL`` consumers ``valid`` and ``modified``: a SIGNAL dereferences a REF
+like every non-REF input (TS-18). No released-hgraph oracle is
 needed, so the sweep also covers C++-first-only shapes. Equivalent native
 public-wiring coverage lives in ``test_graph_wiring.cpp`` (scalar, TSS, TSD,
 fixed TSL, TSB, and nested collection REF round trips) and

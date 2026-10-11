@@ -74,3 +74,50 @@ composition contract as the direct backend. No scalar conversion or payload
 snapshot is needed for signal observation. Shared ``signal_observation_values``
 fixtures cover each admitted scalar, structural and atomic inputs, equal
 publications, silence, and observation from an independent trigger.
+A signal never observes a REF designation (TS-18). Offered a REF endpoint, the
+binding owner adapts it into the target-following route, exactly as for an
+ordinary input, so the signal's validity, tick and time are those of the
+designated output: a changed designation re-binds and samples it, a repeated
+equal designation is not a tick (TS-16), and a target tick is. Cold wiring
+still retains the supplied port's declared view on the graph edge and on
+nested input bindings, independently of the physical producer schema, and
+binding resolves that view through the existing output-owned adapter
+(RFC 0036); a prepared input then observes that stable route (RFC 0008). An
+opaque REF port and its explicit ordinary view therefore give a signal the
+same observations. The logical SIGNAL input keeps its Boolean current/delta
+facade and metadata-only source capability. Edge interning, manifests and
+nested checkpoint signatures include the declared view, so bindings with
+different declarations do not share a graph descriptor.
+Nested input owners cache the resolved declared view by producer handle. An
+unchanged producer reuses that route without schema discovery or registry access;
+retargeting the producer's REF value is handled by the existing adapter. A new
+producer is resolved when its topology is bound. The cache borrows handles,
+adds no subscriptions and is discarded with the input owner's storage.
+Binding also caches the ordinary scalar target's forwarding links.
+If a REF deselects that scalar in the same cycle as its former target publishes,
+the followed view is invalid and unmodified, with time ``MIN_DT``; a scheduling
+notification already received from the former target cannot become its event.
+This is the ``REF-SAMPLE`` rule in the canonical Spec's
+``runtime/cases_references.md`` and binding table in ``runtime/time_series.md``.
+The policy distinguishes an empty designation from an explicit producer
+invalidation, and does not suppress structural withdrawal deltas or REF
+designation ticks. Metadata follows only these cached links, without schema
+discovery or registry lookup.
+
+Python graph parameters establish the same declared view through ``value_port``
+while wiring, after generic resolution. Python node argument packs dereference
+REF-bearing shapes for SIGNAL fields exactly as for ordinary fields: a SIGNAL
+over a peered REF endpoint follows its target, and a SIGNAL over a non-peered
+structural argument follows the targets of its REF children. Only an explicit
+REF declaration keeps a designation shape in the pack.
+
+Fixed List endpoint projection
+------------------------------
+
+A graph expression selecting a checked constant index of a concrete fixed
+List uses the existing ``tsl_element`` wiring projection. It preserves the
+selected child's exact schema, endpoint identity and traffic; siblings do not
+introduce a runtime selection node. Passing that child to a REF parameter
+uses the normal binding adaptation. Explicit REF-wrapped List projections
+retain their prepared designation route, and temporal indices retain dynamic
+operator selection.

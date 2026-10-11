@@ -1,10 +1,14 @@
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
+#include <hgraph/lib/testing/mock_runtime.h>
+#include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/types/utils/counted_mutex.h>
 
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 
 // User-visible REF ports through the full executor (closes the review gap:
@@ -87,7 +91,444 @@ namespace
             return wire<NestedStructuralRefProbe>(w, refs);
         }
     };
+
+    std::size_t   owned_export_evaluations{0};
+    std::uint64_t pair_delta_locks{0};
+
+    struct OwnedExportValue
+    {
+        static constexpr auto name = "owned_export_value";
+        static void           eval(In<"value", TS<Int>, InputValidity::Unchecked> value, Out<TS<Int>> out) {
+            ++owned_export_evaluations;
+            if (value.valid() && value.modified()) { out.set(value.value()); }
+        }
+    };
+
+    struct ExportReference
+    {
+        static constexpr auto name = "export_reference";
+        static void           eval(In<"value", REF<TS<Int>>, InputValidity::Unchecked> value, Out<REF<TS<Int>>> out) {
+            if (value.valid() && value.modified()) { out.set(value.value()); }
+        }
+    };
+
+    struct ExportFirstOwned
+    {
+        static Port<REF<TS<Int>>> compose(Wiring &w, Port<TS<Int>> first, Port<TS<Int>>) {
+            auto child = wire<OwnedExportValue>(w, first);
+            return wire<ExportReference>(w, child.as<REF<TS<Int>>>());
+        }
+    };
+
+    struct ExportSecondOwned
+    {
+        static Port<REF<TS<Int>>> compose(Wiring &w, Port<TS<Int>>, Port<TS<Int>> second) {
+            auto child = wire<OwnedExportValue>(w, second);
+            return wire<ExportReference>(w, child.as<REF<TS<Int>>>());
+        }
+    };
+
+    struct FollowOwnedExport
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> enabled, Port<TS<Int>> first, Port<TS<Int>> second) {
+            auto selected = wire<stdlib::switch_>(
+                w, enabled, stdlib::switch_cases({{Value{true}, fn<ExportFirstOwned>()}, {Value{false}, fn<ExportSecondOwned>()}}),
+                first, second);
+            return wire<OwnedExportValue>(w, selected.as<TS<Int>>());
+        }
+    };
+
+    struct HoldFirstExport
+    {
+        static void eval(In<"value", REF<TS<Int>>> value, State<Bool> captured, Out<REF<TS<Int>>> out) {
+            if (!captured.get()) {
+                captured.set(true);
+                out.set(value.value());
+            }
+        }
+    };
+
+    struct ObserveHeldExport
+    {
+        static void eval(In<"held", TS<Int>, InputValidity::Unchecked> held, In<"step", TS<Int>> step, Out<TS<Int>> out) {
+            if (step.modified()) { out.set(held.valid() ? held.value() : Int{-1}); }
+        }
+    };
+
+    struct PublishSavedExportLater
+    {
+        static void eval(In<"held", REF<TS<Int>>, InputValidity::Unchecked> held, In<"step", TS<Int>> step,
+                         Scalar<"begin", Int> begin, Out<REF<TS<Int>>> out) {
+            if (step.modified() && step.value() >= begin.value() && held.valid()) { out.set(held.value()); }
+        }
+    };
+
+    struct ObserveLateOwnedExport
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> enabled, Port<TS<Int>> first, Port<TS<Int>> second,
+                                     Port<TS<Int>> step, Scalar<"begin", Int> begin) {
+            auto selected = wire<stdlib::switch_>(
+                w, enabled, stdlib::switch_cases({{Value{true}, fn<ExportFirstOwned>()}, {Value{false}, fn<ExportSecondOwned>()}}),
+                first, second);
+            auto held = wire<HoldFirstExport>(w, selected.as<REF<TS<Int>>>());
+            auto late = wire<PublishSavedExportLater>(w, held, step, begin);
+            return wire<ObserveHeldExport>(w, late.as<TS<Int>>(), step);
+        }
+    };
+
+    struct ObserveOwnedExport
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> enabled, Port<TS<Int>> first, Port<TS<Int>> second,
+                                     Port<TS<Int>> step) {
+            auto selected = wire<stdlib::switch_>(
+                w, enabled, stdlib::switch_cases({{Value{true}, fn<ExportFirstOwned>()}, {Value{false}, fn<ExportSecondOwned>()}}),
+                first, second);
+            auto held = wire<HoldFirstExport>(w, selected.as<REF<TS<Int>>>());
+            return wire<ObserveHeldExport>(w, held.as<TS<Int>>(), step);
+        }
+    };
+
+    std::vector<Int>    manual_values{};
+    TimeSeriesReference manual_saved{};
+    struct ReuseExportSource
+    {
+        static constexpr bool schedule_on_start = true;
+        static void           eval(Out<TS<Int>> out) { out.set(Int{73}); }
+    };
+    struct SaveManualValue
+    {
+        static void eval(In<"value", TS<Int>> value) { manual_values.push_back(value.value()); }
+    };
+    struct SaveManualReference
+    {
+        static void eval(In<"held", REF<TS<Int>>> held) { manual_saved = held.value(); }
+    };
+    struct ManualObserveOwnedExport
+    {
+        static void compose(Wiring &w) {
+            auto enabled  = wire<stdlib::replay_impl, TS<Bool>>(w, Str{"enabled"});
+            auto first    = wire<stdlib::replay_impl, TS<Int>>(w, Str{"first"});
+            auto second   = wire<stdlib::replay_impl, TS<Int>>(w, Str{"second"});
+            auto step     = wire<stdlib::replay_impl, TS<Int>>(w, Str{"step"});
+            auto selected = wire<stdlib::switch_>(
+                w, enabled, stdlib::switch_cases({{Value{true}, fn<ExportFirstOwned>()}, {Value{false}, fn<ExportSecondOwned>()}}),
+                first, second);
+            auto held = wire<HoldFirstExport>(w, selected.as<REF<TS<Int>>>());
+            wire<SaveManualReference>(w, held);
+            wire<SaveManualValue>(w, wire<ObserveHeldExport>(w, held.as<TS<Int>>(), step));
+        }
+    };
+
+    struct ExportFirstParent
+    {
+        static Port<REF<TS<Int>>> compose(Wiring &w, Port<TS<Int>> first, Port<TS<Int>>) {
+            return wire<ExportReference>(w, first.as<REF<TS<Int>>>());
+        }
+    };
+
+    struct ExportSecondParent
+    {
+        static Port<REF<TS<Int>>> compose(Wiring &w, Port<TS<Int>>, Port<TS<Int>> second) {
+            return wire<ExportReference>(w, second.as<REF<TS<Int>>>());
+        }
+    };
+
+    struct FollowHeldParentExport
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> enabled, Port<TS<Int>> first, Port<TS<Int>> second) {
+            auto selected = wire<stdlib::switch_>(
+                w, enabled,
+                stdlib::switch_cases({{Value{true}, fn<ExportFirstParent>()}, {Value{false}, fn<ExportSecondParent>()}}), first,
+                second);
+            return wire<OwnedExportValue>(w, wire<HoldFirstExport>(w, selected.as<REF<TS<Int>>>()).as<TS<Int>>());
+        }
+    };
+
+    using ExportPair = UnNamedTSB<Field<"left", TS<Int>>, Field<"right", TS<Int>>>;
+    struct ExportPairReference
+    {
+        static void eval(In<"value", REF<ExportPair>> value, Out<REF<ExportPair>> out) {
+            if (value.modified()) { out.set(value.value()); }
+        }
+    };
+    struct ExportDuplicatePair
+    {
+        static Port<REF<ExportPair>> compose(Wiring &w, Port<TS<Int>> left, Port<TS<Int>>) {
+            return wire<ExportPairReference>(w, stdlib::to_tsb<ExportPair>(w, left, left));
+        }
+    };
+    struct ExportSeparatePair
+    {
+        static Port<REF<ExportPair>> compose(Wiring &w, Port<TS<Int>> left, Port<TS<Int>> right) {
+            return wire<ExportPairReference>(w, stdlib::to_tsb<ExportPair>(w, left, right));
+        }
+    };
+    struct FollowPairRight
+    {
+        static void eval(In<"value", ExportPair, InputValidity::Unchecked> value, Out<TS<Int>> out) {
+            const auto right = value.field<"right">();
+            if (right.valid() && right.modified()) { out.set(right.value()); }
+        }
+    };
+    struct ForwardPairDelta
+    {
+        static void eval(In<"value", TsVar<"S">, InputValidity::Unchecked> value, Out<TsVar<"S">> out) {
+            const auto before = type_system_lock_count();
+            if (value.modified() && value.valid()) { apply_delta(out, value.delta_value()); }
+            pair_delta_locks += type_system_lock_count() - before;
+        }
+    };
+    struct FollowChangedPairExport
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> duplicate_left, Port<TS<Int>> left, Port<TS<Int>> right) {
+            auto selected = wire<stdlib::switch_>(
+                w, duplicate_left,
+                stdlib::switch_cases({{Value{true}, fn<ExportDuplicatePair>()}, {Value{false}, fn<ExportSeparatePair>()}}), left,
+                right);
+            return wire<FollowPairRight>(w, wire<ForwardPairDelta>(w, selected.as<ExportPair>()).as<ExportPair>());
+        }
+    };
+    template <bool First> struct ExportOwnedPair
+    {
+        static Port<REF<ExportPair>> compose(Wiring &w, Port<TS<Bool>> duplicate_left, Port<TS<Int>> first_left,
+                                             Port<TS<Int>> first_right, Port<TS<Int>> second_left, Port<TS<Int>> second_right) {
+            auto left  = wire<OwnedExportValue>(w, First ? first_left : second_left);
+            auto right = wire<OwnedExportValue>(w, First ? first_right : second_right);
+            return wire<stdlib::switch_>(
+                       w, duplicate_left,
+                       stdlib::switch_cases({{Value{true}, fn<ExportDuplicatePair>()}, {Value{false}, fn<ExportSeparatePair>()}}),
+                       left, right)
+                .as<REF<ExportPair>>();
+        }
+    };
+    struct FollowChangedOwnedPairExport
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> enabled, Port<TS<Bool>> duplicate_left, Port<TS<Int>> first_left,
+                                     Port<TS<Int>> first_right, Port<TS<Int>> second_left, Port<TS<Int>> second_right) {
+            auto selected = wire<stdlib::switch_>(
+                w, enabled,
+                stdlib::switch_cases({{Value{true}, fn<ExportOwnedPair<true>>()}, {Value{false}, fn<ExportOwnedPair<false>>()}}),
+                duplicate_left, first_left, first_right, second_left, second_right);
+            return wire<FollowPairRight>(w, wire<ForwardPairDelta>(w, selected.as<ExportPair>()).as<ExportPair>());
+        }
+    };
 }  // namespace
+
+TEST_CASE("REF owner export: following a changed branch samples its actual child endpoint") {
+    stdlib::register_standard_operators();
+    for (int run = 0; run < 2; ++run) {
+        CHECK_OUTPUT(eval_node<FollowOwnedExport>(values<Bool>(true, true, false, false, true, none),
+                                                  values<Int>(7, 8, 9, 10, 11, 12), values<Int>(20, none, none, 21, none, none)),
+                     values<Int>(7, 8, 20, 21, 11, 12));
+    }
+}
+
+TEST_CASE("REF owner export: stopped targets survive the removal cycle and expire before the next") {
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<ObserveOwnedExport>(values<Bool>(true, true, false, false, true, true, false, true, none),
+                                               values<Int>(7, 8, 9, 10, 11, 12, 13, 14, 15),
+                                               values<Int>(20, none, none, 21, none, none, 22, none, 23),
+                                               values<Int>(1, 1, 1, 1, 1, 1, 1, 1, 1)),
+                 values<Int>(7, 8, 8, -1, -1, -1, -1, -1, -1));
+}
+
+TEST_CASE("REF owner export: stopping a forwarding owner preserves the captured parent endpoint") {
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<FollowHeldParentExport>(values<Bool>(true, true, false, false, true, true, false, true, none),
+                                                   values<Int>(7, 8, 9, 10, 11, 12, 13, 14, 15),
+                                                   values<Int>(20, none, none, 21, none, none, 22, none, 23)),
+                 values<Int>(7, 8, 9, 10, 11, 12, 13, 14, 15));
+}
+
+TEST_CASE("REF owner export: binding a saved stopped designation obeys the cycle boundary") {
+    stdlib::register_standard_operators();
+    const auto run = [](Int begin) {
+        return eval_node<ObserveLateOwnedExport>(values<Bool>(true, true, false, false, true, none),
+                                                 values<Int>(7, 8, 9, 10, 11, 12), values<Int>(20, none, none, 21, none, none),
+                                                 values<Int>(1, 2, 3, 4, 5, 6), begin);
+    };
+    CHECK_OUTPUT(run(3), values<Int>(-1, -1, 8, -1, -1, -1));
+    CHECK_OUTPUT(run(4), values<Int>(-1, -1, -1, -1, -1, -1));
+}
+
+TEST_CASE("REF owner export: changing a tree designation samples its changed child") {
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<FollowChangedPairExport>(values<Bool>(false, none, none, true, none, false, none),
+                                                    values<Int>(7, 8, none, none, 9, none, none),
+                                                    values<Int>(20, none, 21, none, none, none, 22)),
+                 values<Int>(20, none, 21, 8, 9, 21, 22));
+}
+
+TEST_CASE("REF owner export: a composed owned tree samples a changed retained child") {
+    stdlib::register_standard_operators();
+    pair_delta_locks = 0;
+    CHECK_OUTPUT(
+        eval_node<FollowChangedOwnedPairExport>(values<Bool>(true, none, none, none, none, false, none, true, none, none),
+                                                values<Bool>(false, none, none, true, none, false, none, false, none, none),
+                                                values<Int>(7, 8, none, none, 9, 10, none, 7, none, none),
+                                                values<Int>(20, none, 21, none, none, 22, none, 30, 31, none),
+                                                values<Int>(9, none, none, none, none, 9, 10, none, none, none),
+                                                values<Int>(40, none, none, none, none, 40, none, none, none)),
+        values<Int>(20, none, 21, 8, 9, 40, none, 30, 31, none));
+    CHECK(pair_delta_locks == 0);
+}
+
+TEST_CASE("REF owner export: an independently awakened consumer reads an idle owned endpoint") {
+    stdlib::register_standard_operators();
+    for (int run = 0; run < 2; ++run) {
+        owned_export_evaluations = 0;
+        CHECK_OUTPUT(eval_node<ObserveOwnedExport>(values<Bool>(true, none, none, none), values<Int>(7, none, none, none),
+                                                   values<Int>(20, none, none, none), values<Int>(1, 1, 1, 1)),
+                     values<Int>(7, 7, 7, 7));
+        CHECK(owned_export_evaluations == 1);
+    }
+}
+
+TEST_CASE("REF owner export: manual root cycles expire retired owners and teardown cancels pending work") {
+    stdlib::register_standard_operators();
+    for (const auto cycle_count : {3, 4}) {
+        manual_values.clear();
+        manual_saved = TimeSeriesReference{};
+        {
+            auto builder = build_graph<ManualObserveOwnedExport>();
+            set_replay_values<Bool>(builder.global_state(), "enabled", values<Bool>(true, true, false, false));
+            set_replay_values<Int>(builder.global_state(), "first", values<Int>(7, 8, 9, 10));
+            set_replay_values<Int>(builder.global_state(), "second", values<Int>(20, none, none, 21));
+            set_replay_values<Int>(builder.global_state(), "step", values<Int>(1, 1, 1, 1));
+            MockRootGraph root{builder};
+            auto          graph = root.graph();
+            REQUIRE(graph.node_count() != 0);
+            graph.start(MIN_ST);
+            const std::array<Int, 4> expected{7, 8, 8, -1};
+            for (int cycle = 0; cycle < cycle_count; ++cycle) {
+                const auto time = MIN_ST + MIN_TD * cycle;
+                REQUIRE(graph.evaluate(time));
+                CHECK(root.executor().evaluation_clock().evaluation_time() == time);
+                REQUIRE(manual_values.size() == static_cast<std::size_t>(cycle + 1));
+                CHECK(manual_values.back() == expected[cycle]);
+            }
+            const auto time = MIN_ST + MIN_TD * (cycle_count - 1);
+            graph.stop(time);
+            CHECK(manual_saved.has_output() == (cycle_count == 3));
+        }
+        CHECK_FALSE(manual_saved.has_output());
+    }
+}
+
+TEST_CASE("REF owner export: repeated same-time root cycles preserve queued expiry") {
+    NodeBuilder source;
+    source.implementation<ReuseExportSource>();
+    GraphBuilder builder;
+    builder.add_node(source);
+    MockRootGraph root{builder};
+    auto          parent = root.graph();
+    parent.start(MIN_ST);
+    REQUIRE(parent.evaluate(MIN_ST));
+    auto child   = builder.make_nested_graph(parent.node_at(0).pointer());
+    auto sibling = builder.make_nested_graph(parent.node_at(0).pointer());
+    child.view().start(MIN_ST);
+    sibling.view().start(MIN_ST);
+    REQUIRE(child.view().evaluate(MIN_ST));
+    REQUIRE(sibling.view().evaluate(MIN_ST));
+    TimeSeriesReference retired{child.view().node_at(0).output(MIN_ST)};
+    TimeSeriesReference live{sibling.view().node_at(0).output(MIN_ST)};
+    child.view().stop(MIN_ST);
+    for (int repeat = 0; repeat < 4; ++repeat) {
+        REQUIRE(parent.evaluate(MIN_ST));
+        CHECK(retired.is_valid(MIN_ST));
+        CHECK(live.is_valid(MIN_ST));
+    }
+    REQUIRE(parent.evaluate(MIN_ST + MIN_TD));
+    CHECK(retired.is_empty());
+    CHECK(live.is_valid(MIN_ST + MIN_TD));
+    sibling.view().stop(MIN_ST + MIN_TD);
+    parent.stop(MIN_ST + MIN_TD);
+    auto &queues = mock_runtime_detail::mock_executor_storage(const_cast<void *>(root.executor().data()));
+    CHECK(queues.before_evaluation_notifications.empty());
+    CHECK(queues.after_evaluation_notifications.empty());
+}
+
+TEST_CASE("REF owner export: root stop drains same-time expiry without retaining callbacks") {
+    for (const bool move_to_before : {false, true}) {
+        NodeBuilder source;
+        source.implementation<ReuseExportSource>();
+        GraphBuilder builder;
+        builder.add_node(source);
+        MockRootGraph root{builder};
+        auto          parent = root.graph();
+        parent.start(MIN_ST);
+        REQUIRE(parent.evaluate(MIN_ST));
+        auto child = builder.make_nested_graph(parent.node_at(0).pointer());
+        child.view().start(MIN_ST);
+        REQUIRE(child.view().evaluate(MIN_ST));
+        child.view().stop(MIN_ST);
+        if (move_to_before) { REQUIRE(parent.evaluate(MIN_ST)); }
+        parent.stop(MIN_ST);
+        auto &queues = mock_runtime_detail::mock_executor_storage(const_cast<void *>(root.executor().data()));
+        CHECK(queues.before_evaluation_notifications.empty());
+        CHECK(queues.after_evaluation_notifications.empty());
+    }
+}
+
+TEST_CASE("REF owner export: same-address reconstruction cancels copied expiry at either queue boundary") {
+    for (const bool arm_before_queue : {false, true}) {
+        for (const bool copy_notification : {false, true}) {
+            CAPTURE(arm_before_queue, copy_notification);
+            NodeBuilder source;
+            source.implementation<ReuseExportSource>();
+            GraphBuilder builder;
+            builder.add_node(source);
+            MockRootGraph root{builder};
+            auto          parent = root.graph();
+            parent.start(MIN_ST);
+            REQUIRE(parent.evaluate(MIN_ST));
+
+            const auto layout         = builder.nested_storage_layout();
+            const auto release_memory = [layout](void *memory) { MemoryUtils::allocator().deallocate_storage(memory, layout); };
+            std::unique_ptr<void, decltype(release_memory)> memory{MemoryUtils::allocator().allocate_storage(layout),
+                                                                   release_memory};
+            auto child   = builder.make_nested_graph(parent.node_at(0).pointer(), memory.get(), layout);
+            auto sibling = builder.make_nested_graph(parent.node_at(0).pointer());
+            child.view().start(MIN_ST);
+            sibling.view().start(MIN_ST);
+            REQUIRE(child.view().evaluate(MIN_ST));
+            REQUIRE(sibling.view().evaluate(MIN_ST));
+            TimeSeriesReference retired{child.view().node_at(0).output(MIN_ST)};
+            TimeSeriesReference unaffected{sibling.view().node_at(0).output(MIN_ST)};
+            child.view().stop(MIN_ST);
+            CHECK(retired.is_valid(MIN_ST));
+            if (arm_before_queue) { REQUIRE(parent.evaluate(MIN_ST)); }
+
+            // std::function's public copy/move contract must preserve the
+            // private non-owning observer, including destruction of its old copy.
+            if (copy_notification) {
+                auto &state = mock_runtime_detail::mock_executor_storage(const_cast<void *>(root.executor().data()));
+                auto &queue = arm_before_queue ? state.before_evaluation_notifications : state.after_evaluation_notifications;
+                REQUIRE(queue.size() == 1);
+                auto copy     = queue.front();
+                queue.front() = std::move(copy);
+            }
+            child = GraphValue{};
+            CHECK(retired.is_empty());
+            child = builder.make_nested_graph(parent.node_at(0).pointer(), memory.get(), layout);
+            CHECK(child.view().data() == memory.get());
+            child.view().start(MIN_ST);
+            REQUIRE(child.view().evaluate(MIN_ST));
+            TimeSeriesReference current{child.view().node_at(0).output(MIN_ST)};
+
+            for (const auto time : {MIN_ST + MIN_TD, MIN_ST + MIN_TD * 2}) {
+                REQUIRE(parent.evaluate(time));
+                CHECK(retired.is_empty());
+                CHECK(current.is_valid(time));
+                CHECK(current.target_output().view(time).value().checked_as<Int>() == Int{73});
+                CHECK(unaffected.is_valid(time));
+            }
+            child.view().stop(MIN_ST + MIN_TD * 2);
+            sibling.view().stop(MIN_ST + MIN_TD * 2);
+            parent.stop(MIN_ST + MIN_TD * 2);
+        }
+    }
+}
 
 TEST_CASE("REF executor: a user REF output retargets between independent producers mid-run")
 {

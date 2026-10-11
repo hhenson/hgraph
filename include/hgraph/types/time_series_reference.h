@@ -18,6 +18,8 @@ namespace hgraph
     namespace detail
     {
         class TSOutputAlternativeStore;
+        class PreparedReferenceAssignment;
+        class PreparedReferencePublication;
     }
 
     class TSInputView;
@@ -149,11 +151,14 @@ namespace hgraph
             const TSValueTypeMetaData *target_schema) const;
 
         /**
-         * Two references compare equal when they share kind, target schema,
-         * and (for NON_PEERED) sub-references.
+         * Compare current designations with the same target schema. Expired
+         * PEERED tokens compare as EMPTY; NON_PEERED child trees remain
+         * structural and compare their children's current designations.
          */
         [[nodiscard]] bool        operator==(const TimeSeriesReference &other) const noexcept;
-        /** Hash compatible with ``std::hash<TimeSeriesReference>``. */
+        /** Hash the designation observed now. Expiry changes both equality
+            and this digest: it is not a key for a persistent hash container.
+            TimeSeriesReference deliberately has no std::hash specialization. */
         [[nodiscard]] std::size_t hash() const noexcept;
         /** Human-readable representation; primarily for diagnostics. */
         [[nodiscard]] std::string to_string() const;
@@ -171,6 +176,8 @@ namespace hgraph
 
       private:
         friend class detail::TSOutputAlternativeStore;
+        friend class detail::PreparedReferenceAssignment;
+        friend class detail::PreparedReferencePublication;
 
         struct PeerLifetime;
         union Storage
@@ -208,14 +215,5 @@ namespace hgraph
         };
     }  // namespace static_schema_detail
 }  // namespace hgraph
-
-namespace std
-{
-    /** Hash specialization so ``TimeSeriesReference`` works in unordered containers. */
-    template <> struct hash<hgraph::TimeSeriesReference>
-    {
-        std::size_t operator()(const hgraph::TimeSeriesReference &ref) const noexcept { return ref.hash(); }
-    };
-}  // namespace std
 
 #endif  // HGRAPH_CPP_ROOT_TIME_SERIES_REFERENCE_H

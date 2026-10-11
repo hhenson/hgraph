@@ -101,6 +101,10 @@ namespace hgraph::detail
             can retarget without this link rebinding (a REF output, or an
             output itself reached through a target link). RFC 0036. */
         bool target_is_reference{false};
+        /** Bind-time scalar forwarding route, borrowed under ``target``'s
+            existing endpoint lifetime protocol. Null for physical producers,
+            REF values and structural targets. */
+        const TSInputTargetLinkStorage *scalar_target_link{nullptr};
         SchedulingNotifier  scheduling_notifier;
         std::unique_ptr<TSInputTargetActiveNode> active_root_node{};
     };
@@ -115,9 +119,19 @@ namespace hgraph::detail
         ~TSInputTargetLinkStorage() noexcept;
 
         [[nodiscard]] bool bound() const noexcept;
+        /** Cache a route for immutable declared binding metadata. Repeated
+            binds compare only producer identity; adapter creation is owned
+            by the producer and occurs when that producer changes. */
+        [[nodiscard]] TSOutputView declared_source_view(
+            const TSOutputView &source, const TSValueTypeMetaData &declared_schema,
+            const TSValueTypeMetaData &consumer_schema) const;
+        void clear_declared_source_view() const noexcept;
         /** The bind-time record: true while bound to an output that can
             retarget without this link rebinding (RFC 0036). */
         [[nodiscard]] bool bound_target_is_reference() const noexcept;
+        /** Whether a scalar forwarding chain ends at an empty designation.
+            Producer invalidation remains a distinct, observable event. */
+        [[nodiscard]] bool empty_scalar_route() const noexcept;
         void bind(const TSValueTypeMetaData &schema, const TSOutputView &output);
         void bind_current_value(const TSValueTypeMetaData &schema, const TSOutputView &output,
                                 DateTime modified_time);
@@ -195,6 +209,9 @@ namespace hgraph::detail
                        DateTime modified_time, bool sampled, bool replay_source_time);
         void detach_target(bool retain_structural_target, DateTime modified_time);
 
+        mutable const TSValueTypeMetaData *declared_schema_{nullptr};
+        mutable TSOutputHandle declared_source_{};
+        mutable TSOutputHandle declared_view_{};
         const TSInputTargetLinkStructuralOps *structural_ops_{&target_link_no_structural_ops()};
     };
 

@@ -6,6 +6,7 @@
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/operator_dispatch.h> // context scope stack (OperatorRegistry)
 #include <hgraph/types/subgraph_wiring.h>
+#include <hgraph/types/time_series/ts_input/impl/reference_publication.h>
 #include <hgraph/util/scope.h>
 
 #include <algorithm>
@@ -49,6 +50,7 @@ struct SourceKey {
   const WiringInstance *peered_node{nullptr};
   std::vector<std::size_t> peered_path{};
   const TSValueTypeMetaData *schema{nullptr};
+  const TSValueTypeMetaData *observation_schema{nullptr};
   std::vector<SourceKey> structural_children{};
   std::size_t boundary_arg{static_cast<std::size_t>(-1)};
   std::vector<std::size_t> boundary_path{};
@@ -121,6 +123,7 @@ private:
     combine(h, std::hash<int>{}(static_cast<int>(source.peered_output_kind)));
     combine(h, std::hash<const void *>{}(source.peered_node));
     combine(h, std::hash<const void *>{}(source.schema));
+    combine(h, std::hash<const void *>{}(source.observation_schema));
     for (std::size_t p : source.peered_path) {
       combine(h, std::hash<std::size_t>{}(p));
     }
@@ -144,7 +147,8 @@ private:
 };
 
 [[nodiscard]] SourceKey source_key_for(const WiringPortRef &source) {
-  SourceKey key{.kind = source.source_kind(), .schema = source.schema};
+  SourceKey key{.kind = source.source_kind(), .schema = source.schema,
+                .observation_schema = source.observation_schema};
   if (source.is_peered_source()) {
     key.peered_node = source.peered_node();
     key.peered_path = source.peered_path();
@@ -194,26 +198,24 @@ output_schema_of(const WiringInstance &instance) {
 
 struct StructuralRefNodeTag {};
 
-void evaluate_structural_ref_node(const NodeView &view,
-                                  DateTime evaluation_time) {
+void start_structural_ref_node(const NodeView &view, DateTime evaluation_time) {
   auto root = view.input(evaluation_time);
   auto bundle = root.as_bundle();
-  auto ts = bundle.field("ts");
+  auto input = bundle.field("ts");
+  auto &publisher = *static_cast<detail::PreparedReferencePublication *>(view.runtime_cache());
+  publisher = detail::PreparedReferencePublication{input, view.output(evaluation_time), evaluation_time};
+}
 
-  Value reference{ts.reference()};
-  auto output = view.output(evaluation_time);
-  if (output.valid() &&
-      output.value().checked_as<TimeSeriesReference>() ==
-          reference.view().checked_as<TimeSeriesReference>()) {
-    return;
-  }
-  auto mutation = output.begin_mutation(evaluation_time);
-  // move_value_from returns NEWLY-MODIFIED, not success: publishing
-  // a reference that lands as no new modification (e.g. an emptied
-  // reference over an invalid output while a switch/map cascade
-  // tears a branch down) is a legitimate no-op — UNBIND IS SILENT,
-  // consumers observe invalidity by reading, not by tick.
-  static_cast<void>(mutation.move_value_from(std::move(reference)));
+void stop_structural_ref_node(const NodeView &view, DateTime) {
+  *static_cast<detail::PreparedReferencePublication *>(view.runtime_cache()) = {};
+}
+
+void evaluate_structural_ref_node(const NodeView &view,
+                                  DateTime evaluation_time) {
+  // The native state binding and every finite route/write slot were fixed at
+  // start. Owning changed REF tokens retain their existing lifetime protocol.
+  const auto &publisher = *static_cast<const detail::PreparedReferencePublication *>(view.runtime_cache());
+  static_cast<void>(publisher.publish(evaluation_time));
 }
 
 /** The ts-input schema preserving the SOURCE children's REF-ness.
@@ -288,11 +290,19 @@ structural_ref_node_builder(const TSValueTypeMetaData *target_schema,
   schema.valid_inputs.emplace();
 
   NodeCallbacks callbacks;
+  callbacks.start = &start_structural_ref_node;
+  callbacks.stop = &stop_structural_ref_node;
   callbacks.evaluate = &evaluate_structural_ref_node;
 
   std::array<WiringPortRef, 1> inputs{source};
-  NodeBuilder builder =
-      NodeBuilder::native(std::move(schema), std::move(callbacks));
+  const std::array<NodeStorageField, 1> cache_fields{{
+      {node_runtime_cache_field, &MemoryUtils::plan_for<detail::PreparedReferencePublication>()}}};
+  NodeTypeDescriptor descriptor;
+  descriptor.storage_plan = &node_storage_plan_for(schema, cache_fields);
+  descriptor.schema = std::move(schema);
+  descriptor.callbacks = std::move(callbacks);
+  static const int runtime_identity{0};
+  NodeBuilder builder = NodeBuilder::from_canonical_descriptor(std::move(descriptor), &runtime_identity);
   builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
       input_schema,
       std::span<const WiringPortRef>{inputs.data(), inputs.size()}));
@@ -687,6 +697,8 @@ void emit_edges(
             .source_path = {external->second},
             .target =
                 NestedGraphEndpoint{.node = target_node, .path = target_path},
+            .source_view_schema = source.declared_source_view() != nullptr && source.declared_source_view()->kind != TSTypeKind::SIGNAL
+                                      ? source.declared_source_view() : nullptr,
         });
         return;
       }
@@ -714,7 +726,8 @@ void emit_edges(
         .source_path = source.peered_path(),
         .target_node = target_node,
         .target_path = target_path,
-    });
+    }, source.declared_source_view() != nullptr && source.declared_source_view()->kind != TSTypeKind::SIGNAL
+           ? source.declared_source_view() : nullptr);
     return;
   }
   if (source.is_null_source()) {
@@ -737,6 +750,8 @@ void emit_edges(
     boundary_bindings->push_back(NestedGraphInputBinding{
         .source_path = std::move(source_path),
         .target = NestedGraphEndpoint{.node = target_node, .path = target_path},
+        .source_view_schema = source.declared_source_view() != nullptr && source.declared_source_view()->kind != TSTypeKind::SIGNAL
+                                      ? source.declared_source_view() : nullptr,
     });
     return;
   }
@@ -1167,6 +1182,8 @@ WiringPortRef adapt_source_for_input_impl(Wiring &w,
   if (input_schema == nullptr) {
     return source;
   }
+  // A SIGNAL is a value consumer for adaptation: it dereferences a REF
+  // source like any input that does not declare REF (TS-18).
   const bool consumes_value =
       value_consumer && input_schema->kind != TSTypeKind::REF;
 

@@ -1,0 +1,60 @@
+module examples.reference_identity_equality part public_controls
+
+fn forwarded_reference(value: ref<i64>) -> ref<i64> {
+    when { return value }
+}
+fn read_forwarded_reference(value: i64) -> i64 {
+    when { return delta_value(value) }
+}
+export fn public_forwarded(value: i64) -> i64 => read_forwarded_reference(forwarded_reference(value))
+
+fn previous_reference(value: ref<i64>, step: i64) -> ref<i64> {
+    inject out
+    when modified(step) && valid(value, step) {
+        if valid(out) && out == value { return out }
+        return value
+    }
+}
+fn self_assigned_reference(value: ref<i64>, step: i64) -> ref<i64> {
+    inject out
+    when modified(step) && valid(value, step) {
+        if valid(out) { out = out }
+        else { out = value }
+    }
+}
+export fn public_previous_reference(value: i64, step: i64) -> i64 =>
+    read_forwarded_reference(previous_reference(value, step))
+export fn public_self_assigned_reference(value: i64, step: i64) -> i64 =>
+    read_forwarded_reference(self_assigned_reference(value, step))
+
+export fn public_aliased(value: i64, step: i64) -> bool => aliased(value, step)
+export fn public_aliased_unequal(value: i64, step: i64) -> bool => aliased_unequal(value, step)
+export fn public_distinct(first: i64, second: i64, step: i64) -> bool => distinct(first, second, step)
+export fn public_distinct_unequal(first: i64, second: i64, step: i64) -> bool => distinct_unequal(first, second, step)
+
+fn same_generic<T>(first: ref<T>, second: ref<T>, step: i64) -> bool {
+    when valid(first, second, step) && modified(step) { return first == second }
+}
+export fn generic_aliased(value: i64, step: i64) -> bool => same_generic(value, value, step)
+export fn generic_distinct(first: f64, second: f64, step: i64) -> bool => same_generic(first, second, step)
+
+fn same_list(first: ref<list<i64, 2>>, second: ref<list<i64, 2>>, step: i64) -> bool {
+    when valid(first, second, step) && modified(step) { return first == second }
+}
+export fn compare_lists(first: ref<list<i64, 2>>, second: ref<list<i64, 2>>, step: i64) -> bool {
+    when valid(first, second, step) && modified(step) { return first == second }
+}
+export fn aliased_list(value: list<i64, 2>, step: i64) -> bool => same_list(value, value, step)
+export fn distinct_lists(first: list<i64, 2>, second: list<i64, 2>, step: i64) -> bool => same_list(first, second, step)
+
+export struct IdentityFields { first: i64
+    second: i64 }
+fn same_bundle(first: ref<IdentityFields>, second: ref<IdentityFields>, step: i64) -> bool {
+    when valid(first, second, step) && modified(step) { return first == second }
+}
+export fn aliased_bundle(value: IdentityFields, step: i64) -> bool => same_bundle(value, value, step)
+export fn distinct_bundles(first: IdentityFields, second: IdentityFields, step: i64) -> bool => same_bundle(first, second, step)
+
+export fn guarded_first(value: IdentityFields) -> i64 {
+    when valid(value.first) && modified(value.first) { return value.first }
+}

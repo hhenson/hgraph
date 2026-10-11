@@ -61,3 +61,21 @@ description, in the :doc:`operator_catalogue`. The compact
 Statistical estimators, rolling means, resampling, and shaped-array analytics
 are provided by the separately installed ``hgraph-analytics`` package; see
 :doc:`../user_guide/analytics_migration`.
+
+Reference-backed projections
+----------------------------
+
+Graph composition may select a declared bundle field or constant fixed-list
+index beneath a REF. The canonical contract is
+`WIR-5 <https://github.com/hhenson/hgraph_spec/blob/main/wiring/wiring.md>`_
+and `TS-14/17/25 <https://github.com/hhenson/hgraph_spec/blob/main/runtime/time_series.md>`_.
+The specification's
+`source examples <https://github.com/hhenson/hgraph_spec/blob/main/language/examples/reference-wiring-projections.hgl>`_
+and `compiler cases <https://github.com/hhenson/hgraph_spec/blob/main/compiler/cases_reference_wiring_projections.md>`_
+cover retargeting and child binding observations.
+
+The C++ projection prepares its selected input route and output publication
+route during node start. It uses the output owner's forwarding route when a
+terminal writes into externally owned storage; changing that terminal's
+target is handled by the same owner mutation protocol. Ownership and route
+preparation are described in :doc:`../rfc/rfc_0036_reference_transparency_owners`.

@@ -1,0 +1,9 @@
+module examples.reference_wiring_projections part public_controls
+
+export fn public_bid(value: WiringQuote) -> i64 => observed_bid(value)
+export fn public_second(value: list<i64, 2>) -> i64 => observed_second(value)
+export fn public_selected_bid(index: i64, first: WiringQuote, second: WiringQuote) -> i64 => selected_bid(index, first, second)
+export fn public_nested_bid(outer: i64, inner: i64, other: i64, first: WiringQuote, second: WiringQuote, third: WiringQuote) -> i64 => nested_selected_bid(outer, inner, other, first, second, third)
+
+fn forward_plain_child(value: ref<i64>) -> ref<i64> { when { return value } }
+export fn public_plain_second(value: list<i64, 2>) -> i64 => read_integer(forward_plain_child(value[1]))
