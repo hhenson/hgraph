@@ -1,6 +1,10 @@
 # Windows has no build rpath. Stage the linked DLLs, including PyArrow's
 # dynamically loaded support libraries, beside each build-tree executable.
 if(CMAKE_SCRIPT_MODE_FILE)
+    # Several executables share a destination directory. Serialize their
+    # post-build copies so Windows never opens the same DLL for writing twice.
+    file(LOCK "${HGL_RUNTIME_DESTINATION}/.hgl-runtime-dlls.lock"
+        GUARD PROCESS TIMEOUT 60)
     foreach(_dll IN LISTS HGL_RUNTIME_DLLS)
         if(NOT _dll STREQUAL "")
             get_filename_component(_name "${_dll}" NAME)
