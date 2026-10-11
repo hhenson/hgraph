@@ -1854,6 +1854,10 @@ requires both operands to be readable; heterogeneous reference comparisons,
 ordering, and node traversal below a reference remain rejected.
 Comparison operands borrow the prepared reference input's designation token,
 so comparing non-peered child trees does not clone their owning child vectors.
+The HGL-private borrower relies on the native `TimeSeriesReference` representation
+registered by REF metadata and selected during cold TSData/node preparation.
+Its runtime guard checks payload presence, while designation comparison keeps the
+existing lifetime checks; neither path discovers a type or compares an ops address.
 Each separately supplied `eval` temporal argument has an independent endpoint,
 even when two sample sequences are equal. The harness prepares a distinct replay
 key and exact temporal type carrier for each argument. Structural HGL delta

@@ -47,6 +47,15 @@ namespace hgl::ordinary
         require_payload(value, true);
         return *static_cast<const T *>(value.data());
     }
+    // Only prepared typed REF input selectors call this helper. REF metadata
+    // registers TimeSeriesReference as its native scalar, and cold TSData/node
+    // preparation binds that exact native representation. Presence remains a
+    // semantic read guard; kind/ops tests and designation-tree copies do not
+    // belong on the comparison path.
+    [[nodiscard]] inline const hgraph::TimeSeriesReference &reference_argument(const hgraph::ValueView &value) {
+        if (!value.has_value()) { throw std::logic_error("checked_as<T> on invalid ValueView"); }
+        return *static_cast<const hgraph::TimeSeriesReference *>(value.data());
+    }
     // BYTE-1–5: retain a complete ordinary i64 list once, then check octets.
     // Construction is an execution recipe; callers decide whether evaluation
     // is required at compile time or belongs to an executed test/node.

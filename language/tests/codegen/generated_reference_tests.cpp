@@ -7,6 +7,7 @@
 #include <hgraph/lib/testing/eval_node.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
 
 using namespace hgraph;
 using namespace hgraph::testing;
@@ -89,4 +90,12 @@ TEST_CASE("generated composite reference identity preserves distinct endpoints",
     const auto second = values<Int>(8);
     CHECK(eval_node<CompareAliasedChildTrees>(first, second, step) == values<Bool>(true, true, true));
     CHECK(eval_node<CompareChildTrees>(first, second, second, step) == values<Bool>(false, false, false));
+}
+
+TEST_CASE("prepared reference borrowing preserves the absent payload guard", "[codegen][generated][ref]") {
+    hgl::wiring::ensure_session();
+    const auto *schema = schema_descriptor<REF<TS<Int>>>::ts_meta();
+    const auto binding = ValuePlanFactory::instance().type_for(schema->value_schema);
+    ValueView missing{binding, nullptr};
+    CHECK_THROWS_WITH(hgl::ordinary::reference_argument(missing), "checked_as<T> on invalid ValueView");
 }

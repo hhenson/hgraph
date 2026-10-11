@@ -3576,8 +3576,7 @@ namespace hgl::codegen
                             // owns a copy and would clone non-peered child vectors.
                             for (auto *operand : {&lhs, &rhs}) {
                                 if (!operand->selector.empty()) {
-                                    operand->code = operand->selector +
-                                        ".base().value().template checked_as<hgraph::TimeSeriesReference>()";
+                                    operand->code = "hgl::ordinary::reference_argument(" + operand->selector + ".base().value())";
                                 }
                             }
                         }
