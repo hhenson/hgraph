@@ -197,10 +197,12 @@ def _polymorphic_json_preserves_leaf_relation(
     if not _matches_polymorphic_recipe_events(_recipe, candidate.get("trace")):
         return False
 
-    changed = False
+    # A list rather than a bool: the nested projection reports through it,
+    # and a flow analysis that cannot see the nonlocal write would otherwise
+    # read the final test as constant.
+    changed = [False]
 
     def project(value):
-        nonlocal changed
         if isinstance(value, list):
             return [project(item) for item in value]
         if not isinstance(value, dict):
@@ -222,7 +224,7 @@ def _polymorphic_json_preserves_leaf_relation(
                     ]
                     if len(event_fields) != 1:
                         return value
-                    changed = True
+                    changed[0] = True
                     prefix, separator, _ = type_name.rpartition(".")
                     return {
                         "$dataclass": {
@@ -240,7 +242,7 @@ def _polymorphic_json_preserves_leaf_relation(
         "status": "ok",
         "trace": reference.get("trace"),
     }
-    return changed and compare_outcomes(
+    return changed[0] and compare_outcomes(
         normalized_reference, normalized_candidate
     ) is None
 
