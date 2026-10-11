@@ -599,10 +599,10 @@ TEST_CASE("every guide example lowers to resolved HIR", "[ir][examples]") {
         ++count;
         std::ifstream input{entry.path()};
         REQUIRE(input.good());
-        const std::string source{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
+        const std::string guide_source{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
         Lowered           lowered = entry.path().filename() == "native-atomic-values.hgl"
-                                        ? Lowered{source, guide_native_catalog(), entry.path().string()}
-                                        : Lowered{source, entry.path().string()};
+                                        ? Lowered{guide_source, guide_native_catalog(), entry.path().string()}
+                                        : Lowered{guide_source, entry.path().string()};
         INFO(entry.path().filename().string());
         require_clean(lowered);
         CHECK(lowered.hir.declarations.size() == lowered.ast.decls.size());
