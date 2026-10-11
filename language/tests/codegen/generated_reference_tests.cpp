@@ -67,6 +67,7 @@ TEST_CASE("generated reference identity compares endpoints through public compos
     (void)reference_identity::register_operators();
     const auto source = values<Int>(7, 8, std::nullopt, 7);
     const auto step = values<Int>(1, 1, 1, 1);
+    CHECK(eval_node<reference_identity::public_forwarded>(source) == source);
     CHECK(eval_node<reference_identity::public_aliased>(source, step) == values<Bool>(true, true, true, true));
     CHECK(eval_node<reference_identity::public_aliased_unequal>(source, step) == values<Bool>(false, false, false, false));
     CHECK(eval_node<reference_identity::public_distinct>(source, source, step) == values<Bool>(false, false, false, false));

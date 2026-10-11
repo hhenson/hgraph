@@ -6803,7 +6803,8 @@ namespace hgl::codegen
             if (include_output && info.out_binding.valid()) {
                 const HType result = planned_type(planned.result, planned.range);
                 Value       value;
-                if (result.kind == HType::Kind::List || result.kind == HType::Kind::Rolling) {
+                if (result.kind == HType::Kind::List || result.kind == HType::Kind::Rolling ||
+                    result.kind == HType::Kind::Reference) {
                     value.kind     = Value::Kind::Runtime;
                     value.type     = result;
                     value.range    = planned_binding(info.out_binding, planned.range).range;

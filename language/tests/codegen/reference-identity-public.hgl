@@ -1,5 +1,13 @@
 module examples.reference_identity_equality part public_controls
 
+fn forwarded_reference(value: ref<i64>) -> ref<i64> {
+    when { return value }
+}
+fn read_forwarded_reference(value: i64) -> i64 {
+    when { return delta_value(value) }
+}
+export fn public_forwarded(value: i64) -> i64 => read_forwarded_reference(forwarded_reference(value))
+
 export fn public_aliased(value: i64, step: i64) -> bool => aliased(value, step)
 export fn public_aliased_unequal(value: i64, step: i64) -> bool => aliased_unequal(value, step)
 export fn public_distinct(first: i64, second: i64, step: i64) -> bool => distinct(first, second, step)
