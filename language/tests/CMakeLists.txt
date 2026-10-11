@@ -71,16 +71,18 @@ endforeach()
 unset(_hgl_examples)
 
 add_test(NAME hgraph_language_reference_identity
-    COMMAND $<TARGET_FILE:hgl> test ${HGRAPH_SPEC}/language/examples/reference-identity-equality.hgl)
+    COMMAND hgl_reference_test_driver test ${HGRAPH_SPEC}/language/examples/reference-identity-equality.hgl
+        --part ${CMAKE_CURRENT_SOURCE_DIR}/codegen/reference-identity-public.hgl)
 set_tests_properties(hgraph_language_reference_identity PROPERTIES
     PASS_REGULAR_EXPRESSION "Executed: 1 test, 0 failed"
-    ENVIRONMENT "HGL_DISABLE_CACHE=1")
+    ENVIRONMENT "HGL_CXX=hgl-scripted-compiler-must-not-run;HGL_DISABLE_CACHE=1")
 
 add_test(NAME hgraph_language_reference_projections
-    COMMAND $<TARGET_FILE:hgl> test ${HGRAPH_SPEC}/language/examples/reference-wiring-projections.hgl)
+    COMMAND hgl_reference_test_driver test ${HGRAPH_SPEC}/language/examples/reference-wiring-projections.hgl
+        --part ${CMAKE_CURRENT_SOURCE_DIR}/codegen/reference-projection-public.hgl)
 set_tests_properties(hgraph_language_reference_projections PROPERTIES
     PASS_REGULAR_EXPRESSION "Executed: 1 test, 0 failed"
-    ENVIRONMENT "HGL_DISABLE_CACHE=1")
+    ENVIRONMENT "HGL_CXX=hgl-scripted-compiler-must-not-run;HGL_DISABLE_CACHE=1")
 
 add_test(
     NAME hgraph_language_dump_hir
@@ -458,14 +460,20 @@ hgl_add_module(hgl_lifecycle_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spe
 hgl_apply_warnings(hgl_lifecycle_fixture)
 hgl_add_module(hgl_reference_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/reference-routing.hgl)
 hgl_apply_warnings(hgl_reference_fixture)
-hgl_add_module(hgl_reference_identity_fixture STATIC
+hgl_add_module(hgl_reference_identity_fixture STATIC INCLUDE_TEST_CONTEXTS
     HGL ${HGRAPH_SPEC}/language/examples/reference-identity-equality.hgl
     PARTS codegen/reference-identity-public.hgl)
 hgl_apply_warnings(hgl_reference_identity_fixture)
-hgl_add_module(hgl_reference_projection_fixture STATIC
+hgl_add_module(hgl_reference_projection_fixture STATIC INCLUDE_TEST_CONTEXTS
     HGL ${HGRAPH_SPEC}/language/examples/reference-wiring-projections.hgl
     PARTS codegen/reference-projection-public.hgl)
 hgl_apply_warnings(hgl_reference_projection_fixture)
+add_executable(hgl_reference_test_driver driver/reference_test_driver.cpp)
+target_link_libraries(hgl_reference_test_driver PRIVATE hgl::driver
+    hgl_eval_library hgl_reference_identity_fixture hgl_reference_projection_fixture)
+hgl_link_runtime_executable(hgl_reference_test_driver)
+hgl_stage_runtime_dlls(hgl_reference_test_driver)
+hgl_apply_warnings(hgl_reference_test_driver)
 add_library(hgl_native_scalar_dependency INTERFACE)
 add_library(checks::native_dependency ALIAS hgl_native_scalar_dependency)
 target_include_directories(hgl_native_scalar_dependency INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/driver/include")
