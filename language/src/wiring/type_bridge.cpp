@@ -57,6 +57,9 @@ namespace hgl::wiring
           types_{hgraph::stdlib::register_standard_types(registry_)}, generation_{registry_.reset_generation()},
           include_test_contexts_{include_test_contexts} {
         structures_.reserve(module_.structures.size());
+        for (const auto &native : module_.native_types) {
+            if (native.atomic_value) { native_types_.emplace(native.canonical_identity, &native); }
+        }
         register_enums();
         for (const hgraph_ir::StructContract &contract : module_.structures) { structures_.emplace(contract.identity, &contract); }
     }
@@ -865,6 +868,27 @@ namespace hgl::wiring
         }
     }
 
+    const hgraph::ValueTypeMetaData *TypeBridge::native_value(const hgraph_ir::Type &type) {
+        const auto found = native_types_.find(type.nominal_identity);
+        if (found == native_types_.end()) { return nullptr; }
+        const auto &contract = *found->second;
+        const auto *schema   = registry_.value_type(contract.canonical_identity);
+        if (!schema) {
+            report(type.range, "native atomic scalar '" + contract.canonical_identity + "' has no registered provider");
+            return nullptr;
+        }
+        try {
+            const auto &caps = contract.capabilities;
+            static_cast<void>(native_values::bind(hgraph::ValuePlanFactory::instance().type_for(schema),
+                                                  contract.canonical_identity, caps.equality, caps.hash, caps.order,
+                                                  caps.serialization));
+            return schema;
+        } catch (const std::exception &error) {
+            report(type.range, "incompatible native atomic provider '" + contract.canonical_identity + "': " + error.what());
+            return nullptr;
+        }
+    }
+
     const hgraph::ValueTypeMetaData *TypeBridge::value(hgraph_ir::TypeId id) {
         refresh_registry();
         if (!id.valid() || id.value >= module_.types.size()) { return nullptr; }
@@ -894,6 +918,7 @@ namespace hgl::wiring
                         return value(generic->second, bindings);
                     }
                 }
+                if (native_types_.contains(type.nominal_identity)) { return native_value(type); }
                 if (const auto *enumeration = hgraph::TypeRegistry::instance().named_enum(type.nominal_identity)) { return enumeration; }
                 return nominal_value(type, bindings);
             case hir::TypeKind::Tuple:
@@ -994,6 +1019,10 @@ namespace hgl::wiring
                         }
                         return schema(generic->second, bindings);
                     }
+                }
+                if (native_types_.contains(type.nominal_identity)) {
+                    const auto *native = native_value(type);
+                    return native ? registry_.ts(native) : nullptr;
                 }
                 if (const auto *enumeration = hgraph::TypeRegistry::instance().named_enum(type.nominal_identity)) { return registry_.ts(enumeration); }
                 return nominal_schema(type, bindings);

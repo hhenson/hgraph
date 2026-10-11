@@ -471,10 +471,7 @@ namespace hgraph
                 route != nullptr && route->native() && route->value_ops == &ops_for<R>())
             {
                 *static_cast<R *>(route->native_value) = std::move(result);
-                if (route->tracking->record_modified(evaluation_time))
-                {
-                    route->tracking->parent.notify_child_modified(evaluation_time);
-                }
+                route->commit(evaluation_time);
                 return true;
             }
             auto output   = view.output(evaluation_time);

@@ -57,7 +57,11 @@ namespace hgl::ir
             TypeChecker(Module &module, const OperatorResolver &resolve_operator, syntax::DiagnosticSink &diagnostics)
                 : module_{module}, resolve_operator_{resolve_operator}, diagnostics_{diagnostics},
                   canonical_types_{module, diagnostics},
-                  constraint_solver_{module, canonical_types_, resolve_operator, diagnostics} {}
+                  constraint_solver_{module, canonical_types_, resolve_operator, diagnostics} {
+                for (const auto &contract : module.native_types) {
+                    native_contracts_.emplace(contract.canonical_identity, &contract.capabilities);
+                }
+            }
 
             bool run() {
                 if (module_.completion != Completion::Resolved) {
@@ -83,6 +87,7 @@ namespace hgl::ir
                 for (DeclarationId declaration : module_.source_order) { check_declaration(declaration); }
                 infer_capabilities();
                 check_value_call_phases();
+                check_required_value_calls();
                 if (!diagnostics_.has_errors()) {
                     check_list_literal_admission(module_, ordinary_list_literals_,
                         [&](ExprId id) { return constant_key_recipe(id); }, diagnostics_);
@@ -323,6 +328,58 @@ namespace hgl::ir
                     if ((phases[target.value] & (1U << static_cast<unsigned>(phase))) == 0U) {
                         diagnostics_.report(syntax::Category::Phase, expression.range,
                                             "the const fn's native dependencies are not available in this execution phase");
+                    }
+                }
+            }
+
+            void check_required_value_calls() {
+                // Source const fn is not a purity promise. Required defaults may
+                // retain source calls, but never use them to hide native execution.
+                std::unordered_set<std::uint32_t> native_symbols;
+                for (const auto &native : module_.native_functions) { native_symbols.insert(native.symbol.value); }
+                std::vector<std::vector<std::uint32_t>> callers(module_.declarations.size());
+                std::vector<bool>                       native_dependencies(module_.declarations.size(), false);
+                std::vector<std::uint32_t>              pending;
+                for (const Expr &expression : module_.exprs) {
+                    const auto *owner = function(expression.owner);
+                    if (!owner || !owner->is_const || expression.operation.kind != OperationKind::ExactFunction) { continue; }
+                    const auto target = expression.operation.target;
+                    if ((target.valid() && native_symbols.contains(target.value)) ||
+                        !expression.operation.native_candidates.empty()) {
+                        if (!native_dependencies[expression.owner.value]) {
+                            native_dependencies[expression.owner.value] = true;
+                            pending.push_back(expression.owner.value);
+                        }
+                    } else if (target.valid()) {
+                        const auto  called = module_.symbol(target).owner;
+                        const auto *callee = function(called);
+                        if (callee && callee->is_const) { callers[called.value].push_back(expression.owner.value); }
+                    }
+                }
+                for (std::size_t i = 0; i < pending.size(); ++i) {
+                    for (const auto caller : callers[pending[i]]) {
+                        if (native_dependencies[caller]) { continue; }
+                        native_dependencies[caller] = true;
+                        pending.push_back(caller);
+                    }
+                }
+                std::vector<std::vector<ExprId>> body_expressions(module_.declarations.size());
+                for (std::uint32_t id = 0; id < module_.exprs.size(); ++id) {
+                    const auto owner = module_.expr(ExprId{id}).owner;
+                    if (owner.valid() && function(owner)) { body_expressions[owner.value].push_back(ExprId{id}); }
+                }
+                std::unordered_set<std::uint32_t> checked_bodies;
+                for (std::size_t i = 0; i < required_value_calls_.size(); ++i) {
+                    const ExprId site       = required_value_calls_[i];
+                    const auto  &expression = module_.expr(site);
+                    const auto   target     = module_.symbol(expression.operation.target).owner;
+                    if (target.valid() && native_dependencies[target.value]) {
+                        diagnostics_.report(syntax::Category::Phase, expression.range,
+                                            "required constant evaluation cannot call a const fn with native dependencies");
+                    } else if (target.valid() && checked_bodies.insert(target.value).second) {
+                        // Required invocation puts known source operations in the
+                        // same checking context as a directly written default.
+                        for (const ExprId body : body_expressions[target.value]) { validate_required_values(body); }
                     }
                 }
             }
@@ -1065,13 +1122,28 @@ namespace hgl::ir
                 return boxed_contents(id, visiting);
             }
 
-            bool known_missing_box_capability(TypeId id, bool order, std::unordered_set<std::uint32_t> &visiting) {
+            const NativeValueCapabilities *native_capabilities(TypeId id) const {
+                id = canonical(id);
+                if (!id.valid()) { return nullptr; }
+                const auto &value = type(id);
+                if (value.kind != TypeKind::Symbol || !value.symbol.valid() ||
+                    module_.symbol(value.symbol).kind != SymbolKind::NativeType) {
+                    return nullptr;
+                }
+                const auto found = native_contracts_.find(module_.symbol(value.symbol).canonical_name);
+                return found == native_contracts_.end() ? nullptr : found->second;
+            }
+
+            bool known_missing_box_capability(TypeId id, bool order, bool hash, std::unordered_set<std::uint32_t> &visiting) {
                 id = canonical(id);
                 if (!id.valid() || !visiting.insert(id.value).second) { return false; }
                 const auto &value   = type(id);
                 bool        missing = order && value.kind == TypeKind::Scalar &&
                                       (value.scalar == ScalarType::TimeZone || value.scalar == ScalarType::ZonedTime ||
                                        value.scalar == ScalarType::ZonedDateTime);
+                if (const auto *native = native_capabilities(id)) {
+                    missing = order ? !native->order : !native->equality || (hash && !native->hash);
+                }
                 if (value.kind == TypeKind::Map || value.kind == TypeKind::Set) { missing = missing || order; }
                 if (value.kind == TypeKind::Delta) {
                     if (value.children.empty()) {
@@ -1091,26 +1163,26 @@ namespace hgl::ir
                         const auto fields = structure ? structure->fields : imported->fields;
                         for (const auto &field : fields) {
                             const auto child = constraint_solver_.field_type({}, id, field.name);
-                            if (child) { missing = missing || known_missing_box_capability(*child, order, visiting); }
+                            if (child) { missing = missing || known_missing_box_capability(*child, order, hash, visiting); }
                         }
                     }
                 }
                 for (const auto child : value.children) {
-                    missing = missing || known_missing_box_capability(child, order, visiting);
+                    missing = missing || known_missing_box_capability(child, order, hash, visiting);
                 }
                 visiting.erase(id.value);
                 return missing;
             }
 
-            bool known_missing_box_capability(TypeId id, bool order) {
+            bool known_missing_box_capability(TypeId id, bool order, bool hash = false) {
                 std::unordered_set<std::uint32_t> visiting;
-                return known_missing_box_capability(id, order, visiting);
+                return known_missing_box_capability(id, order, hash, visiting);
             }
 
             // Required defaults are source constants. Optional folding of an
             // executed constructor must never turn BYTE-3 into source rejection.
             void validate_required_values(ExprId id) {
-                if (!id.valid()) { return; }
+                if (!id.valid() || !required_value_expressions_.insert(id.value).second) { return; }
                 const auto &value = module_.expr(id);
                 if (const auto *binary = std::get_if<Binary>(&value.node)) {
                     const auto lhs = boxed_contents(binary->lhs), rhs = boxed_contents(binary->rhs);
@@ -1127,6 +1199,10 @@ namespace hgl::ir
                 } else if (const auto *unary = std::get_if<Unary>(&value.node)) {
                     validate_required_values(unary->operand);
                 } else if (const auto *call = std::get_if<Call>(&value.node)) {
+                    if (value.operation.kind == OperationKind::ExactFunction && value.operation.target.valid()) {
+                        const auto *callee = function(module_.symbol(value.operation.target).owner);
+                        if (callee && callee->is_const) { required_value_calls_.push_back(id); }
+                    }
                     if (value.operation.kind == OperationKind::Intrinsic && value.operation.identity == "bytes" &&
                         call->arguments.size() == 1U) {
                         const auto &argument = module_.expr(call->arguments.front().value);
@@ -1152,7 +1228,7 @@ namespace hgl::ir
                                 const auto key = shape.kind == TypeKind::Map ? entry.key : entry.value;
                                 if (!key.valid()) { continue; }
                                 const auto contents = boxed_contents(key);
-                                if (contents.valid() && known_missing_box_capability(module_.expr(contents).type, false)) {
+                                if (contents.valid() && known_missing_box_capability(module_.expr(contents).type, false, true)) {
                                     type_error(module_.expr(key).range,
                                                "boxed key lacks a capability in required constant evaluation",
                                                "value.constant_capability");
@@ -1884,6 +1960,7 @@ namespace hgl::ir
                         break;
                     }
                     case SymbolKind::Enum:
+                    case SymbolKind::NativeType:
                     case SymbolKind::Struct:
                     // A struct another module exports names a type exactly as a
                     // local one does (ADR 0013); only its declaration lives
@@ -2256,6 +2333,21 @@ namespace hgl::ir
                 expression.operation = Operation{.kind     = OperationKind::NominalOperator,
                                                  .identity = std::string{binary_identity(node.op)},
                                                  .deferred = expression.phase != Phase::Constant};
+                if (const auto *native = native_capabilities(lhs.type); native && same(lhs.type, rhs.type)) {
+                    const bool equality = node.op == BinaryOp::Equal || node.op == BinaryOp::NotEqual;
+                    const bool order    = node.op == BinaryOp::Less || node.op == BinaryOp::LessEqual ||
+                                          node.op == BinaryOp::Greater || node.op == BinaryOp::GreaterEqual;
+                    if (equality || order) {
+                        if ((equality && !native->equality) || (order && !native->order)) {
+                            type_error(expression.range, "native atomic value lacks the required comparison capability");
+                        }
+                        expression.type      = scalar(ScalarType::Bool);
+                        expression.operation = Operation{.kind = OperationKind::Intrinsic, .identity = "native.compare"};
+                        if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
+                        expression.value_kind = value_kind_for_phase(expression.phase);
+                        return;
+                    }
+                }
                 if (signal_marker(lhs.type) || signal_marker(rhs.type)) {
                     type_error(expression.range, "'signal' has no payload and cannot be used with operators");
                     expression.type = node.op == BinaryOp::Less || node.op == BinaryOp::LessEqual || node.op == BinaryOp::Greater ||
@@ -4109,7 +4201,10 @@ namespace hgl::ir
                 if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedTime || shape.scalar == ScalarType::TimeZone); }
                 if (shape.kind == TypeKind::Symbol && shape.symbol.valid() &&
                     (module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter ||
-                     module_.symbol(shape.symbol).kind == SymbolKind::Enum)) { return true; }
+                     module_.symbol(shape.symbol).kind == SymbolKind::Enum ||
+                     module_.symbol(shape.symbol).kind == SymbolKind::NativeType)) {
+                    return true;
+                }
                 if (shape.kind == TypeKind::Atomic && shape.children.size() == 1U) {
                     return admitted_atomic_value(shape.children.front(), visiting, recursive_edge);
                 }
@@ -4147,6 +4242,7 @@ namespace hgl::ir
                 id = canonical(id);
                 if (!id.valid()) { return false; }
                 const Type shape = type(id);
+                if (const auto *native = native_capabilities(id)) { return native->equality && native->hash; }
                 if (shape.kind == TypeKind::Scalar ||
                     (shape.kind == TypeKind::Symbol && shape.symbol.valid() && module_.symbol(shape.symbol).kind == SymbolKind::Enum)) {
                     return true;
@@ -4204,7 +4300,10 @@ namespace hgl::ir
                 if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedTime || shape.scalar == ScalarType::TimeZone); }
                 if (shape.kind == TypeKind::Symbol && shape.symbol.valid() &&
                     (module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter ||
-                     module_.symbol(shape.symbol).kind == SymbolKind::Enum)) { return true; }
+                     module_.symbol(shape.symbol).kind == SymbolKind::Enum ||
+                     module_.symbol(shape.symbol).kind == SymbolKind::NativeType)) {
+                    return true;
+                }
                 if (!visiting.insert(id.value).second) { return false; }
                 bool admitted = false;
                 if ((shape.kind == TypeKind::Atomic || shape.kind == TypeKind::Rolling) && shape.children.size() == 1U) {
@@ -4990,6 +5089,7 @@ namespace hgl::ir
                                     : prefix + "expression:" + std::to_string(id.value);
             }
             [[nodiscard]] bool aggregate(TypeId id) const {
+                if (native_capabilities(id)) { return false; }
                 id = canonical(id);
                 return id.valid() && (type(id).kind != TypeKind::Scalar || type(id).scalar == ScalarType::Any);
             }
@@ -5759,9 +5859,12 @@ namespace hgl::ir
             PresenceFacts nullable_capture_forbidden_{};
             std::unordered_map<std::uint32_t, GlobalBorrow> global_borrows_{};
             std::unordered_map<std::string, TypeId> global_entry_types_{};
+            std::unordered_map<std::string_view, const NativeValueCapabilities *> native_contracts_{};
             TypeId                                   void_type_{};
             NativePhase                              active_native_phase_{NativePhase::Wiring};
             bool                                     active_value_function_{false};
+            std::vector<ExprId>                                                   required_value_calls_{};
+            std::unordered_set<std::uint32_t>                                     required_value_expressions_{};
             bool                                            checking_parameter_default_{false};
             // HIR's deque keeps expression addresses stable throughout checking.
             std::vector<std::pair<const Expr *, NativePhase>> value_call_phases_{};

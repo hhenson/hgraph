@@ -3,10 +3,29 @@ import tempfile
 from pathlib import Path
 import unittest
 
-from hgl_compiler_parity import assess, discover, snapshot
+from hgl_compiler_parity import assess, cpp_command, discover, snapshot
 
 
 class CompilerParity(unittest.TestCase):
+    def test_cpp_native_std_fixture_binds_its_checked_provider(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'source'
+            build = Path(directory) / 'build'
+            files = [source / 'standard.hgl', source / 'native/atomic_values_fixture.hgl']
+            with self.assertRaisesRegex(ValueError, 'native atomic fixture descriptor is missing'):
+                cpp_command(source, build, 'hgraph.std', files)
+            descriptor = build / 'language/tests/native-atomic-standard.hgl-module.json'
+            descriptor.parent.mkdir(parents=True)
+            descriptor.write_text('{}')
+            command, env, parts = cpp_command(source, build, 'hgraph.std', files)
+            self.assertIn(str(descriptor), command)
+            self.assertIn(str(source / 'language/tests/driver/include'), env['CPLUS_INCLUDE_PATH'])
+            self.assertEqual(parts, [])
+            # A partial source selection still requires the checked provider.
+            descriptor.unlink()
+            with self.assertRaisesRegex(ValueError, 'native atomic fixture descriptor is missing'):
+                cpp_command(source, build, 'hgraph.std', files[:1])
+
     def test_complete_cpp_and_rust_results_have_the_same_test_identities(self):
         cpp = assess('first ... ok\nsecond ... ok\n2 tests, 0 failed\n', 0, 'hgraph.std', ['first', 'second'])
         rust = assess('hgraph.std::first ... ok\nhgraph.std::second ... ok\n', 0, 'hgraph.std', ['first', 'second'])
@@ -54,6 +73,26 @@ class CompilerParity(unittest.TestCase):
             (root / 'tests/new.hgl').write_text('module hgraph.std part new\ntest first { }\n')
             with self.assertRaisesRegex(ValueError, 'duplicate shared tests'):
                 discover(root)
+
+    def test_std_command_binds_the_native_atomic_fixture_descriptor(self):
+        source = Path('/src')
+        with tempfile.TemporaryDirectory() as directory:
+            build = Path(directory)
+            descriptor = build / 'language/tests/native-atomic-standard.hgl-module.json'
+            descriptor.parent.mkdir(parents=True)
+            descriptor.write_text('{}')
+            files = [source / 'tests/native_atomic_values.hgl', source / 'native/atomic_values_fixture.hgl',
+                     source / 'standard.hgl']
+            command, env, native = cpp_command(source, build, 'hgraph.std', files)
+            self.assertEqual(native, [])
+            self.assertTrue(env['CPLUS_INCLUDE_PATH'].startswith(str(source / 'language/tests/driver/include')))
+            self.assertEqual(command[:3], [str(build / 'language/tests/hgl_stdlib_test_driver'), 'test',
+                                           str(source / 'standard.hgl')])
+            descriptors = [command[index + 1] for index, item in enumerate(command) if item == '--module-descriptor']
+            self.assertEqual(descriptors, [str(build / 'language/generated/hgl_core_native/src/native.hgl-module.json'),
+                                           str(build / 'language/tests/native-atomic-standard.hgl-module.json')])
+            operators, _, _ = cpp_command(source, build, 'hgraph.operators', [source / 'operators.hgl'])
+            self.assertEqual(operators.count('--module-descriptor'), 1)
 
     def test_new_modules_and_empty_corpora_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:

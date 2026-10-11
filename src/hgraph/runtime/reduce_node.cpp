@@ -620,10 +620,7 @@ namespace hgraph
             if (route.native() && value.binding() == route.value_binding)
             {
                 route.value_binding.copy_assign_at(route.native_value, value.data());
-                if (route.tracking->record_modified(evaluation_time))
-                {
-                    route.tracking->parent.notify_child_modified(evaluation_time);
-                }
+                route.commit(evaluation_time);
                 return;
             }
             auto mutation = storage.publication_snapshot->view(evaluation_time).begin_mutation(evaluation_time);

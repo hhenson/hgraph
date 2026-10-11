@@ -100,6 +100,7 @@ namespace hgl::syntax
         CppImplementation,
         CppIncludeDecl,
         NativeFunctionDecl,
+        NativeTypeDecl,
         OperatorDecl,
         OperatorProperty,
         OperatorProperties,

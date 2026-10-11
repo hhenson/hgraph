@@ -202,6 +202,13 @@ namespace hgraph
             std::size_t                    source_index{0};
             bool                           source_resolved{false};
             NativeDeltaPlan                plan{};
+            /** The source state's native payload the last native copy wrote
+                into (the stage-6 route idea for the feedback pair): the next
+                tick writes there again when the state still presents that
+                payload with the planned ops, which two loads re-check; a
+                state the general path replaced fails the check and the slow
+                step (mutation scope, memcpy) re-resolves it. */
+            void                          *state_memory{nullptr};
         };
 
         [[nodiscard]] FeedbackSinkCache *feedback_sink_cache(const NodeView &view) noexcept
@@ -214,14 +221,30 @@ namespace hgraph
             the state still carries that binding. False means take the
             general path. */
         [[nodiscard]] bool try_copy_native_feedback_delta(const NodeView &source_node, const TSInputView &ts,
-                                                          const NativeDeltaPlan &plan)
+                                                          FeedbackSinkCache &cache)
         {
+            const NativeDeltaPlan &plan = cache.plan;
             if (!plan.ready()) { return false; }
             const void *delta = ts.try_native_value_memory(plan.ops);
             if (delta == nullptr) { return false; }
             const ValueView state = source_node.state();
-            if (!state_matches(state, plan)) { return false; }
-            std::memcpy(state.begin_mutation().mutable_data(), delta, plan.size);
+            // The common tick: the state still presents the payload the last
+            // native copy proved mutable, with the planned ops, so the bytes
+            // go straight in without re-opening a mutation scope on the view.
+            if (cache.state_memory != nullptr && state.data() == cache.state_memory &&
+                state.binding().ops() == plan.ops)
+            {
+                std::memcpy(cache.state_memory, delta, plan.size);
+                return true;
+            }
+            if (!state_matches(state, plan))
+            {
+                cache.state_memory = nullptr;
+                return false;
+            }
+            void *memory = state.begin_mutation().mutable_data();
+            std::memcpy(memory, delta, plan.size);
+            cache.state_memory = memory;
             return true;
         }
 
@@ -291,7 +314,7 @@ namespace hgraph
         void evaluate_feedback_sink(const NodeView &view, DateTime evaluation_time)
         {
             auto root = view.input(evaluation_time);
-            if (const FeedbackSinkCache *cache = feedback_sink_cache(view);
+            if (FeedbackSinkCache *cache = feedback_sink_cache(view);
                 cache != nullptr && cache->source_resolved)
             {
                 GraphValue *graph = view.graph_value();
@@ -303,7 +326,7 @@ namespace hgraph
                         return bundle[0];
                     }();
                     const NodeView source_node = graph->view().node_at(cache->source_index);
-                    if (!try_copy_native_feedback_delta(source_node, ts, cache->plan))
+                    if (!try_copy_native_feedback_delta(source_node, ts, *cache))
                     {
                         copy_feedback_delta(source_node, ts);
                     }
