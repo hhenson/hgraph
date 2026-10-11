@@ -64,3 +64,18 @@ def test_valid_of_explicit_reference_observes_empty_designations():
     assert _run(REF[TS[int]], lambda value, clock: valid(value)) == [
         False, None, True, None, False, None, True, None]
 
+
+@pytest.mark.parametrize("declaration", _DECLARATIONS[:3], ids=_IDS[:3])
+def test_empty_retarget_clears_ordinary_metadata_after_old_target_ticks(declaration):
+    def observe(value, clock):
+        return _metadata(value, clock)
+
+    observe.__annotations__ = {"value": declaration, "clock": TS[int]}
+    observer = graph(observe)
+
+    @graph
+    def app(select: TS[bool], value: TS[int], clock: TS[int]):
+        return observer(if_(select, value).true, clock)
+
+    assert eval_node(app, [True, False], [7, 8], [1, 1]) == [
+        (True, True), (False, False)]
