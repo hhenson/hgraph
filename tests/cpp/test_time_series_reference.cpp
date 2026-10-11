@@ -2175,6 +2175,7 @@ TEST_CASE("expired reference identity and hash use the current empty designation
     CHECK_FALSE(children == TimeSeriesReference::empty(list));
     // Current-designation comparison remains correct; hashing is only an
     // immediate observation and does not advertise resident-key stability.
+    (void)registry.ref(leaf);
     const Value expired_value{first};
     CHECK_THROWS_AS(expired_value.hash(), std::logic_error);
 }
