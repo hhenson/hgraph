@@ -3560,10 +3560,22 @@ namespace hgl::ir
                     type_error(target.range, "node evaluation cannot index through ref<T>");
                     return;
                 }
-                TypeId base_id = unwrap_atomic(target.type);
+                const bool ref_projection = reference(target.type);
+                TypeId base_id = ref_projection ? type(canonical(target.type)).children.front() : unwrap_atomic(target.type);
                 if (!base_id.valid()) { return; }
-                const Type &base = type(base_id);
-                if (base.kind == TypeKind::Tuple) {
+                const Type &base = type(canonical(base_id));
+                if (ref_projection) {
+                    const auto *position = index.constant ? std::get_if<std::int64_t>(&*index.constant) : nullptr;
+                    const auto *size = base.size.valid() && module_.expr(base.size).constant
+                                           ? std::get_if<std::int64_t>(&*module_.expr(base.size).constant) : nullptr;
+                    if (base.kind != TypeKind::List || base.unbounded || !size || !position ||
+                        *position < 0 || *position >= *size) {
+                        type_error(index.range, "reference list index must be a constant in range of a fixed list");
+                        return;
+                    }
+                    expression.type = reference(base.children.front()) ? base.children.front()
+                        : make_type(TypeKind::Reference, {base.children.front()});
+                } else if (base.kind == TypeKind::Tuple) {
                     const auto *constant = index.constant ? std::get_if<std::int64_t>(&*index.constant) : nullptr;
                     if (!constant || *constant < 0 || static_cast<std::size_t>(*constant) >= base.children.size()) {
                         type_error(index.range, "tuple index must be a constant in range");
@@ -3614,9 +3626,13 @@ namespace hgl::ir
                     type_error(target.range, "node evaluation cannot access fields through ref<T>");
                     return;
                 }
-                const TypeId base_id = unwrap_atomic(target.type);
+                const bool ref_projection = reference(target.type);
+                const TypeId base_id = ref_projection ? type(canonical(target.type)).children.front() : unwrap_atomic(target.type);
                 if (base_id.valid()) {
-                    if (const auto field = active_field_type(base_id, node.name)) { expression.type = *field; }
+                    if (const auto field = active_field_type(base_id, node.name)) {
+                        expression.type = ref_projection && !reference(*field)
+                            ? make_type(TypeKind::Reference, {*field}) : *field;
+                    }
                 }
                 if (!expression.type.valid()) { type_error(node.name_range, "type has no field '" + node.name + "'"); }
                 expression.phase      = target.phase;

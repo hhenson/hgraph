@@ -2482,3 +2482,9 @@ same source parts supplied to `test`. Generate its runtime helpers with
 `emit-cpp --include-test-contexts`, or `hgl_add_module(INCLUDE_TEST_CONTEXTS)`;
 the default production artifacts continue to omit test contexts. This path
 runs the usual parsed test harness without requiring a scripted compiler.
+
+Graph REF child projections resolve the declared target shape during type completion.
+A declared record field or a constant in-range fixed List index produces the
+selected child's REF type; an Atomic target remains opaque. Node evaluation
+retains the separate prohibition on reading through REF. Dynamic or growing
+List selection is not admitted by this graph projection profile.

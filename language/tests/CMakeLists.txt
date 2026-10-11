@@ -76,6 +76,12 @@ set_tests_properties(hgraph_language_reference_identity PROPERTIES
     PASS_REGULAR_EXPRESSION "Executed: 1 test, 0 failed"
     ENVIRONMENT "HGL_DISABLE_CACHE=1")
 
+add_test(NAME hgraph_language_reference_projections
+    COMMAND $<TARGET_FILE:hgl> test ${HGRAPH_SPEC}/language/examples/reference-wiring-projections.hgl)
+set_tests_properties(hgraph_language_reference_projections PROPERTIES
+    PASS_REGULAR_EXPRESSION "Executed: 1 test, 0 failed"
+    ENVIRONMENT "HGL_DISABLE_CACHE=1")
+
 add_test(
     NAME hgraph_language_dump_hir
     COMMAND $<TARGET_FILE:hgl> check ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/stateful-node.hgl --dump-hir
@@ -456,6 +462,10 @@ hgl_add_module(hgl_reference_identity_fixture STATIC
     HGL ${HGRAPH_SPEC}/language/examples/reference-identity-equality.hgl
     PARTS codegen/reference-identity-public.hgl)
 hgl_apply_warnings(hgl_reference_identity_fixture)
+hgl_add_module(hgl_reference_projection_fixture STATIC
+    HGL ${HGRAPH_SPEC}/language/examples/reference-wiring-projections.hgl
+    PARTS codegen/reference-projection-public.hgl)
+hgl_apply_warnings(hgl_reference_projection_fixture)
 add_library(hgl_native_scalar_dependency INTERFACE)
 add_library(checks::native_dependency ALIAS hgl_native_scalar_dependency)
 target_include_directories(hgl_native_scalar_dependency INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/driver/include")
@@ -665,6 +675,7 @@ set(_hgl_generated_test_libraries
     hgl_lifecycle_fixture
     hgl_reference_fixture
     hgl_reference_identity_fixture
+    hgl_reference_projection_fixture
     hgl_native_scalar_import_fixture
     hgl_native_atomic_fixture
     hgl_inline_native_consumer_fixture

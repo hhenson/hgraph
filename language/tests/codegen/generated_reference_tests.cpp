@@ -1,5 +1,6 @@
 #include <reference-routing.h>
 #include <reference-identity-equality.h>
+#include <reference-wiring-projections.h>
 
 #include "wiring/backend.h"
 
@@ -108,4 +109,25 @@ TEST_CASE("generated selected-child guard reads only the proven partial bundle f
         tsb_delta<Fields>(std::nullopt, Int{20}), tsb_delta<Fields>(Int{0}, std::nullopt), std::nullopt,
         tsb_delta<Fields>(std::nullopt, Int{21}), tsb_delta<Fields>(Int{0}, std::nullopt))) ==
         values<Int>(std::nullopt, 0, std::nullopt, std::nullopt, 0));
+}
+
+TEST_CASE("generated reference projections follow only their selected declared child", "[codegen][generated][ref][projection]") {
+    namespace projections = examples::reference_wiring_projections;
+    hgl::wiring::ensure_session();
+    (void)projections::register_operators();
+    using Quote = projections::WiringQuote::time_series;
+    const auto first = values<Value>(tsb_delta<Quote>(Int{7}, std::nullopt),
+        tsb_delta<Quote>(std::nullopt, Int{20}), tsb_delta<Quote>(Int{7}, std::nullopt), std::nullopt);
+    CHECK(eval_node<projections::public_bid>(first) == values<Int>(7, std::nullopt, 7, std::nullopt));
+    CHECK(eval_node<projections::public_second>(values<Value>(list_delta<TS<Int>>({{0, 7}}),
+        list_delta<TS<Int>>({{1, 20}}), std::nullopt, list_delta<TS<Int>>({{0, 8}, {1, 21}}))) ==
+        values<Int>(std::nullopt, 20, std::nullopt, 21));
+    CHECK(eval_node<projections::public_selected_bid>(values<Int>(0, std::nullopt, 1, std::nullopt, 1),
+        values<Value>(tsb_delta<Quote>(Int{7}, std::nullopt), tsb_delta<Quote>(std::nullopt, Int{20})),
+        values<Value>(tsb_delta<Quote>(Int{7}, std::nullopt), std::nullopt, std::nullopt,
+            tsb_delta<Quote>(Int{9}, std::nullopt))) == values<Int>(7, std::nullopt, 7, 9, std::nullopt));
+    CHECK(eval_node<projections::public_nested_bid>(values<Int>(0), values<Int>(0, 1, std::nullopt, 1, 0),
+        values<Int>(0, std::nullopt, 1), values<Value>(tsb_delta<Quote>(Int{7}, std::nullopt)),
+        values<Value>(tsb_delta<Quote>(Int{8}, std::nullopt)), values<Value>(tsb_delta<Quote>(Int{20}, std::nullopt))) ==
+        values<Int>(7, 8, std::nullopt, std::nullopt, 7));
 }

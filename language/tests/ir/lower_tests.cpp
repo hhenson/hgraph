@@ -4662,3 +4662,32 @@ const fn indirect() -> bool => missing()
     REQUIRE(required.diagnostics.diagnostics().size() == 1);
     CHECK(required.diagnostics.diagnostics().front().code == "value.constant_capability");
 }
+
+TEST_CASE("typed HIR keeps graph reference projections declared and node references opaque", "[ir][typed][ref]") {
+    const std::string declarations = "module checks.ref_projection\nstruct Quote { bid:i64\n ask:i64 }\n";
+    for (const auto definition : {
+        "fn field(value:ref<Quote>)->ref<i64> => value.bid",
+        "fn index(value:ref<list<i64,2>>)->ref<i64> => value[1]",
+    }) {
+        Lowered admitted{declarations + definition + "\n"};
+        require_clean(admitted);
+        INFO(admitted.diagnostics.render(admitted.file));
+        CHECK(complete(admitted));
+    }
+    for (const auto definition : {
+        "fn field(value:ref<Quote>)->ref<i64> => value.missing",
+        "fn index(value:ref<list<i64,2>>)->ref<i64> => value[2]",
+        "fn index(value:ref<list<i64,2>>)->ref<i64> => value[-1]",
+        "fn index(value:ref<list<i64>>)->ref<i64> => value[0]",
+        "fn index(value:ref<list<i64,2>>,position:i64)->ref<i64> => value[position]",
+        "fn field(value:ref<atomic<Quote>>)->ref<i64> => value.bid",
+        "fn field(value:ref<Quote>)->i64 { when {return value.bid} }",
+        "fn index(value:ref<list<i64,2>>)->i64 {when {return value[1]} }",
+        "fn field(value:ref<Quote>)->ref<bool> => value.bid",
+    }) {
+        Lowered rejected{declarations + definition + "\n"};
+        require_clean(rejected);
+        INFO(definition);
+        CHECK_FALSE(complete(rejected));
+    }
+}
