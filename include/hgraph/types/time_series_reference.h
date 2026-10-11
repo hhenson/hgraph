@@ -149,11 +149,13 @@ namespace hgraph
             const TSValueTypeMetaData *target_schema) const;
 
         /**
-         * Two references compare equal when they share kind, target schema,
-         * and (for NON_PEERED) sub-references.
+         * Compare current designations with the same target schema. Expired
+         * PEERED tokens compare as EMPTY; NON_PEERED child trees remain
+         * structural and compare their children's current designations.
          */
         [[nodiscard]] bool        operator==(const TimeSeriesReference &other) const noexcept;
-        /** Hash compatible with ``std::hash<TimeSeriesReference>``. */
+        /** Hash the current designation, compatible with equality and
+            ``std::hash<TimeSeriesReference>``. Expiry can change the hash. */
         [[nodiscard]] std::size_t hash() const noexcept;
         /** Human-readable representation; primarily for diagnostics. */
         [[nodiscard]] std::string to_string() const;

@@ -68,6 +68,25 @@ namespace
         }
     };
 
+    struct CaptureReferenceIdentity
+    {
+        static inline std::array<hgraph::TimeSeriesReference, 2> saved{};
+        static void eval(hgraph::In<"first", hgraph::REF<hgraph::TS<hgraph::Int>>> first,
+                         hgraph::In<"second", hgraph::REF<hgraph::TS<hgraph::Int>>> second,
+                         hgraph::Out<hgraph::TS<hgraph::Bool>> out) {
+            saved = {first.value(), second.value()};
+            out.set(saved[0] == saved[1]);
+        }
+    };
+
+    struct CaptureReferenceIdentityGraph
+    {
+        static hgraph::Port<hgraph::TS<hgraph::Bool>> compose(hgraph::Wiring &w,
+            hgraph::Port<hgraph::TS<hgraph::Int>> first, hgraph::Port<hgraph::TS<hgraph::Int>> second) {
+            return hgraph::wire<CaptureReferenceIdentity>(w, first, second);
+        }
+    };
+
     template <std::size_t Count>
     [[nodiscard]] std::array<hgraph::DateTime, Count> sequential_times(
         hgraph::DateTime start = hgraph::MIN_ST,
@@ -2120,4 +2139,54 @@ TEST_CASE("prepared REF child projection uses the output owner's forwarding rout
     CHECK(first.view().last_modified_time() == MIN_ST);
     CHECK(type_system_lock_count() == locks);
     view.stop(next);
+}
+
+TEST_CASE("expired reference identity and hash use the current empty designation", "[reference][expiry][identity]") {
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *leaf = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    const auto *other_leaf = registry.ts(registry.register_scalar<std::string>("str"));
+    const auto *list = registry.tsl(leaf, 2);
+    TimeSeriesReference first;
+    TimeSeriesReference second;
+    TimeSeriesReference children;
+    {
+        TSOutput left{*leaf};
+        TSOutput right{*leaf};
+        first = TimeSeriesReference{left.view()};
+        second = TimeSeriesReference{right.view()};
+        children = TimeSeriesReference::non_peered(list, {first, second});
+        REQUIRE_FALSE(first == second);
+        REQUIRE_FALSE(first == TimeSeriesReference::empty(leaf));
+    }
+    const auto empty = TimeSeriesReference::empty(leaf);
+    REQUIRE(first.kind() == TimeSeriesReference::Kind::EMPTY);
+    REQUIRE(second.kind() == TimeSeriesReference::Kind::EMPTY);
+    CHECK(first == empty);
+    CHECK(first == second);
+    CHECK(first.hash() == empty.hash());
+    CHECK(first.hash() == second.hash());
+    CHECK_FALSE(first == TimeSeriesReference::empty(other_leaf));
+    const auto empty_children = TimeSeriesReference::non_peered(list, {empty, empty});
+    CHECK(children == empty_children);
+    CHECK(children.hash() == empty_children.hash());
+    // An assembled designation retains its child tree; expiry does not erase
+    // the distinction between that tree and an empty whole-container token.
+    CHECK_FALSE(children == TimeSeriesReference::empty(list));
+    std::unordered_set<TimeSeriesReference> expired{first, second, empty};
+    CHECK(expired.size() == 1);
+}
+
+TEST_CASE("references saved by a public node compare empty after their graph endpoints expire",
+          "[reference][expiry][identity]") {
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    CHECK(eval_node<CaptureReferenceIdentityGraph>(values<Int>(7), values<Int>(7)) == values<Bool>(false));
+    const auto empty = TimeSeriesReference::empty(ts_type<TS<Int>>());
+    CHECK(CaptureReferenceIdentity::saved[0].is_empty());
+    CHECK(CaptureReferenceIdentity::saved[1].is_empty());
+    CHECK(CaptureReferenceIdentity::saved[0] == empty);
+    CHECK(CaptureReferenceIdentity::saved[0] == CaptureReferenceIdentity::saved[1]);
+    CHECK(CaptureReferenceIdentity::saved[0].hash() == empty.hash());
+    CaptureReferenceIdentity::saved = {};
 }
