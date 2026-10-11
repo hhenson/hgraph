@@ -475,6 +475,31 @@ target_link_libraries(hgl_reference_test_driver PRIVATE hgl::driver
 hgl_link_runtime_executable(hgl_reference_test_driver)
 hgl_stage_runtime_dlls(hgl_reference_test_driver)
 hgl_apply_warnings(hgl_reference_test_driver)
+set(_hgl_ref_owner_shared_parts
+    ${HGRAPH_STD}/control.hgl ${HGRAPH_STD}/stream.hgl ${HGRAPH_STD}/temporal.hgl
+    ${HGRAPH_STD}/impl/standard.hgl ${HGRAPH_STD}/impl/control.hgl ${HGRAPH_STD}/impl/stream.hgl
+    ${HGRAPH_STD}/impl/temporal.hgl ${HGRAPH_STD}/replay_record.hgl ${HGRAPH_STD}/impl/replay_record.hgl
+    ${HGRAPH_STD}/tests/reference_conditional_expiry.hgl ${HGRAPH_STD}/tests/reference_owner_export_values.hgl)
+hgl_add_module(hgl_ref_owner_shared_fixture STATIC INCLUDE_TEST_CONTEXTS SOURCE_PARTS 3
+    HGL ${HGRAPH_STD}/standard.hgl PARTS ${_hgl_ref_owner_shared_parts}
+    LINK_LIBRARIES hgl::core_native)
+hgl_apply_warnings(hgl_ref_owner_shared_fixture)
+add_executable(hgl_ref_owner_test_driver negative/stdlib_generated_driver.cpp)
+target_link_libraries(hgl_ref_owner_test_driver PRIVATE hgl::driver hgl_ref_owner_shared_fixture)
+hgl_link_runtime_executable(hgl_ref_owner_test_driver)
+hgl_stage_runtime_dlls(hgl_ref_owner_test_driver)
+hgl_apply_warnings(hgl_ref_owner_test_driver)
+set(_hgl_ref_owner_shared_args)
+foreach(_part IN LISTS _hgl_ref_owner_shared_parts)
+    list(APPEND _hgl_ref_owner_shared_args --part ${_part})
+endforeach()
+add_test(NAME hgraph_language_ref_owner_precompiled_shared
+    COMMAND hgl_ref_owner_test_driver test ${HGRAPH_STD}/standard.hgl ${_hgl_ref_owner_shared_args}
+        --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
+set_tests_properties(hgraph_language_ref_owner_precompiled_shared PROPERTIES
+    PASS_REGULAR_EXPRESSION "4 tests?, 0 failed"
+    FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_CXX=hgl-scripted-compiler-must-not-run;HGL_DISABLE_CACHE=1")
 add_library(hgl_native_scalar_dependency INTERFACE)
 add_library(checks::native_dependency ALIAS hgl_native_scalar_dependency)
 target_include_directories(hgl_native_scalar_dependency INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/driver/include")
