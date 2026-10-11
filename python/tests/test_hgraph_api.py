@@ -14,6 +14,12 @@ def check(condition, message):
         raise AssertionError(message)
 
 
+# A real-time run that waits for a push-queue delivery ends when the value
+# arrives (``hg.stop_engine`` on it); this end time is only a bound against a
+# hang, never the clock the assertion depends on.
+REAL_TIME_BOUND = datetime.timedelta(seconds=30)
+
+
 def test_graph_with_operator_sugar():
     @graph
     def calc(a: TS[int], b: TS[int]) -> TS[int]:
@@ -164,7 +170,9 @@ def test_eval_node_supports_real_time_push_queues():
 
     @graph
     def app() -> TS[int]:
-        return source(7)
+        value = source(7)
+        hg.stop_engine(value)
+        return value
 
     start = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     with hg.GlobalContext(state):
@@ -173,7 +181,7 @@ def test_eval_node_supports_real_time_push_queues():
                 app,
                 __run_mode__=hg.EvaluationMode.REAL_TIME,
                 __start_time__=start,
-                __end_time__=start + datetime.timedelta(milliseconds=100),
+                __end_time__=start + REAL_TIME_BOUND,
                 __elide__=True,
             ) == [7],
             "real-time eval_node push queue",
@@ -189,7 +197,9 @@ def test_real_time_push_queue_supports_typed_state():
 
     @graph
     def app() -> TS[int]:
-        return source()
+        value = source()
+        hg.stop_engine(value)
+        return value
 
     start = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     check(
@@ -197,7 +207,7 @@ def test_real_time_push_queue_supports_typed_state():
             app,
             __run_mode__=hg.EvaluationMode.REAL_TIME,
             __start_time__=start,
-            __end_time__=start + datetime.timedelta(milliseconds=100),
+            __end_time__=start + REAL_TIME_BOUND,
             __elide__=True,
         ) == [11],
         "real-time push queue typed state",
@@ -220,7 +230,9 @@ def test_real_time_push_queue_state_factory_may_be_a_tuple_subclass():
 
     @graph
     def app() -> TS[int]:
-        return source()
+        value = source()
+        hg.stop_engine(value)
+        return value
 
     start = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     check(
@@ -228,7 +240,7 @@ def test_real_time_push_queue_state_factory_may_be_a_tuple_subclass():
             app,
             __run_mode__=hg.EvaluationMode.REAL_TIME,
             __start_time__=start,
-            __end_time__=start + datetime.timedelta(milliseconds=100),
+            __end_time__=start + REAL_TIME_BOUND,
             __elide__=True,
         ) == [5],
         "real-time push queue with a tuple-subclass state factory",
