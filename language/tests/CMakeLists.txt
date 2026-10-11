@@ -1059,15 +1059,8 @@ if(UNIX)
 
     # Guide examples with runtime functions or `impl fn` declarations (the
     # classification rule above) take the same scripted path.
-    # `reference-owner-export` asserts owner-published child designations,
-    # which arrive with the owner-publication stage of the REF stack; until
-    # that stage lands its run is deferred (its `check` above still runs).
-    set(_hgl_deferred_runtime_examples reference-owner-export)
     foreach(_example IN LISTS _hgl_runtime_example_tests)
         get_filename_component(_name ${_example} NAME_WE)
-        if(_name IN_LIST _hgl_deferred_runtime_examples)
-            continue()
-        endif()
         file(STRINGS ${_example} _test_lines REGEX "^[ \t]*test [A-Za-z_][A-Za-z_0-9]*[ \t]*\\{")
         list(LENGTH _test_lines _test_count)
         set(_example_provider_args)
