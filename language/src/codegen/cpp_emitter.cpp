@@ -781,6 +781,9 @@ namespace hgl::codegen
                        type.kind == HType::Kind::List || type.kind == HType::Kind::Struct || type.kind == HType::Kind::Tuple ||
                        type.kind == HType::Kind::Delta || type.kind == HType::Kind::Set || type.kind == HType::Kind::Map;
             }
+            [[nodiscard]] static bool ordinary_scalar_variable(const HType &type) {
+                return ordinary_aggregate(type) && type.kind != HType::Kind::List && type.kind != HType::Kind::Delta;
+            }
             [[nodiscard]] static bool contains_window(const HType &type) {
                 if (type.kind == HType::Kind::Rolling) { return true; }
                 if (type.kind != HType::Kind::List && type.kind != HType::Kind::Map && type.kind != HType::Kind::Tuple) {
@@ -3998,10 +4001,13 @@ namespace hgl::codegen
                 value = make_port("hgl::ordinary::preflight_wire<" + callable_cpp_name(id) + ">(w" +
                                   (args.empty() ? "" : ", " + join(args, ", ")) + ")", result, range);
             } else { value = wire(callable_cpp_name(id), args, range, result); }
-            // Native generic nodes return an erased port even when their
-            // declared result is independently concrete. Recover that exact
+            // Source generics and erased ordinary const selectors both make
+            // native nodes generic. Recover an independently concrete result
             // schema at wiring time before a typed composition returns it.
-            if (target.kind == gir::CallableKind::RuntimeNode && !target.generics.empty() &&
+            const bool erased_const = std::ranges::any_of(target.parameters, [&](const auto &parameter) {
+                return parameter.is_const && ordinary_scalar_variable(planned_type(parameter.type, target.range));
+            });
+            if (target.kind == gir::CallableKind::RuntimeNode && (!target.generics.empty() || erased_const) &&
                 has_planned_result(target.result, target.range) && !symbolic(result)) {
                 value.code += ".as<" + schema(result, range) + ">()";
             }
@@ -6635,10 +6641,9 @@ namespace hgl::codegen
                 const SourceRange     range = graph_type(param.type, fn.range).range;
                 const std::string     name  = cpp_name(param.name);
                 if (param.is_const) {
-                    const bool projected = type.kind == HType::Kind::List || type.kind == HType::Kind::Delta;
-                    const std::string marker = ordinary_aggregate(type) && !projected
-                        ? "hgraph::ScalarVar<" + quote("hgl_" + param.name) + ", " + value_type(type, range) + ">"
-                        : value_type(type, range);
+                    const std::string marker = ordinary_scalar_variable(type) ? "hgraph::ScalarVar<" + quote("hgl_" + param.name) +
+                                                                                    ", " + value_type(type, range) + ">"
+                                                                              : value_type(type, range);
                     params.push_back(named_if("hgraph::Scalar<" + quote(param.name) + ", " + marker + ">", name, uses));
                     continue;
                 }
@@ -7411,10 +7416,9 @@ namespace hgl::codegen
                 } else if (param.pack == gir::ParameterPack::Positional) {
                     params.push_back(named_if("hgraph::VarIn<" + quote(param.name) + ", " + schema(type, range) + ">", name, uses));
                 } else if (param.is_const) {
-                    const bool projected = type.kind == HType::Kind::List || type.kind == HType::Kind::Delta;
-                    const std::string marker = ordinary_aggregate(type) && !projected
-                        ? "hgraph::ScalarVar<" + quote("hgl_" + param.name) + ", " + value_type(type, range) + ">"
-                        : value_type(type, range);
+                    const std::string marker = ordinary_scalar_variable(type) ? "hgraph::ScalarVar<" + quote("hgl_" + param.name) +
+                                                                                    ", " + value_type(type, range) + ">"
+                                                                              : value_type(type, range);
                     params.push_back(named_if("hgraph::Scalar<" + quote(param.name) + ", " + marker + ">", name, uses));
                 } else {
                     params.push_back(named_if("hgraph::Port<" + schema(type, range) + ">", name, uses));

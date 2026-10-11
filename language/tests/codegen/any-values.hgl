@@ -33,12 +33,22 @@ export fn missing_order(trigger: i64) -> bool {
 
 export fn wired_less(first: any, second: any) -> bool => first < second
 
+fn equals_configured(value: any, const expected: any) -> bool {
+    when modified(value) && valid(value) { return value == expected }
+}
+
+export fn forwarded_equals(value: any, const expected: any) -> bool => equals_configured(value, expected)
+
 test values {
     assert defaults_valid()
+    assert eval(forwarded_equals, value: [any(), any(7), _, any()], expected: any()) == [true, false, _, true]
+    assert eval(forwarded_equals, value: [any(), any(7), _, any(7)], expected: any(7)) == [false, true, _, true]
+    assert eval(forwarded_equals, value: [any((7, true)), any(7), _, any((7, true))], expected: any((7, true))) == [true, false, _, true]
     assert eval(wired_less, first: [any(), any(1), any(0)], second: [any(0), any(2), any(false)]) == [true, true, false]
     let unordered: any = any(map<i64, i64>(items: [1: 2]))
     assert raises("value.capability") { eval(wired_less, first: [unordered], second: [unordered]) }
     let delta_box: any = any(delta<list<i64, 2>>(items: [0: 1]))
     assert raises("value.capability") { assert delta_box == delta_box }
+    assert raises("value.capability") { assert eval(forwarded_equals, value: [delta_box], expected: delta_box) == [true] }
     assert raises("value.capability") { assert eval(missing_order, [0]) == [true] }
 }
