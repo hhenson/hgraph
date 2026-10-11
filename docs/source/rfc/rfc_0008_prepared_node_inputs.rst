@@ -636,6 +636,22 @@ the derived facts to the same write:
   erased ``copy_value_from`` were 20-30% of the lifted node's evaluation in
   the dense native cells and 68% of a fan-in of lifted adds.)
 
+- **Forwarding terminals (added 2026-10-10).** A map/mesh child's terminal
+  output is a forwarding endpoint into the parent's keyed slot, so its
+  writers took the erased write-through (``target_link_copy_value_from``:
+  a bound-target check, a mutation scope on the target and the erased copy
+  per tick; 7.5% of a map cell with a lifted child, 7.6% with a Python
+  child, 2026-10-10 profile). ``acquire_prepared_output_route`` now
+  resolves THROUGH a bound target link whose target is a direct native
+  atomic: the route holds the target's value memory and tracking, the link
+  it went through, the target it resolved and the link's own tracking
+  record. ``native()`` re-checks the link's current target per use (a
+  parent can re-point a terminal between start and stop; the parent binds
+  the terminal before the child starts), and ``commit`` records the target
+  first and the link second, the order the erased write-through keeps, so
+  the terminal's own ``modified()`` is unchanged. A target that is itself
+  a link keeps the resolving path.
+
 Memory: 32 bytes per active-trie node, 16 per prepared slot, 32 per static
 node or lifted kernel with an output. Semantics: the fast paths are exact subsets of the
 resolving paths and switch off wherever the resolving path's answer depends

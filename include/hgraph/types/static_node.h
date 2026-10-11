@@ -1205,8 +1205,7 @@ namespace hgraph
             if (route_ != nullptr && route_->native() && route_->value_ops == &ops_for<TValue>())
             {
                 *static_cast<TValue *>(route_->native_value) = TValue{std::forward<U>(value)};
-                const DateTime time = evaluation_time();
-                if (route_->tracking->record_modified(time)) { route_->tracking->parent.notify_child_modified(time); }
+                route_->commit(evaluation_time());
                 return;
             }
             auto mutation = TSOutputView::begin_mutation(evaluation_time());
