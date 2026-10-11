@@ -1266,7 +1266,7 @@ namespace hgl::ordinary
       public:
         PreparedDeltaPlan() = default;
         explicit PreparedDeltaPlan(const hgraph::TSValueTypeMetaData *shape)
-            : value_{delta_schema(shape)}, native_{hgraph::ValuePlanFactory::instance().type_for(shape->delta_value_schema)} {
+            : value_{delta_schema(shape)}, native_{hgraph::value_type_for_wiring(shape->delta_value_schema)} {
             if ((shape->kind == hgraph::TSTypeKind::TS || shape->kind == hgraph::TSTypeKind::TSW)) {
                 capture_ = [](const PreparedValuePlan &plan, const hgraph::ValueView &delta) { return plan.retain(delta); };
                 payload_ = [](const PreparedValuePlan &, const hgraph::ValueView &delta) {

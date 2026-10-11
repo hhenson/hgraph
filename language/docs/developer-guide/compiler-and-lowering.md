@@ -1871,6 +1871,10 @@ even when two sample sequences are equal. The harness prepares a distinct replay
 key and exact temporal type carrier for each argument. Structural HGL delta
 wrappers are projected through their prepared native payload plan before seeding
 the replay buffer; holes and the original cycle positions remain unchanged.
+That native plan resolves its declared delta schema through the existing cold
+closed-family realization, preserving concrete members and recursively realized
+family children inside complete ordinary containers. It does not use an
+abstract parent's canonical field-only storage for a concrete publication.
 Aliasing a single graph input still preserves that input's reference identity.
 Internal callable dependency ordering also walks the hgraph-IR body graph.
 Concise composition expressions and concise `map` functions are emitted from
