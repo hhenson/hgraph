@@ -2508,7 +2508,7 @@ class _getattr__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE_1``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TSD[K, TS[SCALAR_1]]``, ``TIME_SERIES_TYPE``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``, ``TS[date]``, ``TS[datetime]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
+    ``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TSD[K, TIME_SERIES_TYPE_1]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TSD[K, TS[SCALAR_1]]``, ``TIME_SERIES_TYPE_1``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``, ``TS[date]``, ``TS[datetime]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
        Structured input.
 
     ``attr`` : scalar; ``str``
@@ -2534,7 +2534,6 @@ class _getattr__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``getattr_(ts: REF[TIME_SERIES_TYPE], attr: str) -> OUT``
     - ``getattr_(ts: TIME_SERIES_TYPE, attr: str) -> OUT``
     - ``getattr_(ts: TSD[K, TIME_SERIES_TYPE], attr: str) -> OUT``
     - ``getattr_(ts: TS[SCALAR], attr: str) -> OUT``
@@ -2576,10 +2575,10 @@ class _getitem__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``TS[Mapping[K, SCALAR]]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TSD[K, V]``, ``REF[TIME_SERIES_TYPE_1]``, ``TIME_SERIES_TYPE_2``, ``TS[SCALAR_1]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_2]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``
+    ``ts`` : time-series; ``TS[Mapping[K, SCALAR]]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TSD[K, V]``, ``TS[SCALAR_1]``, ``TIME_SERIES_TYPE_2``, ``TS[SCALAR_2]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``
        Collection, mapping, list, bundle, or other indexable input.
 
-    ``key`` : time-series, scalar; ``TS[K]``, ``TS[int]``, ``str``, ``int``, ``TSS[K]``
+    ``key`` : time-series, scalar; ``TS[K]``, ``TS[int]``, ``int``, ``str``, ``TSS[K]``
        Index, key, or slice selector supported by the chosen overload.
 
     ``default_value`` : time-series; ``TS[SCALAR]``
@@ -2603,11 +2602,9 @@ class _getitem__Operator(_Protocol):
     - ``getitem_(ts: TS[Mapping[K, SCALAR]], key: TS[K], default_value: TS[SCALAR]) -> TS[SCALAR]``
     - ``getitem_(ts: TS[str], key: TS[int]) -> TS[str]``
     - ``getitem_(ts: TSL[TIME_SERIES_TYPE, SIZE], key: TS[int]) -> REF[TIME_SERIES_TYPE]``
-    - ``getitem_(ts: TSD[K, V], key: TS[K]) -> REF[V]``
-    - ``getitem_(ts: REF[TIME_SERIES_TYPE], key: str) -> OUT``
-    - ``getitem_(ts: REF[TIME_SERIES_TYPE], key: int) -> OUT``
-    - ``getitem_(ts: TIME_SERIES_TYPE, key: str) -> OUT``
     - ``getitem_(ts: TIME_SERIES_TYPE, key: int) -> OUT``
+    - ``getitem_(ts: TSD[K, V], key: TS[K]) -> REF[V]``
+    - ``getitem_(ts: TIME_SERIES_TYPE, key: str) -> OUT``
     - ``getitem_(ts: TSD[K, V], key: TSS[K]) -> OUT``
     - ``getitem_(ts: TS[SCALAR], key: TS[int]) -> OUT``
     - ``getitem_(ts: TS[SCALAR], key: int) -> OUT``
@@ -2632,9 +2629,9 @@ class _getitem__Operator(_Protocol):
     @_overload
     def __call__(self, ts: _WiringPort | object, key: _WiringPort | int) -> _WiringPort: ...
     @_overload
-    def __call__(self, ts: _WiringPort | object, key: str) -> _WiringPort: ...
-    @_overload
     def __call__(self, ts: _WiringPort | object, key: int) -> _WiringPort: ...
+    @_overload
+    def __call__(self, ts: _WiringPort | object, key: str) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 getitem_: _getitem__Operator
