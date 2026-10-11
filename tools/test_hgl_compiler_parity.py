@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 import unittest
 
-from hgl_compiler_parity import assess, discover, snapshot
+from hgl_compiler_parity import assess, cpp_command, discover, snapshot
 
 
 class CompilerParity(unittest.TestCase):
@@ -54,6 +54,21 @@ class CompilerParity(unittest.TestCase):
             (root / 'tests/new.hgl').write_text('module hgraph.std part new\ntest first { }\n')
             with self.assertRaisesRegex(ValueError, 'duplicate shared tests'):
                 discover(root)
+
+    def test_std_command_binds_the_native_atomic_fixture_descriptor(self):
+        source, build = Path('/src'), Path('/build')
+        files = [source / 'tests/native_atomic_values.hgl', source / 'native/atomic_values_fixture.hgl',
+                 source / 'standard.hgl']
+        command, env, native = cpp_command(source, build, 'hgraph.std', files)
+        self.assertEqual(native, [])
+        self.assertTrue(env['CPLUS_INCLUDE_PATH'].startswith(str(source / 'language/tests/driver/include')))
+        self.assertEqual(command[:3], [str(build / 'language/tests/hgl_stdlib_test_driver'), 'test',
+                                       str(source / 'standard.hgl')])
+        descriptors = [command[index + 1] for index, item in enumerate(command) if item == '--module-descriptor']
+        self.assertEqual(descriptors, [str(build / 'language/generated/hgl_core_native/src/native.hgl-module.json'),
+                                       str(build / 'language/tests/native-atomic-standard.hgl-module.json')])
+        operators, _, _ = cpp_command(source, build, 'hgraph.operators', [source / 'operators.hgl'])
+        self.assertEqual(operators.count('--module-descriptor'), 1)
 
     def test_new_modules_and_empty_corpora_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:

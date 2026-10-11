@@ -93,12 +93,22 @@ def cpp_command(source, build, module, files):
         anchor = 'standard.hgl' if module == 'hgraph.std' else 'operators.hgl'
         files = sorted(files, key=lambda p: (p.name != anchor, str(p)))
         extra = ['--module-descriptor', str(generated / 'src/native.hgl-module.json')]
+        if module == 'hgraph.std':
+            # The shared corpus carries the native atomic value fixture part,
+            # whose exported native types are bound by the package descriptor
+            # the build authors for hgraph.std (language/tests/CMakeLists.txt).
+            # Pass it unconditionally: a missing descriptor must fail the run,
+            # not silently drop the fixture's tests.
+            extra += ['--module-descriptor', str(build / 'language/tests/native-atomic-standard.hgl-module.json')]
     driver = build / 'language/tests/hgl_stdlib_test_driver'
     command = [str(driver), 'test', str(files[0])]
     for file in files[1:]:
         command += ['--part', str(file)]
     env = dict(os.environ)
-    env['CPLUS_INCLUDE_PATH'] = os.pathsep.join(filter(None, [str(generated / 'include'),
+    # The hgraph.std fixture descriptor names its provider header under the
+    # driver test include tree, as the ctest std runs do.
+    includes = [str(source / 'language/tests/driver/include')] if module == 'hgraph.std' else []
+    env['CPLUS_INCLUDE_PATH'] = os.pathsep.join(filter(None, [*includes, str(generated / 'include'),
         str(source / 'language/stdlib/cpp'), env.get('CPLUS_INCLUDE_PATH')]))
     env['HGL_CACHE_DIR'] = str(build / 'language/tests/parity-cache')
     return command + extra, env, native
