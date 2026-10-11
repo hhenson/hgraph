@@ -258,7 +258,12 @@ caches its output's native value memory and tracking record, which are
 embedded in its node storage. Per tick the sink then copies the delta's
 native memory (``try_native_value_memory`` against the planned ops keeps the
 step exact: a sampled rebind or a polymorphic delta exposes other memory and
-falls back) into the state, and the source copies the state into its output
+falls back) into the state — writing to the state payload the previous native
+copy proved mutable, which the sink's cache records and re-checks per tick by
+payload address and planned ops, so the common tick opens no mutation scope on
+the state view (the two per-tick view calls were 7% of ``tick_std``,
+2026-10-10 profile); a state the general path replaced fails that check and
+the slow step re-resolves it — and the source copies the state into its output
 and calls ``record_modified``, the same step ``Out<TS<T>>::set`` performs,
 instead of opening a mutation scope and running the erased
 ``copy_value_from``. Structured and non-native deltas keep the binding-aware
