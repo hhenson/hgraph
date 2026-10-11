@@ -120,7 +120,13 @@ def restamp_sdist(path: Path, version: str) -> Path:
             source = archive.extractfile(member) if member.isfile() else None
             data = source.read() if source is not None else None
             member_path = PurePosixPath(member.name)
-            member.name = str(PurePosixPath(new_root, *member_path.parts[1:]))
+            # Relocate under the new root and check the normalised result
+            # itself: the name written to the new archive is the string that
+            # passed, so no traversal can survive the rename.
+            relocated = posixpath.normpath(posixpath.join("/", new_root, *member_path.parts[1:]))
+            if relocated != "/" + new_root and not relocated.startswith("/" + new_root + "/"):
+                raise ValueError(f"sdist member escapes its root: {member.name!r}")
+            member.name = relocated[1:]
             member.pax_headers.pop("path", None)
             member.pax_headers.pop("linkpath", None)
             if member.name == f"{new_root}/PKG-INFO":
