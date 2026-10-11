@@ -203,10 +203,11 @@ struct RootGraphRuntimeStorage : GraphRuntimeBaseStorage {
 
 struct NestedGraphRuntimeStorage : GraphRuntimeBaseStorage {
   NestedGraphRuntimeStorage() = default;
+  ~NestedGraphRuntimeStorage() { expiry_observers.invalidate(nullptr); }
 
-  // A queued expiry observes this generation without retaining the graph.
-  // Reusing a nested storage slot destroys the guard with the old header.
-  std::shared_ptr<bool> lifetime_guard{std::make_shared<bool>(true)};
+  // Existing non-owning observer protocol: disposal cancels queued expiry
+  // before the header's address may be used by another graph incarnation.
+  TSDataObserverSet expiry_observers{};
 
   [[nodiscard]] NodeView parent_node() { return NodeView{parent_node_ptr}; }
 
@@ -856,6 +857,56 @@ void nested_set_child_schedule_observer_impl(const void *context, void *memory,
   state.child_schedule_observer_context = observer_context;
 }
 
+// Cycle queues own this functor, never the nested graph. Copying registers
+// another non-owning observer; moving replaces the subscriber pointer without
+// growing the compact observer set. Header disposal cancels every queued copy.
+class NestedGraphExpiry final : public Notifiable
+{
+  public:
+    NestedGraphExpiry(TSDataObserverSet &observers, EngineControlView engine, const GraphRuntimeContext &context, void *memory,
+                      DateTime stop_time)
+        : observers_(&observers), engine_(engine), context_(&context), memory_(memory), stop_time_(stop_time) {
+        observers_->subscribe(this);
+    }
+    NestedGraphExpiry(const NestedGraphExpiry &other)
+        : observers_(other.observers_), engine_(other.engine_), context_(other.context_), memory_(other.memory_),
+          stop_time_(other.stop_time_), before_(other.before_) {
+        if (observers_ != nullptr) { observers_->subscribe(this); }
+    }
+    NestedGraphExpiry(NestedGraphExpiry &&other) noexcept
+        : observers_(std::exchange(other.observers_, nullptr)), engine_(other.engine_), context_(other.context_),
+          memory_(other.memory_), stop_time_(other.stop_time_), before_(other.before_) {
+        if (observers_ != nullptr) { observers_->replace(&other, this); }
+    }
+    ~NestedGraphExpiry() override {
+        if (observers_ != nullptr) { observers_->unsubscribe(this); }
+    }
+    void notify(DateTime) override {}
+    void source_invalidated(const TSDataTracking *) noexcept override { observers_ = nullptr; }
+
+    void operator()() {
+        if (observers_ == nullptr) { return; }
+        if (!before_) {
+            before_ = true;
+            engine_.add_before_evaluation_notification(std::move(*this));
+            return;
+        }
+        if (engine_.evaluation_clock().evaluation_time() <= stop_time_) { return; }
+        for (const auto &[index, kind] : context_->owned_outputs) {
+            auto output = edge_source_root(graph_node_view(*context_, memory_, index), stop_time_, kind);
+            detail::invalidate_owned_ts_data_tree(output.data_view().borrowed_ref());
+        }
+    }
+
+  private:
+    TSDataObserverSet         *observers_;
+    EngineControlView          engine_;
+    const GraphRuntimeContext *context_;
+    void                      *memory_;
+    DateTime                   stop_time_;
+    bool                       before_{false};
+};
+
 template <typename Storage>
 void start_impl(const void *context, const GraphView &graph,
                 DateTime start_time) {
@@ -1031,19 +1082,8 @@ void stop_impl(const void *context, const GraphView &graph,
       // values or input target links into a captured parent producer.
       const auto engine = graph.executor().engine_control();
       if (engine.valid() && !graph.root().is_stopping()) {
-          const std::weak_ptr<bool> generation{state.lifetime_guard};
-          void *const               memory = graph.data();
-          engine.add_after_evaluation_notification([generation, engine, context, memory, stop_time] {
-              if (generation.expired()) { return; }
-              engine.add_before_evaluation_notification([generation, engine, context, memory, stop_time] {
-                  if (generation.expired() || engine.evaluation_clock().evaluation_time() <= stop_time) { return; }
-                  const auto &retired = graph_context(context);
-                  for (const auto &[index, kind] : retired.owned_outputs) {
-                      auto output = edge_source_root(graph_node_view(retired, memory, index), stop_time, kind);
-                      detail::invalidate_owned_ts_data_tree(output.data_view().borrowed_ref());
-                  }
-              });
-          });
+          engine.add_after_evaluation_notification(
+              NestedGraphExpiry{state.expiry_observers, engine, runtime, graph.data(), stop_time});
       }
   }
   if (exceptions.has_exception()) {

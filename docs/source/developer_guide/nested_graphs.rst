@@ -76,15 +76,23 @@ in-place child before the raw slot can be reused. ``switch_`` expresses the
 same rule with its active/previous A/B slots; ``reduce`` expresses it with its
 active/previous banks.
 
-Stopping a child also retires its owned endpoints logically. A generation
-guard is prepared with each child graph. A weak cycle-boundary callback
-invalidates subscriptions in that graph's owned output, error and recordable
-trees before the next engine cycle, even when physical slot reclamation is
-delayed. The stop cycle remains readable. The callback does not retain graph
-storage; destroying or reusing the slot cancels it. Ownership traversal does
-not follow REF values or captured input links, so an exported reference to a
-parent producer keeps the parent's lifetime. Endpoint kinds are prepared in
-the graph context, without a name or schema lookup during expiry.
+Stopping a child also retires its owned endpoints logically. The nested
+header carries an inline compact observer set. A cycle-boundary notification
+subscribes there without retaining graph storage, and invalidates subscriptions
+in that graph's owned output, error and recordable trees before the next engine
+cycle, even when physical slot reclamation is delayed. The stop cycle remains
+readable. Disposing the header cancels every notification copy before the slot
+can be reconstructed. Moving a notification replaces its observer pointer
+without allocating or using shared reference counts. Notification copies keep
+independent subscriptions and unregister on destruction; multiple copies may
+grow the observer set. The executor's existing notification queues and erased
+callbacks can also allocate at these lifecycle boundaries; this is not an
+allocation-free stop claim. The inline observer construction and ordinary single-observer transfers do not allocate.
+A stopped graph is terminal: reuse disposes and reconstructs it, following the
+Spec's stopped-to-dispose transition; restarting the stopped object is not
+supported. Ownership traversal does not follow REF values or captured input
+links, so an exported reference to a parent producer keeps the parent's
+lifetime. Endpoint kinds are prepared in the graph context, without a name or schema lookup during expiry.
 Final root teardown does not queue future expiry work. The C++ testing mock
 supports the same FIFO-before/LIFO-after notifications through its manually
 evaluated root lifecycle, including the root clock update at each cycle.

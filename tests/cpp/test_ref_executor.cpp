@@ -190,6 +190,11 @@ namespace
 
     std::vector<Int>    manual_values{};
     TimeSeriesReference manual_saved{};
+    struct ReuseExportSource
+    {
+        static constexpr bool schedule_on_start = true;
+        static void           eval(Out<TS<Int>> out) { out.set(Int{73}); }
+    };
     struct SaveManualValue
     {
         static void eval(In<"value", TS<Int>> value) { manual_values.push_back(value.value()); }
@@ -407,6 +412,66 @@ TEST_CASE("REF owner export: manual root cycles expire retired owners and teardo
             CHECK(manual_saved.has_output() == (cycle_count == 3));
         }
         CHECK_FALSE(manual_saved.has_output());
+    }
+}
+
+TEST_CASE("REF owner export: same-address reconstruction cancels copied expiry at either queue boundary") {
+    for (const bool arm_before_queue : {false, true}) {
+        for (const bool copy_notification : {false, true}) {
+            CAPTURE(arm_before_queue, copy_notification);
+            NodeBuilder source;
+            source.implementation<ReuseExportSource>();
+            GraphBuilder builder;
+            builder.add_node(source);
+            MockRootGraph root{builder};
+            auto          parent = root.graph();
+            parent.start(MIN_ST);
+            REQUIRE(parent.evaluate(MIN_ST));
+
+            const auto layout         = builder.nested_storage_layout();
+            const auto release_memory = [layout](void *memory) { MemoryUtils::allocator().deallocate_storage(memory, layout); };
+            std::unique_ptr<void, decltype(release_memory)> memory{MemoryUtils::allocator().allocate_storage(layout),
+                                                                   release_memory};
+            auto child   = builder.make_nested_graph(parent.node_at(0).pointer(), memory.get(), layout);
+            auto sibling = builder.make_nested_graph(parent.node_at(0).pointer());
+            child.view().start(MIN_ST);
+            sibling.view().start(MIN_ST);
+            REQUIRE(child.view().evaluate(MIN_ST));
+            REQUIRE(sibling.view().evaluate(MIN_ST));
+            TimeSeriesReference retired{child.view().node_at(0).output(MIN_ST)};
+            TimeSeriesReference unaffected{sibling.view().node_at(0).output(MIN_ST)};
+            child.view().stop(MIN_ST);
+            CHECK(retired.is_valid(MIN_ST));
+            if (arm_before_queue) { REQUIRE(parent.evaluate(MIN_ST)); }
+
+            // std::function's public copy/move contract must preserve the
+            // private non-owning observer, including destruction of its old copy.
+            if (copy_notification) {
+                auto &state = mock_runtime_detail::mock_executor_storage(const_cast<void *>(root.executor().data()));
+                auto &queue = arm_before_queue ? state.before_evaluation_notifications : state.after_evaluation_notifications;
+                REQUIRE(queue.size() == 1);
+                auto copy     = queue.front();
+                queue.front() = std::move(copy);
+            }
+            child = GraphValue{};
+            CHECK(retired.is_empty());
+            child = builder.make_nested_graph(parent.node_at(0).pointer(), memory.get(), layout);
+            CHECK(child.view().data() == memory.get());
+            child.view().start(MIN_ST);
+            REQUIRE(child.view().evaluate(MIN_ST));
+            TimeSeriesReference current{child.view().node_at(0).output(MIN_ST)};
+
+            for (const auto time : {MIN_ST + MIN_TD, MIN_ST + MIN_TD * 2}) {
+                REQUIRE(parent.evaluate(time));
+                CHECK(retired.is_empty());
+                CHECK(current.is_valid(time));
+                CHECK(current.target_output().view(time).value().checked_as<Int>() == Int{73});
+                CHECK(unaffected.is_valid(time));
+            }
+            child.view().stop(MIN_ST + MIN_TD * 2);
+            sibling.view().stop(MIN_ST + MIN_TD * 2);
+            parent.stop(MIN_ST + MIN_TD * 2);
+        }
     }
 }
 
