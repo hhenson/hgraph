@@ -1348,8 +1348,8 @@ at start. ``TSInputView::prepare_reference_route`` extends the RFC 0008 input
 route cache with reference extraction. It selects a native REF borrow, a
 TargetLink endpoint, or finite non-peered child routes from immutable endpoint
 metadata. The non-owning route keeps the exact input storage/path and is
-cleared with node state at stop; it does not capture a particular selected
-output. Runtime reads dispatch through its cached function and preserve
+retained with node state and never applied after stop; it does not capture a
+particular selected output. Runtime reads dispatch through its cached function and preserve
 presence and expiry without schema tests, name searches, or registry queries.
 Malformed and descriptive targets still pass through the binding owner's
 validation; preparation does not introduce an unchecked schema adapter.

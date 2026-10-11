@@ -418,10 +418,15 @@ namespace hgraph
     {
       public:
         PreparedInputReferenceRoute() noexcept = default;
+        PreparedInputReferenceRoute(const PreparedInputReferenceRoute &) = default;
+        PreparedInputReferenceRoute &operator=(const PreparedInputReferenceRoute &) = default;
+        PreparedInputReferenceRoute(PreparedInputReferenceRoute &&) noexcept;
+        PreparedInputReferenceRoute &operator=(PreparedInputReferenceRoute &&) noexcept;
         [[nodiscard]] TimeSeriesReference read(DateTime evaluation_time) const;
 
       private:
         friend class TSInputView;
+        friend class detail::PreparedReferencePublication;
         using read_fn = TimeSeriesReference (*)(const PreparedInputReferenceRoute &, DateTime);
         [[nodiscard]] TSOutputHandle target() const;
         static TimeSeriesReference read_link_reference(const PreparedInputReferenceRoute &, DateTime);

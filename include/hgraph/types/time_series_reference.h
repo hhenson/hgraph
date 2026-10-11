@@ -18,6 +18,8 @@ namespace hgraph
     namespace detail
     {
         class TSOutputAlternativeStore;
+        class PreparedReferenceAssignment;
+        class PreparedReferencePublication;
     }
 
     class TSInputView;
@@ -174,6 +176,8 @@ namespace hgraph
 
       private:
         friend class detail::TSOutputAlternativeStore;
+        friend class detail::PreparedReferenceAssignment;
+        friend class detail::PreparedReferencePublication;
 
         struct PeerLifetime;
         union Storage

@@ -22,6 +22,8 @@
 #include <hgraph/lib/std/operators/impl/container_impl.h>
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/std/operators/collection.h>
+#include <hgraph/types/time_series/ts_input/impl/reference_publication.h>
 
 #include <algorithm>
 #include <array>
@@ -226,6 +228,94 @@ namespace
             } else {
                 return hgraph::wire<ObserveSignalMetadata>(w, selected.as<hgraph::REF<hgraph::TS<hgraph::Int>>>(), step);
             }
+        }
+    };
+
+    std::uint64_t structural_reference_locks_before{0};
+    std::uint64_t structural_reference_locks{0};
+
+    struct StructuralReferenceProbeBefore
+    {
+        static void eval(hgraph::In<"step", hgraph::TS<hgraph::Int>> step,
+                         hgraph::Out<hgraph::TS<hgraph::Int>> out) {
+            out.set(step.value());
+            structural_reference_locks_before = hgraph::type_system_lock_count();
+        }
+    };
+
+    struct StructuralReferenceProbeAfter
+    {
+        static void eval(hgraph::In<"reference", hgraph::REF<hgraph::TsVar<"S">>> reference,
+                         hgraph::In<"step", hgraph::TS<hgraph::Int>> step,
+                         hgraph::Out<hgraph::TS<hgraph::Bool>> out) {
+            static_cast<void>(reference);
+            static_cast<void>(step);
+            structural_reference_locks += hgraph::type_system_lock_count() - structural_reference_locks_before;
+            out.set(true);
+        }
+    };
+
+    struct StructuralReferencePreparationGraph
+    {
+        static hgraph::Port<hgraph::TS<hgraph::Bool>> compose(hgraph::Wiring &w,
+            hgraph::Port<hgraph::TS<hgraph::Int>> step) {
+            auto before = hgraph::wire<StructuralReferenceProbeBefore>(w, step);
+            auto children = hgraph::stdlib::to_tsl(w, before, before);
+            return hgraph::wire<StructuralReferenceProbeAfter>(w, children, before).as<hgraph::TS<hgraph::Bool>>();
+        }
+    };
+
+    using ProducerPair = hgraph::TSL<hgraph::TS<hgraph::Int>, 2>;
+    using ProducerNestedPair = hgraph::TSL<ProducerPair, 2>;
+    struct OwnedProducerPair
+    {
+        static void eval(hgraph::In<"value", hgraph::TS<hgraph::Int>> value, hgraph::Out<ProducerPair> out) {
+            out[0].set(value.value());
+            out[1].set(value.value() + 1);
+        }
+    };
+    struct SelectProducerPair
+    {
+        static void eval(hgraph::In<"index", hgraph::TS<hgraph::Int>> index,
+                         hgraph::In<"assembled", hgraph::REF<ProducerPair>> assembled,
+                         hgraph::In<"owned", hgraph::REF<ProducerPair>> owned,
+                         hgraph::Out<hgraph::REF<ProducerPair>> out) {
+            if (index.value() < 0) {
+                out.set(hgraph::TimeSeriesReference::empty(assembled.value().target_schema()));
+                return;
+            }
+            out.set(index.value() == 0 ? assembled.value() : owned.value());
+        }
+    };
+    struct ReadProducerNestedPair
+    {
+        static void eval(hgraph::In<"value", ProducerNestedPair, hgraph::InputValidity::Unchecked> value,
+                         hgraph::Out<hgraph::TS<hgraph::Int>> out) {
+            auto child = value[0][0];
+            if (child.valid() && child.modified()) { out.set(child.value()); }
+        }
+    };
+    template <typename Schema>
+    struct ForwardProducerReference
+    {
+        static void eval(hgraph::In<"value", hgraph::REF<Schema>> value, hgraph::Out<hgraph::REF<Schema>> out) {
+            out.set(value.value());
+        }
+    };
+    struct ProducerDesignationSwitchGraph
+    {
+        static hgraph::Port<hgraph::TS<hgraph::Int>> compose(hgraph::Wiring &w,
+            hgraph::Port<hgraph::TS<hgraph::Int>> index, hgraph::Port<hgraph::TS<hgraph::Int>> first,
+            hgraph::Port<hgraph::TS<hgraph::Int>> second) {
+            auto assembled = hgraph::stdlib::to_tsl(w, first, second);
+            auto owned = hgraph::wire<OwnedProducerPair>(w, first);
+            auto selected = hgraph::wire<SelectProducerPair>(w, index, assembled, owned);
+            auto owned_reference = hgraph::wire<ForwardProducerReference<ProducerPair>>(w, owned);
+            auto outer = hgraph::stdlib::to_tsl(w, selected, owned_reference);
+            // A concrete ordinary consumer forces the assembled outer source
+            // through the synthetic reference owner and its nested binding.
+            auto reference = hgraph::wire<ForwardProducerReference<ProducerNestedPair>>(w, outer);
+            return hgraph::wire<ReadProducerNestedPair>(w, reference);
         }
     };
 
@@ -2138,7 +2228,10 @@ TEST_CASE("prepared input reference routes retain finite children and follow the
     selected.bind_output(first.view());
     auto items = root.indexed_child_at(1);
     items.indexed_child_at(0).bind_output(second.view());
-    const auto prepared = root.prepare_reference_route();
+    auto original = root.prepare_reference_route();
+    const auto prepared = std::move(original);
+    CHECK(original.read(MIN_ST).is_empty());
+    CHECK(original.read(MIN_ST).target_schema() == nullptr);
     const auto initial = prepared.read(MIN_ST);
     REQUIRE(initial.is_non_peered());
     CHECK(initial[0] == TimeSeriesReference{first.view()});
@@ -2573,4 +2666,88 @@ TEST_CASE("ordinary scalar SIGNAL aliases clear metadata when an if branch becom
     }
     CHECK(empty_scalar_observation_locks == 0);
     CHECK(empty_scalar_metadata_errors == 0);
+}
+
+TEST_CASE("structural REF producers prepare bindings before their first public node cycle", "[reference][prepared][producer]") {
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    structural_reference_locks = 0;
+    CHECK(eval_node<StructuralReferencePreparationGraph>(values<Int>(1, 2, 3, 4)) == values<Bool>(true, true, true, true));
+    CHECK(structural_reference_locks == 0);
+}
+
+TEST_CASE("structural REF publication follows peered and assembled child designation switches",
+          "[reference][prepared][producer]") {
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    CHECK(eval_node<ProducerDesignationSwitchGraph>(values<Int>(0, 1, 0, std::nullopt, 1, 0, 0),
+        values<Int>(7, std::nullopt, std::nullopt, 9), values<Int>(8)) ==
+        values<Int>(7, 7, 7, 9, 9, 9, std::nullopt));
+    CHECK(eval_node<ProducerDesignationSwitchGraph>(values<Int>(0, -1, 1, 0, std::nullopt, 0),
+        values<Int>(7, std::nullopt, std::nullopt, std::nullopt, 9), values<Int>(8)) ==
+        values<Int>(7, std::nullopt, 7, 7, 9, std::nullopt));
+}
+
+TEST_CASE("prepared reference assignment preserves tree ownership across kind switches and expiry",
+          "[reference][prepared][producer]") {
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *leaf = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    const auto *list = registry.tsl(leaf, 2);
+    detail::PreparedReferenceAssignment cache{list};
+    TSOutput first{*leaf};
+    TSOutput second{*leaf};
+    TSOutput owned{*list};
+    const auto assembled = TimeSeriesReference::non_peered(list, {TimeSeriesReference{first.view()}, TimeSeriesReference{second.view()}});
+    const auto peered = TimeSeriesReference{owned.view()};
+    auto destination = TimeSeriesReference::empty(list);
+    const auto locks = type_system_lock_count();
+    REQUIRE(cache.assign(destination, assembled));
+    const auto retained = destination;
+    REQUIRE(cache.assign(destination, peered));
+    CHECK(destination == peered);
+    CHECK(retained == assembled);
+    REQUIRE(cache.assign(destination, assembled));
+    CHECK(destination == assembled);
+    CHECK_FALSE(cache.assign(destination, assembled));
+    REQUIRE(cache.assign(destination, TimeSeriesReference::empty(list)));
+    REQUIRE(cache.assign(destination, assembled));
+    CHECK(destination == retained);
+    CHECK(type_system_lock_count() == locks);
+
+    TimeSeriesReference expired;
+    {
+        TSOutput temporary{*leaf};
+        expired = TimeSeriesReference::non_peered(list, {TimeSeriesReference{temporary.view()}, TimeSeriesReference::empty(leaf)});
+        REQUIRE(cache.assign(destination, expired));
+    }
+    CHECK(destination[0].is_empty());
+    CHECK(destination[1].is_empty());
+    CHECK(destination == TimeSeriesReference::non_peered(list, {TimeSeriesReference::empty(leaf), TimeSeriesReference::empty(leaf)}));
+}
+
+TEST_CASE("prepared structural reference publication primes privately and moves to a no-op owner",
+          "[reference][prepared][producer]") {
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *leaf = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    const auto *reference = registry.ref(leaf);
+    TSOutput source{*leaf};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*leaf, TSEndpointSchema::peered(leaf))};
+    input.view().bind_output(source.view());
+    TSOutput output{*reference};
+    CHECK_THROWS_AS((detail::PreparedReferencePublication{input.view(), source.view(), MIN_ST}), std::logic_error);
+    detail::PreparedReferencePublication original{input.view(), output.view(), MIN_ST};
+    CHECK_FALSE(output.view().valid());
+    auto prepared = std::move(original);
+    CHECK_FALSE(original.publish(MIN_ST));
+    CHECK_FALSE(output.view().valid());
+    REQUIRE(prepared.publish(MIN_ST));
+    CHECK(output.view().value().checked_as<TimeSeriesReference>() == TimeSeriesReference{source.view()});
+    detail::PreparedReferencePublication moved;
+    moved = std::move(prepared);
+    CHECK_FALSE(prepared.publish(MIN_ST + TimeDelta{1}));
+    CHECK_FALSE(moved.publish(MIN_ST + TimeDelta{1}));
+    moved = {};
+    CHECK_FALSE(moved.publish(MIN_ST + TimeDelta{2}));
 }

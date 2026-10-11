@@ -1,4 +1,5 @@
 #include <hgraph/types/time_series/ts_input/base_view.h>
+#include <hgraph/types/time_series/ts_input/impl/reference_publication.h>
 
 #include <hgraph/runtime/graph.h>
 #include "../ts_data/ownership.h"
@@ -742,6 +743,24 @@ namespace hgraph
         return TSOutputHandle{link_->target_output().output(), current};
     }
 
+    PreparedInputReferenceRoute::PreparedInputReferenceRoute(PreparedInputReferenceRoute &&other) noexcept
+        : read_{std::exchange(other.read_, &read_empty)}, schema_{std::exchange(other.schema_, nullptr)},
+          value_{std::exchange(other.value_, {})}, link_{std::exchange(other.link_, nullptr)},
+          path_{std::move(other.path_)}, children_{std::move(other.children_)} {}
+
+    PreparedInputReferenceRoute &PreparedInputReferenceRoute::operator=(PreparedInputReferenceRoute &&other) noexcept
+    {
+        if (this != &other) {
+            read_ = std::exchange(other.read_, &read_empty);
+            schema_ = std::exchange(other.schema_, nullptr);
+            value_ = std::exchange(other.value_, {});
+            link_ = std::exchange(other.link_, nullptr);
+            path_ = std::move(other.path_);
+            children_ = std::move(other.children_);
+        }
+        return *this;
+    }
+
     TimeSeriesReference PreparedInputReferenceRoute::read(DateTime evaluation_time) const
     {
         return read_(*this, evaluation_time);
@@ -785,6 +804,248 @@ namespace hgraph
         items.reserve(route.children_.size());
         for (const auto &child : route.children_) { items.push_back(child.read(time)); }
         return TimeSeriesReference::non_peered(route.schema_, std::move(items));
+    }
+
+    namespace detail
+    {
+        PreparedReferenceAssignment::PreparedReferenceAssignment(const TSValueTypeMetaData *schema)
+        {
+            ankerl::unordered_dense::set<const TSValueTypeMetaData *> ancestors;
+            *this = PreparedReferenceAssignment{schema, ancestors};
+        }
+
+        PreparedReferenceAssignment::PreparedReferenceAssignment(
+            const TSValueTypeMetaData *schema, ankerl::unordered_dense::set<const TSValueTypeMetaData *> &ancestors)
+        {
+            if (schema != nullptr && schema->kind == TSTypeKind::REF) { schema = schema->referenced_ts(); }
+            if (schema == nullptr || (schema->kind != TSTypeKind::TSB &&
+                (schema->kind != TSTypeKind::TSL || schema->is_unbounded_tsl())) || !ancestors.insert(schema).second) { return; }
+            const auto count = schema->kind == TSTypeKind::TSB ? schema->field_count() : schema->fixed_size();
+            children_.reserve(count);
+            spare_.resize(count);
+            for (std::size_t index = 0; index < count; ++index) {
+                const auto *child = schema->kind == TSTypeKind::TSB ? schema->fields()[index].type : schema->element_ts();
+                children_.push_back(PreparedReferenceAssignment{child, ancestors});
+            }
+            ancestors.erase(schema);
+            assign_ = &finite_assign;
+            recycle_ = &finite_recycle;
+        }
+
+        bool PreparedReferenceAssignment::assign(TimeSeriesReference &destination, const TimeSeriesReference &source) const
+        {
+            return assign_(*this, destination, source);
+        }
+
+        void PreparedReferenceAssignment::recycle(TimeSeriesReference &destination) const
+        {
+            recycle_(*this, destination);
+        }
+
+        bool PreparedReferenceAssignment::opaque_assign(const PreparedReferenceAssignment &cache,
+            TimeSeriesReference &destination, const TimeSeriesReference &source)
+        {
+            if (destination == source) { return false; }
+            cache.recycle(destination);
+            destination = source;
+            return true;
+        }
+
+        void PreparedReferenceAssignment::plain_recycle(const PreparedReferenceAssignment &, TimeSeriesReference &destination)
+        {
+            destination.destroy();
+        }
+
+        void PreparedReferenceAssignment::finite_recycle(const PreparedReferenceAssignment &cache, TimeSeriesReference &destination)
+        {
+            if (destination.kind_ == TimeSeriesReference::Kind::NON_PEERED) {
+                auto &items = destination.storage_.items;
+                for (std::size_t index = 0; index < items.size(); ++index) {
+                    if (index < cache.children_.size()) { cache.children_[index].recycle(items[index]); }
+                    else { items[index].destroy(); }
+                }
+                cache.spare_ = std::move(items);
+            }
+            destination.destroy();
+        }
+
+        bool PreparedReferenceAssignment::finite_assign(const PreparedReferenceAssignment &cache,
+            TimeSeriesReference &destination, const TimeSeriesReference &source)
+        {
+            const auto kind = source.kind();
+            if (kind != TimeSeriesReference::Kind::NON_PEERED) {
+                if (destination == source) { return false; }
+                cache.recycle(destination);
+                destination = source;
+                return true;
+            }
+            if (source.storage_.items.size() != cache.children_.size()) {
+                // Preserve an opaque/descriptive token verbatim. Its eventual
+                // ordinary binding owner still performs malformed-target checks.
+                return opaque_assign(cache, destination, source);
+            }
+            bool changed = destination.kind_ != TimeSeriesReference::Kind::NON_PEERED ||
+                           destination.target_schema_ != source.target_schema_;
+            if (destination.kind_ != TimeSeriesReference::Kind::NON_PEERED ||
+                destination.storage_.items.size() != cache.children_.size()) {
+                cache.recycle(destination);
+                // A valid declared shape reuses its cold capacity. Resizing
+                // only allocates after a malformed descriptive token replaced it.
+                cache.spare_.resize(cache.children_.size());
+                std::construct_at(&destination.storage_.items, std::move(cache.spare_));
+                destination.kind_ = TimeSeriesReference::Kind::NON_PEERED;
+            }
+            destination.target_schema_ = source.target_schema_;
+            for (std::size_t index = 0; index < cache.children_.size(); ++index) {
+                changed = cache.children_[index].assign(destination.storage_.items[index], source.storage_.items[index]) || changed;
+            }
+            return changed;
+        }
+
+        PreparedReferencePublication::Update::Update(const PreparedInputReferenceRoute &route)
+        {
+            if (route.read_ == &PreparedInputReferenceRoute::read_children) {
+                apply_ = &children;
+                children_.reserve(route.children_.size());
+                for (const auto &child : route.children_) { children_.emplace_back(child); }
+            } else if (route.read_ == &PreparedInputReferenceRoute::read_target) {
+                apply_ = &target;
+            } else if (route.read_ == &PreparedInputReferenceRoute::read_reference ||
+                       route.read_ == &PreparedInputReferenceRoute::read_link_reference) {
+                apply_ = &reference;
+                borrow_ = route.read_ == &PreparedInputReferenceRoute::read_reference ? &borrow_value : &borrow_link;
+                assignment_ = PreparedReferenceAssignment{route.schema_};
+            }
+        }
+
+        void PreparedReferencePublication::Update::prime(const PreparedInputReferenceRoute &route,
+            TimeSeriesReference &destination, DateTime time) const
+        {
+            if (apply_ == &children) {
+                destination = TimeSeriesReference::non_peered(route.schema_, std::vector<TimeSeriesReference>(children_.size()));
+                for (std::size_t index = 0; index < children_.size(); ++index) {
+                    children_[index].prime(route.children_[index], destination.storage_.items[index], time);
+                }
+            } else { static_cast<void>(apply(route, destination, time)); }
+        }
+
+        bool PreparedReferencePublication::Update::apply(const PreparedInputReferenceRoute &route,
+            TimeSeriesReference &destination, DateTime time) const
+        {
+            return apply_(*this, route, destination, time);
+        }
+
+        bool PreparedReferencePublication::Update::empty(const Update &, const PreparedInputReferenceRoute &route,
+            TimeSeriesReference &destination, DateTime)
+        {
+            const auto missing = TimeSeriesReference::empty(route.schema_);
+            if (destination == missing) { return false; }
+            destination = missing;
+            return true;
+        }
+
+        bool PreparedReferencePublication::Update::target(const Update &update, const PreparedInputReferenceRoute &route,
+            TimeSeriesReference &destination, DateTime time)
+        {
+            auto selected = route.target();
+            if (!selected.bound()) { return empty(update, route, destination, time); }
+            const auto *inner = target_link_storage(selected.data_view());
+            if (inner != nullptr && !inner->bound()) { return empty(update, route, destination, time); }
+            if (destination.is_peered() && destination.target_schema_ == selected.schema() &&
+                destination.target_output().same_as(selected)) { return false; }
+            destination = TimeSeriesReference{std::move(selected)};
+            return true;
+        }
+
+        const TimeSeriesReference *PreparedReferencePublication::Update::borrow_value(const PreparedInputReferenceRoute &route)
+        {
+            auto value = TSDataView{route.value_}.value();
+            return value.has_value() ? static_cast<const TimeSeriesReference *>(value.data()) : nullptr;
+        }
+
+        const TimeSeriesReference *PreparedReferencePublication::Update::borrow_link(const PreparedInputReferenceRoute &route)
+        {
+            auto selected = route.target();
+            if (!selected.bound()) { return nullptr; }
+            auto value = selected.data_view().value();
+            return value.has_value() ? static_cast<const TimeSeriesReference *>(value.data()) : nullptr;
+        }
+
+        bool PreparedReferencePublication::Update::reference(const Update &update, const PreparedInputReferenceRoute &route,
+            TimeSeriesReference &destination, DateTime)
+        {
+            const auto *source = update.borrow_(route);
+            const auto missing = TimeSeriesReference::empty(route.schema_);
+            return update.assignment_.assign(destination, source != nullptr ? *source : missing);
+        }
+
+        bool PreparedReferencePublication::Update::children(const Update &update, const PreparedInputReferenceRoute &route,
+            TimeSeriesReference &destination, DateTime time)
+        {
+            bool changed = false;
+            for (std::size_t index = 0; index < update.children_.size(); ++index) {
+                changed = update.children_[index].apply(route.children_[index], destination.storage_.items[index], time) || changed;
+            }
+            return changed;
+        }
+
+        PreparedReferencePublication::PreparedReferencePublication(const TSInputView &source, const TSOutputView &output, DateTime time)
+            : route_{source.prepare_reference_route()}, update_{route_}
+        {
+            const auto &data = output.data_view();
+            const auto &ops = data.ops();
+            if (!ops.direct_native_value || ops.value_view_impl != nullptr ||
+                ops.layout_impl(ops.context)->value_binding.ops() != &ops_for<TimeSeriesReference>()) {
+                throw std::logic_error("structural REF publication requires its prepared native reference output binding");
+            }
+            destination_ = static_cast<TimeSeriesReference *>(ops.mutable_value_memory_impl(ops.context, data.mutable_data()));
+            tracking_ = ops.mutable_tracking_impl(ops.context, data.mutable_data());
+            output_context_ = ops.context;
+            output_memory_ = data.data();
+            current_ = ops.has_current_value_impl;
+            update_.prime(route_, primed_, time);
+            publish_ = &prepared;
+        }
+
+        bool PreparedReferencePublication::publish(DateTime time) const { return publish_(*this, time); }
+        PreparedReferencePublication::PreparedReferencePublication(PreparedReferencePublication &&other) noexcept { swap(other); }
+        PreparedReferencePublication &PreparedReferencePublication::operator=(PreparedReferencePublication &&other) noexcept
+        {
+            if (this != &other) {
+                PreparedReferencePublication moved{std::move(other)};
+                swap(moved);
+            }
+            return *this;
+        }
+        void PreparedReferencePublication::swap(PreparedReferencePublication &other) noexcept
+        {
+            using std::swap;
+            swap(publish_, other.publish_);
+            swap(route_, other.route_);
+            swap(update_, other.update_);
+            swap(primed_, other.primed_);
+            swap(primed_pending_, other.primed_pending_);
+            swap(destination_, other.destination_);
+            swap(tracking_, other.tracking_);
+            swap(output_context_, other.output_context_);
+            swap(output_memory_, other.output_memory_);
+            swap(current_, other.current_);
+        }
+        bool PreparedReferencePublication::noop(const PreparedReferencePublication &, DateTime) { return false; }
+        bool PreparedReferencePublication::prepared(const PreparedReferencePublication &publisher, DateTime time)
+        {
+            bool changed = false;
+            if (publisher.primed_pending_) {
+                changed = !(*publisher.destination_ == publisher.primed_);
+                *publisher.destination_ = std::move(publisher.primed_);
+                publisher.primed_pending_ = false;
+            }
+            changed = publisher.update_.apply(publisher.route_, *publisher.destination_, time) || changed;
+            if (!changed && publisher.current_(publisher.output_context_, publisher.output_memory_)) { return false; }
+            if (!publisher.tracking_->record_modified(time)) { return false; }
+            publisher.tracking_->parent.notify_child_modified(time);
+            return true;
+        }
     }
 
     void TSInputView::bind_output(const TSOutputView &output)

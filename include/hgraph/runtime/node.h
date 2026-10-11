@@ -275,8 +275,8 @@ namespace hgraph
         so derived-type rebuilds (error capture, passive inputs) resolve
         their own layout instead of inheriting a stale offset. */
     inline constexpr std::string_view node_prepared_inputs_field{"prepared_inputs"};
-    /** Planned field name of a node-private runtime cache: a small trivially
-        relocatable record a system node front-end acquires in its start
+    /** Planned field name of a node-private runtime cache: a record managed
+        by its declared storage plan that a system node front-end acquires in its start
         callback and reads per tick instead of re-deriving topology facts
         (the feedback sink's source-node identity and ``ts`` route). Declared
         through ``node_storage_plan_for``'s ``extra_fields`` like the
