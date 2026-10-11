@@ -1858,6 +1858,11 @@ The HGL-private borrower relies on the native `TimeSeriesReference` representati
 registered by REF metadata and selected during cold TSData/node preparation.
 Its runtime guard checks payload presence, while designation comparison keeps the
 existing lifetime checks; neither path discovers a type or compares an ops address.
+An explicit `valid(value.field)` proof permits reading that selected temporal
+field without an additional parent-payload proof. Selector preparation still
+checks any intervening index bounds; a sibling field's proof does not establish
+the selected field's validity. This supports guarded consumers of partially valid
+bundles reached through ordinary reference-following connections.
 Each separately supplied `eval` temporal argument has an independent endpoint,
 even when two sample sequences are equal. The harness prepares a distinct replay
 key and exact temporal type carrier for each argument. Structural HGL delta

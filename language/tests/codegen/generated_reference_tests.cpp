@@ -99,3 +99,13 @@ TEST_CASE("prepared reference borrowing preserves the absent payload guard", "[c
     ValueView missing{binding, nullptr};
     CHECK_THROWS_WITH(hgl::ordinary::reference_argument(missing), "checked_as<T> on invalid ValueView");
 }
+
+TEST_CASE("generated selected-child guard reads only the proven partial bundle field", "[codegen][generated][ref][validity]") {
+    hgl::wiring::ensure_session();
+    (void)reference_identity::register_operators();
+    using Fields = reference_identity::IdentityFields::time_series;
+    CHECK(eval_node<reference_identity::guarded_first>(values<Value>(
+        tsb_delta<Fields>(std::nullopt, Int{20}), tsb_delta<Fields>(Int{0}, std::nullopt), std::nullopt,
+        tsb_delta<Fields>(std::nullopt, Int{21}), tsb_delta<Fields>(Int{0}, std::nullopt))) ==
+        values<Int>(std::nullopt, 0, std::nullopt, std::nullopt, 0));
+}

@@ -27,3 +27,7 @@ fn same_bundle(first: ref<IdentityFields>, second: ref<IdentityFields>, step: i6
 }
 export fn aliased_bundle(value: IdentityFields, step: i64) -> bool => same_bundle(value, value, step)
 export fn distinct_bundles(first: IdentityFields, second: IdentityFields, step: i64) -> bool => same_bundle(first, second, step)
+
+export fn guarded_first(value: IdentityFields) -> i64 {
+    when valid(value.first) && modified(value.first) { return value.first }
+}

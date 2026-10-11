@@ -4579,3 +4579,30 @@ export fn list_sample(value: list<i64>, step: i64) -> i64 => sample(value, step)
     CHECK(contains(emitted->source, "hgraph::wire<sample>(w,"));
     CHECK(contains(emitted->source, ".as<hgraph::TS<hgraph::Int>>()"));
 }
+
+TEST_CASE("emit-cpp accepts exact selected-child proofs without a parent payload read", "[codegen][validity][ref]") {
+    Unit selected{R"(
+module t
+struct Fields { left: i64
+    right: i64 }
+struct Nested { fields: Fields
+    sibling: i64 }
+export fn read(value: Fields) -> i64 {
+    when valid(value.left) && modified(value.left) { return value.left }
+}
+export fn deep(value: Nested) -> i64 {
+    when valid(value.fields.left) { return value.fields.left }
+}
+)"};
+    REQUIRE(selected.emit());
+    Unit sibling{R"(
+module t
+struct Fields { left: i64
+    right: i64 }
+export fn wrong(value: Fields) -> i64 {
+    when valid(value.right) { return value.left }
+}
+)"};
+    CHECK_FALSE(sibling.emit());
+    CHECK(sibling.has(Category::Type, "may be invalid here"));
+}
