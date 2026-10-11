@@ -8198,11 +8198,11 @@ namespace hgl::codegen
                     continue;
                 }
                 if (!has_planned_result(native.result, native.range)) { continue; }
-                const auto result = planned_type(native.result, native.range);
-                if (result.kind != HType::Kind::Native && result.kind != HType::Kind::Scalar) { continue; }
+                const auto native_result = planned_type(native.result, native.range);
+                if (native_result.kind != HType::Kind::Native && native_result.kind != HType::Kind::Scalar) { continue; }
                 std::vector<std::string>                         arguments;
                 std::vector<std::pair<std::string, std::string>> parameters;
-                bool                                             contains_native = result.kind == HType::Kind::Native;
+                bool                                             contains_native = native_result.kind == HType::Kind::Native;
                 bool                                             supported       = true;
                 for (std::size_t position = 0; position < native.parameters.size(); ++position) {
                     const auto &parameter = native.parameters[position];
@@ -8228,7 +8228,7 @@ namespace hgl::codegen
                         quote(name) + ", .scalar = hgraph::to_scalar_pattern<" + cpp + ">()});");
                 }
                 body.line("hgl_helper.has_output = true;");
-                body.line("hgl_helper.output = hgraph::to_pattern<hgraph::TS<" + value_type(result, native.range) + ">>();");
+                body.line("hgl_helper.output = hgraph::to_pattern<hgraph::TS<" + value_type(native_result, native.range) + ">>();");
                 body.open("hgl_helper.const_kernel = [](const hgraph::TSValueTypeMetaData *hgl_result, hgraph::OperatorCallContext "
                           "hgl_call)");
                 body.line("auto hgl_value = (static_cast<" + native_result_type(native) + " (*)(" +
