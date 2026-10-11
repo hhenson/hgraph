@@ -1852,8 +1852,11 @@ Node `==` and `!=` on identical resolved `ref<T>` operands lower directly to
 comparison capabilities on `T` or inspect its payload. The planner still
 requires both operands to be readable; heterogeneous reference comparisons,
 ordering, and node traversal below a reference remain rejected.
-Comparison operands borrow the prepared reference input's designation token,
+Comparison operands borrow the prepared reference endpoint's designation token,
 so comparing non-peered child trees does not clone their owning child vectors.
+An injected REF `out` reads its value directly from the output cursor; it has
+no input `base()` wrapper. Its readable token is also retained when `out` is
+returned or assigned to itself, independently of its metadata selector.
 The HGL-private borrower relies on the native `TimeSeriesReference` representation
 registered by REF metadata and selected during cold TSData/node preparation.
 Its runtime guard checks payload presence, while designation comparison keeps the

@@ -170,6 +170,9 @@ namespace hgl::codegen
             /// Runtime values backed by an endpoint keep its selector spelling
             /// so metadata intrinsics and assignments do not read the payload.
             std::string selector{};
+            /// Output capabilities expose their value directly; inputs expose
+            /// it through their base cursor. Keep that distinction checked.
+            bool output_selector{false};
             /// A borrowed map-key projection keeps its source endpoint for
             /// membership deltas and evaluation time; it never copies keys.
             std::string key_set_source{};
@@ -3576,7 +3579,8 @@ namespace hgl::codegen
                             // owns a copy and would clone non-peered child vectors.
                             for (auto *operand : {&lhs, &rhs}) {
                                 if (!operand->selector.empty()) {
-                                    operand->code = "hgl::ordinary::reference_argument(" + operand->selector + ".base().value())";
+                                    operand->code = "hgl::ordinary::reference_argument(" + operand->selector +
+                                        (operand->output_selector ? ".value())" : ".base().value())");
                                 }
                             }
                         }
@@ -6809,11 +6813,15 @@ namespace hgl::codegen
                     value.type     = result;
                     value.range    = planned_binding(info.out_binding, planned.range).range;
                     value.selector = "hgl_output";
+                    if (result.kind == HType::Kind::Reference) {
+                        value.code = "hgl::ordinary::reference_argument(hgl_output.value())";
+                    }
                 } else {
                     value = make_runtime("hgl_output.value().checked_as<" +
                                              value_type(result, graph_type(planned.result, planned.range).range) + ">()",
                                          result, planned_binding(info.out_binding, planned.range).range, "hgl_output");
                 }
+                value.output_selector = true;
                 if (!frame.planned_bindings.emplace(info.out_binding.value, std::move(value)).second) {
                     backend(planned.range, "hgraph IR callable repeats the output capability binding");
                 }
