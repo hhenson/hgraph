@@ -161,6 +161,13 @@ TEST_CASE("native package atomic value contracts preserve canonical mapping and 
         source.types.front().canonical_identity.clear();
         CHECK_THROWS_WITH(descriptor_json(source), Catch::Matchers::ContainsSubstring("mapped atomic value contract"));
     }
+    SECTION("an unexported atomic category cannot omit its entire contract") {
+        source.types.front().canonical_identity.clear();
+        source.types.front().value_contract.reset();
+        source.types.front().exported = false;
+        CHECK_THROWS_WITH(descriptor_json(source),
+                          Catch::Matchers::ContainsSubstring("canonical identity and shared value contract"));
+    }
     SECTION("resource state cannot advertise an ordinary value contract") {
         source.types.front().category = TypeCategory::OpaqueState;
         CHECK_THROWS_WITH(descriptor_json(source), Catch::Matchers::ContainsSubstring("opaque resource state"));

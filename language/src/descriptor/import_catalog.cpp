@@ -495,10 +495,13 @@ namespace hgl::descriptor
         module.identity               = descriptor.module_identity;
         module.descriptor_fingerprint = descriptor.descriptor_fingerprint;
         for (const auto &type : descriptor.native_types) {
-            module.native_types.push_back(NativeTypeContract{
-                .module_identity        = descriptor.module_identity,
+            const auto separator = type.identity.rfind("::");
+            const auto owner     = separator == std::string::npos ? descriptor.module_identity : type.identity.substr(0, separator);
+            auto      &contracts = owner == descriptor.module_identity ? module.native_types : module.delegated_native_types;
+            contracts.push_back(NativeTypeContract{
+                .module_identity        = owner,
                 .identity               = type.identity,
-                .name                   = short_name(descriptor.module_identity, type.identity),
+                .name                   = short_name(owner, type.identity),
                 .canonical_identity     = type.canonical_identity,
                 .cpp_type               = type.cpp_type,
                 .public_header          = type.public_header,

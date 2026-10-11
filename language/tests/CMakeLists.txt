@@ -237,6 +237,8 @@ add_custom_command(OUTPUT "${_hgl_native_atomic_descriptor}" "${_hgl_native_atom
     DEPENDS hgl_native_atomic_descriptor_fixture
     COMMENT "Author native atomic value fixture contracts"
     VERBATIM)
+add_custom_target(hgl_native_atomic_descriptors
+    DEPENDS "${_hgl_native_atomic_descriptor}" "${_hgl_native_atomic_std_descriptor}")
 
 set(_hgl_native_scalar_descriptor "${CMAKE_CURRENT_BINARY_DIR}/native-scalar-import.hgl-module.json")
 add_custom_command(
@@ -848,6 +850,7 @@ if(UNIX)
     # Scripted imported-native tests use a host containing the provider's
     # value symbols. This is separate from hgl, which generates that provider.
     add_executable(hgl_stdlib_test_driver ../src/main.cpp)
+    add_dependencies(hgl_stdlib_test_driver hgl_native_atomic_descriptors)
     target_link_libraries(hgl_stdlib_test_driver PRIVATE hgl::driver
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,hgl_core_native>")
     set_target_properties(hgl_stdlib_test_driver PROPERTIES ENABLE_EXPORTS ON)

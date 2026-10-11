@@ -4,6 +4,7 @@
 #include "native_contract.h"
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -256,6 +257,10 @@ namespace hgl::semantics
         std::vector<ImportedOperatorContract> operators{};
         std::vector<ImportedStruct>           structs{};
         std::vector<NativeTypeContract>       native_types{};
+        /// Contracts reachable through public signatures, owned by another
+        /// module. They support exact type resolution without becoming local
+        /// declaration bindings or granting new source import visibility.
+        std::vector<NativeTypeContract> delegated_native_types{};
     };
 
     struct CatalogError
@@ -325,14 +330,19 @@ namespace hgl::semantics
                 }
             }
             std::unordered_map<std::string, NativeValueCapabilities> introduced;
-            for (const auto &type : module.native_types) {
-                if (!type.atomic_value) { continue; }
-                if (std::ranges::binary_search(module.functions, type.name, {}, &ImportedFunction::name) ||
-                    std::ranges::binary_search(module.operators, type.name, {}, &ImportedOperatorContract::name) ||
-                    std::ranges::binary_search(module.structs, type.name, {}, &ImportedStruct::name)) {
-                    return CatalogError{"$.native.types",
-                                        "ordinary native type '" + type.identity + "' conflicts with another declaration"};
+            const auto validate_native_contract = [&](const NativeTypeContract &type) -> std::optional<CatalogError> {
+                const auto existing = native_types_by_identity_.find(type.identity);
+                if (existing != native_types_by_identity_.end()) {
+                    const auto &known = existing->second;
+                    if (known.module_identity != type.module_identity || known.name != type.name ||
+                        known.canonical_identity != type.canonical_identity || known.cpp_type != type.cpp_type ||
+                        known.public_header != type.public_header || known.capabilities != type.capabilities ||
+                        known.atomic_value != type.atomic_value) {
+                        return CatalogError{"$.native.types",
+                                            "native declaration '" + type.identity + "' has incompatible delegated contracts"};
+                    }
                 }
+                if (!type.atomic_value) { return std::nullopt; }
                 const auto known = native_capabilities_.find(type.canonical_identity);
                 if (known != native_capabilities_.end() && known->second != type.capabilities) {
                     return CatalogError{"$.native.types", "canonical native scalar '" + type.canonical_identity +
@@ -342,7 +352,25 @@ namespace hgl::semantics
                 if (!inserted && found->second != type.capabilities) {
                     return CatalogError{"$.native.types", "canonical native scalar aliases must share one capability contract"};
                 }
+                return std::nullopt;
+            };
+            for (const auto &type : module.native_types) {
+                if (type.atomic_value &&
+                    (std::ranges::binary_search(module.functions, type.name, {}, &ImportedFunction::name) ||
+                     std::ranges::binary_search(module.operators, type.name, {}, &ImportedOperatorContract::name) ||
+                     std::ranges::binary_search(module.structs, type.name, {}, &ImportedStruct::name))) {
+                    return CatalogError{"$.native.types",
+                                        "ordinary native type '" + type.identity + "' conflicts with another declaration"};
+                }
+                if (const auto error = validate_native_contract(type)) { return error; }
             }
+            for (const auto &type : module.delegated_native_types) {
+                if (const auto error = validate_native_contract(type)) { return error; }
+            }
+            // Prefer the declaring provider's fingerprint when it is supplied;
+            // delegated copies still resolve public signatures without it.
+            for (const auto &type : module.delegated_native_types) { native_types_by_identity_.try_emplace(type.identity, type); }
+            for (const auto &type : module.native_types) { native_types_by_identity_.insert_or_assign(type.identity, type); }
             for (auto &[identity, capabilities] : introduced) { native_capabilities_.emplace(std::move(identity), capabilities); }
             modules_.push_back(std::move(module));
             std::ranges::sort(modules_, {}, &ImportableModule::identity);
@@ -369,9 +397,8 @@ namespace hgl::semantics
         }
 
         [[nodiscard]] const NativeTypeContract *find_native_type_by_identity(std::string_view identity) const noexcept {
-            const auto separator = identity.rfind("::");
-            if (separator == std::string_view::npos) { return nullptr; }
-            return find_native_type(identity.substr(0, separator), identity.substr(separator + 2), false);
+            const auto found = native_types_by_identity_.find(identity);
+            return found == native_types_by_identity_.end() ? nullptr : &found->second;
         }
 
         [[nodiscard]] const ImportedOperatorContract *find_operator(std::string_view module, std::string_view name) const noexcept {
@@ -417,8 +444,16 @@ namespace hgl::semantics
         [[nodiscard]] const std::vector<ImportableModule> &modules() const noexcept { return modules_; }
 
       private:
+        struct NativeIdentityHash
+        {
+            using is_transparent = void;
+            [[nodiscard]] std::size_t operator()(std::string_view identity) const noexcept {
+                return std::hash<std::string_view>{}(identity);
+            }
+        };
         std::vector<ImportableModule> modules_{};
         std::unordered_map<std::string, NativeValueCapabilities> native_capabilities_{};
+        std::unordered_map<std::string, NativeTypeContract, NativeIdentityHash, std::equal_to<>> native_types_by_identity_{};
     };
 }  // namespace hgl::semantics
 

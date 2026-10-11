@@ -3,10 +3,30 @@ import tempfile
 from pathlib import Path
 import unittest
 
-from hgl_compiler_parity import assess, discover, snapshot
+from hgl_compiler_parity import assess, cpp_command, discover, snapshot
 
 
 class CompilerParity(unittest.TestCase):
+    def test_cpp_native_std_fixture_binds_its_checked_provider(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'source'
+            build = Path(directory) / 'build'
+            files = [source / 'standard.hgl', source / 'native/atomic_values_fixture.hgl']
+            with self.assertRaisesRegex(ValueError, 'native atomic fixture descriptor is missing'):
+                cpp_command(source, build, 'hgraph.std', files)
+            descriptor = build / 'language/tests/native-atomic-standard.hgl-module.json'
+            descriptor.parent.mkdir(parents=True)
+            descriptor.write_text('{}')
+            command, env, parts = cpp_command(source, build, 'hgraph.std', files)
+            self.assertIn(str(descriptor), command)
+            self.assertIn(str(source / 'language/tests/driver/include'), env['CPLUS_INCLUDE_PATH'])
+            self.assertEqual(parts, [])
+            # Earlier std snapshots without the native interface retain their
+            # existing core-provider command and need no fixture descriptor.
+            descriptor.unlink()
+            legacy, _, _ = cpp_command(source, build, 'hgraph.std', files[:1])
+            self.assertNotIn(str(descriptor), legacy)
+
     def test_complete_cpp_and_rust_results_have_the_same_test_identities(self):
         cpp = assess('first ... ok\nsecond ... ok\n2 tests, 0 failed\n', 0, 'hgraph.std', ['first', 'second'])
         rust = assess('hgraph.std::first ... ok\nhgraph.std::second ... ok\n', 0, 'hgraph.std', ['first', 'second'])

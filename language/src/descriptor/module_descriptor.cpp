@@ -432,10 +432,12 @@ namespace hgl::descriptor
                 .public_header      = native.public_header,
                 .canonical_identity = native.canonical_identity,
                 .value_contract     = native.capabilities,
-                .exported           = native.module_identity == module.path && native.exported,
+                .exported           = native.exported,
             });
-            // Every declaration alias has its own inventory entry, even when
-            // canonical type interning collapsed all uses into one symbol.
+            // Qualified identities preserve the original owner of delegated
+            // contracts. Every alias has an entry even when canonical type
+            // interning collapsed all uses into one symbol; importing this
+            // descriptor must not redeclare foreign aliases in this module.
             result.types.push_back(
                 TypeRecord{.category = TypeCategory::Symbol, .nominal_identity = native.identity, .native_atomic = true});
             result.build.public_headers.push_back(native.public_header);

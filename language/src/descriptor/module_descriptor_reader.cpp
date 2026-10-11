@@ -1498,7 +1498,8 @@ namespace hgl::descriptor
                 if (!known_identity) {
                     return fail(member_path(path, "identity"), "native type does not name a nominal descriptor type");
                 }
-                if (type.value_contract || !type.canonical_identity.empty() || type.exported) {
+                if (type.category == NativeTypeCategory::AtomicValue || type.value_contract || !type.canonical_identity.empty() ||
+                    type.exported) {
                     if (type.category != NativeTypeCategory::AtomicValue) {
                         return fail(std::string{path}, "opaque resource state cannot declare an ordinary atomic value contract");
                     }

@@ -275,6 +275,14 @@ default-construction and copy-assignment hooks; these are provider compatibility
 checks rather than additional HGL capability flags. Opaque resource state keeps
 its separate admission and lifetime rules.
 
+Descriptors retain native contracts reachable through public signatures,
+including contracts declared by another module. Their qualified declaration
+identities preserve that original owner. The import catalogue keeps delegated
+contracts apart from local declarations: a downstream signature can resolve
+its exact scalar identity without exposing a foreign type as a new local import.
+Delegated copies and the original provider must agree on the mapping and shared
+capabilities; the declaring provider supplies its authoritative fingerprint.
+
 The package names either an exact public C++ function family or its own reviewed
 normalizing wrapper in each declaration's `cpp_symbol`. Declarations sharing an
 HGL identity form an overload family and must have distinguishable exact type

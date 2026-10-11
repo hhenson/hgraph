@@ -12,6 +12,7 @@
 #include <utility>
 
 namespace descriptor = hgl::descriptor;
+namespace gir        = hgl::hgraph_ir;
 
 namespace
 {
@@ -1984,4 +1985,114 @@ TEST_CASE("mapped native C++ types are names rather than executable fragments", 
         REQUIRE(result.error);
         CHECK(result.error->path == "$.native.types[0].cpp_type");
     }
+}
+
+TEST_CASE("atomic native categories always require their canonical contract", "[descriptor][reader][native]") {
+    auto source                 = minimal_descriptor();
+    source.types                = {{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader::Token"}};
+    source.build.public_headers = {"provider/token.h"};
+    source.native_types         = {{.category      = descriptor::NativeTypeCategory::AtomicValue,
+                                    .identity      = "checks.reader::Token",
+                                    .cpp_type      = "provider::Token",
+                                    .public_header = "provider/token.h"}};
+    const auto expect_missing   = [&] {
+        const auto direct = descriptor::validate(source);
+        REQUIRE(direct);
+        CHECK(direct->message == "native atomic value requires its canonical identity and shared value contract");
+        const auto json = descriptor::read_json(descriptor::to_json(source));
+        REQUIRE(json.error);
+        CHECK(json.error->message == direct->message);
+    };
+    expect_missing();
+    source.native_types.front().canonical_identity = "provider::Token";
+    expect_missing();
+    source.native_types.front().canonical_identity.clear();
+    source.native_types.front().value_contract = descriptor::NativeAtomicValueContract{.owning_copy = true, .text = true};
+    expect_missing();
+    source.native_types.front().canonical_identity = "provider::Token";
+    REQUIRE(descriptor::read_json(descriptor::to_json(source)));
+    // Legacy resource-state descriptors keep their separate opaque contract.
+    source.native_types.front().category = descriptor::NativeTypeCategory::OpaqueState;
+    source.native_types.front().canonical_identity.clear();
+    source.native_types.front().value_contract.reset();
+    REQUIRE(descriptor::read_json(descriptor::to_json(source)));
+}
+
+TEST_CASE("generated descriptors retain foreign native owners across downstream reimport", "[descriptor][native]") {
+    gir::Module extension;
+    extension.path = "checks.extension";
+    for (const std::string name : {"Token", "Other"}) {
+        extension.native_types.push_back(hgl::NativeTypeContract{
+            .module_identity    = "checks.provider",
+            .identity           = "checks.provider::" + name,
+            .name               = name,
+            .canonical_identity = "provider::" + name,
+            .cpp_type           = "provider::" + name,
+            .public_header      = "provider/tokens.h",
+            .capabilities       = {.owning_copy = true, .text = true, .equality = true, .hash = true},
+            .atomic_value       = true,
+            .exported           = true,
+        });
+        extension.types.push_back(gir::Type{.kind = hgl::ir::hir::TypeKind::Symbol, .nominal_identity = "provider::" + name});
+    }
+    extension.callables  = {{.identity   = "checks.extension.first",
+                             .visibility = gir::CallableVisibility::Export,
+                             .kind       = gir::CallableKind::Composition,
+                             .result     = gir::TypeId{0U}},
+                            {.identity   = "checks.extension.second",
+                             .visibility = gir::CallableVisibility::Export,
+                             .kind       = gir::CallableKind::Composition,
+                             .result     = gir::TypeId{1U}}};
+    extension.structures = {{.identity = "checks.extension.Packet",
+                             .exported = true,
+                             .fields = {{.name = "first", .type = gir::TypeId{0U}}, {.name = "second", .type = gir::TypeId{1U}}}}};
+    const auto published = descriptor::describe_module(extension, {});
+    const auto read      = descriptor::read_json(descriptor::to_json(published));
+    REQUIRE(read);
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(*read.value, catalog));
+    const auto *imported = catalog.find("checks.extension");
+    REQUIRE(imported);
+    CHECK(imported->native_types.empty());
+    CHECK(imported->delegated_native_types.size() == 2U);
+    CHECK_FALSE(catalog.find_native_type("checks.extension", "Token"));
+    CHECK_FALSE(catalog.find_native_type("checks.extension", "Other"));
+    const auto *packet = catalog.find_struct("checks.extension", "Packet");
+    REQUIRE(packet);
+    REQUIRE(packet->fields.size() == 2U);
+    CHECK(packet->fields[0].type.kind == hgl::semantics::ImportedTypeKind::NativeAtomic);
+    CHECK(packet->fields[0].type.nominal_identity == "checks.provider::Token");
+    CHECK(packet->fields[1].type.nominal_identity == "checks.provider::Other");
+    for (const std::string name : {"Token", "Other"}) {
+        const auto *contract = catalog.find_native_type_by_identity("checks.provider::" + name);
+        REQUIRE(contract);
+        CHECK(contract->module_identity == "checks.provider");
+        CHECK(contract->name == name);
+        CHECK(contract->canonical_identity == "provider::" + name);
+        CHECK(contract->exported);
+    }
+    // A second extension can delegate the same contracts without becoming
+    // their owner. Loading the original provider later is order-independent.
+    auto second              = *read.value;
+    second.module_identity   = "checks.second";
+    second.provider_identity = second.module_identity;
+    second.interface.clear();
+    descriptor::seal(second);
+    REQUIRE_FALSE(descriptor::add_to_catalog(second, catalog));
+    auto provider              = second;
+    provider.module_identity   = "checks.provider";
+    provider.provider_identity = provider.module_identity;
+    descriptor::seal(provider);
+    REQUIRE_FALSE(descriptor::add_to_catalog(provider, catalog));
+    REQUIRE(catalog.find_native_type("checks.provider", "Token"));
+    CHECK(catalog.find_native_type_by_identity("checks.provider::Token")->descriptor_fingerprint ==
+          provider.descriptor_fingerprint);
+    auto mismatch                          = second;
+    mismatch.module_identity               = "checks.conflicting";
+    mismatch.provider_identity             = mismatch.module_identity;
+    mismatch.native_types.front().cpp_type = "provider::WrongMapping";
+    descriptor::seal(mismatch);
+    const auto error = descriptor::add_to_catalog(mismatch, catalog);
+    REQUIRE(error);
+    CHECK(error->message.find("incompatible delegated contracts") != std::string::npos);
 }
