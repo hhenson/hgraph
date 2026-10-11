@@ -64,6 +64,11 @@ checks the library's actual runtime paths, stages shared simdjson beside it,
 then moves the SDK and runs a consumer linked only to ``hgl::native_package``.
 It also verifies that dependency resolution uses the relocated simdjson copy.
 
+Windows build-tree language executables stage their linked runtime DLLs beside
+the executable. Post-build staging holds one process-scoped lock per destination
+directory, so parallel targets sharing that directory cannot copy the same DLL
+concurrently. A staging or lock failure still fails the build.
+
 Translation-Unit Budget
 -----------------------
 
