@@ -592,6 +592,20 @@ namespace hgl::hgraph_ir
             out << '\n';
         }
 
+        out << "enums\n";
+        for (const EnumContract &enumeration : module.enums) {
+            out << "  ";
+            if (enumeration.test_only) { out << "test-only "; }
+            if (enumeration.exported) { out << "export "; }
+            out << "enum " << enumeration.identity << " members=[";
+            for (std::size_t index = 0; index < enumeration.members.size(); ++index) {
+                if (index != 0) { out << ", "; }
+                const auto &[name, number] = enumeration.members[index];
+                out << name << '=' << number;
+            }
+            out << "]\n";
+        }
+
         out << "structures\n";
         for (const StructContract &structure : module.structures) {
             out << "  ";

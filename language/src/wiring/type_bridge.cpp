@@ -52,15 +52,12 @@ namespace hgl::wiring
         }
     }  // namespace
 
-    TypeBridge::TypeBridge(const hgraph_ir::Module &module, syntax::DiagnosticSink &diagnostics)
+    TypeBridge::TypeBridge(const hgraph_ir::Module &module, syntax::DiagnosticSink &diagnostics, bool include_test_contexts)
         : module_{module}, diagnostics_{diagnostics}, registry_{hgraph::TypeRegistry::instance()},
-          types_{hgraph::stdlib::register_standard_types(registry_)}, generation_{registry_.reset_generation()} {
+          types_{hgraph::stdlib::register_standard_types(registry_)}, generation_{registry_.reset_generation()},
+          include_test_contexts_{include_test_contexts} {
         structures_.reserve(module_.structures.size());
-        for (const auto &contract : module_.enums) {
-            std::vector<std::pair<std::string, long long>> members;
-            for (const auto &[name, number] : contract.members) { members.emplace_back(name, number); }
-            hgraph::TypeRegistry::instance().enum_type(contract.identity, members);
-        }
+        register_enums();
         for (const hgraph_ir::StructContract &contract : module_.structures) { structures_.emplace(contract.identity, &contract); }
     }
 
@@ -74,13 +71,18 @@ namespace hgl::wiring
         // with everything else this bridge cached.
         realized_.clear();
         realized_schemas_.clear();
-        types_      = hgraph::stdlib::register_standard_types(registry_);
+        types_ = hgraph::stdlib::register_standard_types(registry_);
+        register_enums();
+        generation_ = registry_.reset_generation();
+    }
+
+    void TypeBridge::register_enums() {
         for (const auto &contract : module_.enums) {
+            if (contract.test_only && !include_test_contexts_) { continue; }
             std::vector<std::pair<std::string, long long>> members;
             for (const auto &[name, number] : contract.members) { members.emplace_back(name, number); }
             registry_.enum_type(contract.identity, members);
         }
-        generation_ = registry_.reset_generation();
     }
 
     bool TypeBridge::optional_field(const hgraph::ValueTypeMetaData *type, std::size_t index) const {

@@ -10,9 +10,9 @@
 #include <hgl/temporal_literals.h>
 #include <hgraph/lib/std/standard_types.h>
 #include <hgraph/types/metadata/type_registry.h>
-#include <hgraph/types/time_series/endpoint_schema.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/registry_reset.h>
+#include <hgraph/types/time_series/endpoint_schema.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -327,6 +327,52 @@ fn consume(value: Mode) -> Mode => value
     CHECK(shape->value_schema->is_enum());
     CHECK(shape->value_schema->fields[0].enum_value == -7);
     CHECK(shape->value_schema->fields[1].enum_value == 42);
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
+TEST_CASE("production bridges omit test-local enum registration across resets", "[wiring][hgraph-ir][enum]") {
+    Unit unit{R"(module checks.enum_test_isolation
+enum ProductionMode { forward = 19 }
+fn consume(value: i64) -> i64 => value
+test {
+    enum PrivateMode { first = -7, second = 42 }
+    test private_member { assert PrivateMode::first == PrivateMode::first }
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.enums.size() == 2U);
+    REQUIRE_FALSE(unit.graph.enums.front().test_only);
+    REQUIRE(unit.graph.enums.back().test_only);
+    auto       &registry  = hgraph::TypeRegistry::instance();
+    const auto &identity  = unit.graph.enums.back().identity;
+    const auto  parameter = unit.parameter("consume", "value");
+    hgraph::reset_all_registries();
+    hgl::wiring::TypeBridge production{unit.graph, unit.diagnostics};
+    CHECK(registry.named_enum(identity) == nullptr);
+    REQUIRE(registry.named_enum("checks.enum_test_isolation.ProductionMode") != nullptr);
+    const auto *conflicting = registry.enum_type(identity, {{"different", 99}});
+    CHECK_NOTHROW(hgl::wiring::TypeBridge{unit.graph, unit.diagnostics});
+    CHECK(registry.named_enum(identity) == conflicting);
+    CHECK(conflicting->fields[0].enum_value == 99);
+    REQUIRE(production.schema(parameter) != nullptr);
+    hgraph::reset_all_registries();
+    REQUIRE(production.schema(parameter) != nullptr);
+    CHECK(registry.named_enum(identity) == nullptr);
+    REQUIRE(registry.named_enum("checks.enum_test_isolation.ProductionMode") != nullptr);
+    {
+        hgl::wiring::TypeBridge tests{unit.graph, unit.diagnostics, true};
+        const auto             *enumeration = registry.named_enum(identity);
+        REQUIRE(enumeration != nullptr);
+        CHECK(enumeration->fields[0].enum_value == -7);
+        CHECK(enumeration->fields[1].enum_value == 42);
+        hgraph::reset_all_registries();
+        REQUIRE(tests.schema(parameter) != nullptr);
+        CHECK(registry.named_enum(identity) != nullptr);
+    }
+    hgraph::reset_all_registries();
+    REQUIRE(production.schema(parameter) != nullptr);
+    CHECK(registry.named_enum(identity) == nullptr);
     CHECK_FALSE(unit.diagnostics.has_errors());
 }
 

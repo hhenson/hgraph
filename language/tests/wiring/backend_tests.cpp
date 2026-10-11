@@ -1532,6 +1532,22 @@ test identity {
     CHECK(result.passed);
 }
 
+TEST_CASE("direct test execution registers private test-local enum publications", "[wiring][enum][test-context]") {
+    Unit       unit{R"(module tests.enum_test_execution
+test {
+    enum PrivateMode { first = -7, second = 42 }
+    fn identity(value: PrivateMode) -> PrivateMode => value
+    test publications {
+        assert eval(identity, [PrivateMode::first, _, PrivateMode::second]) == [PrivateMode::first, _, PrivateMode::second]
+    }
+}
+)"};
+    const auto result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
 TEST_CASE("native publication admission rejects NaN collection keys", "[wiring][scalar-keys]") {
     using namespace hgraph;
     using namespace hgl::ordinary;

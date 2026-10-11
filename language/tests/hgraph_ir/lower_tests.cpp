@@ -1300,3 +1300,20 @@ TEST_CASE("ordinary local field mutation is admitted in test value code", "[hgra
     INFO(unit.diagnostics.render(unit.file));
     CHECK_FALSE(unit.diagnostics.has_errors());
 }
+
+TEST_CASE("hgraph IR dumps preserve enum ownership and declared members", "[hgraph-ir][enum]") {
+    Lowered unit{R"(module checks.enum_dump
+enum Mode { reverse = -1, stopped, forward }
+test {
+    enum PrivateMode { first = -7, second = 42 }
+    test private_member { assert PrivateMode::first == PrivateMode::first }
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(unit.graph.has_value());
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    const std::string dump = hgl::hgraph_ir::print(*unit.graph);
+    CHECK(dump.find("enums\n") != std::string::npos);
+    CHECK(dump.find("enum checks.enum_dump.Mode members=[reverse=-1, stopped=0, forward=1]") != std::string::npos);
+    CHECK(dump.find("test-only enum checks.enum_dump.PrivateMode members=[first=-7, second=42]") != std::string::npos);
+}

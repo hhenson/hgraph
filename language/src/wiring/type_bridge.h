@@ -25,7 +25,7 @@ namespace hgl::wiring
     class TypeBridge
     {
       public:
-        TypeBridge(const hgraph_ir::Module &module, syntax::DiagnosticSink &diagnostics);
+        TypeBridge(const hgraph_ir::Module &module, syntax::DiagnosticSink &diagnostics, bool include_test_contexts = false);
 
         /// Presence requirements belong to the source contract, not core bundle layout.
         [[nodiscard]] bool optional_field(const hgraph::ValueTypeMetaData *type, std::size_t index) const;
@@ -97,6 +97,7 @@ namespace hgl::wiring
         [[nodiscard]] const hgraph::TSValueTypeMetaData *nominal_schema(const hgraph_ir::Type &type, const Bindings &outer);
         [[nodiscard]] const hgraph::TSValueTypeMetaData *register_schema(const hgraph_ir::Type &type, const Bindings &outer);
         void                                             refresh_registry();
+        void                                             register_enums();
         void                                             report(syntax::SourceRange range, std::string message);
 
         const hgraph_ir::Module                                               &module_;
@@ -104,6 +105,7 @@ namespace hgl::wiring
         hgraph::TypeRegistry                                                  &registry_;
         hgraph::stdlib::RegisteredStandardTypes                                types_{};
         std::uint64_t                                                          generation_{0};
+        bool                                                                   include_test_contexts_{false};
         std::unordered_map<const hgraph::ValueTypeMetaData *, const hgraph_ir::StructContract *> presence_contracts_{};
         std::unordered_map<std::uint32_t, const hgraph::ValueTypeMetaData *>   values_{};
         std::unordered_map<std::uint32_t, const hgraph::TSValueTypeMetaData *> schemas_{};

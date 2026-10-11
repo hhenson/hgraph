@@ -1568,7 +1568,10 @@ helper, a test-local type cannot shadow a production declaration or import:
 its identity is the module's ordinary `<module>.<Name>` schema name, with no
 `$test` suffix, so the resolver reports a conflict instead. HGraph IR marks
 the resulting `StructContract`/`EnumContract` `test_only`, and the C++ emitter
-omits those declarations unless test contexts are requested.
+omits those declarations unless test contexts are requested. The direct-wiring
+type bridge registers test-local enums only for test execution, including after
+a registry reset; production runs and setting evaluation omit them. HGraph IR
+dumps list enum ownership and members as well as struct ownership.
 
 HGraph IR carries test ownership on callables and expression origins. A
 generated value-function lift is test-only if all its uses are test-only; a
