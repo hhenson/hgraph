@@ -17,6 +17,7 @@ namespace hgraph
     class GraphView;
     class NodeView;
     class PreparedInputReferenceRoute;
+    class TSInputView;
 
     namespace detail
     {
@@ -24,6 +25,10 @@ namespace hgraph
         struct TSInputTargetActiveNode;
         struct TSInputTargetLinkStorage;
         struct TSInputViewOps;
+        /** Owner-internal binding helper. The declared schema is immutable
+            for this input position over the child graph's lifetime. */
+        [[nodiscard]] HGRAPH_EXPORT TSOutputView declared_source_view(
+            TSInputView &target, TSOutputView source, const TSValueTypeMetaData *declared_schema);
 
         /**
          * A prepared canonical-slot route (RFC 0008 stage 5): the per-tick
@@ -287,6 +292,8 @@ namespace hgraph
 
       private:
         friend class TSInput;
+        friend TSOutputView detail::declared_source_view(
+            TSInputView &, TSOutputView, const TSValueTypeMetaData *);
         friend class TSBInputView;
         friend class TSLInputView;
         friend class TSSInputView;

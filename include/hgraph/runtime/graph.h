@@ -119,6 +119,9 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
         const char *display_name{nullptr};
         std::vector<GraphNodeEntry> nodes{};
         std::vector<GraphEdge> edges{};
+        /** Edge-ordinal sidecar; empty means all edges use physical views.
+            Keeps the packed GraphEdge layout unchanged. */
+        std::vector<const TSValueTypeMetaData *> edge_source_views{};
         std::size_t push_source_nodes_end{0};
 
         [[nodiscard]] std::string_view name() const noexcept;
@@ -391,6 +394,8 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
         GraphBuilder &label(std::string label);
         GraphBuilder &add_node(NodeBuilder node);
         GraphBuilder &add_edge(GraphEdge edge);
+        /** Retain a declared source view without changing its producer schema. */
+        GraphBuilder &add_edge(GraphEdge edge, const TSValueTypeMetaData *source_view_schema);
 
         /**
          * A view over the graph's initial ``GlobalState``, populated at wiring
@@ -427,6 +432,7 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
         /** Mutable access to a wired node builder (nested operators adjust per-instance endpoints). */
         [[nodiscard]] NodeBuilder &node_at(std::size_t index);
         [[nodiscard]] const std::vector<GraphEdge> &edges() const noexcept;
+        [[nodiscard]] const std::vector<const TSValueTypeMetaData *> &edge_source_views() const noexcept;
         [[nodiscard]] GraphTypeRef type() const;
         [[nodiscard]] GraphTypeRef root_type() const;
         [[nodiscard]] GraphTypeRef nested_type() const;
@@ -447,6 +453,7 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
         std::string                   label_{};
         std::vector<NodeBuilder>      nodes_{};
         std::vector<GraphEdge>        edges_{};
+        std::vector<const TSValueTypeMetaData *> edge_source_views_{};
         GlobalState                   global_state_{};
         GlobalState                   traits_{};   // trait store: same value-layer Map<string, Any> shape
         mutable GraphTypeRef          root_type_{};

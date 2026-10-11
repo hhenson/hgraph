@@ -8,6 +8,7 @@
 
 #include <hgraph/runtime/executor.h>
 #include <hgraph/runtime/lifecycle_observer.h>
+#include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/types/metadata/debug_descriptor.h>
 #include <hgraph/types/metadata/type_record_registry.h>
 #include <hgraph/types/time_series/ts_output.h>
@@ -281,7 +282,8 @@ graph_storage_plan_for(const std::vector<NodeBuilder> &nodes) {
 
 [[nodiscard]] GraphRuntimeContext graph_runtime_context_for(const MemoryUtils::StoragePlan &plan,
                                                             const std::vector<NodeBuilder> &node_builders,
-                                                            const std::vector<GraphEdge>   &edges) {
+                                                            const std::vector<GraphEdge>   &edges,
+                                                            const std::vector<const TSValueTypeMetaData *> &source_views) {
     const auto &header       = plan.component(graph_header_field_name);
     const auto &node_storage = plan.component(graph_nodes_field_name);
     const auto &schedule     = plan.component(graph_schedule_field_name);
@@ -333,7 +335,9 @@ graph_storage_plan_for(const std::vector<NodeBuilder> &nodes) {
         }
         return schema;
     };
-    for (const auto &edge : edges) {
+    for (std::size_t ordinal = 0; ordinal < edges.size(); ++ordinal) {
+        const auto &edge = edges[ordinal];
+        const auto *source_view = source_views.empty() ? nullptr : source_views.at(ordinal);
         const auto source_node = graph_edge_source_node(edge.source_node);
         if (source_node >= node_builders.size() || edge.target_node >= node_builders.size()) { continue; }
         const auto                *source_meta = node_builders[source_node].type().schema();
@@ -345,6 +349,13 @@ graph_storage_plan_for(const std::vector<NodeBuilder> &nodes) {
             case GraphEdgeSourceKind::RecordableState: source = source_meta->recordable_state_schema; break;
         }
         source             = schema_at_path(source, edge.source_path, true);
+        if (source_view != nullptr && source_view->kind != TSTypeKind::SIGNAL)
+        {
+            if (!TSOutput::binding_compatible(source, *source_view))
+            {
+                throw std::invalid_argument("Graph edge declared source view is incompatible with its producer");
+            }
+        }
         const auto *target = schema_at_path(target_meta->input_schema, edge.target_path, false);
         if (source != nullptr && target != nullptr && source->kind != TSTypeKind::REF && target->kind == TSTypeKind::REF) {
             context.initial_reference_edges.push_back(edge);
@@ -386,7 +397,8 @@ template <typename Header>
 }
 
 void bind_edges(const GraphRuntimeContext &context, void *memory,
-                const std::vector<GraphEdge> &edges) {
+                const std::vector<GraphEdge> &edges,
+                const std::vector<const TSValueTypeMetaData *> &source_views) {
   const auto path_label = [](const std::vector<std::size_t> &path) {
     std::string label;
     for (const auto component : path) {
@@ -397,7 +409,9 @@ void bind_edges(const GraphRuntimeContext &context, void *memory,
     }
     return label;
   };
-  for (const auto &edge : edges) {
+  for (std::size_t ordinal = 0; ordinal < edges.size(); ++ordinal) {
+    const auto &edge = edges[ordinal];
+    const auto *declared_source_schema = source_views.empty() ? nullptr : source_views.at(ordinal);
     const std::size_t source_node = graph_edge_source_node(edge.source_node);
     if (source_node >= context.layout.node_count ||
         edge.target_node >= context.layout.node_count) {
@@ -416,6 +430,10 @@ void bind_edges(const GraphRuntimeContext &context, void *memory,
       target = input_at_path(
           graph_node_view(context, memory, edge.target_node).input(MIN_DT),
           edge.target_path);
+      if (target.schema()->kind == TSTypeKind::SIGNAL)
+      {
+          source = declared_source_view(std::move(source), declared_source_schema);
+      }
     } catch (const std::exception &error) {
       throw std::invalid_argument(
           "Graph edge from " + node_identity(source_view, source_node) +
@@ -598,7 +616,7 @@ void construct_graph_storage(GraphTypeRef type, const GraphBuilder &builder,
     ++constructed_schedule;
   }
   graph_complete = true;
-  bind_edges(context, memory, builder.edges());
+  bind_edges(context, memory, builder.edges(), builder.edge_source_views());
   rollback.release();
 }
 
@@ -1338,11 +1356,14 @@ struct GraphRuntimeRegistry {
     for (const NodeBuilder &node : builder.nodes()) {
       result = combine_hash(result, std::hash<NodeTypeRef>{}(node.type()));
     }
-    for (const GraphEdge &edge : builder.edges()) {
+    for (std::size_t ordinal = 0; ordinal < builder.edges().size(); ++ordinal) {
+      const auto &edge = builder.edges()[ordinal];
+      const auto *source_view = builder.edge_source_views().empty() ? nullptr : builder.edge_source_views()[ordinal];
       result = combine_hash(result, edge.source_node);
       for (const std::size_t component : edge.source_path) {
         result = combine_hash(result, component);
       }
+      result = combine_hash(result, std::hash<const TSValueTypeMetaData *>{}(source_view));
       result = combine_hash(result, edge.target_node);
       for (const std::size_t component : edge.target_path) {
         result = combine_hash(result, component);
@@ -1364,6 +1385,7 @@ struct GraphRuntimeRegistry {
     if (entry.schema.name() != builder.label() ||
         entry.schema.nodes.size() != builder.nodes().size() ||
         entry.schema.edges.size() != builder.edges().size() ||
+        entry.schema.edge_source_views != builder.edge_source_views() ||
         entry.schema.push_source_nodes_end !=
             compute_push_source_nodes_end(builder)) {
       return false;
@@ -1402,6 +1424,7 @@ struct GraphRuntimeRegistry {
           GraphNodeEntry{builder.nodes()[index].type().schema(), index});
     }
     meta.edges = builder.edges();
+    meta.edge_source_views = builder.edge_source_views();
     meta.push_source_nodes_end = compute_push_source_nodes_end(builder);
 
     return meta;
@@ -1424,7 +1447,7 @@ struct GraphRuntimeRegistry {
 
     const auto &root_plan =
         graph_storage_plan_for<RootGraphRuntimeStorage>(builder.nodes());
-    entry.root_context = graph_runtime_context_for(root_plan, builder.nodes(), builder.edges());
+    entry.root_context = graph_runtime_context_for(root_plan, builder.nodes(), builder.edges(), builder.edge_source_views());
     entry.root_ops = make_root_ops(&entry.root_context);
     entry.root_type = intern_graph_type(entry.schema, root_plan, entry.root_ops,
                                         "hgraph.graph.root");
@@ -1432,7 +1455,7 @@ struct GraphRuntimeRegistry {
     if (entry.schema.push_source_nodes_end == 0) {
       const auto &nested_plan =
           graph_storage_plan_for<NestedGraphRuntimeStorage>(builder.nodes());
-      entry.nested_context = graph_runtime_context_for(nested_plan, builder.nodes(), builder.edges());
+      entry.nested_context = graph_runtime_context_for(nested_plan, builder.nodes(), builder.edges(), builder.edge_source_views());
       entry.nested_ops = make_nested_ops(&entry.nested_context);
       entry.nested_type = intern_graph_type(
           entry.schema, nested_plan, entry.nested_ops, "hgraph.graph.nested");
@@ -2141,7 +2164,16 @@ GraphBuilder &GraphBuilder::add_node(NodeBuilder node) {
 }
 
 GraphBuilder &GraphBuilder::add_edge(GraphEdge edge) {
+  return add_edge(std::move(edge), nullptr);
+}
+
+GraphBuilder &GraphBuilder::add_edge(GraphEdge edge, const TSValueTypeMetaData *source_view_schema) {
   edges_.push_back(std::move(edge));
+  if (source_view_schema != nullptr || !edge_source_views_.empty()) {
+    if (edge_source_views_.empty()) { edge_source_views_.resize(edges_.size(), nullptr); }
+    else { edge_source_views_.push_back(nullptr); }
+    edge_source_views_.back() = source_view_schema;
+  }
   invalidate_types();
   return *this;
 }
@@ -2235,6 +2267,11 @@ bool GraphBuilder::requires_phase_runner() const noexcept {
 const std::vector<GraphEdge> &GraphBuilder::edges() const noexcept {
   return edges_;
 }
+
+const std::vector<const TSValueTypeMetaData *> &GraphBuilder::edge_source_views() const noexcept {
+  return edge_source_views_;
+}
+
 
 NodeBuilder &GraphBuilder::node_at(std::size_t index) {
   if (index >= nodes_.size()) {

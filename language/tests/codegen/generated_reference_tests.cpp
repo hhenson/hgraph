@@ -166,6 +166,9 @@ TEST_CASE("generated reference projections follow only their selected declared c
     CHECK(eval_node<projections::public_second>(values<Value>(list_delta<TS<Int>>({{0, 7}}),
         list_delta<TS<Int>>({{1, 20}}), std::nullopt, list_delta<TS<Int>>({{0, 8}, {1, 21}}))) ==
         values<Int>(std::nullopt, 20, std::nullopt, 21));
+    CHECK(eval_node<projections::public_plain_second>(values<Value>(list_delta<TS<Int>>({{0, 7}}),
+        list_delta<TS<Int>>({{1, 20}}), std::nullopt, list_delta<TS<Int>>({{0, 8}}),
+        list_delta<TS<Int>>({{1, 20}}))) == values<Int>(std::nullopt, 20, std::nullopt, std::nullopt, 20));
     CHECK(eval_node<projections::public_selected_bid>(values<Int>(0, std::nullopt, 1, std::nullopt, 1),
         values<Value>(tsb_delta<Quote>(Int{7}, std::nullopt), tsb_delta<Quote>(std::nullopt, Int{20})),
         values<Value>(tsb_delta<Quote>(Int{7}, std::nullopt), std::nullopt, std::nullopt,

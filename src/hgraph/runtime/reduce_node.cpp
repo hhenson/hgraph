@@ -489,6 +489,7 @@ namespace hgraph
                 }
                 auto target = walk_ts_path(child.node_at(binding.target.node).input(evaluation_time),
                                            binding.target.path);
+                source = detail::declared_source_view(target, std::move(source), binding.source_view_schema);
                 const bool same_source = target.bound() && source.bound() &&
                                          target.bound_output().handle().same_as(source.handle());
                 if (same_source || (!target.bound() && !source.bound())) { continue; }

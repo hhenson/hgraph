@@ -425,7 +425,8 @@ namespace hgraph
                 auto target = walk_ts_path(
                     child.node_at(binding.target.node).input(evaluation_time),
                     binding.target.path);
-                bind_input_to_source(std::move(target), source_for(binding.source_path));
+                auto source = detail::declared_source_view(target, source_for(binding.source_path), binding.source_view_schema);
+                bind_input_to_source(std::move(target), source);
             }
 
             const auto &output = *context.spec.child.output_binding;

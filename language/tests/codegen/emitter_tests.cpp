@@ -4621,3 +4621,29 @@ fn selected(value:ref<Nested>)->ref<i64> => value.child
     CHECK(generated->header.find("hgl::ordinary::Held<hgraph::TSL<hgraph::REF<hgraph::TS<hgraph::Int>>, 2>>") != std::string::npos);
     CHECK(generated->header.find("hgraph::REF<hgraph::REF<") == std::string::npos);
 }
+
+TEST_CASE("emit-cpp keeps a fixed List's literal child as its original graph endpoint", "[codegen][ref][projection]") {
+    Unit unit{R"(
+module t
+fn relay(value: ref<i64>) -> ref<i64> { when { return value } }
+fn read(value: i64) -> i64 { when { return delta_value(value) } }
+export fn selected(value: list<i64, 2>) -> i64 => read(relay(value[1]))
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::tsl_element(value, 1)"));
+    CHECK_FALSE(contains(emitted->source, "hgraph::wire<hgraph::stdlib::getitem_>"));
+}
+
+TEST_CASE("emit-cpp retains exact declared endpoint types at signal calls", "[codegen][ref][signal]") {
+    Unit unit{R"(
+module t
+fn observed(value: signal) -> bool { when { return modified(value) } }
+export fn opaque(value: ref<i64>) -> bool => observed(value)
+export fn ordinary(value: i64) -> bool => observed(value)
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK_FALSE(contains(emitted->source, ".as<hgraph::SIGNAL>()"));
+    CHECK(occurrences(emitted->source, "hgraph::wire<observed>(w, hgl_call_arg_0)") == 2U);
+}

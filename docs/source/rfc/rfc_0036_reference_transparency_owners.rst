@@ -579,3 +579,40 @@ References
   PR #655 (``SwitchOutputMode``, boundary REF modes), #649 (structural
   adaptation of a REF source).
 * The 2026-09-04 fix-series retrospective, invariant 1.
+
+Declared source views at graph binding
+-------------------------------------
+
+A wiring port's declared view can differ from its producer's physical output:
+``REF<TS<Int>>`` may be presented as an ordinary ``TS<Int>`` view. The declared
+view is retained as graph-owned edge metadata (an edge-ordinal sidecar, leaving
+the packed ``GraphEdge`` layout unchanged) and on nested input bindings.
+Graph interning, manifest descriptors and nested checkpoint contracts include
+this metadata. A null declaration retains the physical view of a hand-built
+edge. A typed ``Port<SIGNAL>`` retains the caller's observation schema
+separately from its logical ``SIGNAL`` schema; typed graph parameters therefore
+preserve this distinction without gaining an ordinary payload cast.
+
+Cold binding of a metadata consumer uses the existing output-owned
+``binding_for`` adapter to realize its declared observation view; it does not
+change the consumer's logical schema. Ordinary and REF consumers retain their
+existing consumer-schema binding normalization, including collapse of an
+already-REF producer. An ordinary observation descriptor must not introduce
+an intervening ordinary-to-REF owner when an opaque REF consumer binds it.
+This is significant for ``SIGNAL``: a direct REF observes designation metadata,
+while an explicitly ordinary view observes the followed target. Both retain
+the same Boolean signal value/delta facade. ``SIGNAL`` is a metadata consumer,
+so source adaptation does not first erase its REF declaration.
+
+Nested input owners retain two borrowed handles: the offered producer and its
+resolved declared view. The declaration is immutable for that input position.
+Re-offering the same producer compares the declared-view cache key and
+endpoint identity, and requires the input to remain bound before returning
+the cached route; changing the token inside a REF uses the existing adapter's
+retargeting protocol. Resolving a different producer belongs to route binding,
+not payload observation. This cache owns neither outputs nor subscriptions. Unbind, source
+invalidation, disposal and moves discard the borrowed handles; an offer before
+a successful bind cannot be reused. Producer disposal therefore invalidates
+the existing bound link before its address can be reused, and a pending
+unbound offer always resolves afresh. A cold incompatible declared
+view remains an error.

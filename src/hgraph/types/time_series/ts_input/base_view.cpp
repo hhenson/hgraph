@@ -425,6 +425,18 @@ namespace hgraph
         return link->resolved_target_at_path(*schema, data_.target_path_node()).view(evaluation_time_);
     }
 
+    TSOutputView detail::declared_source_view(
+        TSInputView &target, TSOutputView source, const TSValueTypeMetaData *declared_schema)
+    {
+        if (declared_schema == nullptr) { return source; }
+        const auto *link = target.data_.link_storage();
+        if (link == nullptr || target.data_.target_path_node() != nullptr)
+        {
+            throw std::logic_error("Declared source view requires a peered root input binding");
+        }
+        return link->declared_source_view(source, *declared_schema, *target.schema());
+    }
+
     bool TSInputView::bound_to_source(const TSOutputView &output) const
     {
         if (!is_target_position()) { return false; }

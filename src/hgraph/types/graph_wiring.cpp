@@ -49,6 +49,7 @@ struct SourceKey {
   const WiringInstance *peered_node{nullptr};
   std::vector<std::size_t> peered_path{};
   const TSValueTypeMetaData *schema{nullptr};
+  const TSValueTypeMetaData *observation_schema{nullptr};
   std::vector<SourceKey> structural_children{};
   std::size_t boundary_arg{static_cast<std::size_t>(-1)};
   std::vector<std::size_t> boundary_path{};
@@ -121,6 +122,7 @@ private:
     combine(h, std::hash<int>{}(static_cast<int>(source.peered_output_kind)));
     combine(h, std::hash<const void *>{}(source.peered_node));
     combine(h, std::hash<const void *>{}(source.schema));
+    combine(h, std::hash<const void *>{}(source.observation_schema));
     for (std::size_t p : source.peered_path) {
       combine(h, std::hash<std::size_t>{}(p));
     }
@@ -144,7 +146,8 @@ private:
 };
 
 [[nodiscard]] SourceKey source_key_for(const WiringPortRef &source) {
-  SourceKey key{.kind = source.source_kind(), .schema = source.schema};
+  SourceKey key{.kind = source.source_kind(), .schema = source.schema,
+                .observation_schema = source.observation_schema};
   if (source.is_peered_source()) {
     key.peered_node = source.peered_node();
     key.peered_path = source.peered_path();
@@ -687,6 +690,8 @@ void emit_edges(
             .source_path = {external->second},
             .target =
                 NestedGraphEndpoint{.node = target_node, .path = target_path},
+            .source_view_schema = source.declared_source_view() != nullptr && source.declared_source_view()->kind != TSTypeKind::SIGNAL
+                                      ? source.declared_source_view() : nullptr,
         });
         return;
       }
@@ -714,7 +719,8 @@ void emit_edges(
         .source_path = source.peered_path(),
         .target_node = target_node,
         .target_path = target_path,
-    });
+    }, source.declared_source_view() != nullptr && source.declared_source_view()->kind != TSTypeKind::SIGNAL
+           ? source.declared_source_view() : nullptr);
     return;
   }
   if (source.is_null_source()) {
@@ -737,6 +743,8 @@ void emit_edges(
     boundary_bindings->push_back(NestedGraphInputBinding{
         .source_path = std::move(source_path),
         .target = NestedGraphEndpoint{.node = target_node, .path = target_path},
+        .source_view_schema = source.declared_source_view() != nullptr && source.declared_source_view()->kind != TSTypeKind::SIGNAL
+                                      ? source.declared_source_view() : nullptr,
     });
     return;
   }
@@ -1168,7 +1176,7 @@ WiringPortRef adapt_source_for_input_impl(Wiring &w,
     return source;
   }
   const bool consumes_value =
-      value_consumer && input_schema->kind != TSTypeKind::REF;
+      value_consumer && input_schema->kind != TSTypeKind::REF && input_schema->kind != TSTypeKind::SIGNAL;
 
   auto &registry = TypeRegistry::instance();
   const auto *input = registry.dereference(input_schema);

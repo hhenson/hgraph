@@ -2791,7 +2791,7 @@ namespace hgl::codegen
             if (!value.is_port()) { fail(Category::Type, range, "a time-series value is required"); }
             // A symbolic target is a wiring pattern, not concrete metadata
             // that Port::as can validate. Let wire infer its exact schema.
-            if (symbolic(temporal) ||
+            if (temporal.kind == HType::Kind::Signal || symbolic(temporal) ||
                 (value.type.kind != HType::Kind::Unknown && same_type(value.type, temporal))) { return value.code; }
             return value.code + ".as<" + s + ">()";
         }
@@ -3684,6 +3684,16 @@ namespace hgl::codegen
                             return make_runtime(selector + ".value()", target.type.children.front(), expression.range, selector);
                         }
                         if (!target.is_port()) { unsupported(expression.range, "indexing a constant"); }
+                        if (target.type.kind == HType::Kind::List && target.type.concrete_size) {
+                            const auto position = integer_value(index);
+                            if (position && *position >= 0 && *position < *target.type.concrete_size) {
+                                // An ordinary fixed List's constant child is a
+                                // graph port path, rather than a runtime getitem
+                                // node. Retain its exact child schema and identity.
+                                return make_port("hgraph::tsl_element(" + target.code + ", " + std::to_string(*position) + ")",
+                                                 target.type.children.front(), expression.range);
+                            }
+                        }
                         const std::string marker = planned_operator_marker(
                             expression.operation.identity,
                             expression.operation.registry_name.empty() ? std::string_view{"getitem_"}

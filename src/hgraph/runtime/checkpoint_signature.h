@@ -2,6 +2,7 @@
 #define HGRAPH_RUNTIME_CHECKPOINT_SIGNATURE_DETAIL_H
 
 #include <hgraph/manifest/canonical.h>
+#include <hgraph/manifest/schema_descriptor.h>
 #include <hgraph/runtime/nested_graph_node.h>
 
 #include <span>
@@ -43,6 +44,7 @@ namespace hgraph::node_checkpoint_detail
             append_path(writer, binding.source_path);
             append_identity(writer, identity);
             append_path(writer, binding.target.path);
+            manifest::append_ts_descriptor(writer, binding.source_view_schema);
         }
     }
 

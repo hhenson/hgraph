@@ -46,6 +46,8 @@ namespace hgraph::manifest
         constexpr std::uint32_t k_edge_tag_source_path = 3;
         constexpr std::uint32_t k_edge_tag_target_node = 4;
         constexpr std::uint32_t k_edge_tag_target_path = 5;
+        // Optional append-only field: omitted legacy edges use their physical view.
+        constexpr std::uint32_t k_edge_tag_source_view_schema = 6;
 
         // Behaviour bit positions (canonical; append-only).
         enum : std::uint64_t
@@ -192,7 +194,8 @@ namespace hgraph::manifest
             writer.scope(scope);
         }
 
-        void append_edge(CanonicalWriter &writer, const GraphEdge &edge)
+        void append_edge(CanonicalWriter &writer, const GraphEdge &edge,
+                         const TSValueTypeMetaData *source_view_schema)
         {
             CanonicalWriter scope;
             scope.tag(k_edge_tag_source_node);
@@ -207,6 +210,11 @@ namespace hgraph::manifest
             scope.tag(k_edge_tag_target_path);
             scope.varint(edge.target_path.size());
             for (const auto component : edge.target_path) { scope.varint(component); }
+            if (source_view_schema != nullptr)
+            {
+                scope.tag(k_edge_tag_source_view_schema);
+                append_ts_descriptor(scope, source_view_schema);
+            }
             writer.scope(scope);
         }
 
@@ -261,6 +269,7 @@ namespace hgraph::manifest
             std::vector<std::uint64_t> source_path;
             std::uint64_t target_node{};
             std::vector<std::uint64_t> target_path;
+            std::vector<std::byte> source_view_schema;
         };
 
         struct DecodedGraph
@@ -393,6 +402,9 @@ namespace hgraph::manifest
                     }
                     break;
                 }
+                case k_edge_tag_source_view_schema:
+                    edge.source_view_schema = owned_bytes(reader.bytes_field());
+                    break;
                 default:
                     throw CanonicalDecodeError("unknown required field in edge descriptor");
                 }
@@ -514,7 +526,10 @@ namespace hgraph::manifest
 
         writer.tag(k_graph_tag_edges);
         writer.varint(graph.edges().size());
-        for (const auto &edge : graph.edges()) { append_edge(writer, edge); }
+        for (std::size_t ordinal = 0; ordinal < graph.edges().size(); ++ordinal) {
+            append_edge(writer, graph.edges()[ordinal],
+                        graph.edge_source_views().empty() ? nullptr : graph.edge_source_views()[ordinal]);
+        }
 
         return GraphManifest{k_manifest_format_version, writer.take()};
     }
@@ -609,6 +624,11 @@ namespace hgraph::manifest
         {
             const auto &lhs = expected_graph.edges[i];
             const auto &rhs = actual_graph.edges[i];
+            if (lhs.source_view_schema != rhs.source_view_schema)
+            {
+                report(result, fmt::format("edge[{}]/source_view_schema", i),
+                       hex_preview(lhs.source_view_schema), hex_preview(rhs.source_view_schema));
+            }
             if (lhs.source_node != rhs.source_node || lhs.source_kind != rhs.source_kind ||
                 lhs.source_path != rhs.source_path || lhs.target_node != rhs.target_node ||
                 lhs.target_path != rhs.target_path)

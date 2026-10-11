@@ -87,6 +87,87 @@ namespace
         }
     };
 
+    struct ChooseOpaqueReference
+    {
+        static void eval(hgraph::In<"index", hgraph::TS<hgraph::Int>> index,
+                         hgraph::In<"first", hgraph::REF<hgraph::TS<hgraph::Int>>> first,
+                         hgraph::In<"second", hgraph::REF<hgraph::TS<hgraph::Int>>> second,
+                         hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Int>>> out) {
+            out.set(index.value() == 0 ? first.value() : second.value());
+        }
+    };
+    struct ObserveOpaqueReferenceModification
+    {
+        static void eval(hgraph::In<"value", hgraph::REF<hgraph::TS<hgraph::Int>>> value,
+                         hgraph::In<"step", hgraph::TS<hgraph::Int>> step,
+                         hgraph::Out<hgraph::TS<hgraph::Bool>> out) {
+            static_cast<void>(step);
+            out.set(value.modified());
+        }
+    };
+    std::uint64_t signal_observation_locks{0};
+    struct ObserveSignalModification
+    {
+        static void eval(hgraph::In<"value", hgraph::SIGNAL> value,
+                         hgraph::In<"step", hgraph::TS<hgraph::Int>> step,
+                         hgraph::Out<hgraph::TS<hgraph::Bool>> out) {
+            const auto before = hgraph::type_system_lock_count();
+            static_cast<void>(step);
+            out.set(value.modified());
+            signal_observation_locks += hgraph::type_system_lock_count() - before;
+        }
+    };
+    struct RepeatedReferenceDesignationGraph
+    {
+        static hgraph::Port<hgraph::TS<hgraph::Bool>> compose(hgraph::Wiring &w,
+            hgraph::Port<hgraph::TS<hgraph::Int>> index, hgraph::Port<hgraph::TS<hgraph::Int>> first,
+            hgraph::Port<hgraph::TS<hgraph::Int>> second, hgraph::Port<hgraph::TS<hgraph::Int>> step) {
+            auto selected = hgraph::wire<ChooseOpaqueReference>(w, index, first, second);
+            return hgraph::wire<ObserveOpaqueReferenceModification>(w, selected, step);
+        }
+    };
+    struct SignalReferenceDesignationGraph
+    {
+        static hgraph::Port<hgraph::TS<hgraph::Bool>> compose(hgraph::Wiring &w,
+            hgraph::Port<hgraph::TS<hgraph::Int>> index, hgraph::Port<hgraph::TS<hgraph::Int>> first,
+            hgraph::Port<hgraph::TS<hgraph::Int>> second, hgraph::Port<hgraph::TS<hgraph::Int>> step) {
+            auto selected = hgraph::wire<ChooseOpaqueReference>(w, index, first, second);
+            return hgraph::wire<ObserveSignalModification>(w, selected, step);
+        }
+    };
+
+    struct SignalOrdinaryReferenceViewGraph
+    {
+        static hgraph::Port<hgraph::TS<hgraph::Bool>> compose(hgraph::Wiring &w,
+            hgraph::Port<hgraph::TS<hgraph::Int>> index, hgraph::Port<hgraph::TS<hgraph::Int>> first,
+            hgraph::Port<hgraph::TS<hgraph::Int>> second, hgraph::Port<hgraph::TS<hgraph::Int>> step) {
+            auto selected = hgraph::wire<ChooseOpaqueReference>(w, index, first, second);
+            return hgraph::wire<ObserveSignalModification>(w, selected.as<hgraph::TS<hgraph::Int>>(), step);
+        }
+    };
+
+    struct SignalFacadeObservationGraph
+    {
+        static hgraph::Port<hgraph::TS<hgraph::Bool>> compose(hgraph::Wiring &w,
+            hgraph::Port<hgraph::SIGNAL> value, hgraph::Port<hgraph::TS<hgraph::Int>> step) {
+            return hgraph::wire<ObserveSignalModification>(w, value, step);
+        }
+    };
+    template <bool OrdinaryView>
+    struct WrappedSignalReferenceGraph
+    {
+        static hgraph::Port<hgraph::TS<hgraph::Bool>> compose(hgraph::Wiring &w,
+            hgraph::Port<hgraph::TS<hgraph::Int>> index, hgraph::Port<hgraph::TS<hgraph::Int>> first,
+            hgraph::Port<hgraph::TS<hgraph::Int>> second, hgraph::Port<hgraph::TS<hgraph::Int>> step) {
+            auto selected = hgraph::wire<ChooseOpaqueReference>(w, index, first, second);
+            if constexpr (OrdinaryView) {
+                return hgraph::wire<SignalFacadeObservationGraph>(w, selected.as<hgraph::TS<hgraph::Int>>(), step);
+            } else {
+                return hgraph::wire<SignalFacadeObservationGraph>(w, selected, step);
+            }
+        }
+    };
+
     template <std::size_t Count>
     [[nodiscard]] std::array<hgraph::DateTime, Count> sequential_times(
         hgraph::DateTime start = hgraph::MIN_ST,
@@ -2192,4 +2273,213 @@ TEST_CASE("references saved by a public node compare empty after their graph end
     CHECK(CaptureReferenceIdentity::saved[0] == CaptureReferenceIdentity::saved[1]);
     CHECK(CaptureReferenceIdentity::saved[0].hash() == empty.hash());
     CaptureReferenceIdentity::saved = {};
+}
+
+TEST_CASE("public REF writes tick only when their designation changes", "[reference][publication]") {
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    CHECK(eval_node<RepeatedReferenceDesignationGraph>(values<Int>(0, std::nullopt, 0, 1, std::nullopt, 1, 0, std::nullopt),
+        values<Int>(7, 8, std::nullopt, std::nullopt, 9), values<Int>(7, 20, std::nullopt, std::nullopt, 21),
+        values<Int>(1, 1, 1, 1, 1, 1, 1, 1)) == values<Bool>(true, false, false, true, false, false, true, false));
+}
+
+TEST_CASE("signal inputs observe REF designation metadata without following target traffic", "[reference][publication][signal]") {
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    signal_observation_locks = 0;
+    CHECK(eval_node<SignalReferenceDesignationGraph>(values<Int>(0, std::nullopt, 0, 1, std::nullopt, 1, 0, std::nullopt),
+        values<Int>(7, 8, std::nullopt, std::nullopt, 9), values<Int>(7, 20, std::nullopt, std::nullopt, 21),
+        values<Int>(1, 1, 1, 1, 1, 1, 1, 1)) == values<Bool>(true, false, false, true, false, false, true, false));
+    CHECK(signal_observation_locks == 0);
+}
+
+TEST_CASE("signal inputs keep explicit ordinary REF views on target metadata", "[reference][publication][signal]") {
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    signal_observation_locks = 0;
+    CHECK(eval_node<SignalOrdinaryReferenceViewGraph>(values<Int>(0, std::nullopt, 0, 1, std::nullopt, 1, 0, std::nullopt),
+        values<Int>(7, 8, std::nullopt, std::nullopt, 9), values<Int>(7, 20, std::nullopt, std::nullopt, 21),
+        values<Int>(1, 1, 1, 1, 1, 1, 1, 1)) == values<Bool>(true, true, false, true, true, false, true, false));
+    CHECK(signal_observation_locks == 0);
+}
+
+TEST_CASE("REF copy and move suppress equal designations while scalar equal writes still tick", "[reference][publication]") {
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *leaf = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    const auto *ref = registry.ref(leaf);
+    TSOutput first{*leaf}, second{*leaf}, output{*ref};
+    Value empty{TimeSeriesReference::empty(leaf)};
+    {
+        auto mutation = output.view(MIN_ST).begin_mutation(MIN_ST);
+        REQUIRE(mutation.copy_value_from(empty.view()));
+    }
+    const auto next = MIN_ST + TimeDelta{1};
+    {
+        auto mutation = output.view(next).begin_mutation(next);
+        CHECK_FALSE(mutation.copy_value_from(empty.view()));
+        Value again{TimeSeriesReference::empty(leaf)};
+        CHECK_FALSE(mutation.move_value_from(std::move(again)));
+    }
+    CHECK(output.view(next).last_modified_time() == MIN_ST);
+    const Value designation{TimeSeriesReference{first.view()}};
+    {
+        auto mutation = output.view(next).begin_mutation(next);
+        REQUIRE(mutation.copy_value_from(designation.view()));
+    }
+    const auto later = next + TimeDelta{1};
+    {
+        auto mutation = output.view(later).begin_mutation(later);
+        Value again{TimeSeriesReference{first.view()}};
+        CHECK_FALSE(mutation.move_value_from(std::move(again)));
+        Value distinct{TimeSeriesReference{second.view()}};
+        CHECK(mutation.move_value_from(std::move(distinct)));
+        Value wrong{std::int32_t{7}};
+        CHECK_THROWS_AS(mutation.copy_value_from(wrong.view()), std::invalid_argument);
+    }
+    Value number{std::int32_t{7}};
+    {
+        auto mutation = first.view(MIN_ST).begin_mutation(MIN_ST);
+        CHECK(mutation.copy_value_from(number.view()));
+    }
+    {
+        auto mutation = first.view(next).begin_mutation(next);
+        CHECK(mutation.copy_value_from(number.view()));
+    }
+}
+
+TEST_CASE("declared nested source views reuse output-owned routes without type-system locks",
+          "[reference][signal][prepared]") {
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *leaf = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    const auto *ref = registry.ref(leaf);
+    TSOutput first{*leaf}, second{*leaf}, reference{*ref};
+    const auto write = [](TSOutput &output, Value value, DateTime time) {
+        auto transaction = output.view(time).begin_mutation(time);
+        REQUIRE(transaction.copy_value_from(value.view()));
+    };
+    write(first, Value{std::int32_t{7}}, MIN_ST);
+    write(second, Value{std::int32_t{7}}, MIN_ST);
+    write(reference, Value{TimeSeriesReference{first.view()}}, MIN_ST);
+    const auto *signal = registry.signal();
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*signal, TSEndpointSchema::peered(signal))};
+    auto target = input.view(nullptr, MIN_ST);
+    auto route = detail::declared_source_view(target, reference.view(MIN_ST), leaf);
+    target.bind_output(route);
+    const auto initial = route.handle();
+    const auto locks = type_system_lock_count();
+    for (std::size_t count : {64U, 128U, 256U, 512U}) {
+        for (std::size_t index = 0; index < count; ++index) {
+            auto current = detail::declared_source_view(target, reference.view(MIN_ST), leaf);
+            REQUIRE(current.handle().same_as(initial));
+            REQUIRE(target.bound_to_source(current));
+        }
+    }
+    CHECK(type_system_lock_count() == locks);
+    // The existing adapter follows designation changes without rebuilding
+    // the declared route or rediscovering its type.
+    const auto next = MIN_ST + TimeDelta{1};
+    write(reference, Value{TimeSeriesReference{second.view()}}, next);
+    auto changed = detail::declared_source_view(target, reference.view(next), leaf);
+    CHECK(changed.handle().same_as(initial));
+    CHECK(changed.value().checked_as<std::int32_t>() == 7);
+    input.view(nullptr, next).unbind_output();
+    // A new source owner receives a new prepared route; equal payloads do
+    // not make these distinct producer identities interchangeable.
+    TSOutput another_reference{*ref};
+    write(another_reference, Value{TimeSeriesReference{second.view()}}, next);
+    auto another = detail::declared_source_view(target, another_reference.view(next), leaf);
+    CHECK_FALSE(another.handle().same_as(initial));
+}
+
+TEST_CASE("typed signal graph facades preserve declared observation without payload capability",
+          "[reference][signal][wiring]") {
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    const auto indices = values<Int>(0, std::nullopt, 0, 1, std::nullopt, 1, 0, std::nullopt);
+    const auto first = values<Int>(7, 8, std::nullopt, std::nullopt, 9);
+    const auto second = values<Int>(7, 20, std::nullopt, std::nullopt, 21);
+    const auto steps = values<Int>(1, 1, 1, 1, 1, 1, 1, 1);
+    CHECK(eval_node<WrappedSignalReferenceGraph<false>>(indices, first, second, steps) ==
+          values<Bool>(true, false, false, true, false, false, true, false));
+    CHECK(eval_node<WrappedSignalReferenceGraph<true>>(indices, first, second, steps) ==
+          values<Bool>(true, true, false, true, true, false, true, false));
+    stdlib::register_standard_operators();
+    Wiring w;
+    auto value = wire<stdlib::const_, TS<Int>>(w, Int{7});
+    auto signal = value.as<SIGNAL>();
+    CHECK(signal.erased().schema->kind == TSTypeKind::SIGNAL);
+    CHECK(signal.erased().declared_source_view()->kind == TSTypeKind::TS);
+    CHECK_THROWS_AS(signal.as<TS<Int>>(), std::logic_error);
+}
+
+TEST_CASE("declared source caches distinguish views and expire through the input owner",
+          "[reference][signal][lifecycle]") {
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *leaf = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    const auto *ref = registry.ref(leaf);
+    const auto *signal = registry.signal();
+    TSOutput first{*leaf}, second{*leaf};
+    const auto write = [](TSOutput &output, Value value, DateTime time) {
+        auto transaction = output.view(time).begin_mutation(time);
+        REQUIRE(transaction.copy_value_from(value.view()));
+    };
+    write(first, Value{std::int32_t{7}}, MIN_ST);
+    write(second, Value{std::int32_t{8}}, MIN_ST);
+    std::optional<TSOutput> producer{std::in_place, *ref};
+    write(*producer, Value{TimeSeriesReference{first.view()}}, MIN_ST);
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*signal, TSEndpointSchema::peered(signal))};
+    auto target = input.view(nullptr, MIN_ST);
+    auto ordinary = detail::declared_source_view(target, producer->view(MIN_ST), leaf);
+    target.bind_output(ordinary);
+    auto opaque = detail::declared_source_view(target, producer->view(MIN_ST), ref);
+    CHECK(opaque.schema() == ref);
+    CHECK_FALSE(opaque.handle().same_as(ordinary.handle()));
+    target.bind_output(opaque);
+    auto ordinary_again = detail::declared_source_view(target, producer->view(MIN_ST), leaf);
+    REQUIRE(ordinary_again.handle().same_as(ordinary.handle()));
+    target.bind_output(ordinary_again);
+    const auto *producer_address = &*producer;
+    producer.reset();
+    // Disposal invalidates the existing bound adapter and input before a
+    // producer can occupy this same object address again.
+    CHECK_FALSE(target.bound());
+    producer.emplace(*ref);
+    REQUIRE(&*producer == producer_address);
+    write(*producer, Value{TimeSeriesReference{second.view()}}, MIN_ST);
+    auto reconstructed = detail::declared_source_view(target, producer->view(MIN_ST), leaf);
+    CHECK(reconstructed.value().checked_as<std::int32_t>() == 8);
+    target.bind_output(reconstructed);
+    target.unbind_output();
+    CHECK_FALSE(target.bound());
+    auto rebound = detail::declared_source_view(target, producer->view(MIN_ST), leaf);
+    target.bind_output(rebound);
+    CHECK(target.bound_to_source(rebound));
+    const auto *wrong = registry.ts(scalar_descriptor<Str>::value_meta());
+    CHECK_THROWS_AS(detail::declared_source_view(target, producer->view(MIN_ST), wrong), std::invalid_argument);
+    target.unbind_output();
+
+    // The owner-internal storage cache is discarded by copy/move protocols,
+    // while moving the actual link retains its normal live subscription.
+    detail::TSInputTargetLinkStorage original;
+    auto prepared = original.declared_source_view(producer->view(MIN_ST), *leaf, *signal);
+    original.bind(*signal, prepared);
+    detail::TSInputTargetLinkStorage moved{std::move(original)};
+    CHECK_FALSE(original.bound());
+    CHECK(moved.bound());
+    auto after_move = moved.declared_source_view(producer->view(MIN_ST), *leaf, *signal);
+    CHECK(after_move.value().checked_as<std::int32_t>() == 8);
+    detail::TSInputTargetLinkStorage assigned;
+    assigned = std::move(moved);
+    CHECK_FALSE(moved.bound());
+    CHECK(assigned.bound());
+    detail::TSInputTargetLinkStorage copied{assigned};
+    CHECK_FALSE(copied.bound());
+    auto after_copy = copied.declared_source_view(producer->view(MIN_ST), *leaf, *signal);
+    CHECK(after_copy.value().checked_as<std::int32_t>() == 8);
+    assigned.unbind();
+    original.unbind_noexcept();
+    moved.unbind_noexcept();
 }

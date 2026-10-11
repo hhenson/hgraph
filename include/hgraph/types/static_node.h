@@ -1395,19 +1395,15 @@ namespace hgraph
         void copy_reference_value(const ValueView &value) const
         {
             auto mutation = TSOutputView::begin_mutation(evaluation_time());
-            if (!mutation.copy_value_from(value))
-            {
-                throw std::logic_error("Out<REF<S>>::apply failed to copy the reference into the output");
-            }
+            // Assignment validates the source and returns newly-modified,
+            // so an equal designation is a successful no-op.
+            static_cast<void>(mutation.copy_value_from(value));
         }
 
         void move_reference_value(Value &&value) const
         {
             auto mutation = TSOutputView::begin_mutation(evaluation_time());
-            if (!mutation.move_value_from(std::move(value)))
-            {
-                throw std::logic_error("Out<REF<S>>::set failed to move the reference into the output");
-            }
+            static_cast<void>(mutation.move_value_from(std::move(value)));
         }
 
         [[nodiscard]] TimeSeriesReference normalize(const TimeSeriesReference &reference) const

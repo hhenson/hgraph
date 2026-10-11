@@ -2427,6 +2427,14 @@ namespace hgl::wiring
                                         : make_marker(Slot::Kind::Null, expression.range);
                         }
                         if (target.is_port()) {
+                            if (target.port.schema != nullptr && target.port.schema->kind == hgraph::TSTypeKind::TSL &&
+                                !target.port.schema->is_unbounded_tsl() && index.is_const() && index.meta() == types_.int_type) {
+                                const auto position = index.value.view().checked_as<hgraph::Int>();
+                                if (position >= 0 && static_cast<std::size_t>(position) < target.port.schema->fixed_size()) {
+                                    return make_port(hgraph::subgraph_wiring_detail::tsl_element_ref(target.port,
+                                        static_cast<std::size_t>(position), target.port.schema->element_ts()), expression.range);
+                                }
+                            }
                             const std::string name =
                                 expression.operation.registry_name.empty() ? "getitem_" : expression.operation.registry_name;
                             return wire(name, {argument_of(target, {}), argument_of(index, {})}, expression.range);

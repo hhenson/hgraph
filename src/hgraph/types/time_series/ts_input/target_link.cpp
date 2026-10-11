@@ -87,13 +87,10 @@ namespace hgraph::detail
                                                         const TSOutputView &output)
         {
             const bool closed_union_narrowing = is_closed_union_narrowing(schema, output.schema());
-            const bool signal_from_reference =
-                schema.kind == TSTypeKind::SIGNAL && output.schema() != nullptr &&
-                output.schema()->kind == TSTypeKind::REF;
-            // SIGNAL accepts every concrete time-series shape, but a REF source is
-            // transparent at an input boundary: observe the referenced output's
-            // ticks, not changes to the reference token itself.
-            return (schema.kind == TSTypeKind::SIGNAL && !signal_from_reference) || closed_union_narrowing
+            // SIGNAL observes the supplied endpoint's metadata. A supplied
+            // REF therefore contributes designation ticks, rather than the
+            // payload traffic of its referenced target.
+            return schema.kind == TSTypeKind::SIGNAL || closed_union_narrowing
                        ? output.handle()
                        : output.binding_for(schema);
         }
@@ -921,6 +918,7 @@ namespace hgraph::detail
             state_.active_root_node.reset();
             state_.scheduling_notifier.set_target(nullptr);
             tracking = other.tracking;
+            clear_declared_source_view();
         }
         return *this;
     }
@@ -938,6 +936,7 @@ namespace hgraph::detail
           state_(*this),
           structural_ops_(&structural_ops)
     {
+        other.clear_declared_source_view();
         state_.move_from(other.state_);
     }
 
@@ -953,6 +952,8 @@ namespace hgraph::detail
             // of the moved-from identity see that source disappear.
             other.structural_ops_->before_move_assignment_source(other);
             tracking = std::move(other.tracking);
+            clear_declared_source_view();
+            other.clear_declared_source_view();
             last_sample_time = std::exchange(other.last_sample_time, MIN_DT);
             state_.move_from(other.state_);
             structural_ops_->resubscribe_after_move_assignment(*this);
@@ -1016,6 +1017,41 @@ namespace hgraph::detail
     {
         unbind_noexcept();
         set_structural_ops(target_link_no_structural_ops());
+    }
+
+    TSOutputView TSInputTargetLinkStorage::declared_source_view(
+        const TSOutputView &source, const TSValueTypeMetaData &declared_schema,
+        const TSValueTypeMetaData &consumer_schema) const
+    {
+        if (!source.bound())
+        {
+            clear_declared_source_view();
+            return {};
+        }
+        // The schema is an immutable binding-plan key, not a payload type
+        // probe. A pending offer has no lifetime protection until bound.
+        if (state_.target.bound() && declared_schema_ == &declared_schema &&
+            source.handle().same_as(declared_source_))
+        {
+            return declared_view_.view(source.evaluation_time());
+        }
+        // Metadata consumers observe the declared port view. Ordinary and
+        // REF consumers keep their existing consumer-schema normalization,
+        // including collapse of already-REF producers. This policy is selected
+        // only when binding a new route, not while reading a value.
+        auto view = consumer_schema.kind == TSTypeKind::SIGNAL
+                        ? source.binding_for(declared_schema) : source.handle();
+        declared_schema_ = &declared_schema;
+        declared_source_ = source.handle();
+        declared_view_ = view;
+        return view.view(source.evaluation_time());
+    }
+
+    void TSInputTargetLinkStorage::clear_declared_source_view() const noexcept
+    {
+        declared_schema_ = nullptr;
+        declared_source_.reset();
+        declared_view_.reset();
     }
 
     bool TSInputTargetLinkStorage::bound() const noexcept
@@ -1157,6 +1193,7 @@ namespace hgraph::detail
 
     void TSInputTargetLinkStorage::unbind(DateTime evaluation_time)
     {
+        clear_declared_source_view();
         if (structural_ops_->supports_structural && evaluation_time != MIN_DT)
         {
             unbind_structural(evaluation_time);
@@ -1166,6 +1203,7 @@ namespace hgraph::detail
 
     void TSInputTargetLinkStorage::unbind_structural(DateTime modified_time)
     {
+        clear_declared_source_view();
         if (modified_time == MIN_DT)
         {
             throw std::invalid_argument("Structural TSInput target unbinding requires an evaluation time");
@@ -1191,6 +1229,7 @@ namespace hgraph::detail
 
     void TSInputTargetLinkStorage::unbind_noexcept() noexcept
     {
+        clear_declared_source_view();
         last_sample_time = MIN_DT;
         structural_ops_->unbind_noexcept(*this);
         if (state_.active_root_node) { unsubscribe_tree_noexcept(*state_.active_root_node, state_.scheduling_notifier); }
@@ -1199,6 +1238,7 @@ namespace hgraph::detail
 
     void TSInputTargetLinkStorage::source_invalidated(const TSDataTracking *source) noexcept
     {
+        clear_declared_source_view();
         last_sample_time = MIN_DT;
         static_cast<void>(source);
         state_.clear_active_observed();

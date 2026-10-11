@@ -18,6 +18,18 @@
 
 namespace hgraph {
 
+/** Resolve a declared wiring view through the existing output-owned adapter.
+    Called at route binding, never while reading a payload or its metadata. */
+[[nodiscard]] inline TSOutputView declared_source_view(
+    TSOutputView source, const TSValueTypeMetaData *declared_schema)
+{
+    if (!source.bound() || declared_schema == nullptr || declared_schema->kind == TSTypeKind::SIGNAL)
+    {
+        return source;
+    }
+    return source.binding_for(*declared_schema).view(source.evaluation_time());
+}
+
 /**
  * The terminal producer behind a nested-graph boundary source: follow
  * forwarding endpoints while they keep the same schema kind and storage ops
@@ -213,9 +225,11 @@ inline void bind_sampled_input_to_source(TSInputView target,
  */
 inline void bind_nested_input_to_source(TSInputView target, TSInputView source,
                                         DateTime evaluation_time,
-                                        bool sampled) {
-  const auto source_output = source.bound_output();
+                                        bool sampled,
+                                        const TSValueTypeMetaData *declared_schema = nullptr) {
+  auto source_output = source.bound_output();
   if (source_output.bound()) {
+    source_output = detail::declared_source_view(target, std::move(source_output), declared_schema);
     if (sampled) {
       bind_sampled_input_to_source(std::move(target), source_output,
                                    evaluation_time);
@@ -270,7 +284,12 @@ inline void bind_nested_input_to_source(TSInputView target, TSInputView source,
   for (std::size_t index = 0; index < source_children; ++index) {
     bind_nested_input_to_source(target.indexed_child_at(index),
                                 source.indexed_child_at(index), evaluation_time,
-                                sampled);
+                                sampled,
+                                declared_schema != nullptr
+                                    ? (declared_schema->kind == TSTypeKind::TSB
+                                           ? declared_schema->fields()[index].type
+                                           : declared_schema->element_ts())
+                                    : nullptr);
   }
 }
 

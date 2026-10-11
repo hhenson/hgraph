@@ -13,6 +13,14 @@ exposure. The per-kind tick contract and the value/delta schema
 mappings are described in *Schemas > Time-Series Schemas*; the
 binding/redirect machinery is described in *Linking Strategies*.
 
+Atomic REF storage selects its designation-sensitive copy/move operations when
+the plan is built. A first publication, including typed empty, records a tick;
+an equal retained designation leaves payload, time and notifications unchanged
+(TS-16). Ordinary TS writes retain equal-value tick semantics. The comparison
+uses the prepared native value operations after source-binding validation;
+application performs no schema-kind dispatch. ``Out<REF<S>>`` treats the
+mutation's false newly-modified result as a successful equal-designation no-op.
+
 Terminology: TSOutput, TSInput, and TSData
 ------------------------------------------
 

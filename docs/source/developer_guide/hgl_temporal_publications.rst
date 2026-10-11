@@ -74,3 +74,31 @@ composition contract as the direct backend. No scalar conversion or payload
 snapshot is needed for signal observation. Shared ``signal_observation_values``
 fixtures cover each admitted scalar, structural and atomic inputs, equal
 publications, silence, and observation from an independent trigger.
+For a REF endpoint, a signal observes the designation's validity, tick and time,
+including unchanged designation suppression. The binding owner retains the
+supplied REF endpoint handle instead of adapting it into a target-following
+ordinary input. Cold wiring retains the supplied port's declared view on the
+graph edge and on nested input bindings, independently of the physical producer schema.
+Binding resolves this view through the existing output-owned adapter
+(RFC 0036); a prepared input then observes that stable route (RFC 0008).
+An explicit ordinary port view continues to follow target publications, while
+an opaque REF port observes designation changes. The logical SIGNAL input
+keeps its Boolean current/delta facade and metadata-only source capability.
+Edge interning, manifests and nested checkpoint signatures include the
+declared view so these different bindings cannot share a graph descriptor.
+Nested input owners cache the resolved declared view by producer handle. An
+unchanged producer reuses that route without schema discovery or registry access;
+retargeting the producer's REF value is handled by the existing adapter. A new
+producer is resolved when its topology is bound. The cache borrows handles,
+adds no subscriptions and is discarded with the input owner's storage.
+
+Fixed List endpoint projection
+------------------------------
+
+A graph expression selecting a checked constant index of a concrete fixed
+List uses the existing ``tsl_element`` wiring projection. It preserves the
+selected child's exact schema, endpoint identity and traffic; siblings do not
+introduce a runtime selection node. Passing that child to a REF parameter
+uses the normal binding adaptation. Explicit REF-wrapped List projections
+retain their prepared designation route, and temporal indices retain dynamic
+operator selection.
