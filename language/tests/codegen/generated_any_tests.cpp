@@ -22,6 +22,12 @@ TEST_CASE("generated any boxes preserve leaf publications and capability errors"
         values<Value>(empty, integer, boolean, none, boolean));
     CHECK_OUTPUT(eval_node<any_values::operators::box_input>(values<Int>(0, none, 0, 1)),
                  values<Value>(integer, none, integer, boxes.box(one.view())));
+    CHECK_OUTPUT((eval_node<any_values::operators::forwarded_equals, TS<hgl::ordinary::Any>>(
+                     values<Value>(empty, integer, none, empty), empty)),
+                 values<Bool>(true, false, none, true));
+    CHECK_OUTPUT((eval_node<any_values::operators::forwarded_equals, TS<hgl::ordinary::Any>>(
+                     values<Value>(empty, integer, none, integer), integer)),
+                 values<Bool>(false, true, none, true));
     try {
         (void)eval_node<any_values::missing_order>(values<Int>(0));
         FAIL("missing box capability unexpectedly succeeded");

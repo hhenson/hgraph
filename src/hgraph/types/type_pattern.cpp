@@ -451,7 +451,15 @@ namespace hgraph
                 return scalar_pattern_match(general, constraint, scratch);
             });
         }
-        if (specific.kind == ScalarPattern::Kind::Var) { return false; }  // wider than a structure
+        if (specific.kind == ScalarPattern::Kind::Var) {
+            // A finite constraint set need not be wider than a concrete
+            // declaration. Check its entire admitted domain using
+            // the same input/carried matching direction as concrete candidates.
+            return general.kind == ScalarPattern::Kind::Concrete && !specific.constraints.empty() &&
+                   std::ranges::all_of(specific.constraints, [&](const ValueTypeMetaData *constraint) {
+                       return scalar_pattern_covers(general, ScalarPattern::concrete(constraint), mode);
+                   });
+        }
         if (general.kind == ScalarPattern::Kind::Frame && specific.kind == ScalarPattern::Kind::Frame &&
             general.optional_metadata && !specific.optional_metadata && general.children.size() == 2 &&
             specific.children.size() == 1)
