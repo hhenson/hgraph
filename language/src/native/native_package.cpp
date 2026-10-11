@@ -9,6 +9,7 @@
 #include <map>
 #include <stdexcept>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 
 namespace hgl::native
@@ -277,8 +278,12 @@ namespace hgl::native
             }
 
             std::vector<std::string> identities;
+            std::unordered_set<std::string_view> atomic_values;
             identities.reserve(package.types.size());
-            for (const Type &type : package.types) { identities.push_back(type.identity); }
+            for (const Type &type : package.types) {
+                identities.push_back(type.identity);
+                if (type.category == TypeCategory::AtomicValue && type.value_contract) { atomic_values.emplace(type.identity); }
+            }
             normalize(identities);
             for (const std::string &identity : identities) {
                 if (result.native.contains(identity)) { continue; }
@@ -287,6 +292,7 @@ namespace hgl::native
                 out.types.push_back(descriptor::TypeRecord{
                     .category         = descriptor::TypeCategory::Symbol,
                     .nominal_identity = identity,
+                    .native_atomic    = atomic_values.contains(identity),
                 });
             }
             return result;
@@ -322,10 +328,21 @@ namespace hgl::native
             normalize(types, &Type::identity);
             for (const Type &type : types) {
                 out.native_types.push_back(descriptor::NativeTypeDeclaration{
-                    .category      = type_category(type.category),
-                    .identity      = type.identity,
-                    .cpp_type      = type.cpp_type,
-                    .public_header = type.public_header,
+                    .category           = type_category(type.category),
+                    .identity           = type.identity,
+                    .cpp_type           = type.cpp_type,
+                    .public_header      = type.public_header,
+                    .canonical_identity = type.canonical_identity,
+                    .value_contract     = type.value_contract ? std::optional{descriptor::NativeAtomicValueContract{
+                                                                    .owning_copy   = type.value_contract->owning_copy,
+                                                                    .text          = type.value_contract->text,
+                                                                    .equality      = type.value_contract->equality,
+                                                                    .hash          = type.value_contract->hash,
+                                                                    .order         = type.value_contract->order,
+                                                                    .serialization = type.value_contract->serialization,
+                                                                }}
+                                                              : std::nullopt,
+                    .exported           = type.exported,
                 });
             }
 

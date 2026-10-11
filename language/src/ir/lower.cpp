@@ -91,6 +91,7 @@ namespace hgl::ir
             switch (kind) {
                 case semantics::ImportedTypeKind::Scalar: return hir::TypeKind::Scalar;
                 case semantics::ImportedTypeKind::Symbol: return hir::TypeKind::Symbol;
+                case semantics::ImportedTypeKind::NativeAtomic: return hir::TypeKind::Symbol;
                 case semantics::ImportedTypeKind::List: return hir::TypeKind::List;
                 case semantics::ImportedTypeKind::Set: return hir::TypeKind::Set;
                 case semantics::ImportedTypeKind::Map: return hir::TypeKind::Map;
@@ -236,6 +237,7 @@ namespace hgl::ir
                 result_.documentation = module_.documentation;
                 mark_owners();
                 declare_symbols();
+                index_source_native_contracts();
 
                 result_.types.resize(module_.types.size());
                 result_.exprs.resize(module_.exprs.size());
@@ -475,6 +477,8 @@ namespace hgl::ir
             }
 
             void declare_symbols() {
+                result_.native_types = resolved_.native_types;
+                for (const auto &contract : resolved_.native_types) { native_contracts_.emplace(contract.identity, &contract); }
                 for (std::size_t family = 0; family < resolved_.native_families.size(); ++family) {
                     if (resolved_.native_families[family].empty()) { continue; }
                     const auto &node =
@@ -514,6 +518,15 @@ namespace hgl::ir
                                 global_symbols_.emplace(std::string{node.name.text}, declaration_symbols_[declaration]);
                                 declare_generics(declaration, node.generics);
                                 declare_parameters(declaration, node.signature.parameters);
+                            } else if constexpr (std::is_same_v<T, ast::NativeTypeDecl>) {
+                                const auto identity = result_.path + "::" + std::string{node.name.text};
+                                const auto found    = native_contracts_.find(identity);
+                                if (found != native_contracts_.end()) {
+                                    declaration_symbols_[declaration] =
+                                        external_symbol(hir::SymbolKind::NativeType, node.name.text, found->second->identity,
+                                                        found->second->canonical_identity, node.name.range);
+                                    global_symbols_.emplace(std::string{node.name.text}, declaration_symbols_[declaration]);
+                                }
                             } else if constexpr (std::is_same_v<T, ast::NativeFunctionDecl>) {
                                 std::size_t overload = 0;
                                 const bool  implementation = node.has_contract && node.implementation.body.empty();
@@ -719,6 +732,16 @@ namespace hgl::ir
                 target.range          = range;
                 target.value_position = true;
                 target.unbounded      = source.unbounded;
+                if (source.kind == semantics::ImportedTypeKind::NativeAtomic) {
+                    const auto found = native_contracts_.find(source.nominal_identity);
+                    if (found != native_contracts_.end()) {
+                        target.symbol = external_symbol(hir::SymbolKind::NativeType, found->second->name, found->second->identity,
+                                                        found->second->canonical_identity, range);
+                    } else {
+                        diagnostics_.report(syntax::Category::Module, range,
+                                            "missing native type contract '" + source.nominal_identity + "'");
+                    }
+                }
                 if (source.kind == semantics::ImportedTypeKind::Symbol) {
                     if (source.binding_identity.empty() && !source.nominal_identity.empty()) {
                         // A layout's Symbol may name a STRUCT rather than a
@@ -1094,6 +1117,156 @@ namespace hgl::ir
                 result_.imported_structs.push_back(std::move(target));
             }
 
+            using GenericOrdinals = std::unordered_map<std::string, std::size_t>;
+
+            [[nodiscard]] std::string provider_type_key(const semantics::ImportedType &type,
+                                                        const GenericOrdinals         &generics) const {
+                if (type.kind == semantics::ImportedTypeKind::Scalar) {
+                    return "s" + std::to_string(static_cast<unsigned>(lower_scalar_type(type.scalar)));
+                }
+                if (type.kind == semantics::ImportedTypeKind::NativeAtomic) {
+                    const auto found = native_contracts_.find(type.nominal_identity);
+                    return "n" + (found == native_contracts_.end() ? type.nominal_identity : found->second->canonical_identity);
+                }
+                if (type.kind == semantics::ImportedTypeKind::Symbol) {
+                    const auto found = generics.find(type.binding_identity);
+                    return found == generics.end() ? "y" + type.nominal_identity : "g" + std::to_string(found->second);
+                }
+                std::string result = "k" + std::to_string(static_cast<unsigned>(lower_imported_type_kind(type.kind))) + "(";
+                for (const auto &child : type.children) { result += provider_type_key(child, generics) + ";"; }
+                const auto size_key = [&](const semantics::ImportedConstant &value) {
+                    if (value.kind == semantics::ImportedConstantKind::I64) { return "i" + std::to_string(value.i64); }
+                    if (value.kind == semantics::ImportedConstantKind::Parameter) {
+                        const auto found = generics.find(value.binding_identity);
+                        return found == generics.end() ? "?" : "g" + std::to_string(found->second);
+                    }
+                    return std::string{};
+                };
+                return result + ")" + size_key(type.size) + ":" + size_key(type.min_size) + (type.unbounded ? "u" : "f");
+            }
+
+            [[nodiscard]] std::string source_type_key(hir::TypeId                                           id,
+                                                      const std::unordered_map<std::uint32_t, std::size_t> &generics) const {
+                if (!id.valid()) { return "void"; }
+                const auto &type = result_.type(id);
+                if (type.kind == hir::TypeKind::Void) { return "void"; }
+                if (type.kind == hir::TypeKind::Scalar) { return "s" + std::to_string(static_cast<unsigned>(type.scalar)); }
+                if (type.kind == hir::TypeKind::Symbol) {
+                    const auto found = generics.find(type.symbol.value);
+                    if (found != generics.end()) { return "g" + std::to_string(found->second); }
+                    const auto &symbol = result_.symbol(type.symbol);
+                    return (symbol.kind == hir::SymbolKind::NativeType ? "n" : "y") + symbol.canonical_name;
+                }
+                if ((type.kind == hir::TypeKind::Delta || type.kind == hir::TypeKind::Atomic) && type.children.size() == 1U) {
+                    const auto &child = result_.type(type.children.front());
+                    if (child.kind == hir::TypeKind::Scalar || (child.kind == hir::TypeKind::Symbol && child.symbol.valid() &&
+                                                                result_.symbol(child.symbol).kind == hir::SymbolKind::NativeType)) {
+                        return source_type_key(type.children.front(), generics);
+                    }
+                }
+                std::string key = "k" + std::to_string(static_cast<unsigned>(type.kind)) + "(";
+                for (const auto child : type.children) { key += source_type_key(child, generics) + ";"; }
+                const auto size_key = [&](hir::ExprId value) {
+                    if (!value.valid()) { return std::string{}; }
+                    if (const auto *literal = std::get_if<hir::Literal>(&result_.expr(value).node)) {
+                        if (const auto *integer = std::get_if<std::int64_t>(&literal->value)) {
+                            return "i" + std::to_string(*integer);
+                        }
+                    }
+                    if (const auto *symbol = std::get_if<hir::SymbolRef>(&result_.expr(value).node)) {
+                        const auto found = generics.find(symbol->symbol.value);
+                        if (found != generics.end()) { return "g" + std::to_string(found->second); }
+                    }
+                    return std::string{"?"};
+                };
+                return key + ")" + size_key(type.size) + ":" + size_key(type.min_size) + (type.unbounded ? "u" : "f");
+            }
+
+            void index_source_native_contracts() {
+                for (const auto &contract : resolved_.source_native_contracts) {
+                    GenericOrdinals generics;
+                    std::string     key = contract.identity + "|";
+                    for (std::size_t i = 0; i < contract.generics.size(); ++i) {
+                        const auto &generic = contract.generics[i];
+                        generics.emplace(generic.binding_identity, i);
+                    }
+                    for (const auto &generic : contract.generics) {
+                        key += (generic.is_const ? "c" : "t") +
+                               (generic.type ? provider_type_key(*generic.type, generics) : "void") + ";";
+                    }
+                    key += "|";
+                    for (const auto &parameter : contract.parameters) {
+                        key += provider_type_key(parameter.type, generics) + (parameter.is_const ? "c;" : "v;");
+                    }
+                    key += "->" + (contract.result ? provider_type_key(*contract.result, generics) : "void");
+                    if (!source_native_contracts_.emplace(key, &contract).second) {
+                        diagnostics_.report(syntax::Category::Module, {},
+                                            "duplicate provider native signature '" + contract.identity + "'");
+                    }
+                }
+            }
+
+            bool contains_native_value(hir::TypeId id) const {
+                if (!id.valid()) { return false; }
+                const auto &type = result_.type(id);
+                if (type.kind == hir::TypeKind::Symbol && type.symbol.valid() &&
+                    result_.symbol(type.symbol).kind == hir::SymbolKind::NativeType) {
+                    return true;
+                }
+                return std::ranges::any_of(type.children, [&](hir::TypeId child) { return contains_native_value(child); });
+            }
+
+            void apply_source_native_contract(hir::NativeFunction &function) {
+                if (function.execution_role != NativeExecutionRole::Value) { return; }
+                const bool native_value =
+                    contains_native_value(function.result) || std::ranges::any_of(function.parameters, [&](const auto &parameter) {
+                        return contains_native_value(parameter.type);
+                    });
+                if (!native_value) { return; }
+                std::unordered_map<std::uint32_t, std::size_t> generics;
+                std::string                                    key = function.identity + "|";
+                for (std::size_t i = 0; i < function.generics.size(); ++i) {
+                    generics.emplace(function.generics[i].symbol.value, i);
+                }
+                for (const auto &generic : function.generics) {
+                    key += (generic.is_const ? "c" : "t") + source_type_key(generic.type, generics) + ";";
+                }
+                key += "|";
+                for (const auto &parameter : function.parameters) {
+                    key += source_type_key(parameter.type, generics) + (parameter.is_const ? "c;" : "v;");
+                }
+                key += "->" + source_type_key(function.result, generics);
+                const auto found = source_native_contracts_.find(key);
+                if (found == source_native_contracts_.end()) {
+                    diagnostics_.report(syntax::Category::Module, function.range,
+                                        "native atomic helper '" + function.identity +
+                                            "' requires its exact package signature and permitted phases");
+                    return;
+                }
+                const auto &contract = *found->second;
+                if (!contract.support_error.empty() || contract.execution_role != NativeExecutionRole::Value ||
+                    contract.parameters.size() != function.parameters.size() ||
+                    std::ranges::any_of(contract.parameters, [](const auto &parameter) {
+                        return parameter.access != semantics::NativeParameterAccess::Value;
+                    })) {
+                    diagnostics_.report(syntax::Category::Module, function.range,
+                                        "native atomic helper requires a supported read-only ordinary value contract");
+                    return;
+                }
+                function.cpp_symbol             = contract.cpp_symbol;
+                function.module_identity        = contract.module_identity;
+                function.public_headers         = contract.public_headers;
+                function.cmake_packages         = contract.cmake_packages;
+                function.imported_targets       = contract.imported_targets;
+                function.runtime_images         = contract.runtime_images;
+                function.descriptor_fingerprint = contract.descriptor_fingerprint;
+                function.phases.clear();
+                for (const auto phase : contract.phases) { function.phases.push_back(lower_native_phase(phase)); }
+                function.capabilities   = contract.capabilities;
+                function.throws         = contract.throws;
+                function.source_defined = !function.cpp_body.empty();
+            }
+
             [[nodiscard]] hir::SymbolId imported_function(const semantics::Binding &binding, syntax::SourceRange range,
                                                           std::string_view spelling) {
                 const std::size_t count = binding.count == 0U ? 1U : binding.count;
@@ -1210,6 +1383,12 @@ namespace hgl::ir
                         lower_imported_closure(structure, symbol, range);
                         return symbol;
                     }
+                    case BindingKind::NativeType:
+                        {
+                            const auto &contract = resolved_.native_types.at(binding.index);
+                            return external_symbol(hir::SymbolKind::NativeType, spelling, contract.identity,
+                                                   contract.canonical_identity, range);
+                        }
                     case BindingKind::EnumMember:
                         return add_symbol(hir::SymbolKind::EnumMember, spelling, range, binding.decl, binding.index);
                     case BindingKind::Enum:
@@ -1842,10 +2021,14 @@ namespace hgl::ir
                                                       : node.implementation.body.empty() ? NativeExecutionRole::Temporal
                                                                                          : NativeExecutionRole::LegacyValue;
                             function.source_defined = true;
+                            function.source_declared = true;
                             function.cpp_parameters = node.implementation.parameters;
                             function.cpp_body       = node.implementation.body;
                             function.range          = source.range;
+                            apply_source_native_contract(function);
                             result_.native_functions.push_back(std::move(function));
+                            target.node = hir::NativeSourceDecl{};
+                        } else if constexpr (std::is_same_v<T, ast::NativeTypeDecl>) {
                             target.node = hir::NativeSourceDecl{};
                         } else if constexpr (std::is_same_v<T, ast::TestDecl>) {
                             target.node = hir::TestDecl{id<hir::BlockId>(node.block)};
@@ -1872,6 +2055,8 @@ namespace hgl::ir
             std::vector<ast::DeclId>                         block_owners_{};
             std::unordered_map<std::string, hir::SymbolId>   global_symbols_{};
             std::unordered_map<std::string, hir::SymbolId>   external_symbols_{};
+            std::unordered_map<std::string_view, const NativeTypeContract *>     native_contracts_{};
+            std::unordered_map<std::string, const semantics::ImportedFunction *> source_native_contracts_{};
             std::unordered_map<std::uint32_t, hir::SymbolId> imported_function_symbols_{};
             /// Imported struct identities already described OR in progress
             /// (see `lower_imported_struct`).

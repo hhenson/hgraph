@@ -216,6 +216,7 @@ leaves the module `Resolved`; it is never discarded by a temporary backend.
 typed HIR into an independently owned canonical type table,
 a compile-time expression arena for type and window sizes and scalar or
 aggregate parameter and struct-field defaults, normalized generic requirements,
+checked source const-function calls retained for cold default evaluation,
 effective nominal struct contracts, nominal operator contracts with registry
 spelling kept separate, and callable interfaces with visibility,
 composition/runtime classification, generics, effects, and capabilities. The
@@ -1383,7 +1384,11 @@ Record IDs are assigned by a fixed traversal of declarations ordered by stable
 identity and are meaningful only inside that descriptor. A symbol type carries
 both its nominal spelling and, for a generic parameter, its declaration-scoped
 binding identity. Defaults and const-generic bounds remain expression trees,
-not strings to be reparsed. Tagged textual i64/f64 payloads retain the full i64
+not strings to be reparsed. A required-default source call records its selected
+canonical identity and arguments without embedding or executing source bodies
+in the descriptor. Transitive native helper dependencies remain excluded from
+required defaults; ordinary executed setup keeps its permitted cold path.
+Tagged textual i64/f64 payloads retain the full i64
 range and non-finite HGL floats while keeping the output valid JSON.
 
 The data-only `hgl_descriptor_reader` target parses version 1 with `simdjson`

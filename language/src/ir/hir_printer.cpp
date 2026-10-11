@@ -39,6 +39,7 @@ namespace hgl::ir
                 case SymbolKind::EnumMember: return "enum-member";
                 case SymbolKind::Struct: return "struct";
                 case SymbolKind::ImportedStruct: return "imported-struct";
+                case SymbolKind::NativeType: return "native-type";
                 case SymbolKind::Operator: return "operator";
                 case SymbolKind::Function: return "function";
                 case SymbolKind::Test: return "test";

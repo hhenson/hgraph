@@ -1704,6 +1704,28 @@ TEST_CASE("every example parses cleanly", "[parser][examples]") {
     }
 }
 
+TEST_CASE("native type declarations retain visibility and opaque declaration shape", "[parser][native][type]") {
+    Parsed parsed{"module t\nnative type Local\nexport native type Token\n"
+                  "native const fn token(text: str) -> Token\n"
+                  "const fn type(type: i64) -> i64 => type\n"};
+    INFO(parsed.diagnostics.render(parsed.file));
+    REQUIRE_FALSE(parsed.diagnostics.has_errors());
+    REQUIRE(parsed.module.declarations.size() == 5);
+    const auto &local = std::get<ast::NativeTypeDecl>(parsed.module.decl(parsed.module.declarations[1]).node);
+    CHECK_FALSE(local.exported);
+    CHECK(local.name.text == "Local");
+    const auto &exported = std::get<ast::NativeTypeDecl>(parsed.module.decl(parsed.module.declarations[2]).node);
+    CHECK(exported.exported);
+    CHECK(exported.name.text == "Token");
+    CHECK(dump_clean(std::string{parsed.file.text()}).find("NativeTypeDecl export native type Token") != std::string::npos);
+
+    for (const auto shape : {"native type Token<T>", "native type Token: Other", "native type Token { field: str }"}) {
+        Parsed rejected{"module t\n" + std::string{shape} + "\n"};
+        INFO(shape);
+        CHECK(rejected.diagnostics.has_errors());
+    }
+}
+
 TEST_CASE("native interfaces retain ordinary function and parameter constness", "[parser][native][interface]") {
     Parsed parsed{"module t\nnative const fn value(lhs: i64, rhs: i64) -> i64\n"
                   "native fn temporal(value: i64, const factor: i64) -> i64\n"

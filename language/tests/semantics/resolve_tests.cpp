@@ -1210,3 +1210,53 @@ TEST_CASE("every guide example resolves", "[semantics]") {
         CHECK_FALSE(resolved.diagnostics.has_errors());
     }
 }
+
+TEST_CASE("native type catalog aliases share capabilities across module boundaries") {
+    const auto module = [](std::string name) {
+        ImportableModule result;
+        result.identity = name;
+        result.native_types.push_back(hgl::NativeTypeContract{
+            .module_identity    = name,
+            .identity           = name + "::Token",
+            .name               = "Token",
+            .canonical_identity = "shared.Token",
+            .cpp_type           = "provider::Token",
+            .capabilities       = {.owning_copy = true, .text = true, .equality = true, .hash = true, .order = true},
+            .atomic_value       = true,
+            .exported           = true});
+        return result;
+    };
+    ModuleCatalog catalog;
+    REQUIRE_FALSE(catalog.add(module("first")));
+    auto second                                    = module("second");
+    second.native_types.front().capabilities.order = false;
+    const auto error                               = catalog.add(second);
+    REQUIRE(error);
+    CHECK(error->message.find("incompatible shared capabilities") != std::string::npos);
+    CHECK(catalog.find("second") == nullptr);
+    second.native_types.front().capabilities.order = true;
+    REQUIRE_FALSE(catalog.add(std::move(second)));
+    REQUIRE(catalog.find_native_type("second", "Token"));
+}
+
+TEST_CASE("ordinary native type catalog rejects conflicting source spellings") {
+    for (unsigned kind = 0; kind < 3; ++kind) {
+        ModuleCatalog    catalog;
+        ImportableModule module;
+        module.identity = "collision";
+        module.native_types.push_back(hgl::NativeTypeContract{.module_identity    = "collision",
+                                                              .identity           = "collision::Token",
+                                                              .name               = "Token",
+                                                              .canonical_identity = "shared.Token",
+                                                              .cpp_type           = "provider::Token",
+                                                              .capabilities       = {.owning_copy = true, .text = true},
+                                                              .atomic_value       = true,
+                                                              .exported           = true});
+        if (kind == 0) { module.functions.push_back(ImportedFunction{.name = "Token", .identity = "collision::Token"}); }
+        if (kind == 1) { module.operators.push_back(ImportedOperatorContract{.name = "Token"}); }
+        if (kind == 2) { module.structs.push_back(ImportedStruct{.name = "Token"}); }
+        const auto error = catalog.add(std::move(module));
+        REQUIRE(error);
+        CHECK(error->message.find("conflicts with another declaration") != std::string::npos);
+    }
+}

@@ -65,6 +65,7 @@ namespace hgl::wiring
                                                             const Bindings &outer);
         [[nodiscard]] std::optional<std::int64_t>      integer(hgraph_ir::ConstExprId expression, syntax::SourceRange range,
                                                                std::string_view role, const Bindings &bindings);
+        [[nodiscard]] const hgraph::ValueTypeMetaData   *native_value(const hgraph_ir::Type &type);
         [[nodiscard]] const hgraph::ValueTypeMetaData *nominal_value(const hgraph_ir::Type &type, const Bindings &outer);
         [[nodiscard]] std::optional<Specialization>      specialize(const hgraph_ir::Type &type, const Bindings &outer);
         [[nodiscard]] hgraph_ir::TypeId                  resolved(hgraph_ir::TypeId type, const Bindings &bindings) const;
@@ -109,6 +110,7 @@ namespace hgl::wiring
         std::unordered_map<std::uint32_t, const hgraph::TSValueTypeMetaData *> schemas_{};
         /// Contracts by identity, so a nominal type finds its contract without a scan.
         std::unordered_map<std::string_view, const hgraph_ir::StructContract *> structures_{};
+        std::unordered_map<std::string_view, const NativeTypeContract *>        native_types_{};
         /// Structs this bridge has already realized, by registry name. A hit
         /// is what keeps `register_value` one frame deep: the chain's members
         /// are registered dependency-first by the driver, so by the time a
