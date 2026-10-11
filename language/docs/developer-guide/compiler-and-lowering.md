@@ -1852,6 +1852,12 @@ Node `==` and `!=` on identical resolved `ref<T>` operands lower directly to
 comparison capabilities on `T` or inspect its payload. The planner still
 requires both operands to be readable; heterogeneous reference comparisons,
 ordering, and node traversal below a reference remain rejected.
+Each separately supplied `eval` temporal argument has an independent endpoint,
+even when two sample sequences are equal. The harness prepares a distinct replay
+key and exact temporal type carrier for each argument. Structural HGL delta
+wrappers are projected through their prepared native payload plan before seeding
+the replay buffer; holes and the original cycle positions remain unchanged.
+Aliasing a single graph input still preserves that input's reference identity.
 Internal callable dependency ordering also walks the hgraph-IR body graph.
 Concise composition expressions and concise `map` functions are emitted from
 those graph-IR values and bindings. Composition and runtime blocks also emit

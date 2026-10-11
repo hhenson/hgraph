@@ -70,6 +70,12 @@ foreach(_example IN LISTS _hgl_examples)
 endforeach()
 unset(_hgl_examples)
 
+add_test(NAME hgraph_language_reference_identity
+    COMMAND $<TARGET_FILE:hgl> test ${HGRAPH_SPEC}/language/examples/reference-identity-equality.hgl)
+set_tests_properties(hgraph_language_reference_identity PROPERTIES
+    PASS_REGULAR_EXPRESSION "Executed: 1 test, 0 failed"
+    ENVIRONMENT "HGL_DISABLE_CACHE=1")
+
 add_test(
     NAME hgraph_language_dump_hir
     COMMAND $<TARGET_FILE:hgl> check ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/stateful-node.hgl --dump-hir
