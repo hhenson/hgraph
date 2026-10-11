@@ -1,0 +1,3 @@
+module checks.test_contexts part leak_type
+
+export fn leak_type(pair: FixturePair) -> i64 => pair.left

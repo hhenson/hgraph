@@ -40,6 +40,21 @@ namespace hgl::syntax
                                         diagnostics_.report(Category::Module, nested.range,
                                                             "test helpers must be private fn declarations");
                                     }
+                                    // A test-local type is private to the module's test
+                                    // scope; it can be neither exported nor imported.
+                                    const bool exported_type = std::visit(
+                                        [](const auto &node) {
+                                            using T = std::decay_t<decltype(node)>;
+                                            if constexpr (std::is_same_v<T, ast::StructDecl> || std::is_same_v<T, ast::EnumDecl>) {
+                                                return node.exported;
+                                            } else {
+                                                return false;
+                                            }
+                                        },
+                                        nested.node);
+                                    if (exported_type) {
+                                        diagnostics_.report(Category::Module, nested.range, "test-local types cannot be exported");
+                                    }
                                     add_declaration(std::move(nested));
                                 }
                             } else {

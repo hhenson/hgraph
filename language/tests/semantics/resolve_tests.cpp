@@ -241,6 +241,51 @@ test { export fn helper(value: i64) -> i64 => value }
         Resolved unit{"module t\ntest { assert true }\n"};
         CHECK(unit.diagnostics.has_errors());
     }
+    SECTION("test-local types are shared by every context and named test") {
+        Resolved unit{R"(
+module t
+test { test first { assert eval(make, value: [1]) == [delta<Pair>(left: 1, right: 1)] } }
+test ordinary { assert make(2).kind == Kind::second }
+test {
+    struct Pair { left: i64
+        right: i64
+        kind: Kind = Kind::second }
+    enum Kind { first = 1, second = 2 }
+    fn make(value: i64) -> Pair { when { return Pair(left: value, right: value) } }
+}
+)"};
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK_FALSE(unit.diagnostics.has_errors());
+        CHECK(unit.result.structs.size() == 1);
+        CHECK(unit.result.tests.size() == 2);
+    }
+    SECTION("production cannot name a test-local type") {
+        Resolved unit{R"(
+module t
+fn leak(value: i64) -> Pair { when { return Pair(left: value) } }
+fn kind() -> Kind => Kind::first
+test {
+    struct Pair { left: i64 }
+    enum Kind { first = 1 }
+}
+)"};
+        CHECK(unit.has(Category::Name, "Pair"));
+        CHECK(unit.has(Category::Name, "Kind"));
+    }
+    SECTION("test-local type names are unique across contexts") {
+        Resolved unit{"module t\ntest { struct Pair { left: i64 } }\ntest { struct Pair { left: i64 } }\n"};
+        CHECK(unit.has(Category::Name, "Pair"));
+    }
+    SECTION("a test-local type cannot shadow a module declaration") {
+        Resolved structure{"module t\nstruct Pair { left: i64 }\ntest { struct Pair { left: i64 } }\n"};
+        CHECK(structure.has(Category::Name, "test-local type 'Pair' conflicts"));
+        Resolved function{"module t\nfn pair(value: i64) -> i64 => value\ntest { enum pair { first = 1 } }\n"};
+        CHECK(function.has(Category::Name, "test-local type 'pair' conflicts"));
+    }
+    SECTION("test-local types cannot be exported") {
+        Resolved unit{"module t\ntest { export struct Pair { left: i64 } }\n"};
+        CHECK(unit.has(Category::Module, "test-local types cannot be exported"));
+    }
 }
 
 TEST_CASE("external imports require an explicitly supplied module catalog", "[semantics]") {

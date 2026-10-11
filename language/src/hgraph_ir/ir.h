@@ -238,6 +238,9 @@ namespace hgl::hgraph_ir
     {
         std::string identity{};
         bool exported{false};
+        /// Declared in a `test { }` context: part of the module's test scope
+        /// only, omitted from production artifacts and descriptors.
+        bool test_only{false};
         std::vector<std::pair<std::string, std::int64_t>> members{};
     };
 
@@ -245,6 +248,9 @@ namespace hgl::hgraph_ir
     {
         std::string                   identity{};
         bool                          exported{false};
+        /// Declared in a `test { }` context: part of the module's test scope
+        /// only, omitted from production artifacts and descriptors.
+        bool                          test_only{false};
         /// Described by this module but declared by another (ADR 0013): the
         /// importer re-described the owner's layout so a backend can register
         /// the same schema. It is not a declaration of this module, so it has

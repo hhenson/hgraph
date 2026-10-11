@@ -268,8 +268,9 @@ namespace hgl::wiring
         class Compiler
         {
           public:
-            Compiler(const syntax::SourceFile &file, const gir::Module &module, syntax::DiagnosticSink &diagnostics)
-                : file_{file}, module_{module}, diagnostics_{diagnostics}, bridge_{module, diagnostics},
+            Compiler(const syntax::SourceFile &file, const gir::Module &module, syntax::DiagnosticSink &diagnostics,
+                     bool include_test_contexts = false)
+                : file_{file}, module_{module}, diagnostics_{diagnostics}, bridge_{module, diagnostics, include_test_contexts},
                   registry_{hgraph::TypeRegistry::instance()} {
                 structures_.reserve(module.structures.size());
                 for (const gir::StructContract &contract : module.structures) { structures_.emplace(contract.identity, &contract); }
@@ -3342,7 +3343,7 @@ namespace hgl::wiring
     std::vector<TestResult> run_tests(const syntax::SourceFile &file, const gir::Module &module, const TestOptions &options,
                                       syntax::DiagnosticSink &diagnostics) {
         ensure_session();
-        return Compiler{file, module, diagnostics}.run_tests(options);
+        return Compiler{file, module, diagnostics, true}.run_tests(options);
     }
 
     bool run_program(const syntax::SourceFile &file, const gir::Module &module, const RunOptions &options,

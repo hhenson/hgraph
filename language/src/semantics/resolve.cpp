@@ -210,15 +210,14 @@ namespace hgl::semantics
                     const ast::Decl &decl = module_.decl(id);
                     if (const auto *use = std::get_if<ast::UseDecl>(&decl.node)) { resolve_use(*use, decl.range); }
                 }
-                // Operators first so a plain `fn` of an operator's name is a conflict.
+                // Types first so a plain `fn` of a type's name is a conflict. A
+                // test-local type is validated with the module's structs but
+                // named only in the test overlay built below.
                 for (const ast::DeclId id : module_.declarations) {
                     const ast::Decl &decl = module_.decl(id);
                     if (const auto *structure = std::get_if<ast::StructDecl>(&decl.node)) {
                         result_.structs.push_back(id);
-                        Binding binding;
-                        binding.kind = BindingKind::Struct;
-                        binding.decl = id;
-                        declare(structure->name, binding, "in the module");
+                        if (!decl.test_only) { declare_struct(id, *structure); }
                     } else if (const auto *native = std::get_if<ast::NativeTypeDecl>(&decl.node)) {
                         const auto *contract = catalog_.find_native_type(result_.module_path, native->name.text, false);
                         if (contract == nullptr) {
@@ -231,21 +230,7 @@ namespace hgl::semantics
                             declare(native->name, *binding, "in the module");
                         }
                     } else if (const auto *enumeration = std::get_if<ast::EnumDecl>(&decl.node)) {
-                        Binding binding;
-                        binding.kind = BindingKind::Enum;
-                        binding.decl = id;
-                        declare(enumeration->name, binding, "in the module");
-                        for (const auto &alias : result_.aliases) {
-                            if (alias.alias == enumeration->name.text) {
-                                report(Category::Name, enumeration->name.range, "enum name conflicts with a module alias");
-                            }
-                        }
-                        std::unordered_set<std::string_view> names;
-                        for (const auto &member : enumeration->members) {
-                            if (!names.insert(member.name.text).second) {
-                                report(Category::Name, member.name.range, "duplicate enum member name");
-                            }
-                        }
+                        if (!decl.test_only) { declare_enum(id, *enumeration); }
                     }
                 }
                 // Operators share the value namespace with exact functions
@@ -277,10 +262,19 @@ namespace hgl::semantics
                 }
                 // All source parts contribute to a single test overlay. Resolve
                 // production declarations without it so test names cannot leak.
+                // A helper may shadow a production function; a test-local type
+                // may not shadow anything, because a type's identity is its
+                // module-wide schema name.
                 push_scope();
                 for (const ast::DeclId id : module_.declarations) {
                     const ast::Decl &decl = module_.decl(id);
-                    if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node); fn && decl.test_only) {
+                    if (const auto *structure = std::get_if<ast::StructDecl>(&decl.node); structure && decl.test_only) {
+                        reject_shadowed_type(structure->name);
+                        declare_struct(id, *structure);
+                    } else if (const auto *enumeration = std::get_if<ast::EnumDecl>(&decl.node); enumeration && decl.test_only) {
+                        reject_shadowed_type(enumeration->name);
+                        declare_enum(id, *enumeration);
+                    } else if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node); fn && decl.test_only) {
                         result_.functions.push_back(id);
                         declare_function(id, *fn);
                     } else if (const auto *test = std::get_if<ast::TestDecl>(&decl.node)) {
@@ -292,6 +286,41 @@ namespace hgl::semantics
                 }
                 test_scope_ = std::move(scopes_.back());
                 pop_scope();
+            }
+
+            void declare_struct(ast::DeclId id, const ast::StructDecl &structure) {
+                Binding binding;
+                binding.kind = BindingKind::Struct;
+                binding.decl = id;
+                declare(structure.name, binding, "in the module");
+            }
+
+            void declare_enum(ast::DeclId id, const ast::EnumDecl &enumeration) {
+                Binding binding;
+                binding.kind = BindingKind::Enum;
+                binding.decl = id;
+                declare(enumeration.name, binding, "in the module");
+                for (const auto &alias : result_.aliases) {
+                    if (alias.alias == enumeration.name.text) {
+                        report(Category::Name, enumeration.name.range, "enum name conflicts with a module alias");
+                    }
+                }
+                std::unordered_set<std::string_view> names;
+                for (const auto &member : enumeration.members) {
+                    if (!names.insert(member.name.text).second) {
+                        report(Category::Name, member.name.range, "duplicate enum member name");
+                    }
+                }
+            }
+
+            /// A test-local type name must be free in the module scope: unlike
+            /// a helper, it cannot shadow a production declaration or import.
+            void reject_shadowed_type(const ast::Name &name) {
+                if (name.empty()) { return; }
+                if (scopes_.front().names.contains(name.text)) {
+                    report(Category::Name, name.range,
+                           "test-local type '" + std::string{name.text} + "' conflicts with a module declaration of the same name");
+                }
             }
 
             void declare_function(ast::DeclId id, const ast::FunctionDecl &fn) {

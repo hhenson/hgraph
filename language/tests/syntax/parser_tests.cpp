@@ -540,6 +540,39 @@ TEST_CASE("test declarations wrap a block", "[parser]") {
             "            FloatLiteral 2.0\n");
 }
 
+TEST_CASE("test contexts admit test-local struct and enum declarations", "[parser][test-context]") {
+    const Parsed parsed{"module t\n"
+                        "test {\n"
+                        "    struct Pair { left: i64\n"
+                        "        right: i64 }\n"
+                        "    enum Kind { first = 1, second = 2 }\n"
+                        "    fn make(value: i64) -> Pair => Pair(left: value, right: value)\n"
+                        "    test pairs { assert make(1).left == 1 }\n"
+                        "}\n"};
+    INFO(parsed.diagnostics.render(parsed.file));
+    REQUIRE_FALSE(parsed.diagnostics.has_errors());
+    std::size_t types = 0;
+    for (const ast::DeclId id : parsed.module.declarations) {
+        const ast::Decl &decl = parsed.module.decl(id);
+        if (std::holds_alternative<ast::StructDecl>(decl.node) || std::holds_alternative<ast::EnumDecl>(decl.node)) {
+            CHECK(decl.test_only);
+            ++types;
+        }
+    }
+    CHECK(types == 2);
+}
+
+TEST_CASE("test-local types cannot be exported", "[parser][test-context]") {
+    const Parsed structure{"module t\ntest { export struct Pair { left: i64 } }\n"};
+    CHECK(structure.diagnostics.has_errors());
+    const std::vector<std::string> structure_messages = structure.messages();
+    CHECK(std::ranges::find(structure_messages, "test-local types cannot be exported") != structure_messages.end());
+    const Parsed enumeration{"module t\ntest { export enum Kind { first = 1 } }\n"};
+    CHECK(enumeration.diagnostics.has_errors());
+    const std::vector<std::string> enumeration_messages = enumeration.messages();
+    CHECK(std::ranges::find(enumeration_messages, "test-local types cannot be exported") != enumeration_messages.end());
+}
+
 // -------------------------------------------------------------------- types
 
 TEST_CASE("scalar and named types", "[parser]") {

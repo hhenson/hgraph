@@ -452,12 +452,19 @@ TEST_CASE("test helper code and registrations are opt-in artifacts", "[codegen][
 module t
 const fn scale(value: i64) -> i64 => value * 2
 test {
+    struct FixturePair { left: i64
+        right: i64 }
+    enum FixtureKind { plain = 1, scaled = 2 }
     fn fixture_node(value: i64) -> i64 { when { return value + 1 } }
+    fn fixture_pair(value: i64) -> FixturePair { when { return FixturePair(left: value, right: value + 1) } }
+    fn fixture_kind(kind: FixtureKind) -> FixtureKind => kind
     const fn fixture_value(value: i64) -> i64 => value + 3
     test helpers {
         assert eval(fixture_node, value: [1]) == [2]
         assert eval(fixture_value, value: [1]) == [4]
         assert eval(scale, value: [1]) == [2]
+        assert eval(fixture_pair, value: [1]) == [delta<FixturePair>(left: 1, right: 2)]
+        assert eval(fixture_kind, kind: [FixtureKind::scaled]) == [FixtureKind::scaled]
     }
 }
 )"};
@@ -466,13 +473,27 @@ test {
     for (const auto &artifact : {production->header, production->source, production->descriptor}) {
         CHECK_FALSE(contains(artifact, "fixture_node"));
         CHECK_FALSE(contains(artifact, "fixture_value"));
+        CHECK_FALSE(contains(artifact, "fixture_pair"));
+        CHECK_FALSE(contains(artifact, "fixture_kind"));
+        CHECK_FALSE(contains(artifact, "FixturePair"));
+        CHECK_FALSE(contains(artifact, "FixtureKind"));
         CHECK_FALSE(contains(artifact, "$lift"));
     }
+    // Test-local types are declared in hgraph IR, marked as test-only.
+    REQUIRE(unit.graph.structures.size() == 1);
+    CHECK(unit.graph.structures.front().test_only);
+    CHECK(unit.graph.structures.front().identity == "t.FixturePair");
+    REQUIRE(unit.graph.enums.size() == 1);
+    CHECK(unit.graph.enums.front().test_only);
     const auto testing = unit.emit(EmitOptions{.include_test_contexts = true});
     REQUIRE(testing);
     CHECK(contains(testing->source, "fixture_node"));
     CHECK(contains(testing->header, "fixture_value"));
+    CHECK(contains(testing->header, "struct FixturePair"));
+    CHECK(contains(testing->header, "struct FixtureKind"));
     CHECK(contains(testing->source, "register_overload"));
+    // A test-local type is never part of the module's exported interface.
+    CHECK_FALSE(contains(testing->descriptor, "FixturePair"));
 }
 
 TEST_CASE("native dependencies follow production and test expression ownership", "[codegen][test-context][native]") {

@@ -1375,7 +1375,9 @@ namespace hgl::codegen
                                 backend(item.range, "hgraph IR source order contains a duplicate struct handle");
                             }
                             seen_structures[id.value] = true;
-                            structure_declarations_.push_back(id);
+                            // A test-local type is an opt-in artifact, like the
+                            // helpers and cases that use it.
+                            if (!item.test_only || options_.include_test_contexts) { structure_declarations_.push_back(id); }
                         } else if constexpr (std::is_same_v<T, gir::OperatorId>) {
                             if (!id.valid() || id.value >= graph_.operators.size()) {
                                 backend({}, "hgraph IR source order contains an invalid operator ID");
@@ -1418,9 +1420,12 @@ namespace hgl::codegen
                                                        [](const gir::OperatorContract &item) { return !item.imported; }));
             // An imported contract is described by this module and declared by
             // another (ADR 0013), so it has no source-order handle by design.
-            // Only this module's own structs are accounted for here.
+            // Only this module's own structs are accounted for here, and a
+            // test-local struct only when test contexts are emitted.
             const std::size_t declared = static_cast<std::size_t>(
-                std::ranges::count_if(graph_.structures, [](const gir::StructContract &s) { return !s.imported; }));
+                std::ranges::count_if(graph_.structures, [&](const gir::StructContract &s) {
+                    return !s.imported && (!s.test_only || options_.include_test_contexts);
+                }));
             if (structure_declarations_.size() != declared) {
                 backend({}, "hgraph IR source order omits a struct declaration");
             }
@@ -8162,6 +8167,7 @@ namespace hgl::codegen
                           ");");
             }
             for (const auto &structure : graph_.structures) {
+                if (structure.test_only && !options_.include_test_contexts) { continue; }
                 if (structure.generics.empty() && !structure.imported) {
                     body.line("(void)hgraph::scalar_descriptor<" + struct_cpp_type(structure.identity, structure.range) + "::value_type>::value_meta();");
                 }
@@ -8378,8 +8384,14 @@ namespace hgl::codegen
                 header.line();
             }
             emit_native_interface(header);
+            // A test-local enum is an opt-in artifact, like a test-local struct.
+            std::vector<const gir::EnumContract *> enums;
             for (const auto &enumeration : graph_.enums) {
-                const auto name = cpp_name(local_identity(enumeration.identity));
+                if (!enumeration.test_only || options_.include_test_contexts) { enums.push_back(&enumeration); }
+            }
+            for (const auto *emitted : enums) {
+                const auto &enumeration = *emitted;
+                const auto  name        = cpp_name(local_identity(enumeration.identity));
                 header.open("struct " + name);
                 header.line("hgraph::Int number{" + integer_literal(enumeration.members.front().second) + "};");
                 header.line("friend bool operator==(const " + name + " &, const " + name + " &) = default;");
@@ -8403,12 +8415,13 @@ namespace hgl::codegen
                 header.line("}");
                 header.close(";");
             }
-            if (!graph_.enums.empty()) {
+            if (!enums.empty()) {
                 header.dedent();
                 header.line("} // namespace " + namespace_);
                 header.open("namespace hgraph");
-                for (const auto &enumeration : graph_.enums) {
-                    const auto name = "::" + namespace_ + "::" + cpp_name(local_identity(enumeration.identity));
+                for (const auto *emitted : enums) {
+                    const auto &enumeration = *emitted;
+                    const auto  name        = "::" + namespace_ + "::" + cpp_name(local_identity(enumeration.identity));
                     header.open("template <> struct scalar_descriptor<" + name + ">");
                     header.line("static constexpr bool is_concrete() noexcept { return true; }");
                     header.line("static const ValueTypeMetaData *value_meta() { return " + name + "::value_meta(); }");
