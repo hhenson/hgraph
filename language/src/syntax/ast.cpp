@@ -11,6 +11,7 @@ namespace hgl::syntax::ast
             case ScalarType::F64: return "f64";
             case ScalarType::Str: return "str";
             case ScalarType::Bytes: return "bytes";
+            case ScalarType::Any: return "any";
             case ScalarType::Date: return "date";
             case ScalarType::Time: return "time";
             case ScalarType::DateTime: return "datetime";

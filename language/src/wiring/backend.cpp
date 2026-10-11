@@ -1,7 +1,7 @@
 #include "wiring/backend.h"
-#include <hgl/execution_error.h>
 #include "wiring/delta_trace.h"
 #include <hgl/constant_arithmetic.h>
+#include <hgl/execution_error.h>
 #include <hgl/ordinary_values.h>
 #include <hgl/temporal_literals.h>
 
@@ -38,10 +38,10 @@
 #endif
 
 #include <algorithm>
-#include <functional>
 #include <chrono>
 #include <compare>
 #include <exception>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -744,7 +744,7 @@ namespace hgl::wiring
                         } else if (numeric) {
                             equal = number(lhs) == number(rhs);
                         } else if (lhs.meta() == rhs.meta()) {
-                            equal = lhs.value.view().equals(rhs.value.view());
+                            equal = ordinary::checked_equals(lhs.value.view(), rhs.value.view());
                         } else {
                             return type_error();
                         }
@@ -761,11 +761,14 @@ namespace hgl::wiring
                         } else if (numeric) {
                             order = number(lhs) <=> number(rhs);
                         } else if (lhs.meta() == rhs.meta()) {
-                            order = lhs.value.view().compare(rhs.value.view());
+                            order = ordinary::checked_compare(lhs.value.view(), rhs.value.view());
                         } else {
                             return type_error();
                         }
-                        if (order == std::partial_ordering::unordered) { return type_error(); }
+                        if (order == std::partial_ordering::unordered &&
+                            lhs.meta()->try_value_kind() != hgraph::ValueTypeKind::Any) {
+                            return type_error();
+                        }
                         const bool result = op == hir::BinaryOp::Less        ? order < 0
                                             : op == hir::BinaryOp::LessEqual ? order <= 0
                                             : op == hir::BinaryOp::Greater   ? order > 0
@@ -871,6 +874,7 @@ namespace hgl::wiring
                     }
                 case gir::ConstExprKind::Tuple:
                     {
+                        if (expression.type.valid()) { return eval_typed_collection_child(id, value_meta(expression.type), frame); }
                         std::vector<hgraph::Value>                     values;
                         std::vector<const hgraph::ValueTypeMetaData *> metadata;
                         for (gir::ConstExprId item : expression.items) {
@@ -880,15 +884,13 @@ namespace hgl::wiring
                             values.push_back(std::move(slot.value));
                         }
                         const auto   *meta = registry_.tuple(metadata);
-                        hgraph::Value result{hgraph::ValuePlanFactory::instance().type_for(meta)};
-                        auto          output = result.as_tuple().begin_mutation();
-                        for (std::size_t index = 0; index < values.size(); ++index) {
-                            output.at(index).copy_from(values[index].view());
-                        }
-                        return make_const(std::move(result), expression.range);
+                        hgraph::BundleBuilder output{ordinary::storage_binding(meta)};
+                        for (std::size_t index = 0; index < values.size(); ++index) { output.set(index, values[index].view()); }
+                        return make_const(output.build(), expression.range);
                     }
                 case gir::ConstExprKind::Sequence:
                     {
+                        if (expression.type.valid()) { return eval_typed_collection_child(id, value_meta(expression.type), frame); }
                         std::vector<hgraph::Value> values;
                         for (const gir::ConstElement &element : expression.elements) {
                             if (element.key.valid()) { backend(expression.range, "a keyed compile-time sequence is unsupported"); }
@@ -906,6 +908,12 @@ namespace hgl::wiring
                     }
                 case gir::ConstExprKind::Construct:
                     {
+                        if (value_meta(expression.constructed_type)->try_value_kind() == hgraph::ValueTypeKind::Any) {
+                            const ordinary::PreparedValuePlan plan{value_meta(expression.constructed_type)};
+                            if (expression.arguments.empty()) { return make_const(plan.empty_box(), expression.range); }
+                            const Slot source = eval_const_expr(expression.arguments.front().value, frame);
+                            return make_const(plan.box(source.value.view()), expression.range);
+                        }
                         if (value_meta(expression.constructed_type) == types_.bytes_type) {
                             if (expression.arguments.empty()) {
                                 return make_const(hgraph::Value{hgraph::Bytes{}}, expression.range);
@@ -923,8 +931,18 @@ namespace hgl::wiring
                         }
                         std::vector<std::pair<std::string, Slot>> supplied;
                         supplied.reserve(expression.arguments.size());
+                        const auto *meta = value_meta(expression.constructed_type);
                         for (const gir::ConstArgument &argument : expression.arguments) {
-                            supplied.emplace_back(argument.name, eval_const_expr(argument.value, frame));
+                            const hgraph::ValueTypeMetaData *field_meta = nullptr;
+                            for (std::size_t index = 0; index < meta->field_count; ++index) {
+                                if (meta->fields[index].name == argument.name) {
+                                    field_meta = meta->fields[index].type;
+                                    break;
+                                }
+                            }
+                            supplied.emplace_back(argument.name,
+                                                  field_meta ? eval_typed_collection_child(argument.value, field_meta, frame)
+                                                             : eval_const_expr(argument.value, frame));
                         }
                         return assemble_construct(expression.constructed_type, std::move(supplied), expression.delta,
                                                   expression.range, frame);
@@ -1003,8 +1021,8 @@ namespace hgl::wiring
             for (std::size_t index = 0; equal && index < left.elements.size(); ++index) {
                 const auto &observed = left.elements[index];
                 const auto &expected = right.elements[index];
-                const bool  same =
-                    observed.has_value() == expected.has_value() && (!observed || observed->view().equals(expected->view()));
+                const bool  same     = observed.has_value() == expected.has_value() &&
+                                       (!observed || ordinary::checked_equals(observed->view(), expected->view()));
                 if (!same) {
                     equal              = false;
                     comparison_detail_ = "cycle " + std::to_string(index) + ": expected " +
@@ -1107,6 +1125,31 @@ namespace hgl::wiring
 
         Slot Compiler::wire_binary(hir::BinaryOp op, const Slot &lhs, const Slot &rhs, SourceRange range,
                                    std::string_view registry_name) {
+            const auto boxed = [&](const Slot &value) {
+                return value.is_const() ? value.meta() == registry_.any()
+                                        : value.is_port() && value.port.schema->value_schema == registry_.any();
+            };
+            if (boxed(lhs) && boxed(rhs)) {
+                const auto *shape   = registry_.ts(registry_.any());
+                const auto  first   = lhs.is_port() ? lhs : wire_constant(lhs, shape);
+                const auto  second  = rhs.is_port() ? rhs : wire_constant(rhs, shape);
+                const auto  compare = [&]<int Operation>() {
+                    return make_port(hgraph::wire<ordinary::BoxComparison<Operation>>(
+                                         wiring(range), hgraph::Port<hgraph::TS<ordinary::Any>>{first.port},
+                                         hgraph::Port<hgraph::TS<ordinary::Any>>{second.port})
+                                         .erased(),
+                                     range);
+                };
+                switch (op) {
+                    case hir::BinaryOp::Equal: return compare.template operator()<0>();
+                    case hir::BinaryOp::NotEqual: return compare.template operator()<1>();
+                    case hir::BinaryOp::Less: return compare.template operator()<2>();
+                    case hir::BinaryOp::LessEqual: return compare.template operator()<3>();
+                    case hir::BinaryOp::Greater: return compare.template operator()<4>();
+                    case hir::BinaryOp::GreaterEqual: return compare.template operator()<5>();
+                    default: break;
+                }
+            }
             std::string name{registry_name};
             if (name.empty()) { name = hir::system_operator_name(op); }
             return wire(name, {argument_of(lhs, {}), argument_of(rhs, {})}, range);
@@ -1245,7 +1288,7 @@ namespace hgl::wiring
             for (std::size_t index = 0; index < contract.fields.size(); ++index) {
                 const gir::StructField &field = contract.fields[index];
                 if (!effective[index] && !delta && field.default_value.valid()) {
-                    effective[index] = eval_const_expr(field.default_value, frame);
+                    effective[index] = eval_typed_collection_child(field.default_value, meta->fields[index].type, frame);
                 }
                 if (!effective[index]) {
                     if (delta || field.optional) { continue; }
@@ -1781,6 +1824,14 @@ namespace hgl::wiring
 
         Slot Compiler::eval_intrinsic(std::string_view name, const std::vector<gir::Argument> &arguments, SourceRange range,
                                       Frame &frame) {
+            if (name == "any") {
+                const ordinary::PreparedValuePlan plan{registry_.any()};
+                if (arguments.empty()) { return make_const(plan.empty_box(), range); }
+                const Slot item = eval_value(arguments.front().value, frame);
+                if (!item.is_const()) { backend(range, "any requires a checked ordinary payload"); }
+                const ordinary::PreparedValuePlan payload{item.value.schema()};
+                return make_const(plan.box(payload.retain(item.value.view()).view()), range);
+            }
             if (name == "bytes") {
                 if (arguments.empty()) { return make_const(hgraph::Value{hgraph::Bytes{}}, range); }
                 const Slot item = eval_value(arguments.front().value, frame);

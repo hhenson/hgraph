@@ -959,6 +959,40 @@ TEST_CASE("value slot store supports default construction before plan binding", 
     REQUIRE_THROWS_AS(store.bind_plan(MemoryUtils::plan_for<std::uint64_t>()), std::logic_error);
 }
 
+TEST_CASE("value slot store preserves zero-byte composite presence and stable addresses", "[v2 slot utils]") {
+    auto        builder = MemoryUtils::tuple();
+    const auto &plan    = builder.build();
+    REQUIRE(plan.layout.size == 0);
+    for (const bool delayed_binding : {false, true}) {
+        ValueSlotStore store;
+        if (delayed_binding) {
+            store.bind_plan(plan);
+        } else {
+            store = ValueSlotStore{plan};
+        }
+        REQUIRE(store.plan() == &plan);
+        REQUIRE(store.stride() > 0);
+        store.reserve_to(2);
+        store.construct_at(0);
+        store.construct_at(1, store.value_memory(0));
+        REQUIRE(store.try_value_memory(0) != nullptr);
+        REQUIRE(store.try_value_memory(1) != nullptr);
+        CHECK(store.value_memory(0) != store.value_memory(1));
+        const auto *first = store.value_memory(0);
+        store.reserve_to(20);
+        CHECK(store.value_memory(0) == first);
+        store.bind_plan(plan);
+        ValueSlotStore moved{std::move(store)};
+        REQUIRE(moved.has_slot(0));
+        REQUIRE(moved.has_slot(1));
+        moved.destroy_at(0);
+        CHECK_FALSE(moved.has_slot(0));
+        CHECK(moved.has_slot(1));
+        moved.destroy_at(1);
+        CHECK_FALSE(moved.has_slot(1));
+    }
+}
+
 TEST_CASE("value slot store manages typed payload lifetime on stable slots", "[v2 slot utils]") {
     TrackedPayload::reset();
 

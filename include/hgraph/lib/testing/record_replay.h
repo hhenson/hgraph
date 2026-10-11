@@ -69,10 +69,11 @@ namespace hgraph::testing
     }
 
     /** Read a DENSE recording back as a sequence of canonical delta
-        ``Value``s (owning copies; nullopt = no tick). */
-    [[nodiscard]] inline std::vector<std::optional<Value>> get_recorded_deltas(const GlobalStateView &gs,
-                                                                               std::string_view key)
-    {
+        ``Value``s (owning copies; nullopt = no tick). Supply Typed for a dense
+        record sink's output. The default preserves the schema-free seeded
+        envelope convention, which also admits canonical Any payloads. */
+    [[nodiscard]] inline std::vector<std::optional<Value>>
+    get_recorded_deltas(const GlobalStateView &gs, std::string_view key, DenseBufferLayout layout = DenseBufferLayout::Seeded) {
         std::vector<std::optional<Value>> result;
         const ValueView                   buffer = gs.get(key);
         if (!buffer.valid()) { return result; }
@@ -84,10 +85,8 @@ namespace hgraph::testing
                 "read it with get_recorded_sparse");
         }
         result.reserve(list.size());
-        for (std::size_t i = 0; i < list.size(); ++i)
-        {
-            result.emplace_back(dense_entry_delta(list, i));
-        }
+        const auto reader = dense_entry_reader(buffer.binding(), layout);
+        for (std::size_t i = 0; i < list.size(); ++i) { result.emplace_back(reader(list, i)); }
         return result;
     }
 
@@ -107,11 +106,10 @@ namespace hgraph::testing
 
     /** Scalar convenience: read a recorded ``TS<T>`` buffer back as plain C++ values. */
     template <typename T>
-    [[nodiscard]] std::vector<std::optional<T>> get_recorded_values(const GlobalStateView &gs, std::string_view key)
-    {
+    [[nodiscard]] std::vector<std::optional<T>> get_recorded_values(const GlobalStateView &gs, std::string_view key,
+                                                                    DenseBufferLayout layout = DenseBufferLayout::Seeded) {
         std::vector<std::optional<T>> out;
-        for (const auto &delta : get_recorded_deltas(gs, key))
-        {
+        for (const auto &delta : get_recorded_deltas(gs, key, layout)) {
             if (delta.has_value()) { out.push_back(delta->view().template checked_as<T>()); }
             else { out.push_back(std::nullopt); }
         }

@@ -1,0 +1,44 @@
+module checks.any_values
+
+const fn default_empty(value: any = any()) -> any => value
+
+const fn default_integer(value: any = any(7)) -> any => value
+
+struct Defaults { value: any = any(7) }
+
+struct DefaultCells { values: list<Defaults> }
+
+struct DefaultTuple { values: tuple<list<any>, i64> }
+
+const fn default_selected(value: bool = DefaultCells(values: [Defaults(value: any(1))]).values[0].value < any(2)) -> bool => value
+
+const fn default_nested(value: bool = DefaultTuple(values: ([any(1)], 0)).values[0][0] < any(2)) -> bool => value
+
+const fn defaults_valid() -> bool {
+    let fields: Defaults = Defaults()
+    return default_empty() == any() && default_integer() == any(7) && fields.value == any(7) && default_selected() && default_nested()
+}
+
+export fn box_input(value: i64) -> any {
+    when { return any(value) }
+}
+
+export fn forward(value: any) -> any {
+    when { return delta_value(value) }
+}
+
+export fn missing_order(trigger: i64) -> bool {
+    when { return any(map<i64, i64>(items: [1: 2])) < any(map<i64, i64>(items: [1: 2])) }
+}
+
+export fn wired_less(first: any, second: any) -> bool => first < second
+
+test values {
+    assert defaults_valid()
+    assert eval(wired_less, first: [any(), any(1), any(0)], second: [any(0), any(2), any(false)]) == [true, true, false]
+    let unordered: any = any(map<i64, i64>(items: [1: 2]))
+    assert raises("value.capability") { eval(wired_less, first: [unordered], second: [unordered]) }
+    let delta_box: any = any(delta<list<i64, 2>>(items: [0: 1]))
+    assert raises("value.capability") { assert delta_box == delta_box }
+    assert raises("value.capability") { assert eval(missing_order, [0]) == [true] }
+}

@@ -282,7 +282,13 @@ namespace hgraph
             return bound == other_bound || value_schema_equivalent(schema(), other.schema());
         }
 
-        if (bound == other_bound) { return bound.ops_ref().equals(data(), other.data()); }
+        // Capability restrictions and private format labels do not change the
+        // payload representation. The same schema/plan/ops can compare directly
+        // even when the immutable binding records carry different promises.
+        if (bound == other_bound ||
+            (bound.schema() == other_bound.schema() && bound.plan() == other_bound.plan() && bound.ops() == other_bound.ops())) {
+            return bound.ops_ref().equals(data(), other.data());
+        }
 
         auto lhs_concrete = concrete();
         auto rhs_concrete = other.concrete();
@@ -311,7 +317,10 @@ namespace hgraph
         }
 
         return fallback_on_exception(std::partial_ordering::unordered, [&]() {
-            if (bound == other_bound) { return bound.ops_ref().compare(data(), other.data()); }
+            if (bound == other_bound || (bound.schema() == other_bound.schema() && bound.plan() == other_bound.plan() &&
+                                         bound.ops() == other_bound.ops())) {
+                return bound.ops_ref().compare(data(), other.data());
+            }
             if (!value_schema_equivalent(schema(), other.schema())) { return std::partial_ordering::unordered; }
             return semantic_compare(*this, other);
         });

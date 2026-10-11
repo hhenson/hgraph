@@ -632,6 +632,7 @@ namespace hgl::ir
             }
 
             [[nodiscard]] bool runtime_owner(DeclarationId id) const noexcept {
+                if (checking_parameter_default_) { return false; }
                 const FunctionDecl *fn = function(id);
                 return fn != nullptr && (fn->kind == FunctionKind::Runtime || fn->is_const);
             }
@@ -757,7 +758,7 @@ namespace hgl::ir
                             for (StructField &field : node.fields) {
                                 if (!field.default_value.valid()) { continue; }
                                 Expr &value = check_expr(field.default_value, field.type);
-                                validate_required_bytes(field.default_value);
+                                validate_required_values(field.default_value);
                                 if (value.constant && std::holds_alternative<NullValue>(*value.constant)) {
                                     if (!field.optional) { type_error(value.range, "null is only valid for an optional field"); }
                                 } else {
@@ -966,12 +967,166 @@ namespace hgl::ir
                 check(signature.result, true);
             }
 
+            // Resolve checked ordinary selectors to their constructor recipe.
+            // This follows compositions such as list[index].field and tuple
+            // indexing without inspecting Any itself or inventing new access.
+            ExprId selected_recipe(ExprId id, std::unordered_set<std::uint32_t> &visiting) const {
+                if (!id.valid() || !visiting.insert(id.value).second) { return id; }
+                const auto &expression = module_.expr(id);
+                ExprId      child{};
+                if (const auto *reference = std::get_if<SymbolRef>(&expression.node)) {
+                    const auto found = local_contexts_.find(reference->symbol.value);
+                    if (found != local_contexts_.end()) {
+                        if (const auto *local = std::get_if<LocalDecl>(&module_.stmts[found->second.declaration.value].node)) {
+                            child = local->init;
+                        }
+                    }
+                } else if (const auto *index = std::get_if<Index>(&expression.node)) {
+                    const auto &position = module_.expr(index->index);
+                    const auto *number   = position.constant ? std::get_if<std::int64_t>(&*position.constant) : nullptr;
+                    if (number && *number >= 0) {
+                        const auto  target_id = selected_recipe(index->target, visiting);
+                        const auto &target    = module_.expr(target_id);
+                        const auto  offset    = static_cast<std::size_t>(*number);
+                        if (const auto *sequence = std::get_if<Sequence>(&target.node);
+                            sequence && offset < sequence->elements.size()) {
+                            child = sequence->elements[offset].value;
+                        } else if (const auto *tuple = std::get_if<Tuple>(&target.node); tuple && offset < tuple->elements.size()) {
+                            child = tuple->elements[offset];
+                        }
+                    }
+                } else if (const auto *field = std::get_if<Field>(&expression.node)) {
+                    const auto                   target_id = selected_recipe(field->target, visiting);
+                    const auto                  &target    = module_.expr(target_id);
+                    const std::vector<Argument> *arguments = nullptr;
+                    if (const auto *call = std::get_if<Call>(&target.node);
+                        target.operation.kind == OperationKind::Constructor && call) {
+                        arguments = &call->arguments;
+                    }
+                    if (const auto *construct = std::get_if<Construct>(&target.node); construct && !construct->delta) {
+                        arguments = &construct->arguments;
+                    }
+                    if (arguments) {
+                        const auto &nominal = type(canonical(target.type));
+                        if (nominal.kind == TypeKind::Symbol && nominal.symbol.valid()) {
+                            const auto &symbol = module_.symbol(nominal.symbol);
+                            const auto *structure =
+                                symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
+                            const auto *imported = imported_struct_decl(nominal.symbol);
+                            if (structure || imported) {
+                                const auto &fields     = structure ? structure->fields : imported->fields;
+                                std::size_t positional = 0;
+                                for (const auto &argument : *arguments) {
+                                    const auto name = argument.name.empty() && positional < fields.size()
+                                                          ? fields[positional++].name
+                                                          : argument.name;
+                                    if (name == field->name) {
+                                        child = argument.value;
+                                        break;
+                                    }
+                                }
+                                if (!child.valid()) {
+                                    for (const auto &member : fields) {
+                                        if (member.name == field->name) {
+                                            child = member.default_value;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                const auto result = child.valid() ? selected_recipe(child, visiting) : id;
+                visiting.erase(id.value);
+                return result;
+            }
+            ExprId selected_recipe(ExprId id) const {
+                std::unordered_set<std::uint32_t> visiting;
+                return selected_recipe(id, visiting);
+            }
+            ExprId boxed_contents(ExprId id, std::unordered_set<std::uint32_t> &visiting) const {
+                id = selected_recipe(id);
+                if (!id.valid() || !visiting.insert(id.value).second) { return {}; }
+                const auto &expression = module_.expr(id);
+                ExprId      result{};
+                if (const auto *call = std::get_if<Call>(&expression.node);
+                    call && expression.operation.kind == OperationKind::Intrinsic && expression.operation.identity == "any" &&
+                    !call->arguments.empty()) {
+                    const auto child = selected_recipe(call->arguments.front().value);
+                    result           = boxed_contents(child, visiting);
+                    if (!result.valid()) { result = child; }
+                }
+                visiting.erase(id.value);
+                return result;
+            }
+            ExprId boxed_contents(ExprId id) const {
+                std::unordered_set<std::uint32_t> visiting;
+                return boxed_contents(id, visiting);
+            }
+
+            bool known_missing_box_capability(TypeId id, bool order, std::unordered_set<std::uint32_t> &visiting) {
+                id = canonical(id);
+                if (!id.valid() || !visiting.insert(id.value).second) { return false; }
+                const auto &value   = type(id);
+                bool        missing = order && value.kind == TypeKind::Scalar &&
+                                      (value.scalar == ScalarType::TimeZone || value.scalar == ScalarType::ZonedTime ||
+                                       value.scalar == ScalarType::ZonedDateTime);
+                if (value.kind == TypeKind::Map || value.kind == TypeKind::Set) { missing = missing || order; }
+                if (value.kind == TypeKind::Delta) {
+                    if (value.children.empty()) {
+                        missing = true;
+                    } else {
+                        const auto &origin = type(canonical(value.children.front()));
+                        missing =
+                            origin.kind != TypeKind::Scalar && origin.kind != TypeKind::Atomic && origin.kind != TypeKind::Rolling;
+                    }
+                }
+                if (value.kind == TypeKind::Symbol && value.symbol.valid()) {
+                    const auto &symbol = module_.symbol(value.symbol);
+                    const auto *structure =
+                        symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
+                    const auto *imported = imported_struct_decl(value.symbol);
+                    if (structure || imported) {
+                        const auto fields = structure ? structure->fields : imported->fields;
+                        for (const auto &field : fields) {
+                            const auto child = constraint_solver_.field_type({}, id, field.name);
+                            if (child) { missing = missing || known_missing_box_capability(*child, order, visiting); }
+                        }
+                    }
+                }
+                for (const auto child : value.children) {
+                    missing = missing || known_missing_box_capability(child, order, visiting);
+                }
+                visiting.erase(id.value);
+                return missing;
+            }
+
+            bool known_missing_box_capability(TypeId id, bool order) {
+                std::unordered_set<std::uint32_t> visiting;
+                return known_missing_box_capability(id, order, visiting);
+            }
+
             // Required defaults are source constants. Optional folding of an
             // executed constructor must never turn BYTE-3 into source rejection.
-            void validate_required_bytes(ExprId id) {
+            void validate_required_values(ExprId id) {
                 if (!id.valid()) { return; }
                 const auto &value = module_.expr(id);
-                if (const auto *call = std::get_if<Call>(&value.node)) {
+                if (const auto *binary = std::get_if<Binary>(&value.node)) {
+                    const auto lhs = boxed_contents(binary->lhs), rhs = boxed_contents(binary->rhs);
+                    const bool order    = binary->op == BinaryOp::Less || binary->op == BinaryOp::LessEqual ||
+                                          binary->op == BinaryOp::Greater || binary->op == BinaryOp::GreaterEqual;
+                    const bool equality = binary->op == BinaryOp::Equal || binary->op == BinaryOp::NotEqual;
+                    if ((order || equality) && lhs.valid() && rhs.valid() && same(module_.expr(lhs).type, module_.expr(rhs).type) &&
+                        known_missing_box_capability(module_.expr(lhs).type, order)) {
+                        type_error(value.range, "boxed value lacks a capability in required constant evaluation",
+                                   "value.constant_capability");
+                    }
+                    validate_required_values(binary->lhs);
+                    validate_required_values(binary->rhs);
+                } else if (const auto *unary = std::get_if<Unary>(&value.node)) {
+                    validate_required_values(unary->operand);
+                } else if (const auto *call = std::get_if<Call>(&value.node)) {
                     if (value.operation.kind == OperationKind::Intrinsic && value.operation.identity == "bytes" &&
                         call->arguments.size() == 1U) {
                         const auto &argument = module_.expr(call->arguments.front().value);
@@ -986,22 +1141,41 @@ namespace hgl::ir
                             }
                         }
                     }
-                    for (const auto &argument : call->arguments) { validate_required_bytes(argument.value); }
+                    for (const auto &argument : call->arguments) { validate_required_values(argument.value); }
                 } else if (const auto *construct = std::get_if<Construct>(&value.node)) {
-                    for (const auto &argument : construct->arguments) { validate_required_bytes(argument.value); }
+                    const auto &shape = type(unwrap_atomic(value.type));
+                    if (shape.kind == TypeKind::Map || shape.kind == TypeKind::Set) {
+                        for (const auto &argument : construct->arguments) {
+                            const auto *entries = std::get_if<Sequence>(&module_.expr(argument.value).node);
+                            if (!entries) { continue; }
+                            for (const auto &entry : entries->elements) {
+                                const auto key = shape.kind == TypeKind::Map ? entry.key : entry.value;
+                                if (!key.valid()) { continue; }
+                                const auto contents = boxed_contents(key);
+                                if (contents.valid() && known_missing_box_capability(module_.expr(contents).type, false)) {
+                                    type_error(module_.expr(key).range,
+                                               "boxed key lacks a capability in required constant evaluation",
+                                               "value.constant_capability");
+                                }
+                            }
+                        }
+                    }
+                    for (const auto &argument : construct->arguments) { validate_required_values(argument.value); }
                 } else if (const auto *sequence = std::get_if<Sequence>(&value.node)) {
-                    for (const auto &entry : sequence->elements) { validate_required_bytes(entry.value); }
+                    for (const auto &entry : sequence->elements) { validate_required_values(entry.value); }
                 } else if (const auto *tuple = std::get_if<Tuple>(&value.node)) {
-                    for (const auto entry : tuple->elements) { validate_required_bytes(entry); }
+                    for (const auto entry : tuple->elements) { validate_required_values(entry); }
                 }
             }
 
             void check_signature_defaults(Signature &signature) {
                 for (Parameter &parameter : signature.parameters) {
                     if (!parameter.default_value.valid()) { continue; }
+                    const bool previous_default = std::exchange(checking_parameter_default_, true);
                     Expr &value = check_expr(parameter.default_value, parameter.type);
+                    checking_parameter_default_ = previous_default;
                     require_assignable(parameter.type, value, "parameter default");
-                    validate_required_bytes(parameter.default_value);
+                    validate_required_values(parameter.default_value);
                     if (value.phase != Phase::Constant) {
                         diagnostics_.report(syntax::Category::Phase, value.range,
                                             "a parameter default must be a compile-time constant");
@@ -2089,6 +2263,15 @@ namespace hgl::ir
                                               node.op == BinaryOp::NotEqual || node.op == BinaryOp::And || node.op == BinaryOp::Or
                                           ? scalar(ScalarType::Bool)
                                           : lhs.type;
+                    if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
+                    expression.value_kind = value_kind_for_phase(expression.phase);
+                    return;
+                }
+                if (same(lhs.type, scalar(ScalarType::Any)) && same(rhs.type, scalar(ScalarType::Any)) &&
+                    (node.op == BinaryOp::Equal || node.op == BinaryOp::NotEqual || node.op == BinaryOp::Less ||
+                     node.op == BinaryOp::LessEqual || node.op == BinaryOp::Greater || node.op == BinaryOp::GreaterEqual)) {
+                    expression.type      = scalar(ScalarType::Bool);
+                    expression.operation = Operation{.kind = OperationKind::Intrinsic, .identity = "any.compare"};
                     if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
                     expression.value_kind = value_kind_for_phase(expression.phase);
                     return;
@@ -4455,6 +4638,27 @@ namespace hgl::ir
                 }
                 std::vector<ExprId> args;
                 for (const Argument &argument : call.arguments) { args.push_back(argument.value); }
+                if (name == "any") {
+                    if (args.size() > 1U || (!call.arguments.empty() && !call.arguments.front().name.empty())) {
+                        type_error(expression.range, "any takes zero arguments or one positional ordinary value");
+                    }
+                    for (const auto argument : args) {
+                        const Expr &value = check_expr(argument);
+                        const auto  id    = canonical(value.type);
+                        if (!id.valid() || value.phase == Phase::Wiring || reference(id) || capability_value(id) ||
+                            borrowed_schema(id) || signal_marker(id) || type(id).kind == TypeKind::Void ||
+                            type(id).kind == TypeKind::Callable || type(id).kind == TypeKind::Iterator ||
+                            type(id).kind == TypeKind::HarnessSequence || type(id).kind == TypeKind::Rolling ||
+                            value.value_kind == ValueKind::Function || value.value_kind == ValueKind::Operator ||
+                            value.value_kind == ValueKind::Type) {
+                            type_error(value.range, "any requires an ordinary payload, not an endpoint, handle or resource");
+                        }
+                    }
+                    expression.type = scalar(ScalarType::Any);
+                    finish_call_semantics(expression, args, true);
+                    expression.operation = Operation{.kind = OperationKind::Intrinsic, .target = target, .identity = "any"};
+                    return;
+                }
                 if (name == "bytes") {
                     if (args.size() > 1U || (!call.arguments.empty() && !call.arguments.front().name.empty())) {
                         type_error(expression.range, "bytes takes zero arguments or one positional ordinary i64 list");
@@ -4787,7 +4991,7 @@ namespace hgl::ir
             }
             [[nodiscard]] bool aggregate(TypeId id) const {
                 id = canonical(id);
-                return id.valid() && type(id).kind != TypeKind::Scalar;
+                return id.valid() && (type(id).kind != TypeKind::Scalar || type(id).scalar == ScalarType::Any);
             }
 
             void check_receiver_capability_call(Expr &expression, const Call &call, const std::string &name,
@@ -5558,6 +5762,7 @@ namespace hgl::ir
             TypeId                                   void_type_{};
             NativePhase                              active_native_phase_{NativePhase::Wiring};
             bool                                     active_value_function_{false};
+            bool                                            checking_parameter_default_{false};
             // HIR's deque keeps expression addresses stable throughout checking.
             std::vector<std::pair<const Expr *, NativePhase>> value_call_phases_{};
             bool                                              active_when_condition_{false};

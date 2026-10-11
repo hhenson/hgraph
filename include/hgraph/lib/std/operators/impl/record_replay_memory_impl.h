@@ -75,6 +75,7 @@ namespace hgraph::stdlib
         {
             Int         index{0};
             std::string fq_key{};
+            testing::DenseEntryReader dense_reader{&testing::seeded_dense_entry};
         };
 
         /** memory_compare's start-resolved summary key and counters.  An
@@ -147,8 +148,8 @@ namespace hgraph::stdlib
             // first tick (a never-ticking recording reads back empty either
             // way). A seeded state may contain the prior run's result under
             // this key.
-            bindings.set(ResolvedBindings{
-                .primary = testing::recording_binding_for(ts.base().schema()->delta_value_schema)});
+            const auto delta_binding = testing::recording_binding_for(ts.base().schema()->delta_value_schema);
+            bindings.set(ResolvedBindings{.primary = delta_binding, .secondary = testing::dense_recording_binding(delta_binding)});
             gs.erase(key.value());
         }
 
@@ -179,12 +180,12 @@ namespace hgraph::stdlib
             }
             // DENSE: a TYPED List<delta_schema>; skipped cycles are UNSET
             // elements (element validity) - one default-constructed slot per
-            // hole instead of a boxed Any.
-            const auto delta_binding = bindings.get().primary;
+            // hole instead of a boxed Any. The tagged buffer binding was
+            // resolved at start; creation performs no type lookup.
             ValueView buffer = gs.get(key.value());
             if (!buffer.valid())
             {
-                gs.set(key.value(), testing::make_dense_buffer(delta_binding));
+                gs.set(key.value(), Value{bindings.get().secondary});
                 buffer = gs.get(key.value());
             }
             const std::size_t offset   = testing::cycle_offset(now);
@@ -304,17 +305,18 @@ namespace hgraph::stdlib
         }
 
         // ``tp`` at the 0.5 position (RFC 0033): ``replay(key, tp=AUTO_RESOLVE, ...)``.
-        static void start(Scalar<"key", Str> key, TypeArg<"tp", TsVar<"S">, AutoResolve>,
-                          Scalar<"recordable_id", Str> recordable_id,
-                          Scalar<"model", Str>, TraitsView traits,
-                          State<record_replay_memory_detail::ReplayCursorState> cursor)
-        {
+        static void start(Scalar<"key", Str>           key, TypeArg<"tp", TsVar<"S">, AutoResolve>,
+                          Scalar<"recordable_id", Str> recordable_id, Scalar<"model", Str>, TraitsView traits, GlobalStateView gs,
+                          State<record_replay_memory_detail::ReplayCursorState> cursor) {
             // The sparse fq key is wiring-fixed; build the string once.
             auto current = cursor.get();
             if (!recordable_id.value().empty())
             {
                 current.fq_key = record_replay_memory_detail::memory_recording_key(
                     traits, recordable_id.value(), key.value());
+            } else {
+                const auto buffer    = gs.get(key.value());
+                current.dense_reader = testing::dense_entry_reader(buffer.binding());
             }
             cursor.set(std::move(current));
         }
@@ -338,9 +340,7 @@ namespace hgraph::stdlib
                 const auto size = static_cast<Int>(list.size());
                 if (i < size)
                 {
-                    if (auto delta = testing::dense_entry_delta(list, static_cast<std::size_t>(i));
-                        delta.has_value())
-                    {
+                    if (auto delta = state.dense_reader(list, static_cast<std::size_t>(i)); delta.has_value()) {
                         apply_delta(out, delta->view());
                     }
                 }

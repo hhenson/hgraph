@@ -103,3 +103,12 @@ test must_not_run { assert true }
 if(LAST_OUTPUT MATCHES "must_not_run" OR LAST_OUTPUT MATCHES "\\[rejection\\]")
     message(FATAL_ERROR "context header annotation donated ownership to an inner declaration: ${LAST_OUTPUT}")
 endif()
+
+check_rejection(any_constant_capability 0 [=[module rejection
+# expect-error(type, "value.constant_capability")
+struct Bad { value: bool = any(map<i64, i64>(items: [])) < any(map<i64, i64>(items: [])) }
+]=])
+check_rejection(any_runtime_code_is_not_source 1 [=[module rejection
+# expect-error(type, "value.capability")
+struct Bad { value: bool = any(map<i64, i64>(items: [])) < any(map<i64, i64>(items: [])) }
+]=])

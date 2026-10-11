@@ -81,6 +81,15 @@ plan, ops)`` key in ``TypeRecordRegistry``. ``ValuePlanFactory`` caches
 ``schema -> ValueTypeRef`` by value; there is no value-family binding side
 registry.
 
+A distinct binding record may restrict its ordinary equality, ordering, or
+hashing promises while retaining the physical ops needed by internal storage.
+Its immutable capability flags express that restriction, and its implementation
+label distinguishes it from the unrestricted record over the same schema,
+plan, and ops. ``ValueTypeRef::checked`` rejects capabilities absent from the
+physical representation and requires all lifecycle and representation flags to
+match. It permits narrowing only equality, ordering, and hashing. Copying a
+``Value`` preserves the restricted record and the original physical hooks.
+
 Composite types populate lazily. The first ``type_for`` request for a tuple,
 list, map, or other container schema synthesises its plan from child type
 refs and interns the resulting common record.

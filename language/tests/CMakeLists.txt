@@ -440,27 +440,30 @@ hgl_apply_warnings(hgl_inline_native_fixture)
 
 # Conformance inputs are owned by the shared specification; the audit owns the
 # C++ harness. Both are read directly from their owning packages.
-set(_spec_stdlib "${HGRAPH_SPEC}/compiler/stdlib")
-set(_spec_cases "${HGRAPH_SHARED_ROOT}/hgraph_spec_audit/tools/stdlib_cases.py")
-hgl_add_module(hgl_spec_stdlib_fixture STATIC HGL "${_spec_stdlib}/nodes.hgl" PARTS "${_spec_stdlib}/cases.hgl"
-    LINK_LIBRARIES hgl::standard_library)
-hgl_apply_warnings(hgl_spec_stdlib_fixture)
-add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib/cases.inc"
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib"
-    COMMAND "${Python_EXECUTABLE}" "${_spec_cases}"
-        --cases "${_spec_stdlib}/cases.json"
-        --output "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib/cases.inc"
-    DEPENDS "${_spec_stdlib}/cases.json" "${_spec_cases}"
-    VERBATIM)
-add_executable(hgl_spec_stdlib_conformance "${HGRAPH_SHARED_ROOT}/hgraph_spec_audit/compiler/stdlib/native/main.cpp"
-    "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib/cases.inc")
-target_include_directories(hgl_spec_stdlib_conformance PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib")
-target_link_libraries(hgl_spec_stdlib_conformance PRIVATE hgl_spec_stdlib_fixture)
-hgl_link_runtime_executable(hgl_spec_stdlib_conformance)
-hgl_apply_warnings(hgl_spec_stdlib_conformance)
-add_test(NAME hgraph_language_spec_stdlib_conformance COMMAND hgl_spec_stdlib_conformance)
-unset(_spec_stdlib)
-unset(_spec_cases)
+option(HGL_BUILD_SPEC_STDLIB_CONFORMANCE "Build the shared standard-library conformance harness" ON)
+if(HGL_BUILD_SPEC_STDLIB_CONFORMANCE)
+    set(_spec_stdlib "${HGRAPH_SPEC}/compiler/stdlib")
+    set(_spec_cases "${HGRAPH_SHARED_ROOT}/hgraph_spec_audit/tools/stdlib_cases.py")
+    hgl_add_module(hgl_spec_stdlib_fixture STATIC HGL "${_spec_stdlib}/nodes.hgl" PARTS "${_spec_stdlib}/cases.hgl"
+        LINK_LIBRARIES hgl::standard_library)
+    hgl_apply_warnings(hgl_spec_stdlib_fixture)
+    add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib/cases.inc"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib"
+        COMMAND "${Python_EXECUTABLE}" "${_spec_cases}"
+            --cases "${_spec_stdlib}/cases.json"
+            --output "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib/cases.inc"
+        DEPENDS "${_spec_stdlib}/cases.json" "${_spec_cases}"
+        VERBATIM)
+    add_executable(hgl_spec_stdlib_conformance "${HGRAPH_SHARED_ROOT}/hgraph_spec_audit/compiler/stdlib/native/main.cpp"
+        "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib/cases.inc")
+    target_include_directories(hgl_spec_stdlib_conformance PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib")
+    target_link_libraries(hgl_spec_stdlib_conformance PRIVATE hgl_spec_stdlib_fixture)
+    hgl_link_runtime_executable(hgl_spec_stdlib_conformance)
+    hgl_apply_warnings(hgl_spec_stdlib_conformance)
+    add_test(NAME hgraph_language_spec_stdlib_conformance COMMAND hgl_spec_stdlib_conformance)
+    unset(_spec_stdlib)
+    unset(_spec_cases)
+endif()
 hgl_add_module(hgl_inline_native_consumer_fixture STATIC
     HGL codegen/inline-native-consumer.hgl
     LINK_LIBRARIES hgl_inline_native_fixture
@@ -624,6 +627,15 @@ list(APPEND _hgl_generated_test_libraries hgl_bytes_fixture)
 if(NOT WIN32)
     add_test(NAME hgraph_language_bytes_values
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/bytes-values.hgl)
+endif()
+
+hgl_add_module(hgl_any_fixture STATIC HGL codegen/any-values.hgl)
+hgl_apply_warnings(hgl_any_fixture)
+list(APPEND _hgl_generated_test_sources codegen/generated_any_tests.cpp)
+list(APPEND _hgl_generated_test_libraries hgl_any_fixture)
+if(NOT WIN32)
+    add_test(NAME hgraph_language_any_values
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/any-values.hgl)
 endif()
 
 add_executable(hgl_generated_tests ${_hgl_generated_test_sources})
@@ -830,6 +842,9 @@ if(UNIX)
             --part ${HGRAPH_STD}/tests/recursive_eval_values.hgl
             --part ${HGRAPH_STD}/tests/record_observation_values.hgl
             --part ${HGRAPH_STD}/tests/bytes_values.hgl
+            --part ${HGRAPH_STD}/tests/any_values.hgl
+            --part ${HGRAPH_STD}/tests/any_bool_values.hgl
+            --part ${HGRAPH_STD}/tests/any_capability_edges.hgl
             --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
     add_test(NAME hgraph_language_test_bytes_shared
         COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${HGRAPH_STD}/standard.hgl
@@ -845,6 +860,24 @@ if(UNIX)
             --part ${HGRAPH_STD}/tests/bytes_values.hgl
             --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
     set_tests_properties(hgraph_language_test_bytes_shared PROPERTIES
+        ENVIRONMENT_MODIFICATION "CPLUS_INCLUDE_PATH=path_list_prepend:${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/include"
+        ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
+    add_test(NAME hgraph_language_test_any_shared
+        COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${HGRAPH_STD}/standard.hgl
+            --part ${HGRAPH_STD}/control.hgl
+            --part ${HGRAPH_STD}/stream.hgl
+            --part ${HGRAPH_STD}/temporal.hgl
+            --part ${HGRAPH_STD}/impl/standard.hgl
+            --part ${HGRAPH_STD}/impl/control.hgl
+            --part ${HGRAPH_STD}/impl/stream.hgl
+            --part ${HGRAPH_STD}/impl/temporal.hgl
+            --part ${HGRAPH_STD}/replay_record.hgl
+            --part ${HGRAPH_STD}/impl/replay_record.hgl
+            --part ${HGRAPH_STD}/tests/any_values.hgl
+            --part ${HGRAPH_STD}/tests/any_bool_values.hgl
+            --part ${HGRAPH_STD}/tests/any_capability_edges.hgl
+            --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
+    set_tests_properties(hgraph_language_test_any_shared PROPERTIES
         ENVIRONMENT_MODIFICATION "CPLUS_INCLUDE_PATH=path_list_prepend:${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/include"
         ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     add_test(NAME hgraph_language_test_operator_bodies
@@ -1095,6 +1128,27 @@ add_test(NAME hgraph_language_delta_source_errors
 set_tests_properties(hgraph_language_delta_source_errors PROPERTIES
     PASS_REGULAR_EXPRESSION "88 rejection cases, 0 failed"
     FAIL_REGULAR_EXPRESSION "FAILED")
+
+# Mixed required-constant rejections and surviving controls share the normal
+# test driver. The positive portion is precompiled for every platform.
+set(_any_constant_source ${HGRAPH_SPEC}/language/examples/reject/any-constant-capability.hgl)
+set(_any_constant_positive ${CMAKE_CURRENT_BINARY_DIR}/negative/any-constant-positive.hgl)
+add_custom_command(OUTPUT ${_any_constant_positive}
+    COMMAND $<TARGET_FILE:hgl_shared_fixture> prepare ${_any_constant_source} ${_any_constant_positive}
+    DEPENDS hgl_shared_fixture ${_any_constant_source}
+    VERBATIM)
+hgl_add_module(hgl_any_constant_fixture STATIC HGL ${_any_constant_positive})
+add_executable(hgl_any_constant_tests negative/any_constant_generated_driver.cpp)
+target_link_libraries(hgl_any_constant_tests PRIVATE hgl_any_constant_fixture hgl::driver)
+hgl_link_runtime_executable(hgl_any_constant_tests)
+hgl_stage_runtime_dlls(hgl_any_constant_tests)
+hgl_apply_warnings(hgl_any_constant_tests)
+add_test(NAME hgraph_language_any_constant_capability
+    COMMAND hgl_any_constant_tests test ${_any_constant_source})
+set_tests_properties(hgraph_language_any_constant_capability PROPERTIES
+    PASS_REGULAR_EXPRESSION "4 rejection cases, 0 failed"
+    FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_CXX=hgl-any-constant-must-not-build;HGL_DISABLE_CACHE=1")
 
 # Build runtime kernels through CMake on every platform, including Windows.
 # The same direct test harness executes the parsed HGL assertions against them.

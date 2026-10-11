@@ -34,6 +34,7 @@ namespace hgl::ir
                 case ScalarType::F64: return hir::ScalarType::F64;
                 case ScalarType::Str: return hir::ScalarType::Str;
                 case ScalarType::Bytes: return hir::ScalarType::Bytes;
+                case ScalarType::Any: return hir::ScalarType::Any;
                 case ScalarType::Date: return hir::ScalarType::Date;
                 case ScalarType::Time: return hir::ScalarType::Time;
                 case ScalarType::DateTime: return hir::ScalarType::DateTime;
@@ -54,6 +55,7 @@ namespace hgl::ir
                 case ImportedScalarType::F64: return hir::ScalarType::F64;
                 case ImportedScalarType::Str: return hir::ScalarType::Str;
                 case ImportedScalarType::Bytes: return hir::ScalarType::Bytes;
+                case ImportedScalarType::Any: return hir::ScalarType::Any;
                 case ImportedScalarType::Date: return hir::ScalarType::Date;
                 case ImportedScalarType::Time: return hir::ScalarType::Time;
                 case ImportedScalarType::DateTime: return hir::ScalarType::DateTime;

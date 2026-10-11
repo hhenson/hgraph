@@ -42,10 +42,8 @@ namespace hgraph
          * for the underlying heap blocks. The plan must remain valid for the
          * lifetime of the store.
          */
-        ValueSlotStore(const MemoryUtils::StoragePlan &plan,
-                       const MemoryUtils::AllocatorOps &allocator = MemoryUtils::allocator())
-            : value_storage(plan.layout, allocator)
-        {
+        ValueSlotStore(const MemoryUtils::StoragePlan &plan, const MemoryUtils::AllocatorOps &allocator = MemoryUtils::allocator())
+            : value_storage(slot_layout(plan.layout), allocator) {
             bind_plan(plan);
         }
 
@@ -83,6 +81,13 @@ namespace hgraph
         }
 
       private:
+        // Empty composites have a valid zero-byte semantic plan. Their slots
+        // still need distinct non-null addresses to represent constructed values.
+        [[nodiscard]] static MemoryUtils::StorageLayout slot_layout(MemoryUtils::StorageLayout layout) noexcept {
+            if (layout.size == 0) { layout.size = layout.alignment; }
+            return layout;
+        }
+
         using StableStorage = StableSlotStore<StableSlotStateModel::ConstructedOnly>;
         StableStorage value_storage{};
 
@@ -135,10 +140,9 @@ namespace hgraph
             }
             if (m_value_plan == nullptr) {
                 m_value_plan = &plan;
-                if (!value_storage.bound())
-                    value_storage.bind_layout(plan.layout);
+                if (!value_storage.bound()) value_storage.bind_layout(slot_layout(plan.layout));
                 else
-                    value_storage.bind_layout(plan.layout, value_storage.allocator());
+                    value_storage.bind_layout(slot_layout(plan.layout), value_storage.allocator());
                 return;
             }
             if (m_value_plan != &plan) {

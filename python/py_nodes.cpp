@@ -1616,12 +1616,10 @@ struct harness_replay {
   // the empty recordable_id selects the unified replay's dense path.
   static auto defaults() { return std::tuple{arg<"recordable_id">(Str{""})}; }
 
-  static void start(Scalar<"key", std::string> key,
-                    Scalar<"recordable_id", Str> recordable_id, TraitsView traits,
-                    State<stdlib::record_replay_memory_detail::ReplayCursorState> cursor) {
-    stdlib::replay_impl::start(std::move(key), TypeArg<"tp", TsVar<"S">, AutoResolve>{},
-                               std::move(recordable_id), Scalar<"model", Str>{Str{}},
-                               std::move(traits), std::move(cursor));
+  static void start(Scalar<"key", std::string> key, Scalar<"recordable_id", Str> recordable_id, TraitsView traits,
+                    GlobalStateView gs, State<stdlib::record_replay_memory_detail::ReplayCursorState> cursor) {
+      stdlib::replay_impl::start(std::move(key), TypeArg<"tp", TsVar<"S">, AutoResolve>{}, std::move(recordable_id),
+                                 Scalar<"model", Str>{Str{}}, std::move(traits), std::move(gs), std::move(cursor));
   }
 
   static void eval(Scalar<"key", std::string> key,

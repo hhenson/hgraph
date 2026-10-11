@@ -61,6 +61,7 @@ namespace hgl::hgraph_ir
 
     struct ConstExpr
     {
+        TypeId                           type{};
         ConstExprKind                    kind{ConstExprKind::Literal};
         std::optional<ir::hir::Constant> literal{};
         std::string                      parameter{};

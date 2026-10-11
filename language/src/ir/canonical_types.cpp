@@ -34,6 +34,7 @@ namespace hgl::ir::detail
         (void)scalar(ScalarType::F64);
         (void)scalar(ScalarType::Str);
         (void)scalar(ScalarType::Bytes);
+        (void)scalar(ScalarType::Any);
         (void)scalar(ScalarType::Date);
         (void)scalar(ScalarType::Time);
         (void)scalar(ScalarType::DateTime);

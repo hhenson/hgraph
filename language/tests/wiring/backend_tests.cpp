@@ -7,12 +7,12 @@
 #include "wiring/delta_trace.h"
 #include "wiring/operator_types.h"
 
+#include <hgl/global_key_preflight.h>
 #include <hgraph/lib/std/operators/collection.h>
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/operators/logical.h>
 #include <hgraph/lib/std/value_util.h>
 #include <hgraph/types/operator_dispatch.h>
-#include <hgl/global_key_preflight.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -1744,4 +1744,146 @@ test defaults {
     const auto result = only(unit.tests());
     INFO(result.message);
     CHECK(result.passed);
+}
+
+TEST_CASE("any retains exact types and independent ordinary snapshots", "[wiring][any]") {
+    Unit       unit{R"(module checks.any_values
+const fn copy(value: any) -> any => any(value)
+const fn default_empty(value: any = any()) -> any => value
+struct Defaults { value: any = any(7) }
+test values {
+    let empty: any = any()
+    assert empty == any()
+    assert empty < any(0)
+    assert any(0) != any(false)
+    assert !(any(0) < any(false))
+    assert !(any(0) <= any(false))
+    assert !(any(0) > any(false))
+    assert !(any(0) >= any(false))
+    assert copy(any(any(7))) == any(7)
+    var items: list<i64> = []
+    push(items, 1)
+    let retained: any = any(items)
+    push(items, 2)
+    assert retained == any([1])
+    assert retained != any(items)
+    assert default_empty() == empty
+    let fields: Defaults = Defaults()
+    assert fields.value == any(7)
+    let unordered: any = any(map<i64, i64>(items: [1: 2]))
+    assert raises("value.capability") { assert unordered < unordered }
+    let first: any = any(delta<list<i64, 2>>(items: [0: 1]))
+    let other: any = any(delta<list<i64, 3>>(items: [0: 1]))
+    assert first != other
+    assert raises("value.capability") { assert first == first }
+    assert raises("value.capability") { assert set<any>(items: [first]) == set<any>(items: []) }
+    let compound: any = any((delta<list<i64, 2>>(items: [0: 1]), 7))
+    assert raises("value.capability") { assert set<any>(items: [compound]) == set<any>(items: []) }
+    let empty_deltas: list<delta<list<i64, 2>>> = []
+    let empty_delta_box: any = any(empty_deltas)
+    assert raises("value.capability") { assert empty_delta_box == empty_delta_box }
+    assert raises("value.capability") { assert set<any>(items: [empty_delta_box]) == set<any>(items: []) }
+    let empty_zones: list<timezone> = []
+    let empty_zone_box: any = any(empty_zones)
+    assert raises("value.capability") { assert empty_zone_box <= empty_zone_box }
+}
+)"};
+    const auto result = only(unit.tests());
+    INFO(result.message);
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK(result.passed);
+}
+
+TEST_CASE("any constructor refuses handles and wrong argument shapes", "[wiring][any]") {
+    for (const auto expression : {"any(0, 1)", "any(value: 0)"}) {
+        Unit unit{"module checks.any_errors\ntest invalid { assert " + std::string{expression} + " == any() }\n"};
+        CHECK(unit.diagnostics.has_errors());
+    }
+    Unit port{"module checks.any_port\nfn invalid(value: i64) -> any => any(value)\n"};
+    CHECK(port.has(Category::Type, "ordinary"));
+    Unit indexing{"module checks.any_index\ntest invalid { assert any([0])[0] == 0 }\n"};
+    CHECK(indexing.diagnostics.has_errors());
+}
+
+TEST_CASE("required any defaults reject missing capabilities", "[wiring][any]") {
+    for (const auto declaration :
+         {"const fn invalid(value: bool = any(map<i64, i64>(items: [1: 2])) < any(map<i64, i64>(items: [1: 2]))) -> bool => value",
+          "struct Invalid { value: bool = any(delta<list<i64, 2>>(items: [0: 1])) == any(delta<list<i64, 2>>(items: [0: 1])) }",
+          "struct Invalid { value: set<any> = set<any>(items: [any(delta<list<i64, 2>>(items: [0: 1]))]) }"}) {
+        Unit unit{"module checks.any_default_errors\n" + std::string{declaration} + "\n"};
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(unit.has(Category::Type, "required constant evaluation"));
+        CHECK(std::count_if(unit.diagnostics.diagnostics().begin(), unit.diagnostics.diagnostics().end(),
+                            [](const Diagnostic &diagnostic) {
+                                return diagnostic.category == Category::Type && diagnostic.code == "value.constant_capability";
+                            }) == 1);
+    }
+}
+
+TEST_CASE("wired any comparisons use ordinary dynamic capabilities", "[wiring][any]") {
+    Unit       unit{R"(module checks.wired_any
+fn less(first: any, second: any) -> bool => first < second
+test comparison {
+    assert eval(less, first: [any(), any(1), any(0)], second: [any(0), any(2), any(false)]) == [true, true, false]
+    let unordered: any = any(map<i64, i64>(items: [1: 2]))
+    assert raises("value.capability") { eval(less, first: [unordered], second: [unordered]) }
+}
+)"};
+    const auto result = only(unit.tests());
+    INFO(result.message);
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK(result.passed);
+}
+
+TEST_CASE("boxed zones retain equality and hashing without source order", "[wiring][any]") {
+    Unit       unit{R"(module checks.any_zones
+test capabilities {
+    let zone: any = any(@[UTC])
+    assert zone == any(@[UTC])
+    assert raises("value.capability") { assert zone < zone }
+    let zones: any = any([@[UTC]])
+    assert zones == any([@[UTC]])
+    assert raises("value.capability") { assert zones < zones }
+    let clock: any = any(@09:30[UTC])
+    assert clock == any(@09:30[UTC])
+    assert raises("value.capability") { assert clock < clock }
+}
+)"};
+    const auto result = only(unit.tests());
+    INFO(result.message);
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK(result.passed);
+}
+
+TEST_CASE("required any comparisons resolve indexed and field-selected boxes", "[wiring][any]") {
+    Unit indexed{"module checks.any_index_default\nstruct Boxes { values: list<any> }\nconst fn invalid(value: bool = "
+                 "Boxes(values: [any(map<i64, i64>(items: [1: 2]))]).values[0] < "
+                 "Boxes(values: [any(map<i64, i64>(items: [1: 2]))]).values[0]) -> bool => value\n"};
+    INFO(indexed.diagnostics.render(indexed.file));
+    CHECK(indexed.has(Category::Type, "required constant evaluation"));
+    Unit field{"module checks.any_field_default\nstruct Wrapped { value: any }\nstruct Invalid { value: bool = Wrapped(value: "
+               "any(map<i64, i64>(items: [1: 2]))).value < Wrapped(value: any(map<i64, i64>(items: [1: 2]))).value }\n"};
+    INFO(field.diagnostics.render(field.file));
+    CHECK(field.has(Category::Type, "required constant evaluation"));
+}
+
+TEST_CASE("required constant capability code is excluded from execution assertions", "[wiring][any]") {
+    Unit unit{"module checks.any_phase_code\ntest invalid { assert raises(\"value.constant_capability\") {} }\n"};
+    CHECK(unit.has(Category::Type, "literal execution error code"));
+}
+
+TEST_CASE("required Any defaults follow composed ordinary selectors", "[wiring][any]") {
+    for (
+        const auto declaration :
+        {R"(struct Bad { value: bool = WrappedList(values: [Wrapped(value: any(map<i64, i64>(items: [1: 2])))]).values[0].value < WrappedList(values: [Wrapped(value: any(map<i64, i64>(items: [1: 2])))]).values[0].value })",
+         R"(const fn bad(value: bool = WrappedTuple(values: ([any(map<i64, i64>(items: [1: 2]))], 0)).values[0][0] < WrappedTuple(values: ([any(map<i64, i64>(items: [1: 2]))], 0)).values[0][0]) -> bool => value)",
+         R"(struct Bad { value: set<any> = set<any>(items: [WrappedList(values: [Wrapped(value: any(delta<list<i64, 2>>(items: [0: 1])))]).values[0].value]) })"}) {
+        Unit unit{"module checks.any_composed_default\nstruct Wrapped { value: any }\nstruct WrappedList { values: list<Wrapped> "
+                  "}\nstruct WrappedTuple { values: tuple<list<any>, i64> }\n" +
+                  std::string{declaration} + "\n"};
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE(unit.diagnostics.diagnostics().size() == 1);
+        CHECK(unit.diagnostics.diagnostics().front().category == Category::Type);
+        CHECK(unit.diagnostics.diagnostics().front().code == "value.constant_capability");
+    }
 }

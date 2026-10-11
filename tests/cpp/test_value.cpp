@@ -814,3 +814,55 @@ TEST_CASE("ValueView: as<T>() on an accessor result reads, it does not demand mu
     CHECK(list.as_list().front().as<Int>() == 11);
     CHECK(list.as_list().back().as<Int>() == 22);
 }
+
+TEST_CASE("value bindings may restrict ordinary operations while retaining physical storage hooks") {
+    using namespace hgraph;
+    const auto           physical = ValuePlanFactory::instance().type_for(TypeRegistry::instance().register_scalar<Int>("int64"));
+    const auto           restrictable = TypeCapabilities::Equatable | TypeCapabilities::Comparable | TypeCapabilities::Hashable;
+    TypeRecordDefinition definition{
+        .key             = TypeRecordKey{.schema               = &physical.schema()->header,
+                                         .role                 = TypeRole::Instance,
+                                         .plan                 = physical.plan(),
+                                         .ops                  = physical.ops(),
+                                         .debug                = physical.record()->debug,
+                                         .implementation_label = "test.restricted-ordinary"},
+        .ops_abi_version = physical.record()->ops_abi_version,
+        .capabilities    = static_cast<TypeCapabilities>(static_cast<std::uint32_t>(physical.capabilities()) &
+                                                         ~static_cast<std::uint32_t>(restrictable)),
+    };
+    SECTION("semantic restriction retains copy and physical equality/hash") {
+        const auto &record     = TypeRecordRegistry::instance().intern(definition);
+        const auto  restricted = ValueTypeRef::checked(AnyPtr::typed_null(record));
+        CHECK_FALSE(has_capability(restricted.capabilities(), TypeCapabilities::Equatable));
+        CHECK(has_capability(restricted.capabilities(), TypeCapabilities::Copyable));
+        CHECK(restricted.schema() == physical.schema());
+        const Value original{Int{7}};
+        const Value value{restricted, original.view()}, copy{value};
+        CHECK(copy.binding() == restricted);
+        CHECK(copy.equals(original));
+        CHECK(copy.view().compare(original.view()) == std::partial_ordering::equivalent);
+        const Value next{Int{8}};
+        CHECK(copy.view().compare(next.view()) == std::partial_ordering::less);
+        CHECK(copy.hash() == original.hash());
+    }
+    SECTION("a binding cannot alter lifecycle promises") {
+        definition.key.implementation_label = "test.restricted-lifecycle";
+        definition.capabilities = static_cast<TypeCapabilities>(static_cast<std::uint32_t>(physical.capabilities()) &
+                                                                ~static_cast<std::uint32_t>(TypeCapabilities::Copyable));
+        const auto &record      = TypeRecordRegistry::instance().intern(definition);
+        CHECK_THROWS_AS(ValueTypeRef::checked(AnyPtr::typed_null(record)), std::invalid_argument);
+    }
+    SECTION("a binding cannot grant absent ordinary operations") {
+        // Use a physically absent order capability from an ordinary map.
+        const auto map = ValuePlanFactory::instance().type_for(TypeRegistry::instance().map(physical.schema(), physical.schema()));
+        definition.key.schema               = &map.schema()->header;
+        definition.key.plan                 = map.plan();
+        definition.key.ops                  = map.ops();
+        definition.key.debug                = map.record()->debug;
+        definition.key.implementation_label = "test.granted-order";
+        definition.capabilities             = map.capabilities() | TypeCapabilities::Comparable;
+        CHECK_FALSE(has_capability(map.capabilities(), TypeCapabilities::Comparable));
+        const auto &record = TypeRecordRegistry::instance().intern(definition);
+        CHECK_THROWS_AS(ValueTypeRef::checked(AnyPtr::typed_null(record)), std::invalid_argument);
+    }
+}

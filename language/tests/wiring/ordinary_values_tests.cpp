@@ -1,13 +1,14 @@
 #include <hgl/ordinary_values.h>
 
-#include <hgraph/types/utils/counted_mutex.h>
-#include <hgraph/types/time_series/ts_output.h>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
+#include <hgraph/types/time_series/ts_output.h>
 
 #include <array>
 #include <chrono>
 #include <cstdint>
+
+#include <hgraph/types/utils/counted_mutex.h>
 #include <iostream>
 #include <type_traits>
 
@@ -89,8 +90,8 @@ TEST_CASE("required payload guards separate absent errors from present scalar re
 
 TEST_CASE("prepared generic publications reconcile recursive values without registry access", "[ordinary][publication]") {
     using namespace hgraph;
-    using hgl::ordinary::PreparedValuePlan;
     using hgl::ordinary::PreparedPublicationPlan;
+    using hgl::ordinary::PreparedValuePlan;
     auto &registry = TypeRegistry::instance();
     const auto *integer = scalar_descriptor<Int>::value_meta();
     const auto *boolean = scalar_descriptor<Bool>::value_meta();
@@ -736,4 +737,101 @@ TEST_CASE("bytes construction owns octets and native operations preserve unsigne
     CHECK(bytes_length(complete) == 2);
     validate_key_schema(scalar_descriptor<Bytes>::value_meta());
     validate_delta_shape(schema_descriptor<TS<Bytes>>::ts_meta());
+}
+
+TEST_CASE("prepared any owns arbitrary payloads and dispatches capabilities without registry locks", "[ordinary][any]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    const PreparedValuePlan boxes{scalar_descriptor<hgl::ordinary::Any>::value_meta()};
+    const PreparedValuePlan lists{scalar_descriptor<hgl::ordinary::List<Int>>::value_meta()};
+    const PreparedValuePlan maps{scalar_descriptor<Map<Int, Int>>::value_meta()};
+    const PreparedValuePlan deltas{
+        delta_schema(TypeRegistry::instance().tsl(TypeRegistry::instance().ts(scalar_descriptor<Int>::value_meta()), 2))};
+    const Value zero{Int{0}}, falsity{Bool{false}}, one{Int{1}};
+    auto        source = lists.empty_list();
+    lists.push(source.view(), one.view());
+    const auto retained = boxes.box(source.view());
+    const auto empty = boxes.empty_box(), integer = boxes.box(zero.view()), boolean = boxes.box(falsity.view());
+    const auto nested    = boxes.box(integer.view());
+    const auto map_box   = boxes.box(Value{maps.binding()}.view());
+    const auto delta_box = boxes.box(Value{deltas.binding()}.view());
+    lists.push(source.view(), zero.view());
+    CHECK(retained.view().as_any().get().as_list().size() == 1);
+    const auto locks = type_system_lock_count();
+    CHECK(checked_equals(integer.view(), nested.view()));
+    CHECK(integer.hash() == nested.hash());
+    CHECK_FALSE(checked_equals(integer.view(), boolean.view()));
+    CHECK(checked_compare(integer.view(), boolean.view()) == std::partial_ordering::unordered);
+    CHECK(checked_compare(empty.view(), integer.view()) == std::partial_ordering::less);
+    validate_scalar_key(empty.view());
+    validate_scalar_key(integer.view());
+    const auto expect_capability = [](auto invoke) {
+        try {
+            invoke();
+            FAIL("missing contained capability unexpectedly succeeded");
+        } catch (const hgl::ExecutionError &error) { CHECK(error.code() == "value.capability"); }
+    };
+    expect_capability([&] { (void)checked_compare(map_box.view(), map_box.view()); });
+    expect_capability([&] { (void)checked_equals(delta_box.view(), delta_box.view()); });
+    expect_capability([&] { validate_scalar_key(delta_box.view()); });
+    CHECK(type_system_lock_count() == locks);
+    // A recursively boxed float list is checked through the contained schema.
+    const PreparedValuePlan floats{scalar_descriptor<hgl::ordinary::List<Float>>::value_meta()};
+    auto                    values = floats.empty_list();
+    const Value             nan{std::numeric_limits<Float>::quiet_NaN()};
+    floats.push(values.view(), nan.view());
+    const auto nan_box = boxes.box(values.view());
+    CHECK_THROWS_AS(validate_scalar_key(nan_box.view()), PublicationProfileError);
+}
+
+TEST_CASE("source capability records preserve empty containers and independent equality/order", "[ordinary][any]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    auto                   &registry = TypeRegistry::instance();
+    const PreparedValuePlan boxes{scalar_descriptor<hgl::ordinary::Any>::value_meta()};
+    const PreparedValuePlan zones{scalar_descriptor<hgl::ordinary::List<ZoneId>>::value_meta()};
+    const PreparedValuePlan maps{scalar_descriptor<Map<Int, Int>>::value_meta()};
+    const auto             *delta = delta_schema(registry.tsl(registry.ts(scalar_descriptor<Int>::value_meta()), 2));
+    const PreparedValuePlan delta_list{registry.list(delta)};
+    const PreparedValuePlan delta_shape{delta};
+    CHECK(has_capability(zones.binding().capabilities(), TypeCapabilities::Equatable | TypeCapabilities::Hashable));
+    CHECK_FALSE(has_capability(zones.binding().capabilities(), TypeCapabilities::Comparable));
+    CHECK_FALSE(has_capability(delta_list.binding().capabilities(), TypeCapabilities::Equatable));
+    CHECK_FALSE(has_capability(delta_shape.binding().capabilities(), TypeCapabilities::Equatable));
+    CHECK(delta_list.binding().schema() != delta_shape.binding().schema());
+    const auto              zone_box  = boxes.box(zones.empty_list().view());
+    const auto              delta_box = boxes.box(delta_list.empty_list().view());
+    MapBuilder              empty_map{maps.key_binding(), maps.element_binding()};
+    const auto              map_box = boxes.box(empty_map.build().view());
+    const Value             copied{zone_box};
+    const Value             integer_zero{Int{0}}, integer_one{Int{1}};
+    const auto              zero_box = boxes.box(integer_zero.view()), one_box = boxes.box(integer_one.view());
+    const Value             raw_zone{ZoneId{"UTC"}};
+    const auto              raw_zone_box = boxes.box(raw_zone.view());
+    const PreparedValuePlan zone_values{raw_zone.schema()};
+    const auto              profiled_zone_box = boxes.box(zone_values.retain(raw_zone.view()).view());
+    CHECK(copied.as_any().get().binding() == zones.binding());
+    const auto expect_capability = [](auto invoke) {
+        try {
+            invoke();
+            FAIL("missing capability unexpectedly succeeded");
+        } catch (const hgl::ExecutionError &error) { CHECK(error.code() == "value.capability"); }
+    };
+    const auto locks = type_system_lock_count();
+    CHECK(checked_equals(copied.view(), zone_box.view()));
+    for (std::size_t index = 0; index < 128; ++index) {
+        CHECK(checked_compare(zero_box.view(), one_box.view()) == std::partial_ordering::less);
+    }
+    CHECK(checked_equals(raw_zone_box.view(), raw_zone_box.view()));
+    CHECK(checked_equals(raw_zone_box.view(), profiled_zone_box.view()));
+    validate_scalar_key(raw_zone_box.view());
+    validate_scalar_key(copied.view());
+    CHECK(checked_equals(map_box.view(), map_box.view()));
+    validate_scalar_key(map_box.view());
+    expect_capability([&] { (void)checked_compare(zone_box.view(), zone_box.view()); });
+    expect_capability([&] { (void)checked_compare(raw_zone_box.view(), raw_zone_box.view()); });
+    expect_capability([&] { (void)checked_compare(map_box.view(), map_box.view()); });
+    expect_capability([&] { (void)checked_equals(delta_box.view(), delta_box.view()); });
+    expect_capability([&] { validate_scalar_key(delta_box.view()); });
+    CHECK(type_system_lock_count() == locks);
 }

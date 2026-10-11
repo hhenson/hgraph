@@ -2,6 +2,7 @@
 #define HGRAPH_LIB_TESTING_RECORD_REPLAY_BUFFER_H
 
 #include <hgraph/types/metadata/type_realization.h>
+#include <hgraph/types/metadata/type_record_registry.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/value/mutable_container_ops.h>
@@ -63,6 +64,32 @@ namespace hgraph::testing
     /** An ``Any`` boxing a copy of ``inner``. */
     [[nodiscard]] inline Value make_any(const Value &inner) { return make_any(inner.view()); }
 
+    enum class DenseBufferLayout { Seeded, Typed };
+
+    // Private representation identity preserves the format through owning
+    // Value and GlobalState copies without changing the canonical List schema.
+    [[nodiscard]] inline ValueTypeRef dense_buffer_binding(ValueTypeRef binding, DenseBufferLayout layout) {
+        const auto &record = TypeRecordRegistry::instance().intern(TypeRecordDefinition{
+            .key = TypeRecordKey{.schema = &binding.schema()->header,
+                                 .role   = TypeRole::Instance,
+                                 .plan   = binding.plan(),
+                                 .ops    = binding.ops(),
+                                 .debug  = binding.record()->debug,
+                                 .implementation_label =
+                                     layout == DenseBufferLayout::Typed ? "testing.dense.typed" : "testing.dense.seeded"},
+            .ops_abi_version = binding.record()->ops_abi_version,
+            .capabilities    = binding.capabilities(),
+        });
+        return ValueTypeRef::checked(AnyPtr::typed_null(record));
+    }
+    [[nodiscard]] inline DenseBufferLayout dense_buffer_layout(ValueTypeRef binding) noexcept {
+        return binding && binding.record()->implementation_name() == "testing.dense.typed" ? DenseBufferLayout::Typed
+                                                                                           : DenseBufferLayout::Seeded;
+    }
+    [[nodiscard]] inline ValueTypeRef dense_recording_binding(ValueTypeRef delta_binding) {
+        return dense_buffer_binding(mutable_list_type(delta_binding), DenseBufferLayout::Typed);
+    }
+
     /** A fresh, empty cycle-aligned buffer (a mutable ``List<Any>``) — the
         SEEDED replay layout (set_replay does not know one element schema). */
     [[nodiscard]] inline Value make_buffer()
@@ -70,14 +97,14 @@ namespace hgraph::testing
         auto       &registry = TypeRegistry::instance();
         const auto *schema   = registry.mutable_list(registry.any());
         const auto binding  = ValuePlanFactory::instance().type_for(schema);
-        return Value{binding};
+        return Value{dense_buffer_binding(binding, DenseBufferLayout::Seeded)};
     }
 
     /** A fresh, empty TYPED dense recording buffer: ``List<delta_schema>``
         with holes as UNSET elements (element validity). */
     [[nodiscard]] inline Value make_dense_buffer(ValueTypeRef delta_binding)
     {
-        return Value{mutable_list_type(delta_binding)};
+        return Value{dense_recording_binding(delta_binding)};
     }
 
     [[nodiscard]] inline Value make_dense_buffer(const ValueTypeMetaData *delta_schema)
@@ -85,13 +112,16 @@ namespace hgraph::testing
         return make_dense_buffer(recording_binding_for(delta_schema));
     }
 
-    /** The delta at ``index`` of a dense buffer, either layout: the seeded
+    /** Cold convenience read at ``index`` of a dense buffer, either layout.
+        Native operators cache ``dense_entry_reader`` during preparation.
+        The seeded
         ``List<Any>`` (empty box = no tick) or the typed recorded list
         (UNSET element = no tick). nullopt = no tick. */
-    [[nodiscard]] inline std::optional<Value> dense_entry_delta(const ListView &list, std::size_t index)
-    {
+    [[nodiscard]] inline std::optional<Value> dense_entry_delta(const ListView &list, std::size_t index,
+                                                                DenseBufferLayout layout = DenseBufferLayout::Seeded) {
         const auto element = list.at(index);
         if (!element.has_value()) { return std::nullopt; }   // typed hole
+        if (layout == DenseBufferLayout::Typed) { return Value{element}; }
         // Only the schema-free seeded layout uses List<Any> as an envelope.
         // A typed recording may itself have an Any-kind delta schema (JSON is
         // the important nominal example); unboxing that would erase its type.
@@ -102,6 +132,28 @@ namespace hgraph::testing
             return Value{boxed.get()};
         }
         return Value{element};
+    }
+
+    using DenseEntryReader = std::optional<Value> (*)(const ListView &, std::size_t);
+    [[nodiscard]] inline std::optional<Value> typed_dense_entry(const ListView &list, std::size_t index) {
+        const auto element = list.at(index);
+        return element.has_value() ? std::optional<Value>{Value{element}} : std::nullopt;
+    }
+    [[nodiscard]] inline std::optional<Value> seeded_dense_entry(const ListView &list, std::size_t index) {
+        const auto element = list.at(index);
+        if (!element.has_value()) { return std::nullopt; }
+        const auto boxed = element.as_any();
+        return boxed.has_value() ? std::optional<Value>{Value{boxed.get()}} : std::nullopt;
+    }
+    // Resolve the legacy canonical-Any envelope distinction once, at the
+    // preparation/read boundary. The selected callbacks perform no lookup.
+    [[nodiscard]] inline DenseEntryReader dense_entry_reader(ValueTypeRef binding, DenseBufferLayout layout) {
+        if (layout == DenseBufferLayout::Typed) { return &typed_dense_entry; }
+        if (!binding || binding.schema()->element_type == TypeRegistry::instance().any()) { return &seeded_dense_entry; }
+        return &typed_dense_entry;  // ordinary legacy typed lists, including JSON
+    }
+    [[nodiscard]] inline DenseEntryReader dense_entry_reader(ValueTypeRef binding) {
+        return dense_entry_reader(binding, dense_buffer_layout(binding));
     }
 
     /** The cycle index for ``now`` (offset from ``MIN_ST`` in ``MIN_TD`` steps). */
