@@ -181,6 +181,13 @@ namespace hgraph
         const auto &data = resolved_value_data(evaluation_time);
         if (is_target_position())
         {
+            // A target can tick before its REF route becomes empty in this
+            // cycle. The link's scheduling stamp is still real, but REF-SAMPLE
+            // gives the followed scalar no event. Select this policy at bind
+            // time, preserving structural withdrawals and designation ticks.
+            const auto *link = link_storage();
+            if (is_target_root() && link != nullptr && link->state()->scalar_target_link != nullptr &&
+                (!data.valid() || !data.has_current_value()) && link->empty_scalar_route()) { return false; }
             if (!data.valid()) { return raw_data.modified(evaluation_time); }
             if (is_target_root() && raw_data.modified(evaluation_time)) { return true; }   // rebind (sampled)
             if (structural_sample_time(link_storage()) == evaluation_time)

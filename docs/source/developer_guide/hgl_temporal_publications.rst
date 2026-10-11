@@ -91,6 +91,16 @@ unchanged producer reuses that route without schema discovery or registry access
 retargeting the producer's REF value is handled by the existing adapter. A new
 producer is resolved when its topology is bound. The cache borrows handles,
 adds no subscriptions and is discarded with the input owner's storage.
+Binding also caches the ordinary scalar target's forwarding links.
+If a REF deselects that scalar in the same cycle as its former target publishes,
+the followed view is invalid and unmodified, with time ``MIN_DT``; a scheduling
+notification already received from the former target cannot become its event.
+This is the ``REF-SAMPLE`` rule in the canonical Spec's
+``runtime/cases_references.md`` and binding table in ``runtime/time_series.md``.
+The policy distinguishes an empty designation from an explicit producer
+invalidation, and does not suppress structural withdrawal deltas or REF
+designation ticks. Metadata follows only these cached links, without schema
+discovery or registry lookup.
 
 Fixed List endpoint projection
 ------------------------------

@@ -829,6 +829,7 @@ namespace hgraph::detail
 
         target = other.target;
         target_is_reference = std::exchange(other.target_is_reference, false);
+        scalar_target_link = std::exchange(other.scalar_target_link, nullptr);
         if (target.bound())
         {
             replace_observer(target, &other, this);
@@ -1118,6 +1119,8 @@ namespace hgraph::detail
         auto rollback = make_scope_exit<true>([this] { unbind(); tracking.last_modified_time = MIN_DT; });
         state_.target = target;
         state_.target_is_reference = target.bound() && target_can_move(target);
+        state_.scalar_target_link = target.bound() && target.schema()->kind == TSTypeKind::TS
+                                        ? target_link_storage(target.data_view()) : nullptr;
         if (target.bound()) { target.data_view().subscribe(&state_); }
         structural_ops_->restore_key_set_time(*this, key_set_time);
         structural_ops_->subscribe_slot_observers(*this);
@@ -1166,6 +1169,8 @@ namespace hgraph::detail
         // reference ticks; an output itself reached through a target link (a
         // from-REF alternative, a chained adaptor's relay) retargets with it.
         state.target_is_reference = target_can_move(target);
+        state.scalar_target_link = target.schema()->kind == TSTypeKind::TS
+                                       ? target_link_storage(target.data_view()) : nullptr;
         auto rollback = make_scope_exit<true>([this] { unbind(); });
         state.target.data_view().subscribe(&state);
         // A sampled rebind represents the source's current value at
@@ -1225,12 +1230,14 @@ namespace hgraph::detail
         if (state_.target.bound()) { state_.target.data_view().unsubscribe(&state_); }
         state_.target.reset();
         state_.target_is_reference = false;
+        state_.scalar_target_link = nullptr;
     }
 
     void TSInputTargetLinkStorage::unbind_noexcept() noexcept
     {
         clear_declared_source_view();
         last_sample_time = MIN_DT;
+        state_.scalar_target_link = nullptr;
         structural_ops_->unbind_noexcept(*this);
         if (state_.active_root_node) { unsubscribe_tree_noexcept(*state_.active_root_node, state_.scheduling_notifier); }
         unsubscribe_handle_noexcept(state_.target, &state_);
@@ -1244,6 +1251,7 @@ namespace hgraph::detail
         state_.clear_active_observed();
         state_.target.reset();
         state_.target_is_reference = false;
+        state_.scalar_target_link = nullptr;
         structural_ops_->source_invalidated(*this);
     }
 
@@ -1415,6 +1423,18 @@ namespace hgraph::detail
     bool TSInputTargetLinkStorage::bound_target_is_reference() const noexcept
     {
         return state_.target.bound() && state_.target_is_reference;
+    }
+
+    bool TSInputTargetLinkStorage::empty_scalar_route() const noexcept
+    {
+        if (!state_.target.bound()) { return false; }
+        auto *link = state_.scalar_target_link;
+        while (link != nullptr)
+        {
+            if (!link->bound()) { return true; }
+            link = link->state_.scalar_target_link;
+        }
+        return false;
     }
 
     DynamicStorageMetrics TSInputTargetLinkStorage::dynamic_storage_metrics() const noexcept

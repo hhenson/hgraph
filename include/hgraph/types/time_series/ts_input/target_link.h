@@ -101,6 +101,10 @@ namespace hgraph::detail
             can retarget without this link rebinding (a REF output, or an
             output itself reached through a target link). RFC 0036. */
         bool target_is_reference{false};
+        /** Bind-time scalar forwarding route, borrowed under ``target``'s
+            existing endpoint lifetime protocol. Null for physical producers,
+            REF values and structural targets. */
+        const TSInputTargetLinkStorage *scalar_target_link{nullptr};
         SchedulingNotifier  scheduling_notifier;
         std::unique_ptr<TSInputTargetActiveNode> active_root_node{};
     };
@@ -125,6 +129,9 @@ namespace hgraph::detail
         /** The bind-time record: true while bound to an output that can
             retarget without this link rebinding (RFC 0036). */
         [[nodiscard]] bool bound_target_is_reference() const noexcept;
+        /** Whether a scalar forwarding chain ends at an empty designation.
+            Producer invalidation remains a distinct, observable event. */
+        [[nodiscard]] bool empty_scalar_route() const noexcept;
         void bind(const TSValueTypeMetaData &schema, const TSOutputView &output);
         void bind_current_value(const TSValueTypeMetaData &schema, const TSOutputView &output,
                                 DateTime modified_time);

@@ -168,6 +168,67 @@ namespace
         }
     };
 
+    std::uint64_t empty_scalar_observation_locks{0};
+    std::uint64_t empty_scalar_metadata_errors{0};
+
+    struct ObserveSignalMetadata
+    {
+        static void eval(hgraph::In<"value", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> value,
+                         hgraph::In<"step", hgraph::TS<hgraph::Int>> step,
+                         hgraph::Out<hgraph::TS<hgraph::Int>> out) {
+            const auto locks = hgraph::type_system_lock_count();
+            static_cast<void>(step);
+            if (!value.valid() && value.last_modified_time() != hgraph::MIN_DT) {
+                ++empty_scalar_metadata_errors;
+            }
+            out.set((value.valid() ? 2 : 0) + (value.modified() ? 1 : 0));
+            empty_scalar_observation_locks += hgraph::type_system_lock_count() - locks;
+        }
+    };
+
+    struct ObserveScalarMetadata
+    {
+        static void eval(hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
+                         hgraph::In<"step", hgraph::TS<hgraph::Int>> step,
+                         hgraph::Out<hgraph::TS<hgraph::Int>> out) {
+            const auto locks = hgraph::type_system_lock_count();
+            static_cast<void>(step);
+            if (!value.valid() && (value.last_modified_time() != hgraph::MIN_DT || value.delta_value().has_value())) {
+                ++empty_scalar_metadata_errors;
+            }
+            out.set((value.valid() ? 2 : 0) + (value.modified() ? 1 : 0));
+            empty_scalar_observation_locks += hgraph::type_system_lock_count() - locks;
+        }
+    };
+
+    struct SignalScalarMetadataFacade
+    {
+        static hgraph::Port<hgraph::TS<hgraph::Int>> compose(hgraph::Wiring &w,
+            hgraph::Port<hgraph::TS<hgraph::Int>> value, hgraph::Port<hgraph::TS<hgraph::Int>> step) {
+            return hgraph::wire<ObserveSignalMetadata>(w, value, step);
+        }
+    };
+
+    template <bool OrdinaryView, bool Signal = true>
+    struct ConditionalSignalMetadataGraph
+    {
+        static hgraph::Port<hgraph::TS<hgraph::Int>> compose(hgraph::Wiring &w,
+            hgraph::Port<hgraph::TS<hgraph::Bool>> select, hgraph::Port<hgraph::TS<hgraph::Int>> value,
+            hgraph::Port<hgraph::TS<hgraph::Int>> step) {
+            using Branches = hgraph::UnNamedTSB<hgraph::Field<"true", hgraph::REF<hgraph::TS<hgraph::Int>>>,
+                                              hgraph::Field<"false", hgraph::REF<hgraph::TS<hgraph::Int>>>>;
+            auto branches = hgraph::wire<hgraph::stdlib::if_, Branches>(w, select, value).as<Branches>();
+            auto selected = hgraph::wire<hgraph::stdlib::getitem_>(w, branches, hgraph::Str{"true"});
+            if constexpr (!Signal) {
+                return hgraph::wire<ObserveScalarMetadata>(w, selected.as<hgraph::TS<hgraph::Int>>(), step);
+            } else if constexpr (OrdinaryView) {
+                return hgraph::wire<SignalScalarMetadataFacade>(w, selected.as<hgraph::TS<hgraph::Int>>(), step);
+            } else {
+                return hgraph::wire<ObserveSignalMetadata>(w, selected.as<hgraph::REF<hgraph::TS<hgraph::Int>>>(), step);
+            }
+        }
+    };
+
     template <std::size_t Count>
     [[nodiscard]] std::array<hgraph::DateTime, Count> sequential_times(
         hgraph::DateTime start = hgraph::MIN_ST,
@@ -2482,4 +2543,34 @@ TEST_CASE("declared source caches distinguish views and expire through the input
     assigned.unbind();
     original.unbind_noexcept();
     moved.unbind_noexcept();
+}
+
+TEST_CASE("ordinary scalar SIGNAL aliases clear metadata when an if branch becomes empty",
+          "[reference][signal][empty][wiring]") {
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+    const auto select = values<Bool>(true, std::nullopt, false, true, false, std::nullopt, true, std::nullopt, false);
+    const auto source = values<Int>(7, 8, 9, std::nullopt, 10);
+    const auto clock = values<Int>(1, 1, 1, 1, 1, 1, 1, 1, 1);
+    empty_scalar_observation_locks = 0;
+    empty_scalar_metadata_errors = 0;
+    // Bit 1 records validity; bit 0 records modification. Empty is a valid
+    // REF designation but has no valid or modified followed scalar.
+    CHECK(eval_node<ConditionalSignalMetadataGraph<false>>(select, source, clock) ==
+          values<Int>(3, 2, 3, 3, 3, 2, 3, 2, 3));
+    const auto observed = eval_node<ConditionalSignalMetadataGraph<true>>(select, source, clock);
+    const auto scalar_observed = eval_node<ConditionalSignalMetadataGraph<true, false>>(select, source, clock);
+    const std::array<Int, 9> expected{3, 3, 0, 3, 0, 0, 3, 2, 0};
+    REQUIRE(observed.size() == expected.size());
+    REQUIRE(scalar_observed.size() == expected.size());
+    for (std::size_t cycle = 0; cycle < expected.size(); ++cycle) {
+        INFO("cycle " << cycle);
+        REQUIRE(observed[cycle].has_value());
+        CHECK(*observed[cycle] == expected[cycle]);
+        REQUIRE(scalar_observed[cycle].has_value());
+        CHECK(*scalar_observed[cycle] == expected[cycle]);
+    }
+    CHECK(empty_scalar_observation_locks == 0);
+    CHECK(empty_scalar_metadata_errors == 0);
 }
