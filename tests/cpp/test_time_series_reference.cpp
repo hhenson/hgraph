@@ -16,6 +16,12 @@
 #include <hgraph/types/utils/memory_utils.h>
 #include <hgraph/types/utils/counted_mutex.h>
 #include <hgraph/types/value/value.h>
+#include <hgraph/lib/testing/eval_node.h>
+#include <hgraph/lib/testing/check_output.h>
+#include <hgraph/lib/std/operators/collection.h>
+#include <hgraph/lib/std/operators/impl/container_impl.h>
+#include <hgraph/lib/std/operators/conversion.h>
+#include <hgraph/lib/std/std_operators.h>
 
 #include <algorithm>
 #include <array>
@@ -28,6 +34,40 @@
 
 namespace
 {
+    using ProducerPair = hgraph::TSL<hgraph::TS<hgraph::Int>, 2>;
+    struct OwnedProducerPair
+    {
+        static void eval(hgraph::In<"value", hgraph::TS<hgraph::Int>> value, hgraph::Out<ProducerPair> out) {
+            out[0].set(value.value());
+            out[1].set(value.value() + 1);
+        }
+    };
+    template <typename Schema>
+    struct ForwardProducerReference
+    {
+        static void eval(hgraph::In<"value", hgraph::REF<Schema>> value, hgraph::Out<hgraph::REF<Schema>> out) {
+            out.set(value.value());
+        }
+    };
+    struct ProjectMappedPairChild
+    {
+        static hgraph::Port<hgraph::REF<hgraph::TS<hgraph::Int>>> compose(hgraph::Wiring &w,
+            hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+            auto pair = hgraph::wire<OwnedProducerPair>(w, value);
+            auto reference = hgraph::wire<ForwardProducerReference<ProducerPair>>(w, pair);
+            return hgraph::wire<hgraph::stdlib::getitem_>(w, reference, hgraph::Int{1})
+                .as<hgraph::REF<hgraph::TS<hgraph::Int>>>();
+        }
+    };
+    struct ProjectMappedPairChildren
+    {
+        static hgraph::Port<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Int>>> compose(hgraph::Wiring &w,
+            hgraph::Port<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Int>>> values) {
+            return hgraph::wire<hgraph::stdlib::map_>(w, hgraph::fn<ProjectMappedPairChild>(), values)
+                .as<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Int>>>();
+        }
+    };
+
     template <std::size_t Count>
     [[nodiscard]] std::array<hgraph::DateTime, Count> sequential_times(
         hgraph::DateTime start = hgraph::MIN_ST,
@@ -1997,4 +2037,87 @@ TEST_CASE("prepared input reference routes borrow typed REF values and retain co
     CHECK_THROWS(named.view().bind_output(wrong.view()));
     // Failed cold binding cannot manufacture a designation of an incompatible child.
     CHECK(named.view().prepare_reference_route().read(MIN_ST).is_empty());
+}
+
+TEST_CASE("prepared REF child projection publishes through mapped forwarding terminals", "[reference][prepared][projection]") {
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<ProjectMappedPairChildren>(values<Value>(
+        dict_delta<Str, TS<Int>>({{"first", 7}, {"second", 20}}),
+        dict_delta<Str, TS<Int>>({{"first", 8}}),
+        dict_delta<Str, TS<Int>>({{"second", 21}}))),
+        values<Value>(dict_delta<Str, TS<Int>>({{"first", 8}, {"second", 21}}),
+                      dict_delta<Str, TS<Int>>({{"first", 9}}),
+                      dict_delta<Str, TS<Int>>({{"second", 22}})));
+}
+
+TEST_CASE("prepared REF child projection uses the output owner's forwarding route", "[reference][prepared][projection]") {
+    using namespace hgraph;
+    const auto *pair_schema = schema_descriptor<ProducerPair>::ts_meta();
+    const auto *leaf_schema = schema_descriptor<TS<Int>>::ts_meta();
+    const auto *ref_schema = schema_descriptor<REF<TS<Int>>>::ts_meta();
+    TSOutput pair{*pair_schema};
+    TSOutput first{*ref_schema};
+    TSOutput second{*ref_schema};
+    TSOutput intermediate{TSEndpointSchema::peered(ref_schema)};
+    const auto set_child = [&](Int number, DateTime time) {
+        Value payload{number};
+        auto mutation = pair.view(time).indexed_child_at(1).begin_mutation(time);
+        static_cast<void>(mutation.copy_value_from(payload.view()));
+    };
+    set_child(8, MIN_ST);
+    ResolutionMap resolution;
+    resolution.bind_ts("S", pair_schema);
+    resolution.bind_ts("E", leaf_schema);
+    NodeBuilder builder;
+    builder.implementation<stdlib::prepared_ref_child_projection>(resolution)
+        .output_endpoint(TSEndpointSchema::peered(ref_schema));
+    Value scalars{ValuePlanFactory::instance().type_for(builder.type().schema()->scalar_schema)};
+    scalars.as_bundle().begin_mutation().field("index").checked_mutable_as<Int>() = Int{1};
+    builder.scalars(std::move(scalars));
+    auto node = builder.make_node();
+    const auto view = node.view();
+    bool forwarding_chain = false;
+    SECTION("native target") {
+        view.output(MIN_ST).bind_forwarding_target(first.view(MIN_ST));
+    }
+    SECTION("forwarding target") {
+        forwarding_chain = true;
+        intermediate.view(MIN_ST).bind_forwarding_target(first.view(MIN_ST));
+        view.output(MIN_ST).bind_forwarding_target(intermediate.view(MIN_ST));
+    }
+    REQUIRE(view.output(MIN_ST).forwarding());
+    // The old projection's native-only TSData precondition rejects this
+    // public forwarding representation even though its target is native.
+    CHECK_FALSE(view.output(MIN_ST).data_view().ops().direct_native_value);
+    auto input = view.input(MIN_ST);
+    auto inputs = input.as_bundle();
+    inputs.field("designation").bind_output(pair.view(MIN_ST));
+    inputs.field("observed").bind_output(pair.view(MIN_ST));
+    view.start(MIN_ST);
+    REQUIRE(view.evaluate(MIN_ST));
+    REQUIRE(first.view(MIN_ST).valid());
+    const auto child = TimeSeriesReference{pair.view(MIN_ST).indexed_child_at(1)};
+    CHECK(first.view(MIN_ST).value().checked_as<TimeSeriesReference>() == child);
+    const auto *route = prepared_output_route_for(view);
+    REQUIRE(route != nullptr);
+    CHECK(route->native() == !forwarding_chain);
+    if (!forwarding_chain) { CHECK(route->link_tracking != nullptr); }
+    const auto locks = type_system_lock_count();
+    for (Int repeat = 1; repeat <= 64; ++repeat) {
+        REQUIRE(view.evaluate(MIN_ST + TimeDelta{repeat}));
+    }
+    CHECK(first.view().last_modified_time() == MIN_ST);
+    CHECK(type_system_lock_count() == locks);
+    const auto next = MIN_ST + TimeDelta{65};
+    view.output(next).bind_forwarding_target(second.view(next));
+    CHECK_FALSE(route->native());
+    REQUIRE(view.evaluate(next));
+    REQUIRE(second.view(next).valid());
+    CHECK(second.view(next).value().checked_as<TimeSeriesReference>() == child);
+    CHECK(second.view(next).last_modified_time() == next);
+    CHECK(first.view().last_modified_time() == MIN_ST);
+    CHECK(type_system_lock_count() == locks);
+    view.stop(next);
 }

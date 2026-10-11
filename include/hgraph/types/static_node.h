@@ -1368,7 +1368,10 @@ namespace hgraph
         using target_schema = TSchema;
         using value_type    = TimeSeriesReference;
 
-        Out(TSOutputView view, DateTime /*evaluation_time*/) noexcept : TSOutputView(std::move(view)) {}
+        Out(TSOutputView view, DateTime /*evaluation_time*/, const PreparedOutputRoute *route = nullptr) noexcept
+            : TSOutputView(std::move(view)), route_(route) {}
+
+        [[nodiscard]] const PreparedOutputRoute *prepared_output() const noexcept { return route_; }
 
         void set(const TimeSeriesReference &reference) const
         {
@@ -1388,6 +1391,7 @@ namespace hgraph
         }
 
       private:
+        const PreparedOutputRoute *route_{nullptr};
         void copy_reference_value(const ValueView &value) const
         {
             auto mutation = TSOutputView::begin_mutation(evaluation_time());

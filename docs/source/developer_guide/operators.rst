@@ -1336,7 +1336,7 @@ passive. The existing TargetLink and from-REF alternative own validation,
 retargeting, and lifetime. A sibling payload publication therefore cannot
 activate the projection node.
 
-The node resolves the declared child index and native REF output slot and tracking once
+The node resolves the declared child index and output publication route once
 at start. ``TSInputView::prepare_reference_route`` extends the RFC 0008 input
 route cache with reference extraction. It selects a native REF borrow, a
 TargetLink endpoint, or finite non-peered child routes from immutable endpoint
@@ -1352,8 +1352,14 @@ observation and scalar index for cold wiring/start preparation. Its evaluation
 hook receives only the active designation, native state and output; it neither
 constructs nor checks a scalar index selector per tick.
 
-The projector verifies the canonical native REF output ops during start and
-caches its destination and tracking through the same owner contract as the
-RFC 0008 prepared output route. Evaluation compares the current designation,
-then move-assigns and commits the tracking record; it does not select a write
-strategy or repeat value-binding compatibility checks per publication.
+The projector verifies the canonical REF value ops during start and retains
+that exact source binding. The RFC 0008 prepared output route supplies native
+storage for an owned output or a forwarding terminal with a native target.
+Evaluation rechecks the terminal target identity before using cached storage,
+compares the designation, then move-assigns and commits target and terminal
+tracking in owner order. A retargeted terminal or forwarding chain uses the
+existing output-owner mutation with the already prepared source binding.
+Neither path discovers a schema or searches a registry during publication.
+
+The canonical rules and source cases are linked from
+:doc:`../reference/operators`.

@@ -46,8 +46,7 @@ struct FieldProjectionState {
     start; only designation/presence/lifetime observations run during eval. */
 struct PreparedRefProjectionState {
   PreparedInputReferenceRoute child{};
-  TimeSeriesReference *destination{nullptr};
-  TSDataTracking *tracking{nullptr};
+  ValueTypeRef binding{};
 };
 
 /** A REF-declared container projection's state (lock-free per-tick ruling,
@@ -1604,31 +1603,39 @@ struct prepared_ref_child_projection {
 
   static void start(In<"observed", TsVar<"S">, InputActivity::Passive, InputValidity::Unchecked> observed,
                     Scalar<"index", Int> index, State<container_impl_detail::PreparedRefProjectionState> state,
-                    Out<REF<TsVar<"E">>> out) {
+                    Out<REF<TsVar<"E">>> out, NodeView node) {
     auto child = observed.base().indexed_child_at(static_cast<std::size_t>(index.value()));
-    const auto &data = out.data_view();
-    const auto &ops = data.ops();
-    if (!ops.direct_native_value || ops.value_view_impl != nullptr ||
-        ops.layout_impl(ops.context)->value_binding.ops() != &ops_for<TimeSeriesReference>()) {
+    // The output owner prepares native and forwarding terminal routes alike.
+    // Static-node start reacquires this same route after the user hook.
+    acquire_prepared_output_route(node, out.evaluation_time());
+    const auto *route = out.prepared_output();
+    const auto binding = route != nullptr && route->native() ? route->value_binding : out.value().binding();
+    if (binding == nullptr || binding.ops() != &ops_for<TimeSeriesReference>()) {
       throw std::logic_error("REF projection requires its prepared native reference output binding");
     }
     state.set(container_impl_detail::PreparedRefProjectionState{
-        child.prepare_reference_route(),
-        static_cast<TimeSeriesReference *>(ops.mutable_value_memory_impl(ops.context, data.mutable_data())),
-        ops.mutable_tracking_impl(ops.context, data.mutable_data())});
+        child.prepare_reference_route(), binding});
   }
 
   static void eval(In<"designation", REF<TsVar<"S">>, InputValidity::Unchecked> designation,
                    State<container_impl_detail::PreparedRefProjectionState> state, Out<REF<TsVar<"E">>> out) {
     static_cast<void>(designation);
-    // State<T> and REF output storage were fixed by static-node preparation.
-    // Borrow native state/reference bytes without checked_as per value.
     const auto &prepared = *static_cast<const container_impl_detail::PreparedRefProjectionState *>(state.view().data());
     auto reference = prepared.child.read(out.evaluation_time());
-    if (out.valid() && *prepared.destination == reference) { return; }
-    *prepared.destination = std::move(reference);
-    const auto time = out.evaluation_time();
-    if (prepared.tracking->record_modified(time)) { prepared.tracking->parent.notify_child_modified(time); }
+    const auto *route = out.prepared_output();
+    if (route != nullptr && route->native()) {
+      auto *destination = static_cast<TimeSeriesReference *>(route->native_value);
+      if (out.valid() && *destination == reference) { return; }
+      *destination = std::move(reference);
+      route->commit(out.evaluation_time());
+    } else {
+      // A terminal retargeted after start uses its existing owner mutation.
+      // The source binding was proved cold; no schema or type discovery is
+      // needed to publish through the link's current target.
+      if (out.valid() && *static_cast<const TimeSeriesReference *>(out.value().data()) == reference) { return; }
+      auto mutation = out.begin_mutation(out.evaluation_time());
+      static_cast<void>(mutation.copy_value_from(ValueView{prepared.binding, &reference}));
+    }
   }
 };
 
