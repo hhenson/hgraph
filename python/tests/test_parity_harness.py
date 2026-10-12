@@ -479,13 +479,8 @@ def test_generated_recipes_are_deterministic_typed_and_multi_tick():
 
 def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
     pytest.importorskip("hypothesis")
-    from tools.parity.generate import generate_recipes
+    from tools.parity.generate import GENERATED_TEMPLATES, generate_recipes
 
-    # The sample has to saturate the mix for the family-coverage ratio below
-    # to mean anything: registering the fourteen operator-family strategies
-    # (PR #808) widened discovery from 32 to 46 weighted slots, and 640 draws
-    # no longer reach every low-weight template.
-    recipes = generate_recipes(1200, seed=29)
     required_templates = {
         "service_reference",
         "service_request_reply",
@@ -528,8 +523,8 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
     # REF-producing source would test the projection instead. The REF
     # consumer sweep is the projecting templates' job, not theirs.
     reference_candidate_templates = {
-        recipe.template for recipe in recipes
-        if recipe.template not in {
+        template for template in GENERATED_TEMPLATES
+        if template not in {
             "polymorphic_event_flow",
             "polymorphic_event_map",
             "arrow_typed_projection",
@@ -539,11 +534,18 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
     }
     # Every recipe of a projecting template publishes a reference and says how
     # the consumer binds to it; the route's tags come from the recipe's source.
+    # Each template answers for itself from its own restricted sample. A
+    # mixed-strategy sample cannot carry this check: hypothesis feeds every
+    # literal of every imported local module into its draws, so which
+    # low-weight templates a 1200-draw sample reaches moved with unrelated
+    # source edits elsewhere in the suite and tipped this ratio.
     reference_templates = {
-        recipe.template for recipe in recipes
-        if recipe.template in reference_candidate_templates
-        and "reference:REF" in recipe.features
-        and any(feature.startswith("binding:") for feature in recipe.features)
+        template for template in reference_candidate_templates
+        if any(
+            "reference:REF" in recipe.features
+            and any(feature.startswith("binding:") for feature in recipe.features)
+            for recipe in generate_recipes(24, seed=29, templates=(template,))
+        )
     }
     assert len(reference_templates) >= len(reference_candidate_templates) * 0.8
     operator_pipelines = generate_recipes(
@@ -558,8 +560,7 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
     # (PR #67 review); generated recipes always dedup.
     assert all(
         recipe.parameters["dedup_size"] is True
-        for recipe in recipes
-        if recipe.template == "tsd_key_set_pipeline"
+        for recipe in generate_recipes(32, seed=29, templates=("tsd_key_set_pipeline",))
     )
 
 
