@@ -107,6 +107,8 @@ def restamp_sdist(path: Path, version: str) -> Path:
     new_root = f"{name}-{version}"
     members: list[tuple[tarfile.TarInfo, bytes | None]] = []
     seen_names: set[str] = set()
+    archive_mtime = int(path.stat().st_mtime)
+    root_prefix = new_root + "/"
     with tarfile.open(path, "r:gz") as archive:
         for member in archive.getmembers():
             member.name = _safe_archive_name(member.name, required_root=old_root)
@@ -120,16 +122,33 @@ def restamp_sdist(path: Path, version: str) -> Path:
             source = archive.extractfile(member) if member.isfile() else None
             data = source.read() if source is not None else None
             member_path = PurePosixPath(member.name)
-            # Relocate under the new root and check the normalised result
-            # itself: the name written to the new archive is the string that
-            # passed, so no traversal can survive the rename.
-            relocated = posixpath.normpath(posixpath.join("/", new_root, *member_path.parts[1:]))
-            if relocated != "/" + new_root and not relocated.startswith("/" + new_root + "/"):
+            # Relocate under the new root and check the normalised name
+            # itself, the exact string the new entry is given, with one
+            # prefix test; the root directory entry is written under its own
+            # constant name and never consults the source name.
+            relocated = posixpath.normpath(posixpath.join(new_root, *member_path.parts[1:]))
+            if relocated != new_root and not relocated.startswith(root_prefix):
                 raise ValueError(f"sdist member escapes its root: {member.name!r}")
-            member.name = relocated[1:]
-            member.pax_headers.pop("path", None)
-            member.pax_headers.pop("linkpath", None)
-            if member.name == f"{new_root}/PKG-INFO":
+            # A fresh entry carries the vetted name and the entry kind, with
+            # the conventional reproducible header otherwise (0644/0755, owner
+            # 0, the archive file's own timestamp); nothing from the source
+            # entry's header reaches the new archive. An sdist holds files and
+            # directories only.
+            if not (member.isfile() or member.isdir()):
+                raise ValueError(f"unsupported sdist member type: {member.name!r}")
+            is_directory = member.isdir()
+            if relocated == new_root:
+                entry = tarfile.TarInfo(new_root)
+            else:
+                if not relocated.startswith(root_prefix):
+                    raise ValueError(f"sdist member escapes its root: {relocated!r}")
+                entry = tarfile.TarInfo(relocated)
+            entry.type = tarfile.DIRTYPE if is_directory else tarfile.REGTYPE
+            entry.mode = 0o755 if is_directory else 0o644
+            entry.mtime = archive_mtime
+            entry.uid = 0
+            entry.gid = 0
+            if entry.name == f"{new_root}/PKG-INFO":
                 metadata = data.decode()
                 metadata, count = re.subn(
                     rf"(?m)^Version: {re.escape(old_version)}$",
@@ -140,7 +159,7 @@ def restamp_sdist(path: Path, version: str) -> Path:
                 if count != 1:
                     raise ValueError(f"{path}: sdist PKG-INFO Version line not found")
                 data = metadata.encode()
-            elif member.name == f"{new_root}/pyproject.toml":
+            elif entry.name == f"{new_root}/pyproject.toml":
                 project = data.decode()
                 project, count = re.subn(
                     r'(?m)^version = "[^"]+"$',
@@ -152,13 +171,16 @@ def restamp_sdist(path: Path, version: str) -> Path:
                     raise ValueError(f"{path}: sdist pyproject version not found")
                 data = project.encode()
             if data is not None:
-                member.size = len(data)
-            members.append((member, data))
+                entry.size = len(data)
+            members.append((entry, data))
 
     new_path = path.with_name(f"{new_root}.tar.gz")
     with tarfile.open(new_path, "w:gz") as archive:
-        for member, data in members:
-            archive.addfile(member, io.BytesIO(data) if data is not None else None)
+        for entry, data in members:
+            if data is None:
+                archive.addfile(entry)
+            else:
+                archive.addfile(entry, io.BytesIO(data))
     if new_path != path:
         path.unlink()
     print(f"{path.name} -> {new_path.name}")

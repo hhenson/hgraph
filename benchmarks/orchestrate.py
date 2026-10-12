@@ -505,7 +505,9 @@ def _validated_result_path(path: Path) -> Path:
     # new file name survives into the returned path.
     candidate = os.path.realpath(path.expanduser())
     results_root = os.path.realpath(RESULTS_DIR)
-    if candidate == results_root or not candidate.startswith(results_root + os.sep):
+    # One prefix test: the separator excludes the root itself as well as
+    # ``results-private``.
+    if not candidate.startswith(results_root + os.sep):
         raise ValueError(
             f"benchmark result path must be inside {results_root}: {path}"
         )
@@ -538,7 +540,9 @@ def save_baseline_cache(path: Path, identity: dict, results: dict) -> None:
         "identity": identity,
         "results": results,
     }
-    path.write_text(json.dumps(sanitize_public_artifact(payload), indent=2) + "\n")
+    text = json.dumps(sanitize_public_artifact(payload), indent=2) + "\n"
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(text)
 
 
 def cached_baseline_result(
