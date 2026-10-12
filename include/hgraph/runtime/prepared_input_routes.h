@@ -99,10 +99,12 @@ namespace hgraph
         TSDataTracking       *link_tracking{nullptr};
 
         [[nodiscard]] bool ready() const noexcept { return output != nullptr; }
+        /** A plain slot answers with two loads; only a link-routed terminal
+            re-checks its target, out of line, so every writer's inlined fast
+            path stays the size it had before terminals were routed. */
         [[nodiscard]] bool native() const noexcept
         {
-            return native_value != nullptr && tracking != nullptr &&
-                   (link_target_ref == nullptr || link_target_ref->same_as(link_target));
+            return native_value != nullptr && tracking != nullptr && (link_target_ref == nullptr || link_native());
         }
 
         /** The ``mark_modified`` commit of a native store: record the slot's
@@ -112,10 +114,13 @@ namespace hgraph
         void commit(DateTime time) const
         {
             if (tracking->record_modified(time)) { tracking->parent.notify_child_modified(time); }
-            if (link_tracking != nullptr && link_tracking->record_modified(time))
-            {
-                link_tracking->parent.notify_child_modified(time);
-            }
+            if (link_tracking != nullptr) { commit_link(time); }
+        }
+
+        [[nodiscard]] HGRAPH_NOINLINE bool link_native() const noexcept { return link_target_ref->same_as(link_target); }
+        HGRAPH_NOINLINE void commit_link(DateTime time) const
+        {
+            if (link_tracking->record_modified(time)) { link_tracking->parent.notify_child_modified(time); }
         }
     };
 
