@@ -138,17 +138,17 @@ def restamp_sdist(path: Path, version: str) -> Path:
                 raise ValueError(f"unsupported sdist member type: {member.name!r}")
             is_directory = member.isdir()
             if relocated == new_root:
-                member = tarfile.TarInfo(new_root)
+                entry = tarfile.TarInfo(new_root)
             else:
                 if not relocated.startswith(root_prefix):
                     raise ValueError(f"sdist member escapes its root: {relocated!r}")
-                member = tarfile.TarInfo(relocated)
-            member.type = tarfile.DIRTYPE if is_directory else tarfile.REGTYPE
-            member.mode = 0o755 if is_directory else 0o644
-            member.mtime = archive_mtime
-            member.uid = 0
-            member.gid = 0
-            if member.name == f"{new_root}/PKG-INFO":
+                entry = tarfile.TarInfo(relocated)
+            entry.type = tarfile.DIRTYPE if is_directory else tarfile.REGTYPE
+            entry.mode = 0o755 if is_directory else 0o644
+            entry.mtime = archive_mtime
+            entry.uid = 0
+            entry.gid = 0
+            if entry.name == f"{new_root}/PKG-INFO":
                 metadata = data.decode()
                 metadata, count = re.subn(
                     rf"(?m)^Version: {re.escape(old_version)}$",
@@ -159,7 +159,7 @@ def restamp_sdist(path: Path, version: str) -> Path:
                 if count != 1:
                     raise ValueError(f"{path}: sdist PKG-INFO Version line not found")
                 data = metadata.encode()
-            elif member.name == f"{new_root}/pyproject.toml":
+            elif entry.name == f"{new_root}/pyproject.toml":
                 project = data.decode()
                 project, count = re.subn(
                     r'(?m)^version = "[^"]+"$',
@@ -171,16 +171,16 @@ def restamp_sdist(path: Path, version: str) -> Path:
                     raise ValueError(f"{path}: sdist pyproject version not found")
                 data = project.encode()
             if data is not None:
-                member.size = len(data)
-            members.append((member, data))
+                entry.size = len(data)
+            members.append((entry, data))
 
     new_path = path.with_name(f"{new_root}.tar.gz")
     with tarfile.open(new_path, "w:gz") as archive:
-        for member, data in members:
+        for entry, data in members:
             if data is None:
-                archive.addfile(member)
+                archive.addfile(entry)
             else:
-                archive.addfile(member, io.BytesIO(data))
+                archive.addfile(entry, io.BytesIO(data))
     if new_path != path:
         path.unlink()
     print(f"{path.name} -> {new_path.name}")
