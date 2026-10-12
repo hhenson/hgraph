@@ -15,6 +15,7 @@
 #include <hgraph/util/scope.h>
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -23,6 +24,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <vector>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -201,6 +203,16 @@ struct GraphRuntimeContext;
 /** Which engine queue currently holds a root's retired-graph expiry callback. */
 enum class RetiredExpiryQueue : std::uint8_t { None, After, Before };
 
+/** One stopped nested graph awaiting its TS-23 expiry: where its owned
+    endpoints live and when it stopped. ``header`` is cleared when the graph
+    is disposed first or has expired. */
+struct RetiredNestedGraph {
+  NestedGraphRuntimeStorage *header{nullptr};
+  const GraphRuntimeContext *context{nullptr};
+  void *memory{nullptr};
+  DateTime stop_time{MIN_DT};
+};
+
 struct RootGraphRuntimeStorage : GraphRuntimeBaseStorage {
   RootGraphRuntimeStorage() = default;
   ~RootGraphRuntimeStorage();
@@ -212,14 +224,11 @@ struct RootGraphRuntimeStorage : GraphRuntimeBaseStorage {
   GlobalState global_state{};
   ExecutorPtr root_executor_ptr{};
   /** Nested graphs stopped under this root whose TS-23 expiry is still
-      pending: an intrusive list through their own headers, so a stop
-      allocates nothing, drained by one cycle-boundary callback per root
-      (``expire_retired_nested_graphs``). */
-  NestedGraphRuntimeStorage *retired_head{nullptr};
-  NestedGraphRuntimeStorage *retired_tail{nullptr};
-  /** The drain's next entry; unlinking keeps it valid if an invalidation
-      callback disposes a sibling mid-walk. */
-  NestedGraphRuntimeStorage *retired_cursor{nullptr};
+      pending, drained by one cycle-boundary callback per root
+      (``expire_retired_nested_graphs``). The table keeps its capacity
+      across cycles, so a steady churn appends without allocating; a nested
+      header carries only this root and its slot. */
+  std::vector<RetiredNestedGraph> retired{};
   RetiredExpiryQueue retired_expiry_queue{RetiredExpiryQueue::None};
 };
 
@@ -236,14 +245,10 @@ struct NestedGraphRuntimeStorage : GraphRuntimeBaseStorage {
       so the parent can track WHICH child is due without scanning slots. */
   void (*child_schedule_observer)(void *, DateTime, bool) = nullptr;
   void *child_schedule_observer_context = nullptr;
-  /** Set while this stopped graph waits in its root's retired list; the
-      context and memory locate its owned endpoints at expiry. */
+  /** Set while this stopped graph waits in its root's retired table, at
+      ``retired_slot``. */
   RootGraphRuntimeStorage *retired_root{nullptr};
-  NestedGraphRuntimeStorage *retired_prev{nullptr};
-  NestedGraphRuntimeStorage *retired_next{nullptr};
-  const GraphRuntimeContext *retired_context{nullptr};
-  void *retired_memory{nullptr};
-  DateTime retired_at{MIN_DT};
+  std::uint32_t retired_slot{0};
 };
 
 void unlink_retired(NestedGraphRuntimeStorage &graph) noexcept {
@@ -251,22 +256,19 @@ void unlink_retired(NestedGraphRuntimeStorage &graph) noexcept {
   if (root == nullptr) {
     return;
   }
-  if (root->retired_cursor == &graph) {
-    root->retired_cursor = graph.retired_next;
-  }
-  (graph.retired_prev != nullptr ? graph.retired_prev->retired_next : root->retired_head) = graph.retired_next;
-  (graph.retired_next != nullptr ? graph.retired_next->retired_prev : root->retired_tail) = graph.retired_prev;
+  assert(graph.retired_slot < root->retired.size() && root->retired[graph.retired_slot].header == &graph);
+  root->retired[graph.retired_slot].header = nullptr;
   graph.retired_root = nullptr;
-  graph.retired_prev = nullptr;
-  graph.retired_next = nullptr;
 }
 
 RootGraphRuntimeStorage::~RootGraphRuntimeStorage() {
   // Node storage, and with it every nested header, is destroyed before the
-  // root header, so the list is normally empty here; never leave an entry
-  // pointing at a destroyed root.
-  while (retired_head != nullptr) {
-    unlink_retired(*retired_head);
+  // root header, so the table normally holds no live entry here; never leave
+  // a header pointing at a destroyed root.
+  for (auto &entry : retired) {
+    if (entry.header != nullptr) {
+      entry.header->retired_root = nullptr;
+    }
   }
 }
 
@@ -930,12 +932,12 @@ void nested_set_child_schedule_observer_impl(const void *context, void *memory,
 
 // TS-23: a stopped nested graph's endpoints stay readable through the stop
 // cycle and their routes are withdrawn before the first root evaluation at a
-// later time. Each root keeps the graphs awaiting that boundary in an
-// intrusive list and one callback per root walks the engine's after and
-// before queues on behalf of all of them: a cycle that retires a thousand map
-// entries queues one callback, not a thousand, and a stop neither allocates
-// nor subscribes anything. Disposing a retired header unlinks it, so storage
-// reused by a fresh incarnation never meets a stale expiry.
+// later time. Each root keeps the graphs awaiting that boundary in a table
+// and one callback per root walks the engine's after and before queues on
+// behalf of all of them: a cycle that retires a thousand map entries queues
+// one callback, not a thousand, and a stop subscribes nothing. Disposing a
+// retired header clears its entry, so storage reused by a fresh incarnation
+// never meets a stale expiry.
 void queue_retired_expiry(GraphPtr root, const EngineControlView &engine, bool before);
 
 void expire_retired_nested_graphs(GraphPtr root_ptr) {
@@ -955,19 +957,32 @@ void expire_retired_nested_graphs(GraphPtr root_ptr) {
     return;
   }
   const DateTime now = engine.evaluation_clock().evaluation_time();
-  for (auto *entry = state.retired_head; entry != nullptr; entry = state.retired_cursor) {
-    state.retired_cursor = entry->retired_next;
-    if (entry->retired_at < now) {
-      unlink_retired(*entry);
-      for (const auto &[index, kind] : entry->retired_context->owned_outputs) {
-        auto output = edge_source_root(graph_node_view(*entry->retired_context, entry->retired_memory, index),
-                                       entry->retired_at, kind);
-        detail::invalidate_owned_ts_data_tree(output.data_view().borrowed_ref());
-      }
+  auto &retired = state.retired;
+  // By index, copying each entry: an invalidation may dispose a sibling
+  // (clearing its entry) or retire another graph (appending one that stopped
+  // now, which waits).
+  for (std::size_t slot = 0; slot < retired.size(); ++slot) {
+    const RetiredNestedGraph entry = retired[slot];
+    if (entry.header == nullptr || entry.stop_time >= now) {
+      continue;
+    }
+    retired[slot].header = nullptr;
+    entry.header->retired_root = nullptr;
+    for (const auto &[index, kind] : entry.context->owned_outputs) {
+      auto output = edge_source_root(graph_node_view(*entry.context, entry.memory, index), entry.stop_time, kind);
+      detail::invalidate_owned_ts_data_tree(output.data_view().borrowed_ref());
     }
   }
-  state.retired_cursor = nullptr;
-  if (state.retired_head != nullptr) {
+  std::size_t live = 0;
+  for (std::size_t slot = 0; slot < retired.size(); ++slot) {
+    if (retired[slot].header != nullptr) {
+      retired[live] = retired[slot];
+      retired[live].header->retired_slot = static_cast<std::uint32_t>(live);
+      ++live;
+    }
+  }
+  retired.resize(live);
+  if (live != 0) {
     // Same-time continuations keep the removal-cycle observation readable;
     // come back at the next boundary.
     queue_retired_expiry(root_ptr, engine, false);
@@ -1169,14 +1184,9 @@ void stop_impl(const void *context, const GraphView &graph,
       const auto engine = root.executor().engine_control();
       if (engine.valid() && !root.is_stopping() && state.retired_root == nullptr) {
           auto &root_state = graph_header<RootGraphRuntimeStorage>(graph_context(root.type().ops_ref().context), root.data());
-          state.retired_context = &runtime;
-          state.retired_memory  = graph.data();
-          state.retired_at      = stop_time;
-          state.retired_prev    = root_state.retired_tail;
-          state.retired_next    = nullptr;
-          (root_state.retired_tail != nullptr ? root_state.retired_tail->retired_next : root_state.retired_head) = &state;
-          root_state.retired_tail = &state;
-          state.retired_root      = &root_state;
+          state.retired_slot = static_cast<std::uint32_t>(root_state.retired.size());
+          root_state.retired.push_back(RetiredNestedGraph{&state, &runtime, graph.data(), stop_time});
+          state.retired_root = &root_state;
           if (root_state.retired_expiry_queue == RetiredExpiryQueue::None) {
               queue_retired_expiry(root.pointer(), engine, false);
               root_state.retired_expiry_queue = RetiredExpiryQueue::After;

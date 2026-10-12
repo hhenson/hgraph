@@ -595,6 +595,68 @@ TEST_CASE("REF owner export: children retired in one cycle share one expiry call
     CHECK(queues.after_evaluation_notifications.empty());
 }
 
+TEST_CASE("REF owner export: a retired survivor keeps its own entry after earlier expiries are compacted") {
+    NodeBuilder source;
+    source.implementation<ReuseExportSource>();
+    GraphBuilder builder;
+    builder.add_node(source);
+    MockRootGraph root{builder};
+    auto          parent = root.graph();
+    parent.start(MIN_ST);
+    REQUIRE(parent.evaluate(MIN_ST));
+    auto &queues = mock_runtime_detail::mock_executor_storage(const_cast<void *>(root.executor().data()));
+
+    const auto make_child = [&](DateTime time) {
+        auto child = builder.make_nested_graph(parent.node_at(0).pointer());
+        child.view().start(time);
+        REQUIRE(child.view().evaluate(time));
+        return child;
+    };
+    auto first  = make_child(MIN_ST);
+    auto second = make_child(MIN_ST);
+    TimeSeriesReference first_ref{first.view().node_at(0).output(MIN_ST)};
+    TimeSeriesReference second_ref{second.view().node_at(0).output(MIN_ST)};
+    first.view().stop(MIN_ST);
+
+    const auto t1 = MIN_ST + MIN_TD;
+    REQUIRE(parent.evaluate(t1));
+    // The second child retires while the first still waits for its boundary.
+    second.view().stop(t1);
+    REQUIRE(parent.evaluate(t1));
+    const auto t2 = MIN_ST + MIN_TD * 2;
+    REQUIRE(parent.evaluate(t2));
+    // The first expired at t1's boundary and was compacted away; the second,
+    // stopped at t1, expires at t2's.
+    CHECK(first_ref.is_empty());
+    CHECK(second_ref.is_empty());
+
+    auto third  = make_child(t2);
+    auto fourth = make_child(t2);
+    TimeSeriesReference third_ref{third.view().node_at(0).output(t2)};
+    TimeSeriesReference fourth_ref{fourth.view().node_at(0).output(t2)};
+    third.view().stop(t2);
+    // The after queue at t3 bridges the third's expiry to the next cycle.
+    REQUIRE(parent.evaluate(MIN_ST + MIN_TD * 3));
+    const auto t4 = MIN_ST + MIN_TD * 4;
+    // The fourth retires at t4, ahead of the root's t4 cycle, behind the
+    // third in the table.
+    fourth.view().stop(t4);
+    // That cycle's drain expires the third (stopped at t2) and compacts the
+    // fourth, which stopped now and waits, into the first slot.
+    REQUIRE(parent.evaluate(t4));
+    CHECK(third_ref.is_empty());
+    CHECK(fourth_ref.is_valid(t4));
+    // Disposing the survivor must clear its rewritten slot, leaving nothing
+    // for the next boundary to visit.
+    fourth = GraphValue{};
+    CHECK(fourth_ref.is_empty());
+    REQUIRE(parent.evaluate(MIN_ST + MIN_TD * 5));
+    REQUIRE(parent.evaluate(MIN_ST + MIN_TD * 6));
+    CHECK(queues.before_evaluation_notifications.empty());
+    CHECK(queues.after_evaluation_notifications.empty());
+    parent.stop(MIN_ST + MIN_TD * 6);
+}
+
 TEST_CASE("REF executor: a user REF output retargets between independent producers mid-run")
 {
     stdlib::register_standard_operators();

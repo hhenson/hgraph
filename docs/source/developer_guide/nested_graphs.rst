@@ -77,16 +77,18 @@ same rule with its active/previous A/B slots; ``reduce`` expresses it with its
 active/previous banks.
 
 Stopping a child also retires its owned endpoints logically. The root header
-keeps the nested graphs awaiting that expiry in an intrusive list threaded
-through their own headers, so a stop links one entry and allocates nothing.
-The first stop under a root in a cycle queues one cycle-boundary callback for
-the root; later stops in that cycle, and stops that land while the callback is
-already waiting, only join the list. The callback invalidates subscriptions in
+keeps the nested graphs awaiting that expiry in a table of entries (header,
+graph context, storage, stop time); the table keeps its capacity across cycles,
+so steady churn appends without allocating, and a nested header carries only
+its root and its slot in the table. The first stop under a root in a cycle
+queues one cycle-boundary callback for the root; later stops in that cycle,
+and stops that land while the callback is already waiting, only append. The callback invalidates subscriptions in
 each retired graph's owned output, error and recordable trees before the next
 engine cycle, even when physical slot reclamation is delayed. The stop cycle
-remains readable. Disposing a retired header unlinks it, so a slot
-reconstructed at the same address never meets a stale expiry, and a root
-header detaches whatever is still linked when it is destroyed. The executor's
+remains readable. Disposing a retired header clears its entry, so a slot
+reconstructed at the same address never meets a stale expiry; the drain
+compacts the survivors and rewrites their slots, and a root header detaches
+whatever is still listed when it is destroyed. The executor's
 notification queue holds one erased callback per root per cycle at most; this
 is not an allocation-free stop claim, only a per-cycle rather than per-graph
 one. A stopped graph is terminal: reuse disposes and reconstructs it, following
