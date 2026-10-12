@@ -128,7 +128,7 @@ namespace hgraph
             // Stage 6: a walk-free observation (no link hop, no dynamic
             // container above it) is alive by construction; the walk's
             // answer was resolved when ``observed`` was written.
-            if (!route_node->resolved.walk_free &&
+            if (!route_node->resolved.walk_free() &&
                 !detail::ts_data_alive_at(value_data.borrowed_ref(), evaluation_time))
             {
                 value_data = {};
@@ -561,7 +561,7 @@ namespace hgraph
     const void *TSInputView::try_native_value_memory(const void *expected_value_ops) const noexcept
     {
         if (const auto *resolved = prepared_observation();
-            resolved != nullptr && resolved->native() && resolved->value_ops == expected_value_ops)
+            resolved != nullptr && resolved->native() && resolved->value_ops() == expected_value_ops)
         {
             return resolved->native_value;
         }

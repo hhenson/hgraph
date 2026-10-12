@@ -748,6 +748,8 @@ namespace hgraph::detail
         });
     }
 
+    static_assert(alignof(ValueOps) >= 2, "ResolvedObservation keeps walk_free in the low bit of its ValueOps pointer");
+
     void TSInputTargetActiveNode::refresh_resolved() noexcept
     {
         resolved = {};
@@ -761,7 +763,7 @@ namespace hgraph::detail
             // Mirrors TSDataView::try_native_value_memory, with the ops
             // identity left to the typed reader.
             const auto *layout    = table.layout_impl(table.context);
-            resolved.value_ops    = layout->value_binding.ops();
+            resolved.set_value_ops(layout->value_binding.ops());
             resolved.native_value = table.value_memory_impl(table.context, data.data());
         }
         // The structure of ts_data_alive_at without the time: a link hop
@@ -794,7 +796,7 @@ namespace hgraph::detail
                 }
             }
         }
-        resolved.walk_free = walk_free;
+        resolved.set_walk_free(walk_free);
     }
 
     void TSInputTargetLinkState::SchedulingNotifier::set_target(Notifiable *target) noexcept
