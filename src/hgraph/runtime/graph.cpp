@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -194,8 +195,15 @@ struct GraphRuntimeBaseStorage {
   std::vector<std::shared_ptr<void>> retained_extension_state{};
 };
 
+struct NestedGraphRuntimeStorage;
+struct GraphRuntimeContext;
+
+/** Which engine queue currently holds a root's retired-graph expiry callback. */
+enum class RetiredExpiryQueue : std::uint8_t { None, After, Before };
+
 struct RootGraphRuntimeStorage : GraphRuntimeBaseStorage {
   RootGraphRuntimeStorage() = default;
+  ~RootGraphRuntimeStorage();
 
   [[nodiscard]] GraphExecutorView root_executor() noexcept {
     return GraphExecutorView{root_executor_ptr};
@@ -203,15 +211,23 @@ struct RootGraphRuntimeStorage : GraphRuntimeBaseStorage {
 
   GlobalState global_state{};
   ExecutorPtr root_executor_ptr{};
+  /** Nested graphs stopped under this root whose TS-23 expiry is still
+      pending: an intrusive list through their own headers, so a stop
+      allocates nothing, drained by one cycle-boundary callback per root
+      (``expire_retired_nested_graphs``). */
+  NestedGraphRuntimeStorage *retired_head{nullptr};
+  NestedGraphRuntimeStorage *retired_tail{nullptr};
+  /** The drain's next entry; unlinking keeps it valid if an invalidation
+      callback disposes a sibling mid-walk. */
+  NestedGraphRuntimeStorage *retired_cursor{nullptr};
+  RetiredExpiryQueue retired_expiry_queue{RetiredExpiryQueue::None};
 };
 
 struct NestedGraphRuntimeStorage : GraphRuntimeBaseStorage {
   NestedGraphRuntimeStorage() = default;
-  ~NestedGraphRuntimeStorage() { expiry_observers.invalidate(nullptr); }
-
-  // Existing non-owning observer protocol: disposal cancels queued expiry
-  // before the header's address may be used by another graph incarnation.
-  TSDataObserverSet expiry_observers{};
+  // Disposal unlinks a pending expiry before the header's address may be
+  // used by another graph incarnation.
+  ~NestedGraphRuntimeStorage();
 
   [[nodiscard]] NodeView parent_node() { return NodeView{parent_node_ptr}; }
 
@@ -220,7 +236,41 @@ struct NestedGraphRuntimeStorage : GraphRuntimeBaseStorage {
       so the parent can track WHICH child is due without scanning slots. */
   void (*child_schedule_observer)(void *, DateTime, bool) = nullptr;
   void *child_schedule_observer_context = nullptr;
+  /** Set while this stopped graph waits in its root's retired list; the
+      context and memory locate its owned endpoints at expiry. */
+  RootGraphRuntimeStorage *retired_root{nullptr};
+  NestedGraphRuntimeStorage *retired_prev{nullptr};
+  NestedGraphRuntimeStorage *retired_next{nullptr};
+  const GraphRuntimeContext *retired_context{nullptr};
+  void *retired_memory{nullptr};
+  DateTime retired_at{MIN_DT};
 };
+
+void unlink_retired(NestedGraphRuntimeStorage &graph) noexcept {
+  auto *root = graph.retired_root;
+  if (root == nullptr) {
+    return;
+  }
+  if (root->retired_cursor == &graph) {
+    root->retired_cursor = graph.retired_next;
+  }
+  (graph.retired_prev != nullptr ? graph.retired_prev->retired_next : root->retired_head) = graph.retired_next;
+  (graph.retired_next != nullptr ? graph.retired_next->retired_prev : root->retired_tail) = graph.retired_prev;
+  graph.retired_root = nullptr;
+  graph.retired_prev = nullptr;
+  graph.retired_next = nullptr;
+}
+
+RootGraphRuntimeStorage::~RootGraphRuntimeStorage() {
+  // Node storage, and with it every nested header, is destroyed before the
+  // root header, so the list is normally empty here; never leave an entry
+  // pointing at a destroyed root.
+  while (retired_head != nullptr) {
+    unlink_retired(*retired_head);
+  }
+}
+
+NestedGraphRuntimeStorage::~NestedGraphRuntimeStorage() { unlink_retired(*this); }
 
 inline constexpr std::string_view graph_header_field_name{"header"};
 inline constexpr std::string_view graph_nodes_field_name{"nodes"};
@@ -878,64 +928,63 @@ void nested_set_child_schedule_observer_impl(const void *context, void *memory,
   state.child_schedule_observer_context = observer_context;
 }
 
-// Cycle queues own this functor, never the nested graph. Copying registers
-// another non-owning observer; moving replaces the subscriber pointer without
-// growing the compact observer set. Header disposal cancels every queued copy.
-class NestedGraphExpiry final : public Notifiable
-{
-  public:
-    NestedGraphExpiry(TSDataObserverSet &observers, EngineControlView engine, GraphPtr root, const GraphRuntimeContext &context, void *memory,
-                      DateTime stop_time)
-        : observers_(&observers), engine_(engine), root_(root), context_(&context), memory_(memory), stop_time_(stop_time) {
-        observers_->subscribe(this);
-    }
-    NestedGraphExpiry(const NestedGraphExpiry &other)
-        : observers_(other.observers_), engine_(other.engine_), root_(other.root_), context_(other.context_), memory_(other.memory_),
-          stop_time_(other.stop_time_), before_(other.before_) {
-        if (observers_ != nullptr) { observers_->subscribe(this); }
-    }
-    NestedGraphExpiry(NestedGraphExpiry &&other) noexcept
-        : observers_(std::exchange(other.observers_, nullptr)), engine_(other.engine_), root_(other.root_), context_(other.context_),
-          memory_(other.memory_), stop_time_(other.stop_time_), before_(other.before_) {
-        if (observers_ != nullptr) { observers_->replace(&other, this); }
-    }
-    ~NestedGraphExpiry() override {
-        if (observers_ != nullptr) { observers_->unsubscribe(this); }
-    }
-    void notify(DateTime) override {}
-    void source_invalidated(const TSDataTracking *) noexcept override { observers_ = nullptr; }
+// TS-23: a stopped nested graph's endpoints stay readable through the stop
+// cycle and their routes are withdrawn before the first root evaluation at a
+// later time. Each root keeps the graphs awaiting that boundary in an
+// intrusive list and one callback per root walks the engine's after and
+// before queues on behalf of all of them: a cycle that retires a thousand map
+// entries queues one callback, not a thousand, and a stop neither allocates
+// nor subscribes anything. Disposing a retired header unlinks it, so storage
+// reused by a fresh incarnation never meets a stale expiry.
+void queue_retired_expiry(GraphPtr root, const EngineControlView &engine, bool before);
 
-    void operator()() {
-        if (observers_ == nullptr) { return; }
-        const GraphView root{root_};
-        if (root.is_stopping() || !root.started()) { return; }
-        if (!before_) {
-            before_ = true;
-            engine_.add_before_evaluation_notification(std::move(*this));
-            return;
-        }
-        if (engine_.evaluation_clock().evaluation_time() <= stop_time_) {
-            // A before queue drains new before callbacks immediately. Bridge
-            // through after instead, keeping same-time continuations readable.
-            before_ = false;
-            engine_.add_after_evaluation_notification(std::move(*this));
-            return;
-        }
-        for (const auto &[index, kind] : context_->owned_outputs) {
-            auto output = edge_source_root(graph_node_view(*context_, memory_, index), stop_time_, kind);
-            detail::invalidate_owned_ts_data_tree(output.data_view().borrowed_ref());
-        }
+void expire_retired_nested_graphs(GraphPtr root_ptr) {
+  const GraphView root{root_ptr};
+  auto &state = graph_header<RootGraphRuntimeStorage>(graph_context(root.type().ops_ref().context), root.data());
+  if (root.is_stopping() || !root.started()) {
+    // Root teardown owns the remaining headers; each unlinks on disposal.
+    state.retired_expiry_queue = RetiredExpiryQueue::None;
+    return;
+  }
+  const auto engine = root.executor().engine_control();
+  if (state.retired_expiry_queue == RetiredExpiryQueue::After) {
+    // Bridge to the next cycle's before queue. A before queue drains new
+    // before callbacks immediately, so the bridge always goes through after.
+    queue_retired_expiry(root_ptr, engine, true);
+    state.retired_expiry_queue = RetiredExpiryQueue::Before;
+    return;
+  }
+  const DateTime now = engine.evaluation_clock().evaluation_time();
+  for (auto *entry = state.retired_head; entry != nullptr; entry = state.retired_cursor) {
+    state.retired_cursor = entry->retired_next;
+    if (entry->retired_at < now) {
+      unlink_retired(*entry);
+      for (const auto &[index, kind] : entry->retired_context->owned_outputs) {
+        auto output = edge_source_root(graph_node_view(*entry->retired_context, entry->retired_memory, index),
+                                       entry->retired_at, kind);
+        detail::invalidate_owned_ts_data_tree(output.data_view().borrowed_ref());
+      }
     }
+  }
+  state.retired_cursor = nullptr;
+  if (state.retired_head != nullptr) {
+    // Same-time continuations keep the removal-cycle observation readable;
+    // come back at the next boundary.
+    queue_retired_expiry(root_ptr, engine, false);
+    state.retired_expiry_queue = RetiredExpiryQueue::After;
+  } else {
+    state.retired_expiry_queue = RetiredExpiryQueue::None;
+  }
+}
 
-  private:
-    TSDataObserverSet         *observers_;
-    EngineControlView          engine_;
-    GraphPtr                   root_;
-    const GraphRuntimeContext *context_;
-    void                      *memory_;
-    DateTime                   stop_time_;
-    bool                       before_{false};
-};
+void queue_retired_expiry(GraphPtr root, const EngineControlView &engine, bool before) {
+  std::function<void()> callback{[root] { expire_retired_nested_graphs(root); }};
+  if (before) {
+    engine.add_before_evaluation_notification(std::move(callback));
+  } else {
+    engine.add_after_evaluation_notification(std::move(callback));
+  }
+}
 
 template <typename Storage>
 void start_impl(const void *context, const GraphView &graph,
@@ -1112,13 +1161,26 @@ void stop_impl(const void *context, const GraphView &graph,
   if constexpr (std::is_same_v<Storage, NestedGraphRuntimeStorage>) {
       // TS-23 separates logical removal from lazy storage reclamation. Keep
       // endpoints readable through the stop cycle, then withdraw their routes
-      // before the next root evaluation. Owned-tree traversal never follows REF
-      // values or input target links into a captured parent producer.
-      const auto engine = graph.executor().engine_control();
-      const auto root = graph.root();
-      if (engine.valid() && !root.is_stopping()) {
-          engine.add_after_evaluation_notification(
-              NestedGraphExpiry{state.expiry_observers, engine, root.pointer(), runtime, graph.data(), stop_time});
+      // before the next root evaluation (expire_retired_nested_graphs).
+      // Owned-tree traversal never follows REF values or input target links
+      // into a captured parent producer.
+      // One walk up the parent chain: the root's executor is the graph's.
+      const auto root   = graph.root();
+      const auto engine = root.executor().engine_control();
+      if (engine.valid() && !root.is_stopping() && state.retired_root == nullptr) {
+          auto &root_state = graph_header<RootGraphRuntimeStorage>(graph_context(root.type().ops_ref().context), root.data());
+          state.retired_context = &runtime;
+          state.retired_memory  = graph.data();
+          state.retired_at      = stop_time;
+          state.retired_prev    = root_state.retired_tail;
+          state.retired_next    = nullptr;
+          (root_state.retired_tail != nullptr ? root_state.retired_tail->retired_next : root_state.retired_head) = &state;
+          root_state.retired_tail = &state;
+          state.retired_root      = &root_state;
+          if (root_state.retired_expiry_queue == RetiredExpiryQueue::None) {
+              queue_retired_expiry(root.pointer(), engine, false);
+              root_state.retired_expiry_queue = RetiredExpiryQueue::After;
+          }
       }
   }
   if (exceptions.has_exception()) {

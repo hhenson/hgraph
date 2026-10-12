@@ -76,31 +76,34 @@ in-place child before the raw slot can be reused. ``switch_`` expresses the
 same rule with its active/previous A/B slots; ``reduce`` expresses it with its
 active/previous banks.
 
-Stopping a child also retires its owned endpoints logically. The nested
-header carries an inline compact observer set. A cycle-boundary notification
-subscribes there without retaining graph storage, and invalidates subscriptions
-in that graph's owned output, error and recordable trees before the next engine
-cycle, even when physical slot reclamation is delayed. The stop cycle remains
-readable. Disposing the header cancels every notification copy before the slot
-can be reconstructed. Moving a notification replaces its observer pointer
-without allocating or using shared reference counts. Notification copies keep
-independent subscriptions and unregister on destruction; multiple copies may
-grow the observer set. The executor's existing notification queues and erased
-callbacks can also allocate at these lifecycle boundaries; this is not an
-allocation-free stop claim. The inline observer construction and ordinary single-observer transfers do not allocate.
-A stopped graph is terminal: reuse disposes and reconstructs it, following the
-Spec's stopped-to-dispose transition; restarting the stopped object is not
+Stopping a child also retires its owned endpoints logically. The root header
+keeps the nested graphs awaiting that expiry in an intrusive list threaded
+through their own headers, so a stop links one entry and allocates nothing.
+The first stop under a root in a cycle queues one cycle-boundary callback for
+the root; later stops in that cycle, and stops that land while the callback is
+already waiting, only join the list. The callback invalidates subscriptions in
+each retired graph's owned output, error and recordable trees before the next
+engine cycle, even when physical slot reclamation is delayed. The stop cycle
+remains readable. Disposing a retired header unlinks it, so a slot
+reconstructed at the same address never meets a stale expiry, and a root
+header detaches whatever is still linked when it is destroyed. The executor's
+notification queue holds one erased callback per root per cycle at most; this
+is not an allocation-free stop claim, only a per-cycle rather than per-graph
+one. A stopped graph is terminal: reuse disposes and reconstructs it, following
+the Spec's stopped-to-dispose transition; restarting the stopped object is not
 supported. Ownership traversal does not follow REF values or captured input
 links, so an exported reference to a parent producer keeps the parent's
-lifetime. Endpoint kinds are prepared in the graph context, without a name or schema lookup during expiry.
-Final root teardown does not queue future expiry work. The C++ testing mock
-supports the same FIFO-before/LIFO-after notifications through its manually
-evaluated root lifecycle, including the root clock update at each cycle.
-Repeated manual or externally driven evaluations at the stop timestamp retain
-the removal-cycle observation. Pending expiry alternates across the after and
-before queues until the root clock advances, never re-enqueuing into the queue
-currently being drained. The callback caches a non-owning root view at stop;
-root stopping or already stopped cancels it without leaving future callbacks.
+lifetime. Endpoint kinds are prepared in the graph context, without a name or
+schema lookup during expiry. Final root teardown does not queue future expiry
+work. The C++ testing mock supports the same FIFO-before/LIFO-after
+notifications through its manually evaluated root lifecycle, including the
+root clock update at each cycle. Repeated manual or externally driven
+evaluations at the stop timestamp retain the removal-cycle observation. The
+callback alternates across the after and before queues until the root clock
+advances past each entry's stop time, never re-enqueuing into the queue
+currently being drained; entries stopped at different times expire at their
+own boundaries from the same list. The callback holds a non-owning root view;
+root stopping or already stopped drops it without leaving future callbacks.
 This implements the removal-cycle readability and subsequent expiry in
 ``external/hgraph_spec/runtime/graph.md`` (GRF-25) and
 ``external/hgraph_spec/runtime/time_series.md`` (TS-23).
