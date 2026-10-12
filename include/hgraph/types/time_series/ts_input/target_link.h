@@ -209,9 +209,17 @@ namespace hgraph::detail
                        DateTime modified_time, bool sampled, bool replay_source_time);
         void detach_target(bool retain_structural_target, DateTime modified_time);
 
-        mutable const TSValueTypeMetaData *declared_schema_{nullptr};
-        mutable TSOutputHandle declared_source_{};
-        mutable TSOutputHandle declared_view_{};
+        /** The last declared port view a SIGNAL consumer bound through,
+            memoised per link. Only metadata consumers with a declared source
+            view need it, so it is allocated on first use rather than carried
+            by every link. */
+        struct DeclaredViewMemo
+        {
+            const TSValueTypeMetaData *schema{nullptr};
+            TSOutputHandle             source{};
+            TSOutputHandle             view{};
+        };
+        mutable std::unique_ptr<DeclaredViewMemo> declared_{};
         const TSInputTargetLinkStructuralOps *structural_ops_{&target_link_no_structural_ops()};
     };
 

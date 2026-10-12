@@ -1033,30 +1033,36 @@ namespace hgraph::detail
             clear_declared_source_view();
             return {};
         }
-        // The schema is an immutable binding-plan key, not a payload type
-        // probe. A pending offer has no lifetime protection until bound.
-        if (state_.target.bound() && declared_schema_ == &declared_schema &&
-            source.handle().same_as(declared_source_))
+        // Ordinary and REF consumers keep their existing consumer-schema
+        // normalization, including collapse of already-REF producers: they
+        // bind the producer itself, so there is nothing to memoise. A link's
+        // consumer schema is fixed, so such a link never holds a memo.
+        if (consumer_schema.kind != TSTypeKind::SIGNAL) { return source.handle().view(source.evaluation_time()); }
+        // Metadata consumers observe the declared port view. The schema is an
+        // immutable binding-plan key, not a payload type probe. A pending
+        // offer has no lifetime protection until bound. This policy is
+        // selected only when binding a new route, not while reading a value.
+        if (state_.target.bound() && declared_ != nullptr && declared_->schema == &declared_schema &&
+            source.handle().same_as(declared_->source))
         {
-            return declared_view_.view(source.evaluation_time());
+            return declared_->view.view(source.evaluation_time());
         }
-        // Metadata consumers observe the declared port view. Ordinary and
-        // REF consumers keep their existing consumer-schema normalization,
-        // including collapse of already-REF producers. This policy is selected
-        // only when binding a new route, not while reading a value.
-        auto view = consumer_schema.kind == TSTypeKind::SIGNAL
-                        ? source.binding_for(declared_schema) : source.handle();
-        declared_schema_ = &declared_schema;
-        declared_source_ = source.handle();
-        declared_view_ = view;
+        auto view = source.binding_for(declared_schema);
+        if (declared_ == nullptr) { declared_ = std::make_unique<DeclaredViewMemo>(); }
+        declared_->schema = &declared_schema;
+        declared_->source = source.handle();
+        declared_->view   = view;
         return view.view(source.evaluation_time());
     }
 
     void TSInputTargetLinkStorage::clear_declared_source_view() const noexcept
     {
-        declared_schema_ = nullptr;
-        declared_source_.reset();
-        declared_view_.reset();
+        // Keep the allocation: a link that binds through a declared view once
+        // usually does so again on its next route.
+        if (declared_ == nullptr) { return; }
+        declared_->schema = nullptr;
+        declared_->source.reset();
+        declared_->view.reset();
     }
 
     bool TSInputTargetLinkStorage::bound() const noexcept
@@ -1444,6 +1450,11 @@ namespace hgraph::detail
     DynamicStorageMetrics TSInputTargetLinkStorage::dynamic_storage_metrics() const noexcept
     {
         DynamicStorageMetrics result = structural_ops_->dynamic_storage_metrics(*this);
+        if (declared_ != nullptr)
+        {
+            result.live_bytes += sizeof(DeclaredViewMemo);
+            result.reserved_bytes += sizeof(DeclaredViewMemo);
+        }
         if (state_.active_root_node != nullptr)
         {
             result.live_bytes += sizeof(TSInputTargetActiveNode);
