@@ -9,6 +9,7 @@
 #include <hgraph/types/utils/counted_mutex.h>
 
 #include <array>
+#include <vector>
 #include <catch2/catch_test_macros.hpp>
 
 // User-visible REF ports through the full executor (closes the review gap:
@@ -528,6 +529,70 @@ TEST_CASE("REF owner export: same-address reconstruction cancels copied expiry a
             parent.stop(MIN_ST + MIN_TD * 2);
         }
     }
+}
+
+TEST_CASE("REF owner export: children retired in one cycle share one expiry callback and expire together") {
+    NodeBuilder source;
+    source.implementation<ReuseExportSource>();
+    GraphBuilder builder;
+    builder.add_node(source);
+    MockRootGraph root{builder};
+    auto          parent = root.graph();
+    parent.start(MIN_ST);
+    REQUIRE(parent.evaluate(MIN_ST));
+    auto &queues = mock_runtime_detail::mock_executor_storage(const_cast<void *>(root.executor().data()));
+
+    std::vector<GraphValue>          children;
+    std::vector<TimeSeriesReference> retired;
+    children.reserve(5);
+    retired.reserve(5);
+    for (int index = 0; index < 5; ++index) {
+        children.push_back(builder.make_nested_graph(parent.node_at(0).pointer()));
+        children.back().view().start(MIN_ST);
+        REQUIRE(children.back().view().evaluate(MIN_ST));
+        retired.emplace_back(children.back().view().node_at(0).output(MIN_ST));
+    }
+    auto survivor = builder.make_nested_graph(parent.node_at(0).pointer());
+    survivor.view().start(MIN_ST);
+    REQUIRE(survivor.view().evaluate(MIN_ST));
+    TimeSeriesReference live{survivor.view().node_at(0).output(MIN_ST)};
+
+    for (auto &child : children) { child.view().stop(MIN_ST); }
+    // One callback stands for every graph retired in the cycle.
+    CHECK(queues.after_evaluation_notifications.size() == 1);
+    CHECK(queues.before_evaluation_notifications.empty());
+    for (const auto &reference : retired) { CHECK(reference.is_valid(MIN_ST)); }
+
+    // Disposing one retired child before the boundary leaves the others pending.
+    children[2] = GraphValue{};
+    CHECK(retired[2].is_empty());
+
+    REQUIRE(parent.evaluate(MIN_ST));
+    CHECK(queues.after_evaluation_notifications.empty());
+    CHECK(queues.before_evaluation_notifications.size() == 1);
+    for (const int index : {0, 1, 3, 4}) { CHECK(retired[index].is_valid(MIN_ST)); }
+
+    // A child retired while the callback already waits joins the same drain.
+    auto late = builder.make_nested_graph(parent.node_at(0).pointer());
+    late.view().start(MIN_ST);
+    REQUIRE(late.view().evaluate(MIN_ST));
+    TimeSeriesReference late_retired{late.view().node_at(0).output(MIN_ST)};
+    late.view().stop(MIN_ST);
+    CHECK(queues.after_evaluation_notifications.empty());
+    CHECK(queues.before_evaluation_notifications.size() == 1);
+
+    REQUIRE(parent.evaluate(MIN_ST + MIN_TD));
+    for (const int index : {0, 1, 3, 4}) { CHECK(retired[index].is_empty()); }
+    CHECK(late_retired.is_empty());
+    CHECK(live.is_valid(MIN_ST + MIN_TD));
+    CHECK(queues.before_evaluation_notifications.empty());
+    CHECK(queues.after_evaluation_notifications.empty());
+
+    survivor.view().stop(MIN_ST + MIN_TD);
+    CHECK(queues.after_evaluation_notifications.size() == 1);
+    parent.stop(MIN_ST + MIN_TD);
+    CHECK(queues.before_evaluation_notifications.empty());
+    CHECK(queues.after_evaluation_notifications.empty());
 }
 
 TEST_CASE("REF executor: a user REF output retargets between independent producers mid-run")
