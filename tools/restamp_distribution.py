@@ -120,12 +120,12 @@ def restamp_sdist(path: Path, version: str) -> Path:
             source = archive.extractfile(member) if member.isfile() else None
             data = source.read() if source is not None else None
             member_path = PurePosixPath(member.name)
-            # Relocate under the new root and check the normalised result
-            # itself with one prefix test (the trailing separator admits the
-            # root directory entry and excludes ``new_root-other``): the name
-            # written to the new archive is the string that passed.
-            relocated = posixpath.normpath(posixpath.join("/", new_root, *member_path.parts[1:])) + "/"
-            if not relocated.startswith("/" + new_root + "/"):
+            # Relocate under the new root and check the normalised name
+            # itself, the exact string the new entry is given, with one
+            # prefix test; the root directory entry is written under its own
+            # constant name and never consults the source name.
+            relocated = posixpath.normpath(posixpath.join(new_root, *member_path.parts[1:]))
+            if relocated != new_root and not relocated.startswith(new_root + "/"):
                 raise ValueError(f"sdist member escapes its root: {member.name!r}")
             # A fresh entry carries only the vetted name, the entry kind and
             # integer header fields; nothing else from the source archive's
@@ -134,7 +134,12 @@ def restamp_sdist(path: Path, version: str) -> Path:
             if not (member.isfile() or member.isdir()):
                 raise ValueError(f"unsupported sdist member type: {member.name!r}")
             source_member = member
-            member = tarfile.TarInfo(relocated[1:-1])
+            if relocated == new_root:
+                member = tarfile.TarInfo(new_root)
+            else:
+                if not relocated.startswith(new_root + "/"):
+                    raise ValueError(f"sdist member escapes its root: {source_member.name!r}")
+                member = tarfile.TarInfo(relocated)
             member.type = tarfile.DIRTYPE if source_member.isdir() else tarfile.REGTYPE
             member.mode = int(source_member.mode)
             member.mtime = int(source_member.mtime)
