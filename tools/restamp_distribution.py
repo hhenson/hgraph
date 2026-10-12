@@ -108,6 +108,7 @@ def restamp_sdist(path: Path, version: str) -> Path:
     members: list[tuple[tarfile.TarInfo, bytes | None]] = []
     seen_names: set[str] = set()
     archive_mtime = int(path.stat().st_mtime)
+    root_prefix = new_root + "/"
     with tarfile.open(path, "r:gz") as archive:
         for member in archive.getmembers():
             member.name = _safe_archive_name(member.name, required_root=old_root)
@@ -126,7 +127,7 @@ def restamp_sdist(path: Path, version: str) -> Path:
             # prefix test; the root directory entry is written under its own
             # constant name and never consults the source name.
             relocated = posixpath.normpath(posixpath.join(new_root, *member_path.parts[1:]))
-            if relocated != new_root and not relocated.startswith(new_root + "/"):
+            if relocated != new_root and not relocated.startswith(root_prefix):
                 raise ValueError(f"sdist member escapes its root: {member.name!r}")
             # A fresh entry carries the vetted name and the entry kind, with
             # the conventional reproducible header otherwise (0644/0755, owner
@@ -139,7 +140,7 @@ def restamp_sdist(path: Path, version: str) -> Path:
             if relocated == new_root:
                 member = tarfile.TarInfo(new_root)
             else:
-                if not relocated.startswith(new_root + "/"):
+                if not relocated.startswith(root_prefix):
                     raise ValueError(f"sdist member escapes its root: {relocated!r}")
                 member = tarfile.TarInfo(relocated)
             member.type = tarfile.DIRTYPE if is_directory else tarfile.REGTYPE
@@ -176,8 +177,10 @@ def restamp_sdist(path: Path, version: str) -> Path:
     new_path = path.with_name(f"{new_root}.tar.gz")
     with tarfile.open(new_path, "w:gz") as archive:
         for member, data in members:
-            payload = io.BytesIO(data) if data is not None else None
-            archive.addfile(member, payload)
+            if data is None:
+                archive.addfile(member)
+            else:
+                archive.addfile(member, io.BytesIO(data))
     if new_path != path:
         path.unlink()
     print(f"{path.name} -> {new_path.name}")
