@@ -351,6 +351,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 .context                   = this,
                 .kind                      = schema->kind,
                 .allows_mutation           = true,
+                .tracks_empty_publication  = true,
                 .ownership_ops             = &ownership_ops(),
                 .inspection_ops            = &inspection_ops(),
                 .current_state_ops =

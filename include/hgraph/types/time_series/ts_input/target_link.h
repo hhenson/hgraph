@@ -188,7 +188,9 @@ namespace hgraph::detail
         [[nodiscard]] const TSInputTargetLinkState *state() const noexcept;
         [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
 
-        TSDataTracking tracking{};
+        // A terminal output can be this link, so it keeps the empty
+        // publication time (``TSDataOps::tracks_empty_publication``).
+        EmptyPublicationTracking tracking{};
         // Input sampling is distinct from source modification, including
         // when both happen at the same time on a fixed collection.
         DateTime last_sample_time{MIN_DT};

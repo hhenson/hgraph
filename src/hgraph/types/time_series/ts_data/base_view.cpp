@@ -454,7 +454,11 @@ void TSDataMutationView::mark_empty_delta() {
   require_active_mutation();
   const auto &table = ops();
   auto &state = *table.mutable_tracking_impl(table.context, storage_.data());
-  state.last_empty_delta_time = mutation_time_;
+  // Only bundles and fixed lists (and links standing in for them) keep the
+  // time; a dynamic list's empty publication is observable without it.
+  if (table.tracks_empty_publication) {
+    static_cast<EmptyPublicationTracking &>(state).last_empty_delta_time = mutation_time_;
+  }
   if (state.record_modified(mutation_time_)) {
     state.parent.notify_child_modified(mutation_time_);
   }
@@ -550,7 +554,9 @@ bool TSDataMutationView::invalidate() {
   state.observers.notify(mutation_time_);
   state.parent.notify_child_modified(mutation_time_);
   state.last_modified_time = MIN_DT;
-  state.last_empty_delta_time = MIN_DT;
+  if (table.tracks_empty_publication) {
+    static_cast<EmptyPublicationTracking &>(state).last_empty_delta_time = MIN_DT;
+  }
   return true;
 }
 

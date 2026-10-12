@@ -89,7 +89,10 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     // family (python_family, ABI 14) and the bridge maps it to the table.
     // ABI 13 made the Python slots unconditional and opaque.
     // ABI 24 distinguishes explicit empty sparse publications from child notifications.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 24);
+    // ABI 25 keeps that time only in EmptyPublicationTracking, which fixed bundles,
+    // fixed lists and target links use (TSDataOps::tracks_empty_publication).
+    static_assert(TS_DATA_OPS_ABI_VERSION == 25);
+    static_assert(std::is_same_v<decltype(TSDataOps::tracks_empty_publication), bool>);
     static_assert(std::is_same_v<decltype(TSDataLayout::canonical_delta_binding), ValueTypeRef>);
     static_assert(std::is_same_v<decltype(TSDataOps::python_family), PythonTSDataFamily>);
     static_assert(std::is_same_v<decltype(TSDataOps::to_python_impl), PyNewRef (*)(const void *, const void *)>);
@@ -103,7 +106,8 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(sizeof(TSDataObserverSet) == sizeof(void *));
     static_assert(sizeof(TSData) == sizeof(void *) * 3);
     static_assert(sizeof(TSParentLink) == sizeof(void *) * 3);
-    static_assert(sizeof(TSDataTracking) == sizeof(void *) * 6);
+    static_assert(sizeof(TSDataTracking) == sizeof(void *) * 5);
+    static_assert(sizeof(EmptyPublicationTracking) == sizeof(void *) * 6);
     static_assert(sizeof(TimeSeriesReference) == sizeof(void *) * 5);
 #if defined(__APPLE__) && defined(__aarch64__)
     // 272 -> 280: heterogeneous realized keys store the value binding
@@ -281,16 +285,46 @@ TEST_CASE("dynamic TSL and TSW physical plans retain their baseline layouts")
     // one pointer to the ordinal snapshot of the modified ring, which exists
     // only for a list that has been read by ordinal. Without it every such
     // read walked the ring from its head: m modified elements cost m * m.
-    // ABI 24 adds the 8-byte explicit-empty timestamp to tracking in all
-    // three owned plans. The input link's sample timestamp is separate and
+    // ABI 24 added an 8-byte explicit-empty timestamp to tracking in all
+    // three owned plans; ABI 25 keeps it only for fixed bundles, fixed lists
+    // and target links (EmptyPublicationTracking), so these plans return to
+    // their earlier sizes. The input link's sample timestamp is separate and
     // does not contribute to these data-plan sizes.
-    REQUIRE(dynamic.layout.size == 128);
+    REQUIRE(dynamic.layout.size == 120);
     REQUIRE(dynamic.layout.alignment == 8);
-    REQUIRE(tick.layout.size == 144);
+    REQUIRE(tick.layout.size == 136);
     REQUIRE(tick.layout.alignment == 8);
-    REQUIRE(duration.layout.size == 144);
+    REQUIRE(duration.layout.size == 136);
     REQUIRE(duration.layout.alignment == 8);
 #endif
+}
+
+TEST_CASE("only tables whose tracking records keep the empty-publication time claim it")
+{
+    using namespace hgraph;
+
+    // A table that claims tracks_empty_publication has its tracking records
+    // read as EmptyPublicationTracking, so a claim over a plain TSDataTracking
+    // would read past it. Fixed bundles and fixed lists keep the time in
+    // every role; atomic, keyed, dynamic-list and window storage do not.
+    auto       &registry = TypeRegistry::instance();
+    auto       &factory  = TSDataPlanFactory::instance();
+    const auto *integer  = registry.register_scalar<std::int32_t>("type_erasure_layout_int32");
+    const auto *ts       = registry.ts(integer);
+
+    const std::array keeping{registry.tsb("EmptyPublicationBundle", {{"value", ts}}), registry.tsl(ts, 2)};
+    for (const auto *schema : keeping)
+    {
+        CHECK(factory.data_type_for(schema).ops_ref().tracks_empty_publication);
+        CHECK(factory.output_type_for(schema).ops_ref().tracks_empty_publication);
+    }
+    const std::array plain{ts, registry.tsl(ts), registry.tsd(integer, ts), registry.tss(integer),
+                           registry.tsw(integer, 3, 1)};
+    for (const auto *schema : plain)
+    {
+        CHECK_FALSE(factory.data_type_for(schema).ops_ref().tracks_empty_publication);
+        CHECK_FALSE(factory.output_type_for(schema).ops_ref().tracks_empty_publication);
+    }
 }
 
 TEST_CASE("value ops discriminator has a fixed byte ABI at offset zero")
