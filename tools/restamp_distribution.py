@@ -127,19 +127,20 @@ def restamp_sdist(path: Path, version: str) -> Path:
             relocated = posixpath.normpath(posixpath.join("/", new_root, *member_path.parts[1:])) + "/"
             if not relocated.startswith("/" + new_root + "/"):
                 raise ValueError(f"sdist member escapes its root: {member.name!r}")
-            # A fresh entry carries only the vetted name and the scalar
-            # attributes; nothing else from the source archive's header
-            # (link targets, pax path records) reaches the new archive.
+            # A fresh entry carries only the vetted name, the entry kind and
+            # integer header fields; nothing else from the source archive's
+            # header (link targets, pax path records, owner names) reaches the
+            # new archive. An sdist holds files and directories only.
+            if not (member.isfile() or member.isdir()):
+                raise ValueError(f"unsupported sdist member type: {member.name!r}")
             source_member = member
             member = tarfile.TarInfo(relocated[1:-1])
-            member.type = source_member.type
-            member.mode = source_member.mode
-            member.mtime = source_member.mtime
-            member.uid = source_member.uid
-            member.gid = source_member.gid
-            member.uname = source_member.uname
-            member.gname = source_member.gname
-            member.size = source_member.size
+            member.type = tarfile.DIRTYPE if source_member.isdir() else tarfile.REGTYPE
+            member.mode = int(source_member.mode)
+            member.mtime = int(source_member.mtime)
+            member.uid = int(source_member.uid)
+            member.gid = int(source_member.gid)
+            member.size = int(source_member.size)
             if member.name == f"{new_root}/PKG-INFO":
                 metadata = data.decode()
                 metadata, count = re.subn(

@@ -541,7 +541,8 @@ def save_baseline_cache(path: Path, identity: dict, results: dict) -> None:
         "results": results,
     }
     text = json.dumps(sanitize_public_artifact(payload), indent=2) + "\n"
-    path.write_text(text)
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(text)
 
 
 def cached_baseline_result(
