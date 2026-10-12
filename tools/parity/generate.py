@@ -37,6 +37,55 @@ def _recipe_from_payload(payload: dict[str, Any], seed: int) -> Recipe:
     return recipe
 
 
+#: Every template ``recipe_payload_strategy`` can draw, in discovery order
+#: and without the weighting duplicates. ``recipe_payload_strategy`` checks
+#: this against its discovery table, so a test can enumerate the generated
+#: templates without reading them off a mixed-strategy sample (which moves
+#: with the literals hypothesis mines from every imported local module).
+GENERATED_TEMPLATES = (
+    "scalar_expression",
+    "scalar_operator_arguments",
+    "feedback_accumulate",
+    "switch_arithmetic",
+    "tsd_map_reduce",
+    "service_reference",
+    "service_request_reply",
+    "service_subscription",
+    "adaptor_loopback",
+    "service_adaptor_roundtrip",
+    "declaration_shape",
+    "context_switch",
+    "operator_pipeline",
+    "tsd_key_set_pipeline",
+    "mesh_key_set",
+    "temporal_expression",
+    "collection_size",
+    "lifecycle_state",
+    "data_frame_recording",
+    "polymorphic_event_flow",
+    "polymorphic_event_map",
+    "polymorphic_field_projection",
+    "polymorphic_tsd_key",
+    "structural_map_projection",
+    "arrow_typed_projection",
+    "nested_higher_order",
+    "unary_operator",
+    "binary_operator",
+    "string_operator",
+    "stream_shape",
+    "flow_control",
+    "set_operator",
+    "tsd_operator",
+    "tsl_operator",
+    "temporal_component",
+    "table_round_trip",
+    "json_round_trip",
+    "data_frame_conversion",
+    "compound_scalar_field",
+    "sink_operator",
+)
+
+
 def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
                             templates: tuple[str, ...] | None = None):
     from hypothesis import strategies as st
@@ -2271,6 +2320,8 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         ("compound_scalar_field", compound_scalar_field),
         ("sink_operator", sink_operator),
     )
+    if tuple(dict.fromkeys(name for name, _ in discovery_weighted)) != GENERATED_TEMPLATES:
+        raise RuntimeError("GENERATED_TEMPLATES is out of step with the discovery table")
     # Every projecting template draws its REF-producing source too: the
     # reference_source parameter (catalog.REFERENCE_SOURCES) routes each input
     # through a TSL projection, a TSD item, a map_ element, a switch_ branch
