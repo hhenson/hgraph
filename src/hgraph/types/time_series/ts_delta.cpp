@@ -692,6 +692,15 @@ namespace hgraph
                    bundle.at(tsd_delta_modified).as_map().size() != 0;
         }
 
+        /** When ``data`` last published an explicit empty delta, or ``MIN_DT``
+            for TSData that never keeps that time. */
+        [[nodiscard]] DateTime empty_publication_time(const TSDataView &data)
+        {
+            const auto &table = data.ops();
+            if (!table.tracks_empty_publication) { return MIN_DT; }
+            return static_cast<const EmptyPublicationTracking &>(data.tracking()).last_empty_delta_time;
+        }
+
         [[nodiscard]] bool observable_list(const TSInputView &input,
                                            const ValueView &delta)
         {
@@ -701,7 +710,7 @@ namespace hgraph
             {
                 return delta.as_map().size() != 0 || (input.valid() &&
                     (input.delta_is_sampled_rebind() ||
-                     input.data_view().tracking().last_empty_delta_time == input.evaluation_time()));
+                     empty_publication_time(input.data_view()) == input.evaluation_time()));
             }
             // A dynamic TSL delta is Bundle{removed, modified} (RFC 0031): a
             // truncation is an observable event in its own right, and a valid
@@ -719,7 +728,7 @@ namespace hgraph
             // A sampled input publishes the valid source's current state at
             // the link's time, even when its empty publication was earlier.
             if (input.valid() && (input.delta_is_sampled_rebind() ||
-                input.data_view().tracking().last_empty_delta_time == input.evaluation_time())) { return true; }
+                empty_publication_time(input.data_view()) == input.evaluation_time())) { return true; }
             const auto bundle = delta.as_bundle();
             auto children = input.as_bundle();
             for (std::size_t index = 0; index < children.size(); ++index)

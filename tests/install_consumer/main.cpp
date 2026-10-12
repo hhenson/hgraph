@@ -499,7 +499,8 @@ int main(int argc, char **argv)
     // ABI 6 adds external_start/step/stop for the ExternallyDriven mode.
     static_assert(EXECUTOR_OPS_ABI_VERSION == 7);
     // ABI 20 adds timestamp-preserving window sample replacement.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 24);
+    // ABI 25 moves the empty-publication time out of every TSDataTracking.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 25);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));
     static_assert(std::is_standard_layout_v<PolymorphicValueType>);
     static_assert(!std::is_polymorphic_v<TableTypeOps>);

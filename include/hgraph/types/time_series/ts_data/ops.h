@@ -271,6 +271,11 @@ namespace hgraph
         // fragile ownership-ops pointer-identity comparison (audit finding,
         // 2026-08-16).
         bool        is_target_link{false};
+        /** This table's tracking records are ``EmptyPublicationTracking``:
+            the time of an explicit empty publication is kept (fixed bundles,
+            fixed lists and the input target links that can stand in for
+            them). Every other table reads that time as ``MIN_DT``. */
+        bool        tracks_empty_publication{false};
         // True only for non-peered structural INPUT binding tables. The
         // discriminator input_context_for keys on — the same pointer-identity
         // cure as is_target_link (audit O9, 2026-08-16).

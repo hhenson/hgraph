@@ -1388,6 +1388,7 @@ namespace hgraph::detail
                 .kind                       = context.schema->kind,
                 .allows_mutation            = true,
                 .is_target_link             = true,
+                .tracks_empty_publication   = true,
                 .ownership_ops              = &target_link_ownership_ops(),
                 .current_state_ops          = &ts_current_state_detail::current_state_ops_for(context.schema->kind),
                 .layout_impl                = &target_link_layout,
@@ -1553,6 +1554,7 @@ namespace hgraph::detail
             key_set_base_ops.layout_impl = &target_link_key_set_layout;
             key_set_base_ops.tracking_impl = &target_link_key_set_tracking;
             key_set_base_ops.mutable_tracking_impl = &target_link_mutable_key_set_tracking;
+            key_set_base_ops.tracks_empty_publication = false;
             key_set_base_ops.clear_collection_impl = &ts_data_detail::clear_tss_collection;
             static_cast<TSDataOps &>(context->key_set_ops) = key_set_base_ops;
             configure_target_link_set_ops(context->key_set_ops, &target_link_dict_insert_key,

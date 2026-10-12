@@ -174,7 +174,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     builder.add_field(field_component_name(index),
                                       ts_data_aux_plan_for_role(*element_schema, role));
                 }
-                builder.add_field("tracking", MemoryUtils::plan_for<TSDataTracking>());
+                builder.add_field("tracking", MemoryUtils::plan_for<EmptyPublicationTracking>());
                 return builder.build();
             }
 
@@ -187,7 +187,7 @@ namespace hgraph::ts_data_plan_factory_detail
             builder.reserve(2);
             builder.add_field(tsl_elements_component_name(),
                               MemoryUtils::array_plan(element_aux_plan, schema.fixed_size()));
-            builder.add_field("tracking", MemoryUtils::plan_for<TSDataTracking>());
+            builder.add_field("tracking", MemoryUtils::plan_for<EmptyPublicationTracking>());
             return builder.build();
         }
     }

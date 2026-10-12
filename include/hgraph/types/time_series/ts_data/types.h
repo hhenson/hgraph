@@ -334,11 +334,24 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT bool record_modified(DateTime modified_time);
 
         DateTime last_modified_time{MIN_DT};
-        // An explicit empty sparse publication is distinct from a parent
-        // notification caused solely by child invalidation.
-        DateTime last_empty_delta_time{MIN_DT};
         TSParentLink parent{};
         TSDataObserverSet observers{};
+    };
+
+    /**
+     * Tracking for the TSData that can publish an explicit empty delta.
+     *
+     * An explicit empty sparse publication is distinct from a parent
+     * notification caused solely by child invalidation. Only fixed bundles and
+     * fixed lists publish one, either directly or through the input target
+     * link a terminal output can be, so only their tracking records keep its
+     * time; every other value's tracking stays at five words.
+     * ``TSDataOps::tracks_empty_publication`` says a table's tracking records
+     * are of this type.
+     */
+    struct EmptyPublicationTracking : TSDataTracking
+    {
+        DateTime last_empty_delta_time{MIN_DT};
     };
 
     /**

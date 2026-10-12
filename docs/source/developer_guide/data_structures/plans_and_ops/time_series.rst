@@ -168,9 +168,14 @@ TSW intentionally uses ``all_valid`` for minimum-window readiness instead.
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 24. ABI 24 adds an explicit empty-publication
-    timestamp to ``TSDataTracking`` and a sampled-bind timestamp to target-link
-    storage; native extensions must be rebuilt. ABI 23 adds ``membership`` to
+    ``TS_DATA_OPS_ABI_VERSION`` is 25. ABI 25 keeps the explicit
+    empty-publication timestamp only in ``EmptyPublicationTracking``, the
+    tracking record of fixed ``TSB`` / fixed ``TSL`` storage and of target-link
+    storage (a terminal output can be a link), and adds
+    ``TSDataOps::tracks_empty_publication`` to say a table's tracking records
+    carry it; every other value's ``TSDataTracking`` returns to five words.
+    ABI 24 added that timestamp to every ``TSDataTracking`` and a sampled-bind
+    timestamp to target-link storage; native extensions must be rebuilt. ABI 23 adds ``membership`` to
     ``TSCurrentReconcileOptions``, which the current-state ops take by value:
     an exact mirror keeps a dictionary key whose child is invalid, for a
     ``convert`` entry that stands in for a reference (runtime spec,
@@ -1691,9 +1696,13 @@ children.
 Nonempty patches rely on effective child publications and membership mutations
 to notify ancestors. In particular a Map does not unconditionally touch its
 parent after visiting unchanged children. Captured empty deltas remain owning,
-present values. ``TSDataTracking::last_empty_delta_time`` distinguishes an
-explicit empty List or bundle publication from a scheduling-only child
-invalidation notification. The observability policy accepts the former without
+present values. ``EmptyPublicationTracking::last_empty_delta_time``
+distinguishes an explicit empty List or bundle publication from a
+scheduling-only child invalidation notification. Only the tracking records that
+can receive such a publication carry it: fixed ``TSB`` and fixed ``TSL``
+storage, and target-link storage, since a terminal output can be a link
+(``TSDataOps::tracks_empty_publication``); every other table reads the time as
+``MIN_DT``, which is what that field always held for them. The observability policy accepts the former without
 changing the latter. A sampled input rebind also publishes the valid source's
 current empty state at the input's sampling time, without changing its producer's
 timestamp. Target links retain this sampling identity separately from source
