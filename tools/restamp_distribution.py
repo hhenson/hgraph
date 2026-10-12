@@ -107,6 +107,7 @@ def restamp_sdist(path: Path, version: str) -> Path:
     new_root = f"{name}-{version}"
     members: list[tuple[tarfile.TarInfo, bytes | None]] = []
     seen_names: set[str] = set()
+    archive_mtime = int(path.stat().st_mtime)
     with tarfile.open(path, "r:gz") as archive:
         for member in archive.getmembers():
             member.name = _safe_archive_name(member.name, required_root=old_root)
@@ -127,25 +128,25 @@ def restamp_sdist(path: Path, version: str) -> Path:
             relocated = posixpath.normpath(posixpath.join(new_root, *member_path.parts[1:]))
             if relocated != new_root and not relocated.startswith(new_root + "/"):
                 raise ValueError(f"sdist member escapes its root: {member.name!r}")
-            # A fresh entry carries only the vetted name, the entry kind and
-            # integer header fields; nothing else from the source archive's
-            # header (link targets, pax path records, owner names) reaches the
-            # new archive. An sdist holds files and directories only.
+            # A fresh entry carries the vetted name and the entry kind, with
+            # the conventional reproducible header otherwise (0644/0755, owner
+            # 0, the archive file's own timestamp); nothing from the source
+            # entry's header reaches the new archive. An sdist holds files and
+            # directories only.
             if not (member.isfile() or member.isdir()):
                 raise ValueError(f"unsupported sdist member type: {member.name!r}")
-            source_member = member
+            is_directory = member.isdir()
             if relocated == new_root:
                 member = tarfile.TarInfo(new_root)
             else:
                 if not relocated.startswith(new_root + "/"):
-                    raise ValueError(f"sdist member escapes its root: {source_member.name!r}")
+                    raise ValueError(f"sdist member escapes its root: {relocated!r}")
                 member = tarfile.TarInfo(relocated)
-            member.type = tarfile.DIRTYPE if source_member.isdir() else tarfile.REGTYPE
-            member.mode = int(source_member.mode)
-            member.mtime = int(source_member.mtime)
-            member.uid = int(source_member.uid)
-            member.gid = int(source_member.gid)
-            member.size = int(source_member.size)
+            member.type = tarfile.DIRTYPE if is_directory else tarfile.REGTYPE
+            member.mode = 0o755 if is_directory else 0o644
+            member.mtime = archive_mtime
+            member.uid = 0
+            member.gid = 0
             if member.name == f"{new_root}/PKG-INFO":
                 metadata = data.decode()
                 metadata, count = re.subn(
