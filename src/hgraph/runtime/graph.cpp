@@ -1164,8 +1164,9 @@ void stop_impl(const void *context, const GraphView &graph,
       // before the next root evaluation (expire_retired_nested_graphs).
       // Owned-tree traversal never follows REF values or input target links
       // into a captured parent producer.
-      const auto engine = graph.executor().engine_control();
-      const auto root = graph.root();
+      // One walk up the parent chain: the root's executor is the graph's.
+      const auto root   = graph.root();
+      const auto engine = root.executor().engine_control();
       if (engine.valid() && !root.is_stopping() && state.retired_root == nullptr) {
           auto &root_state = graph_header<RootGraphRuntimeStorage>(graph_context(root.type().ops_ref().context), root.data());
           state.retired_context = &runtime;
