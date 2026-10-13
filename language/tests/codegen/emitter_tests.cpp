@@ -4386,18 +4386,31 @@ export fn keys_str(ts: map<str, f64>) -> set<str> => keys_of(ts)
     CHECK_FALSE(contains(code, "checked_as<hgraph::ScalarVar<"));
 }
 
-TEST_CASE("map outputs with a generic key are rejected instead of emitting uncompilable C++", "[codegen][generic]") {
+TEST_CASE("map outputs with a generic key mutate through value views", "[codegen][generic]") {
     Unit unit{R"(
 module tests.generic_map_output
-fn put<K>(key: K, value: i64) -> map<K, i64> {
+fn tagged<K>(ts: set<K>) -> map<K, bool> {
     inject out
-    when { upsert(out, key, value) }
+    when {
+        for member in elements(ts, added) { insert(out, member, true) }
+        for member in elements(ts, removed) { remove(out, member) }
+    }
 }
-export fn put_i64(key: i64, value: i64) -> map<i64, i64> => put(key, value)
+fn copied<K>(ts: map<K, f64>) -> map<K, f64> {
+    inject out
+    when { for key, value in items(ts, modified) { out[key] = value } }
+}
+export fn tagged_i64(ts: set<i64>) -> map<i64, bool> => tagged(ts)
+export fn copied_str(ts: map<str, f64>) -> map<str, f64> => copied(ts)
 )"};
-    CHECK_FALSE(unit.emit());
+    const auto emitted = unit.emit();
     INFO(unit.diagnostics.render(unit.file));
-    CHECK(contains(unit.diagnostics.render(unit.file), "'upsert' on a map output with a generic key type is not supported"));
+    REQUIRE(emitted);
+    const std::string code = emitted->header + emitted->source;
+    CHECK(contains(code, "hgl::generic::insert(hgl_output"));
+    CHECK(contains(code, "hgl::generic::remove(hgl_output"));
+    CHECK(contains(code, "hgl::generic::upsert(hgl_output"));
+    CHECK_FALSE(contains(code, "checked_as<hgraph::ScalarVar<"));
 }
 
 TEST_CASE("generic retained observer plans project const argument schemas before start", "[codegen][temporal]") {

@@ -2036,7 +2036,9 @@ expression is read from the syntax tree.
   iteration, `contains`, and set-output `insert`/`upsert`/`remove`/`discard`
   go through the untyped `TSSInputView`/`TSDInputView`/`TSSOutputView` value
   views (`hgl/generic_collections.h`), keeping the typed helpers' strictness
-  and messages; mutating a map output with a generic key is rejected.
+  and messages. A map output with a generic key is mutated the same way: the
+  child is reached through the map mutation's `at(key)`, a typed value is
+  staged and set, and a generic value view is applied.
   Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta. On a list
   output `out[index] = value` publishes that existing child through the same

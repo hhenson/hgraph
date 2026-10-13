@@ -4926,12 +4926,13 @@ namespace hgl::codegen
                 Value result;
                 result.kind  = Value::Kind::Void;
                 result.code  = "hgraph::" + name + "(" + join(arguments, ", ") + ")";
-                if (output.type.kind == HType::Kind::Set && symbolic(output.type.children.front()) && name != "clear") {
+                if ((output.type.kind == HType::Kind::Set || output.type.kind == HType::Kind::Map) &&
+                    symbolic(output.type.children.front()) && name != "clear") {
+                    if (owning_map_value) {
+                        unsupported(range, "'" + name + "' of an atomic collection value under a generic map key");
+                    }
                     uses_generic_collections_ = true;
                     result.code = "hgl::generic::" + name + "(" + join(arguments, ", ") + ")";
-                } else if (output.type.kind == HType::Kind::Map && symbolic(output.type.children.front()) && name != "clear") {
-                    // clear takes no key, so hgraph::clear serves a generic key type.
-                    unsupported(range, "'" + name + "' on a map output with a generic key type");
                 }
                 if (owning_map_value) {
                     result.code = "[&]() { auto hgl_key = " + arguments[1] + "; auto hgl_item = " + arguments[2] +
@@ -6316,6 +6317,14 @@ namespace hgl::codegen
                                     const Value key   = eval_planned_expr(index->index, frame);
                                     const Value value = eval_planned_expr(node.value, frame);
                                     use("hgl_output");
+                                    if (symbolic(result.children[0])) {
+                                        // A generic key has no C++ type for the typed selector.
+                                        uses_generic_collections_ = true;
+                                        out.line("hgl::generic::upsert(hgl_output, " +
+                                                 as_runtime(key, result.children[0], key.range, "output key") + ", " +
+                                                 as_runtime(value, result.children[1], value.range, "output value") + ");");
+                                        return;
+                                    }
                                     out.line("hgl_output.set(" + as_runtime(key, result.children[0], key.range, "output key") +
                                              ", " + as_runtime(value, result.children[1], value.range, "output value") + ");");
                                     return;

@@ -10,8 +10,13 @@
 #include <hgraph/types/time_series/ts_input/set_view.h>
 #include <hgraph/types/time_series/ts_output/dict_view.h>
 #include <hgraph/types/time_series/ts_output/set_view.h>
+#include <hgraph/types/static_node.h>
+#include <hgraph/types/time_series/output_mutation.h>
 #include <hgraph/types/value/value_view.h>
+#include <hgraph/util/scope.h>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 namespace hgl::generic
 {
     [[nodiscard]] inline const hgraph::TSSInputView &set(const hgraph::TSSInputView &view) noexcept { return view; }
@@ -43,6 +48,86 @@ namespace hgl::generic
     /** Remove a member from a set output if it exists. */
     inline void discard(const hgraph::TSSOutputView &out, const hgraph::ValueView &member) {
         if (out.contains(member)) { static_cast<void>(out.begin_mutation(out.evaluation_time()).remove(member)); }
+    }
+
+    namespace detail
+    {
+        template <typename TKey, typename TValueSchema>
+        [[nodiscard]] hgraph::TSDDataMutationView map_mutation(const hgraph::Out<hgraph::TSD<TKey, TValueSchema>> &out) {
+            return static_cast<const hgraph::TSDOutputView &>(out).begin_mutation(out.evaluation_time());
+        }
+
+        /** The child for `key`, created when absent, as Out<TSD>::operator[] does for a typed key. */
+        template <typename TKey, typename TValueSchema>
+        [[nodiscard]] hgraph::Out<TValueSchema> child(const hgraph::Out<hgraph::TSD<TKey, TValueSchema>> &out,
+                                                      const hgraph::ValueView &key) {
+            auto mutation = map_mutation(out);
+            return hgraph::Out<TValueSchema>{hgraph::TSOutputView{out.base().output(), mutation.at(key), out.evaluation_time()},
+                                             out.evaluation_time()};
+        }
+
+        template <typename TKey, typename TValueSchema>
+        [[nodiscard]] bool contains(const hgraph::Out<hgraph::TSD<TKey, TValueSchema>> &out, const hgraph::ValueView &key) {
+            return static_cast<const hgraph::TSDOutputView &>(out).contains(key);
+        }
+
+        /** Write a child: a value view (a generic payload) applies; a typed value stages and sets. */
+        template <typename TValueSchema, typename TValue>
+        void write(const hgraph::Out<TValueSchema> &child, TValue &&value) {
+            if constexpr (std::is_convertible_v<TValue &&, const hgraph::ValueView &>) {
+                child.apply(value);
+            } else {
+                child.set(hgraph::output_mutation_detail::stage<TValueSchema>(std::forward<TValue>(value)));
+            }
+        }
+    }  // namespace detail
+
+    /** Insert and initialize an absent map child under a generic key. */
+    template <typename TKey, typename TValueSchema, typename TValue>
+    void insert(const hgraph::Out<hgraph::TSD<TKey, TValueSchema>> &out, const hgraph::ValueView &key, TValue &&value) {
+        if (detail::contains(out, key)) { throw std::invalid_argument("insert requires an absent TSD key"); }
+        auto rollback = hgraph::make_scope_exit<true>([&] { static_cast<void>(detail::map_mutation(out).erase(key)); });
+        detail::write(detail::child(out, key), std::forward<TValue>(value));
+        rollback.release();
+    }
+
+    /** Update and tick an existing map child under a generic key. */
+    template <typename TKey, typename TValueSchema, typename TValue>
+    void update(const hgraph::Out<hgraph::TSD<TKey, TValueSchema>> &out, const hgraph::ValueView &key, TValue &&value) {
+        if (!detail::contains(out, key)) { throw std::out_of_range("update requires a present TSD key"); }
+        detail::write(out.at_slot(static_cast<const hgraph::TSDOutputView &>(out).find_slot(key)), std::forward<TValue>(value));
+    }
+
+    /** Insert or update a map child under a generic key. */
+    template <typename TKey, typename TValueSchema, typename TValue>
+    void upsert(const hgraph::Out<hgraph::TSD<TKey, TValueSchema>> &out, const hgraph::ValueView &key, TValue &&value) {
+        const bool existed  = detail::contains(out, key);
+        auto       rollback = hgraph::make_scope_exit<true>([&] {
+            if (!existed) { static_cast<void>(detail::map_mutation(out).erase(key)); }
+        });
+        detail::write(detail::child(out, key), std::forward<TValue>(value));
+        rollback.release();
+    }
+
+    /** Remove a present map child under a generic key. */
+    template <typename TKey, typename TValueSchema>
+    void remove(const hgraph::Out<hgraph::TSD<TKey, TValueSchema>> &out, const hgraph::ValueView &key) {
+        if (!detail::contains(out, key)) { throw std::out_of_range("remove requires a present TSD key"); }
+        if (!detail::map_mutation(out).erase(key)) { throw std::logic_error("TSD remove did not remove the present key"); }
+    }
+
+    /** Remove a map child under a generic key if it exists. */
+    template <typename TKey, typename TValueSchema>
+    void discard(const hgraph::Out<hgraph::TSD<TKey, TValueSchema>> &out, const hgraph::ValueView &key) {
+        if (detail::contains(out, key)) { static_cast<void>(detail::map_mutation(out).erase(key)); }
+    }
+
+    /** Invalidate an existing map child under a generic key without removing the key. */
+    template <typename TKey, typename TValueSchema>
+    void invalidate(const hgraph::Out<hgraph::TSD<TKey, TValueSchema>> &out, const hgraph::ValueView &key) {
+        if (!detail::contains(out, key)) { throw std::out_of_range("invalidate requires a present TSD key"); }
+        auto child = out.at_slot(static_cast<const hgraph::TSDOutputView &>(out).find_slot(key));
+        static_cast<void>(child.begin_mutation(child.evaluation_time()).invalidate());
     }
 }  // namespace hgl::generic
 #endif

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Map outputs with a generic key type accept `insert`, `update`, `upsert`,
+  `remove`, `discard`, `invalidate`, and `out[key] = value` in a runtime
+  body, through the same value views as generic set members. They used to
+  be rejected.
 - Runtime bodies over set members and map keys of a generic type now run:
   iteration, `contains`, member comparison, and set-output `insert`,
   `upsert`, `remove`, and `discard` read and write value views. Generated

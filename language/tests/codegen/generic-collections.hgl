@@ -46,6 +46,33 @@ fn cleared<K>(ts: map<K, f64>, reset: bool) -> map<K, f64> {
     when modified(reset) { if reset { clear(out) } }
 }
 
+fn tagged<K>(ts: set<K>) -> map<K, bool> {
+    inject out
+    when {
+        for member in elements(ts, added) { insert(out, member, true) }
+        for member in elements(ts, removed) { remove(out, member) }
+    }
+}
+
+fn copied<K>(ts: map<K, f64>) -> map<K, f64> {
+    inject out
+    when {
+        for key, value in items(ts, modified) { out[key] = value }
+        for key in keys(ts, removed) { discard(out, key) }
+    }
+}
+
+fn counted<K>(ts: map<K, f64>) -> map<K, i64> {
+    inject out
+    state ticks: i64 = 0
+    when {
+        ticks += 1
+        for key in keys(ts, added) { upsert(out, key, ticks) }
+        for key in keys(ts, modified) { if !contains(out, key) { insert(out, key, -ticks) } else { update(out, key, ticks) } }
+        for key in keys(ts, removed) { if ticks > 2 { invalidate(out, key) } }
+    }
+}
+
 fn member_of<K>(ts: set<K>, item: K) -> bool { when { return contains(ts, item) } }
 fn has_key<K, V>(ts: map<K, V>, key: K) -> bool { when { return contains(ts, key) } }
 fn matches<K>(ts: set<K>, item: K) -> i64 {
@@ -64,6 +91,9 @@ export fn keys_str(ts: map<str, f64>) -> set<str> => keys_of(ts)
 export fn keys_i64(ts: map<i64, str>) -> set<i64> => keys_of(ts)
 export fn key_count_str(ts: map<str, f64>, probe: str) -> i64 => key_count(ts, probe)
 export fn cleared_i64(ts: map<i64, f64>, reset: bool) -> map<i64, f64> => cleared(ts, reset)
+export fn tagged_date(ts: set<date>) -> map<date, bool> => tagged(ts)
+export fn copied_str(ts: map<str, f64>) -> map<str, f64> => copied(ts)
+export fn counted_i64(ts: map<i64, f64>) -> map<i64, i64> => counted(ts)
 export fn member_bool(ts: set<bool>, item: bool) -> bool => member_of(ts, item)
 export fn member_str(ts: set<str>, item: str) -> bool => member_of(ts, item)
 export fn has_key_i64(ts: map<i64, f64>, key: i64) -> bool => has_key(ts, key)
@@ -98,4 +128,13 @@ test membership_and_equality_compare_values {
     assert eval(member_str, ts: [delta<set<str>>(added: ["a"])], item: ["a"]) == [true]
     assert eval(has_key_i64, ts: [delta<map<i64, f64>>(upsert: [7: 1.0]), _], key: [7, 8]) == [true, false]
     assert eval(matches_f64, ts: [delta<set<f64>>(added: [1.5, 2.5])], item: [2.5]) == [1]
+}
+
+test map_outputs_take_generic_keys {
+    assert eval(tagged_date, ts: [delta<set<date>>(added: [@2024-01-01, @1999-12-31]), delta<set<date>>(removed: [@2024-01-01])])
+        == [delta<map<date, bool>>(upsert: [@2024-01-01: true, @1999-12-31: true]), delta<map<date, bool>>(remove: [@2024-01-01])]
+    assert eval(copied_str, ts: [delta<map<str, f64>>(upsert: ["a": 1.0, "b": 2.0]), delta<map<str, f64>>(upsert: ["a": 3.0], remove: ["b"])])
+        == [delta<map<str, f64>>(upsert: ["a": 1.0, "b": 2.0]), delta<map<str, f64>>(upsert: ["a": 3.0], remove: ["b"])]
+    assert eval(counted_i64, ts: [delta<map<i64, f64>>(upsert: [1: 1.0]), delta<map<i64, f64>>(upsert: [1: 2.0])])
+        == [delta<map<i64, i64>>(upsert: [1: 1]), delta<map<i64, i64>>(upsert: [1: 2])]
 }
