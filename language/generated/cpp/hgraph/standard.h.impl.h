@@ -1173,13 +1173,13 @@ namespace hgraph_::std_
                         hgl_output.set((hgl_output.value().checked_as<hgraph::Int>() + ts.value()));
                         return;
                     }
-                    hgl_output.set(ts.value());
+                    hgl_output.set((hgraph::Int{0} + ts.value()));
                     return;
                 }
             }
         };
 
-        // stream.hgl:247
+        // stream.hgl:248
         struct mean_impl_168
         {
             static constexpr auto name = "hgraph.std.mean#168";
@@ -1208,7 +1208,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:257
+        // stream.hgl:258
         struct sum_impl_169
         {
             static constexpr auto name = "hgraph.std.sum#169";
@@ -1225,7 +1225,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:264
+        // stream.hgl:265
         struct sum_reset_impl_170
         {
             static constexpr auto name = "hgraph.std.sum_reset#170";
@@ -1245,13 +1245,13 @@ namespace hgraph_::std_
                         hgl_output.set((hgl_output.value().checked_as<hgraph::Float>() + ts.value()));
                         return;
                     }
-                    hgl_output.set(ts.value());
+                    hgl_output.set((hgraph::Float{0.0} + ts.value()));
                     return;
                 }
             }
         };
 
-        // stream.hgl:276
+        // stream.hgl:279
         struct mean_impl_171
         {
             static constexpr auto name = "hgraph.std.mean#171";
@@ -1280,7 +1280,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:286
+        // stream.hgl:289
         struct min__impl_172
         {
             static constexpr auto name = "hgraph.std.min_#172";
@@ -1295,7 +1295,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:293
+        // stream.hgl:296
         struct max__impl_173
         {
             static constexpr auto name = "hgraph.std.max_#173";
@@ -1310,7 +1310,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:300
+        // stream.hgl:303
         struct min__impl_174
         {
             static constexpr auto name = "hgraph.std.min_#174";
@@ -1325,7 +1325,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:307
+        // stream.hgl:310
         struct max__impl_175
         {
             static constexpr auto name = "hgraph.std.max_#175";
@@ -1340,7 +1340,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:314
+        // stream.hgl:317
         struct min__impl_176
         {
             static constexpr auto name = "hgraph.std.min_#176";
@@ -1355,7 +1355,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:321
+        // stream.hgl:324
         struct max__impl_177
         {
             static constexpr auto name = "hgraph.std.max_#177";
@@ -1370,7 +1370,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:328
+        // stream.hgl:331
         struct min__impl_178
         {
             static constexpr auto name = "hgraph.std.min_#178";
@@ -1385,7 +1385,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:335
+        // stream.hgl:338
         struct max__impl_179
         {
             static constexpr auto name = "hgraph.std.max_#179";
@@ -1400,7 +1400,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:342
+        // stream.hgl:345
         struct min__impl_180
         {
             static constexpr auto name = "hgraph.std.min_#180";
@@ -1415,7 +1415,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:349
+        // stream.hgl:352
         struct max__impl_181
         {
             static constexpr auto name = "hgraph.std.max_#181";
@@ -1430,7 +1430,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:356
+        // stream.hgl:359
         struct min__impl_182
         {
             static constexpr auto name = "hgraph.std.min_#182";
@@ -1445,7 +1445,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:363
+        // stream.hgl:366
         struct max__impl_183
         {
             static constexpr auto name = "hgraph.std.max_#183";
@@ -1460,7 +1460,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:370
+        // stream.hgl:373
         struct dedup_impl_184
         {
             static constexpr auto name = "hgraph.std.dedup#184";
@@ -1491,7 +1491,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:383
+        // stream.hgl:386
         struct min__impl_185
         {
             static constexpr auto name = "hgraph.std.min_#185";
@@ -1506,7 +1506,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:387
+        // stream.hgl:390
         struct max__impl_186
         {
             static constexpr auto name = "hgraph.std.max_#186";
@@ -1521,7 +1521,7 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:393
+        // stream.hgl:396
         struct tick_count_impl_187
         {
             static constexpr auto name = "hgraph.std.tick_count#187";

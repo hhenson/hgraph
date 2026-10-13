@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Implement the temporal arithmetic table of the developer guide in every
+  phase: `date ± duration` (the duration's whole-day part, as Python and
+  hgraph's operators use), `date - date`, `duration + datetime`,
+  `date + time`, `civil_datetime ± duration`, `civil_datetime -
+  civil_datetime`, `duration * f64`, `duration / i64`, `duration / f64`
+  (ties to even), `duration / duration`, and `zoned_datetime ± duration` in
+  composition. Composition wires hgraph's operators, runtime bodies call
+  the same checked kernels, and constants fold to the same values, with
+  overflow and division by zero reported at compile time. Every other pair
+  with a temporal operand is a `type` diagnostic in every phase, with the
+  guide's hints (`2 * cooldown`: write the duration first). Composition
+  used to accept the pairs hgraph happens to register, such as
+  `i64 * duration`, and the other phases rejected most of the table as
+  "arithmetic operands must both be numeric". `date + zoned_time` waits
+  for an hgraph operator, and zoned arithmetic in a runtime body waits for
+  a body to reach the run's time-zone provider; both are diagnosed.
 - An operator call may pass arguments its contract does not declare
   (runtime spec Wiring, WIR-22; the variation WV-7). Every operator behaves
   as if its signature ended with `*args, **kwargs`. The extra arguments go

@@ -659,6 +659,31 @@ is a compiler defect; the generated C++ is the reference.
 Compare semantic output rather than temporary paths. Failed compiles and
 interrupted execution must not corrupt caches or the last valid REPL session.
 
+## Standard library against the native operators
+
+The hgraph_std `test` blocks check each HGL body against expectations written
+with it. `language/tests/codegen/stdlib_differential_tests.cpp`
+(`hgraph_language_stdlib_differential`) checks the bodies against the native
+hgraph operators they re-implement: every scalar domain the hgraph_std
+implementation sources instantiate or define concretely runs on both, over
+seeded generated tick sequences with gaps, repeated values and boundary values
+(NaN, infinities, signed zeros, integer extremes where the operation is
+checked, leap days, pre-epoch instants, negative durations). Each case must
+publish the same per-cycle output (NaN equal to NaN, signed zeros
+distinguished) or raise the same error text; only the node identity in an
+error's prefix and back-trace may differ. A failure prints the domain, case
+number, seed and both outputs, so it reproduces exactly.
+
+A ratchet in the same file reads the hgraph_std implementation sources: every
+`instantiate` entry and concrete `impl fn` must be compared there or listed as
+excluded with its reason, and an excluded or compared domain the sources no
+longer define fails too. `HGL_DIFFERENTIAL_CASES` raises the generated cases
+per domain (24 by default) for a deeper local run.
+
+`generated_catalogue_tests.cpp` keeps its hand-written cases for the behaviour
+that generated scalar sequences do not reach: lifecycle and checkpoint
+recovery, fixed-list search, map membership and exact rounding boundaries.
+
 ## Documentation examples
 
 Every `.hgl` file under `language/examples` begins as checked documentation.

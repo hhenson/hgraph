@@ -209,9 +209,15 @@ def build_catalogue() -> dict:
             raise ValueError(f"invalid review status for {name}")
         if any(key not in policy["blockers"] for key in review.get("blockers", [])):
             raise ValueError(f"unknown blocker for {name}")
-        if review["status"].startswith("implemented") and not any(
-                x["kind"] == "implementation" and x["form"] != "native-delegation" for x in accepted):
+        authored = any(x["kind"] == "implementation" and x["form"] != "native-delegation" for x in accepted)
+        if review["status"].startswith("implemented") and not authored:
             raise ValueError(f"{name} has no HGL implementation evidence")
+        # The reverse holds too: a body the library already authors is reviewed
+        # as a slice, or kept native with the reason the body does not count.
+        if review["status"] in {"blocked", "unreviewed"} and authored:
+            raise ValueError(f"{name} has an HGL implementation; review it as implemented-slice or native-provider")
+        if review["status"] == "implemented" and review.get("blockers"):
+            raise ValueError(f"{name} is implemented but names remaining blockers; record it as implemented-slice")
         for path in review.get("evidence", []):
             if not (ROOT / path).is_file():
                 raise ValueError(f"missing evidence for {name}: {path}")

@@ -434,6 +434,7 @@ hgl_add_module(hgl_codegen_fixture STATIC SOURCE_PARTS 3 HGL
     codegen/sources.hgl
     codegen/value-functions.hgl
     codegen/system-operators.hgl
+    codegen/temporal-arithmetic.hgl
     ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/test-contexts.hgl
     ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/operator-properties.hgl
     ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/conditional-early-return.hgl
@@ -765,6 +766,21 @@ hgl_link_runtime_executable(hgl_generated_tests)
 hgl_apply_warnings(hgl_generated_tests)
 
 add_test(NAME hgraph_language_generated COMMAND hgl_generated_tests)
+
+# Every scalar domain of the compiled HGL standard library against the native
+# operator it re-implements, over seeded generated tick sequences; a ratchet
+# reads the hgraph_std implementation sources so new domains must be compared.
+add_executable(hgl_stdlib_differential_tests codegen/stdlib_differential_tests.cpp)
+target_compile_features(hgl_stdlib_differential_tests PRIVATE cxx_std_23)
+target_compile_definitions(hgl_stdlib_differential_tests PRIVATE HGL_STD_IMPL_DIR="${HGRAPH_STD}/impl")
+target_link_libraries(hgl_stdlib_differential_tests PRIVATE
+    hgl::standard_library
+    hgl::wiring
+    Catch2::Catch2WithMain
+)
+hgl_link_runtime_executable(hgl_stdlib_differential_tests)
+hgl_apply_warnings(hgl_stdlib_differential_tests)
+add_test(NAME hgraph_language_stdlib_differential COMMAND hgl_stdlib_differential_tests)
 unset(_hgl_generated_test_sources)
 unset(_hgl_generated_test_libraries)
 
@@ -1038,6 +1054,13 @@ if(UNIX)
         NAME hgraph_language_test_runtime
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
     )
+    # The temporal arithmetic table in composition, runtime bodies and
+    # constants (developer guide, "Arithmetic and comparison").
+    add_test(
+        NAME hgraph_language_test_temporal_arithmetic
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/temporal-arithmetic.hgl
+    )
+    set_tests_properties(hgraph_language_test_temporal_arithmetic PROPERTIES PASS_REGULAR_EXPRESSION "5 tests, 0 failed")
     add_test(NAME hgraph_language_test_nested_reference_fields
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/nested-reference-fields.hgl)
     set_tests_properties(hgraph_language_test_nested_reference_fields PROPERTIES

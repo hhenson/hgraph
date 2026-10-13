@@ -4322,6 +4322,40 @@ TEST_CASE("generated hooks reject provider construction instead of resolving nam
     }
 }
 
+TEST_CASE("runtime temporal arithmetic calls hgraph's checked kernels", "[codegen][temporal]") {
+    Unit unit{R"(
+module tests.temporal_kernels
+export fn date_shift(d: date, x: duration) -> date { when { return d + x - x } }
+export fn date_span(a: date, b: date) -> duration { when { return a - b } }
+export fn civil(d: date, t: time, x: duration) -> civil_datetime { when { return d + t + x } }
+export fn scaled(x: duration, n: i64, f: f64) -> duration { when { return x * f / n / f } }
+export fn ratio(x: duration, y: duration) -> f64 { when { return x / y } }
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    const std::string code = emitted->header + emitted->source;
+    for (const std::string_view kernel : {"hgraph::checked_add_days(", "std::chrono::floor<std::chrono::days>(",
+                                          "hgraph::CivilDateTime{", "hgraph::checked_multiply(", "hgraph::checked_divide(",
+                                          "static_cast<hgraph::Int>(", ".count()) / static_cast<hgraph::Float>("}) {
+        INFO(kernel);
+        CHECK(contains(code, std::string{kernel}));
+    }
+}
+
+TEST_CASE("runtime zoned arithmetic is rejected until a body can reach the provider", "[codegen][temporal]") {
+    for (const std::string body : {
+        "export fn f(z: zoned_datetime, x: duration) -> zoned_datetime { when { return z + x } }",
+        "export fn f(z: zoned_datetime, x: duration) -> zoned_datetime { when { return x + z } }",
+        "export fn f(z: zoned_datetime, x: duration) -> zoned_datetime { when { return z - x } }"}) {
+        Unit unit{"module tests.temporal_zoned\n" + body + "\n"};
+        INFO(body);
+        CHECK_FALSE(unit.emit());
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(contains(unit.diagnostics.render(unit.file), "zoned arithmetic in a runtime body"));
+    }
+}
+
 TEST_CASE("generic retained observer plans project const argument schemas before start", "[codegen][temporal]") {
     Unit unit{R"(
 module tests.retained_observer

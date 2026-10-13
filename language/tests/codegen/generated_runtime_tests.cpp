@@ -1,6 +1,7 @@
 #include <runtime.h>
 #include <hgl/execution_error.h>
 #include <sources.h>
+#include <temporal-arithmetic.h>
 #include <hgraph/runtime/logger.h>
 #include <hgraph/util/scope.h>
 #include <spdlog/sinks/ostream_sink.h>
@@ -1066,4 +1067,29 @@ TEST_CASE("generated ordinary subfamilies retain their live concrete member", "[
     const auto captured = runtime::hgl_values::native_subfamily_capture_hgl_value();
     CHECK(captured.view().concrete().schema() == scalar_descriptor<runtime::NativePublicationLeaf::value_type>::value_meta());
     CHECK(captured.view().concrete().as_bundle().field("items").as_list().size() == 1);
+}
+
+TEST_CASE("generated temporal arithmetic raises through hgraph's checked kernels", "[codegen][runtime][temporal]") {
+    namespace temporal = checks::temporal_arithmetic;
+    using Catch::Matchers::ContainsSubstring;
+    const Date last{std::chrono::sys_days{std::chrono::year{9999} / std::chrono::December / std::chrono::day{31}}};
+    const Date first{std::chrono::sys_days{std::chrono::year{1} / std::chrono::January / std::chrono::day{1}}};
+    const TimeDelta day{std::chrono::days{1}};
+    CHECK_OUTPUT((eval_node<temporal::date_plus_node>(values<Date>(last), values<TimeDelta>(TimeDelta::zero()))), values<Date>(last));
+    CHECK_THROWS_WITH((eval_node<temporal::date_plus_node>(values<Date>(last), values<TimeDelta>(day))),
+                      ContainsSubstring("civil date must be within"));
+    CHECK_THROWS_WITH((eval_node<temporal::date_minus_node>(values<Date>(first), values<TimeDelta>(day))),
+                      ContainsSubstring("civil date must be within"));
+    CHECK_THROWS_WITH((eval_node<temporal::scaled_node>(values<TimeDelta>(TimeDelta::max()), values<Float>(2.0))),
+                      ContainsSubstring("overflow"));
+    CHECK_THROWS_WITH((eval_node<temporal::scaled_node>(values<TimeDelta>(day), values<Float>(std::numeric_limits<Float>::infinity()))),
+                      ContainsSubstring("finite"));
+    CHECK_THROWS_WITH((eval_node<temporal::divided_node>(values<TimeDelta>(day), values<Int>(0))), ContainsSubstring("division by zero"));
+    CHECK_THROWS_WITH((eval_node<temporal::divided_float_node>(values<TimeDelta>(day), values<Float>(0.0))),
+                      ContainsSubstring("division by zero"));
+    CHECK_THROWS_WITH((eval_node<temporal::duration_plus_instant_node>(values<TimeDelta>(TimeDelta::max()), values<DateTime>(MIN_ST))),
+                      ContainsSubstring("overflow"));
+    // hgraph's div_ for two durations is the IEEE ratio, so a zero divisor is not an error.
+    CHECK_OUTPUT((eval_node<temporal::ratio_node>(values<TimeDelta>(day), values<TimeDelta>(TimeDelta::zero()))),
+                 values<Float>(std::numeric_limits<Float>::infinity()));
 }
