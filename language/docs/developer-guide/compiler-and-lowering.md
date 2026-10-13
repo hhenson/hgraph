@@ -2049,7 +2049,9 @@ expression is read from the syntax tree.
   wires `str_` in composition (typed as `TS<str>`), formats a typed scalar
   through its value ops in a runtime body, and formats a generic value view or
   an enum through `hgl::ordinary::text`, which uses the same ops and returns a
-  string payload unchanged.
+  string payload unchanged. A type parameter is admitted only when a
+  `requires T in {...}` membership constrains it to scalar types, since an
+  unconstrained one may bind a list, map, or bundle.
   Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta. On a list
   output `out[index] = value` publishes that existing child through the same

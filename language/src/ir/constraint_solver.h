@@ -50,6 +50,9 @@ namespace hgl::ir::detail
         /// Symbolic facts used while checking a generic declaration body.
         [[nodiscard]] bool                             proves_numeric(hir::ConstraintId requirement, hir::TypeId type,
                                                                       GenericSubstitution *substitution = nullptr);
+        /// Whether `type` is constrained to a set of scalar types (canonical scalars or enums).
+        [[nodiscard]] bool                             proves_scalar(hir::ConstraintId requirement, hir::TypeId type,
+                                                                     GenericSubstitution *substitution = nullptr);
         [[nodiscard]] std::optional<RequiredOperation> required_operation(hir::ConstraintId requirement, std::string_view identity,
                                                                           const std::vector<hir::TypeId> &arguments,
                                                                           GenericSubstitution            *substitution = nullptr);
@@ -57,6 +60,9 @@ namespace hgl::ir::detail
                                                             std::string_view field, GenericSubstitution *substitution = nullptr);
 
       private:
+        [[nodiscard]] bool proves_membership(hir::ConstraintId requirement, hir::TypeId subject, GenericSubstitution *substitution,
+                                             const std::function<bool(hir::TypeId)> &member);
+
         enum class Truth : std::uint8_t {
             False,
             True,

@@ -1,4 +1,6 @@
 #include "ir/constraint_solver.h"
+
+#include <functional>
 #include "ir/operator_shape.h"
 
 #include <algorithm>
@@ -1061,12 +1063,13 @@ namespace hgl::ir::detail
         return false;
     }
 
-    bool ConstraintSolver::proves_numeric(ConstraintId requirement, TypeId subject, GenericSubstitution *substitution) {
+    bool ConstraintSolver::proves_membership(ConstraintId requirement, TypeId subject, GenericSubstitution *substitution,
+                                             const std::function<bool(TypeId)> &member) {
         if (!requirement.valid()) { return false; }
         const Constraint &constraint = module_.constraint(requirement);
         if (const auto *logic = std::get_if<ConstraintLogic>(&constraint.node)) {
-            return logic->op == ConstraintLogicOp::And &&
-                   (proves_numeric(logic->lhs, subject, substitution) || proves_numeric(logic->rhs, subject, substitution));
+            return logic->op == ConstraintLogicOp::And && (proves_membership(logic->lhs, subject, substitution, member) ||
+                                                           proves_membership(logic->rhs, subject, substitution, member));
         }
         const auto *relation = std::get_if<ConstraintRelation>(&constraint.node);
         if (!relation || relation->op != ConstraintRelationOp::In) { return false; }
@@ -1078,7 +1081,20 @@ namespace hgl::ir::detail
             rhs.types.empty()) {
             return false;
         }
-        return std::ranges::all_of(rhs.types, [&](TypeId item) { return types_.numeric(item); });
+        return std::ranges::all_of(rhs.types, member);
+    }
+
+    bool ConstraintSolver::proves_numeric(ConstraintId requirement, TypeId subject, GenericSubstitution *substitution) {
+        return proves_membership(requirement, subject, substitution, [&](TypeId item) { return types_.numeric(item); });
+    }
+
+    bool ConstraintSolver::proves_scalar(ConstraintId requirement, TypeId subject, GenericSubstitution *substitution) {
+        return proves_membership(requirement, subject, substitution, [&](TypeId item) {
+            if (!item.valid()) { return false; }
+            const Type &value = module_.type(types_.canonical(item));
+            return value.kind == TypeKind::Scalar ||
+                   (value.kind == TypeKind::Symbol && value.symbol.valid() && module_.symbol(value.symbol).kind == SymbolKind::Enum);
+        });
     }
 
     std::optional<RequiredOperation> ConstraintSolver::find_required_operation(ConstraintId requirement, std::string_view identity,

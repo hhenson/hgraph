@@ -2,9 +2,10 @@
 
 ## Unreleased
 
-- `str(value)` accepts a generic value and an enum value, as the syntax guide
-  specifies (`str(Mode::first)` is `"first"`), and a composition `str(ts)`
-  compiles. The checker rejected both operands ("str requires a readable
+- `str(value)` accepts an enum value, as the syntax guide specifies
+  (`str(Mode::first)` is `"first"`), and a generic value whose type
+  parameter a `requires T in {...}` membership constrains to scalar types;
+  a composition `str(ts)` compiles. The checker rejected both operands ("str requires a readable
   scalar value"), and the wired form returned an untyped port that the
   generated C++ could not convert. Every form now agrees with hgraph's
   `str_`.
