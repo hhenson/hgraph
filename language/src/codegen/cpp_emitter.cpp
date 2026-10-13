@@ -6251,8 +6251,31 @@ namespace hgl::codegen
                                         backend(place.range, "typed HIR admitted 'out' in a lifecycle block");
                                     }
                                     const HType result = planned_type(planned.result, planned.range);
+                                    if (result.kind == HType::Kind::List && result.children.size() == 1U) {
+                                        // A write to one existing list child (developer guide: writes
+                                        // to different children accumulate into one delta). The
+                                        // index is checked like `invalidate(out, index)`; the length
+                                        // changes only through push and pop.
+                                        if (node.op != gir::AssignOp::Assign) {
+                                            unsupported(statement.range, "compound assignment to an output collection child");
+                                        }
+                                        const Value index_value = eval_planned_expr(index->index, frame);
+                                        const Value value       = eval_planned_expr(node.value, frame);
+                                        use("hgl_output");
+                                        out.line("{");
+                                        out.line("    const hgraph::Int hgl_index = " +
+                                                 as_runtime(index_value, scalar_type(hir::ScalarType::I64), index_value.range,
+                                                            "output index") + ";");
+                                        out.line("    if (hgl_index < 0 || static_cast<std::size_t>(hgl_index) >= hgl_output.size()) {");
+                                        out.line("        throw std::out_of_range(\"output list index is outside the list\");");
+                                        out.line("    }");
+                                        out.line("    hgl_output[static_cast<std::size_t>(hgl_index)].set(" +
+                                                 as_runtime(value, result.children[0], value.range, "output value") + ");");
+                                        out.line("}");
+                                        return;
+                                    }
                                     if (result.kind != HType::Kind::Map || result.children.size() != 2U) {
-                                        backend(place.range, "indexed output assignment currently requires a map result");
+                                        backend(place.range, "indexed output assignment requires a map or list result");
                                     }
                                     if (node.op != gir::AssignOp::Assign) {
                                         unsupported(statement.range, "compound assignment to an output collection child");

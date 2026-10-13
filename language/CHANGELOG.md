@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Accept `out[index] = value` on a fixed or unbounded list output in a
+  runtime body: it writes that existing child, including a reference child,
+  and repeated writes keep the last value, as the developer guide specifies
+  for writes to collection children. An index outside the list raises. The
+  C++ backend used to reject the write ("indexed output assignment currently
+  requires a map result"), which kept `route_by_index` from being written
+  in HGL.
 - Implement the temporal arithmetic table of the developer guide in every
   phase: `date ± duration` (the duration's whole-day part, as Python and
   hgraph's operators use), `date - date`, `duration + datetime`,

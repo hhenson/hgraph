@@ -2032,7 +2032,11 @@ expression is read from the syntax tree.
   `keys`, `values`, `elements`, and `items` become ordinary C++ range loops over current,
   `modified`, `added`, or `removed` views. A concise iterator predicate is
   inlined as a readable loop guard. Keyed `out[key] = value` uses the typed TSD
-  output selector and accumulates child writes in the cycle's delta.
+  output selector and accumulates child writes in the cycle's delta. On a list
+  output `out[index] = value` sets that existing child through
+  `out[index].set(...)`, a reference child included; an index outside the
+  current length raises, as `invalidate(out, index)` does, because only `push`
+  and `pop` change the length.
 - **Exact native value and input-view calls.** Explicit module descriptors
   form a data-only import catalog. A top-level source `native fn` enters the
   same candidate model, retaining its HGL signature and opaque balanced C++
