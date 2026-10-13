@@ -437,6 +437,7 @@ hgl_add_module(hgl_codegen_fixture STATIC SOURCE_PARTS 3 HGL
     codegen/temporal-arithmetic.hgl
     codegen/list-output-writes.hgl
     codegen/generic-collections.hgl
+    codegen/retained-generics.hgl
     ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/test-contexts.hgl
     ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/operator-properties.hgl
     ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/conditional-early-return.hgl
@@ -1073,6 +1074,11 @@ if(UNIX)
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/generic-collections.hgl
     )
     set_tests_properties(hgraph_language_test_generic_collections PROPERTIES PASS_REGULAR_EXPRESSION "6 tests, 0 failed")
+    add_test(
+        NAME hgraph_language_test_retained_generics
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/retained-generics.hgl
+    )
+    set_tests_properties(hgraph_language_test_retained_generics PROPERTIES PASS_REGULAR_EXPRESSION "2 tests, 0 failed")
     add_test(NAME hgraph_language_test_nested_reference_fields
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/nested-reference-fields.hgl)
     set_tests_properties(hgraph_language_test_nested_reference_fields PROPERTIES

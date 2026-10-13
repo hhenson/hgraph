@@ -1,0 +1,65 @@
+module checks.retained_generics
+
+# Runtime bodies materialized with a retained type slot (`instantiate op<_>`):
+# one generated node serves every element type, so values are value views,
+# the output is the erased Out<TsVar>, and comparisons compare payloads.
+
+operator largest<T, const N: i64>(tsl: list<T, N>) -> T
+impl fn largest<T, const N: i64>(tsl: list<T, N>) -> T {
+    inject out
+    when all_valid(tsl) {
+        var first = true
+        for index, value in items(tsl) {
+            if first || value > out { out = value }
+            first = false
+        }
+    }
+}
+
+operator first_modified<T, const N: i64>(tsl: list<T, N>) -> T
+impl fn first_modified<T, const N: i64>(tsl: list<T, N>) -> T {
+    inject out
+    when modified(tsl) {
+        for index, value in items(tsl) {
+            if valid(value) && modified(value) {
+                out = value
+                return
+            }
+        }
+    }
+}
+
+operator forward<T>(ts: T) -> T
+impl fn forward<T>(ts: T) -> T { when { return ts } }
+
+operator changed<T>(ts: T) -> T
+impl fn changed<T>(ts: T) -> T {
+    inject out
+    when { if !valid(out) || ts != out { out = ts } }
+}
+
+instantiate largest<_, _>, first_modified<_, _>, forward<_>, changed<_>
+
+export fn largest_i64(tsl: list<i64, 3>) -> i64 => largest(tsl)
+export fn largest_str(tsl: list<str, 2>) -> str => largest(tsl)
+export fn largest_date(tsl: list<date, 2>) -> date => largest(tsl)
+export fn first_modified_f64(tsl: list<f64, 2>) -> f64 => first_modified(tsl)
+export fn forward_bool(ts: bool) -> bool => forward(ts)
+export fn forward_duration(ts: duration) -> duration => forward(ts)
+export fn changed_i64(ts: i64) -> i64 => changed(ts)
+export fn changed_str(ts: str) -> str => changed(ts)
+
+test one_node_serves_every_element_type {
+    assert eval(largest_i64, tsl: [delta<list<i64, 3>>(items: [0: 1, 1: 5, 2: 3]), delta<list<i64, 3>>(items: [2: 9])]) == [5, 9]
+    assert eval(largest_str, tsl: [delta<list<str, 2>>(items: [0: "b", 1: "a"])]) == ["b"]
+    assert eval(largest_date, tsl: [delta<list<date, 2>>(items: [0: @2024-02-29, 1: @1999-12-31])]) == [@2024-02-29]
+    assert eval(first_modified_f64, tsl: [delta<list<f64, 2>>(items: [1: 2.5]), delta<list<f64, 2>>(items: [0: 1.5, 1: 3.5])])
+        == [2.5, 1.5]
+    assert eval(forward_bool, ts: [true, _, false]) == [true, _, false]
+    assert eval(forward_duration, ts: [1s, -1us]) == [1s, -1us]
+}
+
+test the_output_reads_back_as_a_payload {
+    assert eval(changed_i64, ts: [1, 1, 2, 2]) == [1, _, 2, _]
+    assert eval(changed_str, ts: ["a", "a", "b"]) == ["a", _, "b"]
+}

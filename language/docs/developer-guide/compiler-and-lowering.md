@@ -2041,6 +2041,11 @@ expression is read from the syntax tree.
   generic value view or an owned atomic collection as is), then the child is
   reached through the map mutation's `at(key)` and the value set or applied,
   so a failure leaves the map untouched.
+  A body materialized with a retained slot (`instantiate op<_>`) serves every
+  element type with one node: its generic inputs, fixed-list elements, and
+  `out` read as value views, its erased `Out<TsVar>` output is written with
+  `apply`, and comparisons between generic values go through
+  `hgl::ordinary::checked_equals`/`checked_compare` on the payloads.
   Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta. On a list
   output `out[index] = value` publishes that existing child through the same

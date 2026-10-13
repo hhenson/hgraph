@@ -2950,14 +2950,18 @@ namespace hgl::codegen
             };
             const auto binary = [&](std::string_view spelling, HType type) {
                 std::string code = "(" + lhs.code + " " + std::string{spelling} + " " + rhs.code + ")";
-                if (ordinary_aggregate(lhs.type) || ordinary_aggregate(rhs.type)) {
+                // Generic values are value views: compare their payloads.
+                const bool generic_views = runtime && (lhs.type.kind == HType::Kind::Generic || rhs.type.kind == HType::Kind::Generic);
+                if (ordinary_aggregate(lhs.type) || ordinary_aggregate(rhs.type) || generic_views) {
+                    const auto view = [&](const Value &operand) {
+                        return operand.type.kind == HType::Kind::Generic && !operand.ordinary_value ? operand.code : ordinary_view(operand);
+                    };
                     if (op == BinaryOp::Equal || op == BinaryOp::NotEqual) {
-                        code = std::string{op == BinaryOp::NotEqual ? "!" : ""} + "hgl::ordinary::checked_equals(" +
-                               ordinary_view(lhs) + ", " + ordinary_view(rhs) + ")";
+                        code = std::string{op == BinaryOp::NotEqual ? "!" : ""} + "hgl::ordinary::checked_equals(" + view(lhs) + ", " +
+                               view(rhs) + ")";
                     } else if (op == BinaryOp::Less || op == BinaryOp::LessEqual || op == BinaryOp::Greater ||
                                op == BinaryOp::GreaterEqual) {
-                        code = "(hgl::ordinary::checked_compare(" + ordinary_view(lhs) + ", " + ordinary_view(rhs) + ") " +
-                               std::string{spelling} + " 0)";
+                        code = "(hgl::ordinary::checked_compare(" + view(lhs) + ", " + view(rhs) + ") " + std::string{spelling} + " 0)";
                     }
                 }
                 if (op == BinaryOp::Add || op == BinaryOp::Sub || op == BinaryOp::Mul) {
@@ -6140,7 +6144,9 @@ namespace hgl::codegen
                 return;
             }
             if (!value.borrowed_value) {
-                out.line(selector + ".set(" + converted + ");");
+                // The erased Out<TsVar> of a retained generic copies a whole value
+                // view; it has no typed set.
+                out.line(selector + (target.kind == HType::Kind::Generic ? ".apply(" : ".set(") + converted + ");");
                 return;
             }
             // Use the typed output transaction: maps need its child-link-aware
@@ -6642,7 +6648,8 @@ namespace hgl::codegen
                             value.range = statement.range;
                             if (endpoint) {
                                 value.selector = raw;
-                                value.code     = iterator.type.kind == HType::Kind::List
+                                // A generic element has no C++ type to convert to.
+                                value.code     = iterator.type.kind == HType::Kind::List && !symbolic(type)
                                                      ? raw + ".value().checked_as<" + value_type(type, statement.range) + ">()"
                                                      : raw + ".value()";
                             } else if (list_index) {
@@ -6984,6 +6991,10 @@ namespace hgl::codegen
                     if (result.kind == HType::Kind::Reference) {
                         value.code = "hgl::ordinary::reference_argument(hgl_output.value())";
                     }
+                } else if (symbolic(result)) {
+                    // A retained generic output reads back as a value view.
+                    value = make_runtime("hgl_output.value()", result, planned_binding(info.out_binding, planned.range).range,
+                                         "hgl_output");
                 } else {
                     value = make_runtime("hgl_output.value().checked_as<" +
                                              value_type(result, graph_type(planned.result, planned.range).range) + ">()",

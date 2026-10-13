@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A runtime body materialized with a retained type slot
+  (`instantiate op<_>`) may now return or assign a generic value, read its
+  generic output back, read generic fixed-list elements, and compare
+  generic values. Generated code used to call `set` on the erased
+  `Out<TsVar>` and convert values to the type pattern, which did not
+  compile; the library had to repeat such bodies once per scalar type.
 - Map outputs with a generic key type accept `insert`, `update`, `upsert`,
   `remove`, `discard`, `invalidate`, and `out[key] = value` in a runtime
   body, through the same value views as generic set members, including
