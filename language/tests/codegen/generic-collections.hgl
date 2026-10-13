@@ -1,0 +1,168 @@
+module checks.generic_collections
+
+# Runtime bodies over set members and map keys of a generic type. hgraph's
+# typed selectors need a concrete C++ member type, so generated code reads
+# and writes these through value views; each body runs at several types.
+
+fn union_of<K>(lhs: set<K>, rhs: set<K>) -> set<K> {
+    inject out
+    when {
+        for member in elements(lhs, added) { upsert(out, member) }
+        for member in elements(rhs, added) { upsert(out, member) }
+        for member in elements(lhs, removed) { if !contains(rhs, member) { discard(out, member) } }
+        for member in elements(rhs, removed) { if !contains(lhs, member) { discard(out, member) } }
+    }
+}
+
+fn difference_of<K>(lhs: set<K>, rhs: set<K>) -> set<K> {
+    inject out
+    when {
+        for member in elements(lhs) {
+            if contains(rhs, member) { discard(out, member) } else { upsert(out, member) }
+        }
+        for member in elements(lhs, removed) { discard(out, member) }
+    }
+}
+
+fn keys_of<K, V>(ts: map<K, V>) -> set<K> {
+    inject out
+    when {
+        for key in keys(ts, added) { insert(out, key) }
+        for key in keys(ts, removed) { remove(out, key) }
+    }
+}
+
+fn key_count<K>(ts: map<K, f64>, probe: K) -> i64 {
+    when {
+        var count = 0
+        for key in elements(key_set(ts)) { count += 1 }
+        if contains(key_set(ts), probe) { count += 100 }
+        return count
+    }
+}
+
+fn cleared<K>(ts: map<K, f64>, reset: bool) -> map<K, f64> {
+    inject out
+    when modified(reset) { if reset { clear(out) } }
+}
+
+fn tagged<K>(ts: set<K>) -> map<K, bool> {
+    inject out
+    when {
+        for member in elements(ts, added) { insert(out, member, true) }
+        for member in elements(ts, removed) { remove(out, member) }
+    }
+}
+
+fn copied<K>(ts: map<K, f64>) -> map<K, f64> {
+    inject out
+    when {
+        for key, value in items(ts, modified) { out[key] = value }
+        for key in keys(ts, removed) { discard(out, key) }
+    }
+}
+
+fn counted<K>(ts: map<K, f64>) -> map<K, i64> {
+    inject out
+    state ticks: i64 = 0
+    when {
+        ticks += 1
+        for key in keys(ts, added) { upsert(out, key, ticks) }
+        for key in keys(ts, modified) { if !contains(out, key) { insert(out, key, -ticks) } else { update(out, key, ticks) } }
+        for key in keys(ts, removed) { if ticks > 2 { invalidate(out, key) } }
+    }
+}
+
+fn shared_members<K>(ts: set<K>, members: atomic<set<i64>>) -> map<K, atomic<set<i64>>> {
+    inject out
+    when modified(ts) {
+        for member in elements(ts, added) { insert(out, member, members) }
+        for member in elements(ts, removed) { remove(out, member) }
+    }
+    when modified(members) {
+        for member in elements(ts) { update(out, member, members) }
+    }
+}
+
+fn copied_or_reset<K>(ts: map<K, f64>, reset: bool) -> map<K, f64> {
+    inject out
+    when modified(ts) { for key, value in items(ts, modified) { out[key] = value } }
+    when modified(reset) { if reset { clear(out) } }
+}
+
+fn member_of<K>(ts: set<K>, item: K) -> bool { when { return contains(ts, item) } }
+fn has_key<K, V>(ts: map<K, V>, key: K) -> bool { when { return contains(ts, key) } }
+fn matches<K>(ts: set<K>, item: K) -> i64 {
+    when {
+        var count = 0
+        for member in elements(ts) { if member == item { count += 1 } }
+        return count
+    }
+}
+
+export fn union_i64(lhs: set<i64>, rhs: set<i64>) -> set<i64> => union_of(lhs, rhs)
+export fn union_str(lhs: set<str>, rhs: set<str>) -> set<str> => union_of(lhs, rhs)
+export fn union_date(lhs: set<date>, rhs: set<date>) -> set<date> => union_of(lhs, rhs)
+export fn difference_i64(lhs: set<i64>, rhs: set<i64>) -> set<i64> => difference_of(lhs, rhs)
+export fn keys_str(ts: map<str, f64>) -> set<str> => keys_of(ts)
+export fn keys_i64(ts: map<i64, str>) -> set<i64> => keys_of(ts)
+export fn key_count_str(ts: map<str, f64>, probe: str) -> i64 => key_count(ts, probe)
+export fn cleared_i64(ts: map<i64, f64>, reset: bool) -> map<i64, f64> => cleared(ts, reset)
+export fn tagged_date(ts: set<date>) -> map<date, bool> => tagged(ts)
+export fn copied_str(ts: map<str, f64>) -> map<str, f64> => copied(ts)
+export fn counted_i64(ts: map<i64, f64>) -> map<i64, i64> => counted(ts)
+export fn shared_members_str(ts: set<str>, members: atomic<set<i64>>) -> map<str, atomic<set<i64>>> => shared_members(ts, members)
+export fn copied_or_reset_i64(ts: map<i64, f64>, reset: bool) -> map<i64, f64> => copied_or_reset(ts, reset)
+export fn member_bool(ts: set<bool>, item: bool) -> bool => member_of(ts, item)
+export fn member_str(ts: set<str>, item: str) -> bool => member_of(ts, item)
+export fn has_key_i64(ts: map<i64, f64>, key: i64) -> bool => has_key(ts, key)
+export fn matches_f64(ts: set<f64>, item: f64) -> i64 => matches(ts, item)
+
+test set_algebra_runs_at_each_member_type {
+    assert eval(union_i64, lhs: [delta<set<i64>>(added: [1, 2]), delta<set<i64>>(removed: [2]), delta<set<i64>>(removed: [1])],
+                rhs: [delta<set<i64>>(added: [2, 3]), _, _])
+        == [delta<set<i64>>(added: [1, 2, 3]), _, delta<set<i64>>(removed: [1])]
+    assert eval(union_str, lhs: [delta<set<str>>(added: ["a"])], rhs: [delta<set<str>>(added: ["b", "a"])])
+        == [delta<set<str>>(added: ["a", "b"])]
+    assert eval(union_date, lhs: [delta<set<date>>(added: [@2024-02-29])], rhs: [delta<set<date>>(added: [@1969-12-31])])
+        == [delta<set<date>>(added: [@2024-02-29, @1969-12-31])]
+    assert eval(difference_i64, lhs: [delta<set<i64>>(added: [1, 2, 3]), _], rhs: [delta<set<i64>>(added: [2]), delta<set<i64>>(added: [3])])
+        == [delta<set<i64>>(added: [1, 3]), delta<set<i64>>(removed: [3])]
+}
+
+test map_keys_run_at_each_key_type {
+    assert eval(keys_str, ts: [delta<map<str, f64>>(upsert: ["a": 1.0, "b": 2.0]), delta<map<str, f64>>(remove: ["a"])])
+        == [delta<set<str>>(added: ["a", "b"]), delta<set<str>>(removed: ["a"])]
+    assert eval(keys_i64, ts: [delta<map<i64, str>>(upsert: [-1: "x"]), delta<map<i64, str>>(upsert: [-1: "y"])])
+        == [delta<set<i64>>(added: [-1]), _]
+}
+
+test key_sets_and_clear_take_generic_keys {
+    assert eval(key_count_str, ts: [delta<map<str, f64>>(upsert: ["a": 1.0, "b": 2.0]), _], probe: ["a", "z"]) == [102, 2]
+    assert eval(cleared_i64, ts: [delta<map<i64, f64>>(upsert: [1: 1.0]), _], reset: [false, true]) == [_, _]
+}
+
+test membership_and_equality_compare_values {
+    assert eval(member_bool, ts: [delta<set<bool>>(added: [false]), _], item: [false, true]) == [true, false]
+    assert eval(member_str, ts: [delta<set<str>>(added: ["a"])], item: ["a"]) == [true]
+    assert eval(has_key_i64, ts: [delta<map<i64, f64>>(upsert: [7: 1.0]), _], key: [7, 8]) == [true, false]
+    assert eval(matches_f64, ts: [delta<set<f64>>(added: [1.5, 2.5])], item: [2.5]) == [1]
+}
+
+test map_outputs_take_generic_keys {
+    assert eval(tagged_date, ts: [delta<set<date>>(added: [@2024-01-01, @1999-12-31]), delta<set<date>>(removed: [@2024-01-01])])
+        == [delta<map<date, bool>>(upsert: [@2024-01-01: true, @1999-12-31: true]), delta<map<date, bool>>(remove: [@2024-01-01])]
+    assert eval(copied_str, ts: [delta<map<str, f64>>(upsert: ["a": 1.0, "b": 2.0]), delta<map<str, f64>>(upsert: ["a": 3.0], remove: ["b"])])
+        == [delta<map<str, f64>>(upsert: ["a": 1.0, "b": 2.0]), delta<map<str, f64>>(upsert: ["a": 3.0], remove: ["b"])]
+    assert eval(counted_i64, ts: [delta<map<i64, f64>>(upsert: [1: 1.0]), delta<map<i64, f64>>(upsert: [1: 2.0])])
+        == [delta<map<i64, i64>>(upsert: [1: 1]), delta<map<i64, i64>>(upsert: [1: 2])]
+}
+
+test owned_values_and_clear_take_generic_keys {
+    let first: set<i64> = set<i64>(items: [1, 2])
+    let second: set<i64> = set<i64>(items: [3])
+    assert eval(shared_members_str, ts: [delta<set<str>>(added: ["a"]), _], members: [first, second])
+        == [delta<map<str, atomic<set<i64>>>>(upsert: ["a": first]), delta<map<str, atomic<set<i64>>>>(upsert: ["a": second])]
+    assert eval(copied_or_reset_i64, ts: [delta<map<i64, f64>>(upsert: [1: 1.0, 2: 2.0]), _], reset: [false, true])
+        == [delta<map<i64, f64>>(upsert: [1: 1.0, 2: 2.0]), delta<map<i64, f64>>(remove: [1, 2])]
+}

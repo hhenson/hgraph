@@ -2031,8 +2031,38 @@ expression is read from the syntax tree.
   Runtime `map`, `set`, and `list` parameters retain their typed selectors;
   `keys`, `values`, `elements`, and `items` become ordinary C++ range loops over current,
   `modified`, `added`, or `removed` views. A concise iterator predicate is
-  inlined as a readable loop guard. Keyed `out[key] = value` uses the typed TSD
-  output selector and accumulates child writes in the cycle's delta.
+  inlined as a readable loop guard. A set member or map key of a generic type
+  has no concrete C++ type for the typed selectors to convert to, so its
+  iteration, `contains`, and set-output `insert`/`upsert`/`remove`/`discard`
+  go through the untyped `TSSInputView`/`TSDInputView`/`TSSOutputView` value
+  views (`hgl/generic_collections.h`), keeping the typed helpers' strictness
+  and messages. A map output with a generic key is mutated the same way: the
+  value is staged first (a typed value through the facade's staging, a
+  generic value view or an owned atomic collection as is), then the child is
+  reached through the map mutation's `at(key)` and the value set or applied,
+  so a failure leaves the map untouched.
+  A body materialized with a retained slot (`instantiate op<_>`) serves every
+  element type with one node: its generic inputs, fixed-list elements, and
+  `out` read as value views, its erased `Out<TsVar>` output is written with
+  `apply`, and comparisons between generic values go through
+  `hgl::ordinary::checked_equals`/`checked_compare` on the payloads. `str(value)`
+  wires `str_` in composition (typed as `TS<str>`), formats a typed scalar
+  through its value ops in a runtime body, and formats a generic value view or
+  an enum through `hgl::ordinary::text`, which uses the same ops and returns a
+  string payload unchanged. A type parameter is admitted only when a
+  `requires T in {...}` membership constrains it to scalar types, since an
+  unconstrained one may bind a list, map, or bundle.
+  Keyed `out[key] = value` uses the typed TSD
+  output selector and accumulates child writes in the cycle's delta. On a list
+  output `out[index] = value` publishes that existing child through the same
+  path as a whole output, so a reference, list, map, set, or bundle child
+  is reconciled as `return` would reconcile it; an index outside the
+  current length raises, as `invalidate(out, index)` does, because only `push`
+  and `pop` change the length. Reading the output back (`out[index]`, `elements(out)`,
+  `items(out)`) goes through the output's erased child views, so a concrete
+  scalar element is converted to its declared type as an input read is, and
+  a nominal element (an enum, a native scalar, `Any`) is borrowed as an
+  ordinary value.
 - **Exact native value and input-view calls.** Explicit module descriptors
   form a data-only import catalog. A top-level source `native fn` enters the
   same candidate model, retaining its HGL signature and opaque balanced C++

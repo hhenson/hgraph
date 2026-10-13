@@ -1,0 +1,100 @@
+module checks.output_reads
+
+# A runtime body may read back the children of its own collection output.
+# Output children are erased views, so generated reads convert them to the
+# declared element type as input reads do.
+
+enum Mode { idle, busy }
+
+# Each child ticks only when its value changes.
+export fn digits(value: i64) -> list<i64, 2> {
+    inject out
+    when {
+        let tens = value // 10 % 10
+        let ones = value % 10
+        if !valid(out[0]) || out[0] != tens { out[0] = tens }
+        if !valid(out[1]) || out[1] != ones { out[1] = ones }
+    }
+}
+
+# The set of current map values, reconciled against the output itself.
+export fn distinct_values(ts: map<str, i64>) -> set<i64> {
+    inject out
+    when {
+        if valid(out) {
+            for member in elements(out) {
+                var present = false
+                for key, value in items(ts) {
+                    if valid(value) && value == member { present = true }
+                }
+                if !present { remove(out, member) }
+            }
+        }
+        for key, value in items(ts) {
+            if valid(value) { upsert(out, value) }
+        }
+    }
+}
+
+# Map output values read back through items(out).
+export fn doubled_total(ts: map<str, i64>) -> map<str, i64> {
+    inject out
+    when {
+        for key, value in items(ts, modified) { out[key] = value * 2 }
+        var total = 0
+        for key, value in items(out) { if valid(value) { total += value } }
+        if total > 100 { discard(out, "big") }
+    }
+}
+
+# Nominal children (an enum here) are borrowed as ordinary values.
+export fn mode_by_name(book: map<str, Mode>) -> map<str, Mode> {
+    inject out
+    when {
+        for key, value in items(book, modified) {
+            var changed = true
+            for existing, mode in items(out) { if existing == key && valid(mode) && mode == value { changed = false } }
+            if changed { out[key] = value }
+        }
+    }
+}
+
+export fn distinct_modes(book: map<str, Mode>) -> set<Mode> {
+    inject out
+    when {
+        for key, value in items(book, modified) {
+            var present = false
+            if valid(out) { for existing in elements(out) { if existing == value { present = true } } }
+            if !present { upsert(out, value) }
+        }
+    }
+}
+
+test fixed_list_children_read_back {
+    assert eval(digits, value: [12, 13, 23, 23]) == [
+        delta<list<i64, 2>>(items: [0: 1, 1: 2]),
+        delta<list<i64, 2>>(items: [1: 3]),
+        delta<list<i64, 2>>(items: [0: 2]),
+        _,
+    ]
+}
+
+test set_members_read_back {
+    assert eval(distinct_values, ts: [delta<map<str, i64>>(upsert: ["a": 1, "b": 1]), delta<map<str, i64>>(upsert: ["a": 3]),
+                                       delta<map<str, i64>>(remove: ["b"])])
+        == [delta<set<i64>>(added: [1]), delta<set<i64>>(added: [3]), delta<set<i64>>(removed: [1])]
+}
+
+test map_values_read_back {
+    assert eval(doubled_total, ts: [delta<map<str, i64>>(upsert: ["big": 40, "small": 1]), delta<map<str, i64>>(upsert: ["small": 20])])
+        == [delta<map<str, i64>>(upsert: ["big": 80, "small": 2]), delta<map<str, i64>>(upsert: ["small": 40], remove: ["big"])]
+}
+
+test enum_children_read_back {
+    assert eval(mode_by_name, book: [delta<map<str, Mode>>(upsert: ["a": Mode::idle]), delta<map<str, Mode>>(upsert: ["a": Mode::idle]),
+                                     delta<map<str, Mode>>(upsert: ["a": Mode::busy])])
+        == [delta<map<str, Mode>>(upsert: ["a": Mode::idle]), _, delta<map<str, Mode>>(upsert: ["a": Mode::busy])]
+    assert eval(distinct_modes, book: [delta<map<str, Mode>>(upsert: ["a": Mode::idle]), delta<map<str, Mode>>(upsert: ["b": Mode::idle]),
+                                       delta<map<str, Mode>>(upsert: ["c": Mode::busy])])
+        == [delta<set<Mode>>(added: [Mode::idle]), _, delta<set<Mode>>(added: [Mode::busy])]
+}

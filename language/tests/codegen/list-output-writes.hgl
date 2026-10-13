@@ -1,0 +1,120 @@
+module checks.list_output_writes
+
+# Indexed writes to an output list child (developer guide: writes to
+# different structural or collection children accumulate into one delta,
+# and repeated writes to one child keep the last value).
+
+export fn split(value: i64) -> list<i64, 2> {
+    inject out
+    when {
+        out[0] = value // 2
+        out[1] = value % 2
+    }
+}
+
+export fn place(index: i64, value: i64) -> list<i64, 3> {
+    inject out
+    when modified(index, value) {
+        out[index] = value
+    }
+}
+
+export fn last_write_wins(value: i64) -> list<i64, 2> {
+    inject out
+    when {
+        out[0] = value
+        out[0] = value + 1
+    }
+}
+
+export fn grow_then_write(step: i64) -> list<i64, unbounded> {
+    inject out
+    when {
+        if step == 1 {
+            push(out, 10)
+            push(out, 20)
+        } else {
+            out[1] = step
+        }
+    }
+}
+
+# A reference written to a child selected by a runtime index, the shape
+# route_by_index needs.
+export fn route(index: i64, value: ref<i64>) -> list<ref<i64>, 2> {
+    inject out
+    when modified(index) {
+        out[index] = value
+    }
+}
+export fn routed(index: i64, value: i64) -> list<i64, 2> => route(index, value)
+
+# A structural child publishes through the same path as a whole output.
+export fn place_pair(index: i64, pair: list<i64, 2>) -> list<list<i64, 2>, 2> {
+    inject out
+    when modified(index, pair) { out[index] = pair }
+}
+export fn place_book(index: i64, book: map<str, i64>) -> list<map<str, i64>, 2> {
+    inject out
+    when modified(index, book) { out[index] = book }
+}
+export fn place_members(index: i64, members: set<i64>) -> list<set<i64>, 2> {
+    inject out
+    when modified(index, members) { out[index] = members }
+}
+export fn whole_pair(pair: list<i64, 2>) -> list<i64, 2> { when { return pair } }
+export fn whole_book(book: map<str, i64>) -> map<str, i64> { when { return book } }
+export fn whole_members(members: set<i64>) -> set<i64> { when { return members } }
+export fn placed_pair(index: i64, pair: list<i64, 2>) -> list<i64, 2> => place_pair(index, pair)[1]
+export fn placed_book(index: i64, book: map<str, i64>) -> map<str, i64> => place_book(index, book)[0]
+export fn placed_members(index: i64, members: set<i64>) -> set<i64> => place_members(index, members)[1]
+
+test every_written_child_ticks {
+    assert eval(split, value: [5, 5, 4]) == [
+        delta<list<i64, 2>>(items: [0: 2, 1: 1]),
+        delta<list<i64, 2>>(items: [0: 2, 1: 1]),
+        delta<list<i64, 2>>(items: [0: 2, 1: 0]),
+    ]
+}
+
+test only_the_written_child_ticks {
+    assert eval(place, index: [0, 2, _, 0], value: [7, 8, 9, _]) == [
+        delta<list<i64, 3>>(items: [0: 7]),
+        delta<list<i64, 3>>(items: [2: 8]),
+        delta<list<i64, 3>>(items: [2: 9]),
+        delta<list<i64, 3>>(items: [0: 9]),
+    ]
+}
+
+test the_last_write_to_a_child_is_kept {
+    assert eval(last_write_wins, value: [1, 5]) == [
+        delta<list<i64, 2>>(items: [0: 2]),
+        delta<list<i64, 2>>(items: [0: 6]),
+    ]
+}
+
+test an_existing_unbounded_child_can_be_written {
+    assert eval(grow_then_write, step: [1, 7]) == [
+        delta<list<i64>>(items: [0: 10, 1: 20]),
+        delta<list<i64>>(items: [1: 7]),
+    ]
+}
+
+test a_reference_child_forwards_its_target {
+    assert eval(routed, index: [1, _, _], value: [5, 6, 7]) == [
+        delta<list<i64, 2>>(items: [1: 5]),
+        delta<list<i64, 2>>(items: [1: 6]),
+        delta<list<i64, 2>>(items: [1: 7]),
+    ]
+}
+
+test a_structural_child_publishes_like_a_whole_output {
+    assert eval(placed_pair, index: [1, _], pair: [delta<list<i64, 2>>(items: [0: 3, 1: 4]), delta<list<i64, 2>>(items: [1: 5])])
+        == eval(whole_pair, pair: [delta<list<i64, 2>>(items: [0: 3, 1: 4]), delta<list<i64, 2>>(items: [1: 5])])
+    assert eval(placed_book, index: [0, _], book: [delta<map<str, i64>>(upsert: ["a": 1]), delta<map<str, i64>>(upsert: ["b": 2], remove: ["a"])])
+        == eval(whole_book, book: [delta<map<str, i64>>(upsert: ["a": 1]), delta<map<str, i64>>(upsert: ["b": 2], remove: ["a"])])
+    assert eval(placed_members, index: [1, _], members: [delta<set<i64>>(added: [7, 8]), delta<set<i64>>(removed: [7])])
+        == eval(whole_members, members: [delta<set<i64>>(added: [7, 8]), delta<set<i64>>(removed: [7])])
+    assert eval(place_members, index: [1], members: [delta<set<i64>>(added: [7, 8])])
+        == [delta<list<set<i64>, 2>>(items: [1: delta<set<i64>>(added: [7, 8])])]
+}

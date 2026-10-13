@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+- `str(value)` accepts an enum value, as the syntax guide specifies
+  (`str(Mode::first)` is `"first"`), and a generic value whose type
+  parameter a `requires T in {...}` membership constrains to scalar types;
+  a composition `str(ts)` compiles. The checker rejected both operands ("str requires a readable
+  scalar value"), and the wired form returned an untyped port that the
+  generated C++ could not convert. Every form now agrees with hgraph's
+  `str_`.
+- A runtime body can read back the children of its own collection output:
+  `out[index]` on a list, `elements(out)` on a set, and `items(out)` on a
+  map now convert each child to its declared type. Generated code compared
+  the erased child view with a typed value, which did not compile, so an
+  operator could not tick only the children that changed.
+- A runtime body materialized with a retained type slot
+  (`instantiate op<_>`) may now return or assign a generic value, read its
+  generic output back, read generic fixed-list elements, and compare
+  generic values. Generated code used to call `set` on the erased
+  `Out<TsVar>` and convert values to the type pattern, which did not
+  compile; the library had to repeat such bodies once per scalar type.
+- Map outputs with a generic key type accept `insert`, `update`, `upsert`,
+  `remove`, `discard`, `invalidate`, and `out[key] = value` in a runtime
+  body, through the same value views as generic set members, including
+  owned atomic collection values. They used to be rejected.
+- Runtime bodies over set members and map keys of a generic type now run:
+  iteration, `contains`, member comparison, and set-output `insert`,
+  `upsert`, `remove`, and `discard` read and write value views. Generated
+  code used to convert each member to the type pattern itself, which
+  compiled and then failed every tick with "checked_as<T> type mismatch",
+  so generic set algebra and `keys_` could not be written. Mutating a map
+  output with a generic key is now a clear `emit-cpp` diagnostic instead of
+  C++ that did not compile.
+- Accept `out[index] = value` on a fixed or unbounded list output in a
+  runtime body: it publishes that existing child as a whole output would,
+  including a reference, list, map, set, or bundle child,
+  and repeated writes keep the last value, as the developer guide specifies
+  for writes to collection children. An index outside the list raises. The
+  C++ backend used to reject the write ("indexed output assignment currently
+  requires a map result"), which kept `route_by_index` from being written
+  in HGL.
 - Implement the temporal arithmetic table of the developer guide in every
   phase: `date ± duration` (the duration's whole-day part, as Python and
   hgraph's operators use), `date - date`, `duration + datetime`,

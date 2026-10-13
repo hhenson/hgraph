@@ -2,6 +2,7 @@
 #include <hgl/execution_error.h>
 #include <sources.h>
 #include <temporal-arithmetic.h>
+#include <list-output-writes.h>
 #include <hgraph/runtime/logger.h>
 #include <hgraph/util/scope.h>
 #include <spdlog/sinks/ostream_sink.h>
@@ -1092,4 +1093,16 @@ TEST_CASE("generated temporal arithmetic raises through hgraph's checked kernels
     // hgraph's div_ for two durations is the IEEE ratio, so a zero divisor is not an error.
     CHECK_OUTPUT((eval_node<temporal::ratio_node>(values<TimeDelta>(day), values<TimeDelta>(TimeDelta::zero()))),
                  values<Float>(std::numeric_limits<Float>::infinity()));
+}
+
+TEST_CASE("generated output list writes reject an index outside the list", "[codegen][runtime][list]") {
+    namespace lists = checks::list_output_writes;
+    using Catch::Matchers::ContainsSubstring;
+    for (const Int index : {Int{-1}, Int{3}, std::numeric_limits<Int>::max()}) {
+        INFO(index);
+        CHECK_THROWS_WITH((eval_node<lists::place>(values<Int>(index), values<Int>(1))),
+                          ContainsSubstring("output list index is outside the list"));
+    }
+    // An unbounded list grows only through push; a write past its end raises.
+    CHECK_THROWS_WITH((eval_node<lists::grow_then_write>(values<Int>(7))), ContainsSubstring("output list index is outside the list"));
 }

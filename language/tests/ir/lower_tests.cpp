@@ -1279,6 +1279,33 @@ TEST_CASE("typed HIR diagnoses temporal constants outside the calendar or the du
     }
 }
 
+TEST_CASE("typed HIR admits str of scalar-constrained generics and enums only", "[ir][typed][str]") {
+    Lowered admitted{R"(
+module checks.str_admitted
+enum Mode { first, second }
+fn generic_text<T>(value: T) -> str
+requires T in {i64, str, date} {
+    when { return str(value) }
+}
+fn mode_text(value: Mode) -> str { when { return str(value) } }
+fn constant_text() -> str => str(Mode::second)
+)"};
+    require_clean(admitted);
+    REQUIRE(complete(admitted));
+
+    for (const std::string body : {
+             // A structure is not a scalar.
+             "struct Pair { left: i64\nright: i64 }\nfn pair_text(value: atomic<Pair>) -> str { when { return str(value) } }",
+             // An unconstrained type parameter may bind a list, map, or bundle.
+             "fn any_text<T>(value: T) -> str { when { return str(value) } }"}) {
+        CAPTURE(body);
+        Lowered rejected{"module checks.str_rejected\n" + body + "\n"};
+        require_clean(rejected);
+        CHECK_FALSE(complete(rejected));
+        CHECK_THAT(rejected.diagnostics.render(rejected.file), Catch::Matchers::ContainsSubstring("str requires a readable scalar value"));
+    }
+}
+
 TEST_CASE("typed HIR folds integer constants without floating-point loss", "[ir][typed][const][integer]") {
     Lowered lowered{R"(
 module checks.integer_constants

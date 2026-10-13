@@ -661,6 +661,12 @@ namespace hgl::ir
                 }
             }
 
+            [[nodiscard]] bool active_proves_scalar(TypeId type) {
+                return constraint_solver_.proves_scalar(active_requirements_, type) ||
+                       constraint_solver_.proves_scalar(inherited_requirements_, type,
+                                                        inherited_substitution_ ? &*inherited_substitution_ : nullptr);
+            }
+
             [[nodiscard]] bool active_proves_numeric(TypeId type) {
                 return constraint_solver_.proves_numeric(active_requirements_, type) ||
                        constraint_solver_.proves_numeric(inherited_requirements_, type,
@@ -4988,7 +4994,14 @@ namespace hgl::ir
                     for (ExprId argument : args) {
                         Expr &value = check_expr(argument);
                         const TypeId id = canonical(value.type);
-                        if (!id.valid() || type(id).kind != TypeKind::Scalar) {
+                        // An enum is a scalar payload (str(Mode::first) is "first"). A type
+                        // parameter may bind any time-series shape, so it is admitted only
+                        // when a requirement constrains it to scalar types.
+                        const bool symbolic_scalar =
+                            id.valid() && type(id).kind == TypeKind::Symbol && type(id).symbol.valid() &&
+                            (module_.symbol(type(id).symbol).kind == SymbolKind::Enum ||
+                             (module_.symbol(type(id).symbol).kind == SymbolKind::TypeParameter && active_proves_scalar(id)));
+                        if (!id.valid() || (type(id).kind != TypeKind::Scalar && !symbolic_scalar)) {
                             type_error(value.range, "str requires a readable scalar value");
                         }
                     }

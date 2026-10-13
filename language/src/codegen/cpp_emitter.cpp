@@ -786,6 +786,12 @@ namespace hgl::codegen
                        type.kind == HType::Kind::List || type.kind == HType::Kind::Struct || type.kind == HType::Kind::Tuple ||
                        type.kind == HType::Kind::Delta || type.kind == HType::Kind::Set || type.kind == HType::Kind::Map;
             }
+            /// Output children read through erased views; a nominal child (an enum, a
+            /// native scalar, Any) has no typed conversion and is borrowed as an
+            /// ordinary value instead.
+            [[nodiscard]] static bool nominal_output_child(const HType &type) {
+                return type.kind == HType::Kind::Native || type.kind == HType::Kind::Enum || type.is(hir::ScalarType::Any);
+            }
             [[nodiscard]] static bool ordinary_scalar_variable(const HType &type) {
                 return ordinary_aggregate(type) && type.kind != HType::Kind::List && type.kind != HType::Kind::Delta;
             }
@@ -858,6 +864,7 @@ namespace hgl::codegen
             std::vector<gir::CallableId> callable_declarations_{};
             bool                         uses_analytics_{false};
             bool                         uses_output_mutations_{false};
+            bool                         uses_generic_collections_{false};
             std::vector<std::pair<std::string, std::string>> ordinary_plans_{};
             std::vector<std::pair<HType, std::string>> ordinary_node_plans_{};
             std::vector<std::pair<HType, std::string>> ordinary_held_node_plans_{};
@@ -935,12 +942,15 @@ namespace hgl::codegen
             [[nodiscard]] gir::BindingUses reachable_in(gir::BlockId block) const { return gir::binding_uses(graph_, block); }
             /// Open a loop over a range whose elements the body never reads: no
             /// element binding, so nothing is unused. The range is bound first so
-            /// a temporary range object outlives the iteration.
+            /// a temporary range object outlives the iteration. decltype(auto)
+            /// holds a returned range by value and an lvalue range by reference;
+            /// `auto &&` on a range returned from a temporary view (such as
+            /// `key_set().values()`) trips GCC's -Wdangling-reference.
             void open_unbound_loop(const std::string &range, Writer &out) {
                 const std::string suffix = std::to_string(++unbound_loop_index_);
                 const std::string it     = "hgl_it_" + suffix;
                 const std::string end    = "hgl_end_" + suffix;
-                out.line("auto &&hgl_range_" + suffix + " = " + range + ";");
+                out.line("decltype(auto) hgl_range_" + suffix + " = " + range + ";");
                 out.open("for (auto " + it + " = std::begin(hgl_range_" + suffix + "), " + end + " = std::end(hgl_range_" + suffix +
                          "); " + it + " != " + end + "; ++" + it + ")");
             }
@@ -2946,14 +2956,18 @@ namespace hgl::codegen
             };
             const auto binary = [&](std::string_view spelling, HType type) {
                 std::string code = "(" + lhs.code + " " + std::string{spelling} + " " + rhs.code + ")";
-                if (ordinary_aggregate(lhs.type) || ordinary_aggregate(rhs.type)) {
+                // Generic values are value views: compare their payloads.
+                const bool generic_views = runtime && (lhs.type.kind == HType::Kind::Generic || rhs.type.kind == HType::Kind::Generic);
+                if (ordinary_aggregate(lhs.type) || ordinary_aggregate(rhs.type) || generic_views) {
+                    const auto view = [&](const Value &operand) {
+                        return operand.type.kind == HType::Kind::Generic && !operand.ordinary_value ? operand.code : ordinary_view(operand);
+                    };
                     if (op == BinaryOp::Equal || op == BinaryOp::NotEqual) {
-                        code = std::string{op == BinaryOp::NotEqual ? "!" : ""} + "hgl::ordinary::checked_equals(" +
-                               ordinary_view(lhs) + ", " + ordinary_view(rhs) + ")";
+                        code = std::string{op == BinaryOp::NotEqual ? "!" : ""} + "hgl::ordinary::checked_equals(" + view(lhs) + ", " +
+                               view(rhs) + ")";
                     } else if (op == BinaryOp::Less || op == BinaryOp::LessEqual || op == BinaryOp::Greater ||
                                op == BinaryOp::GreaterEqual) {
-                        code = "(hgl::ordinary::checked_compare(" + ordinary_view(lhs) + ", " + ordinary_view(rhs) + ") " +
-                               std::string{spelling} + " 0)";
+                        code = "(hgl::ordinary::checked_compare(" + view(lhs) + ", " + view(rhs) + ") " + std::string{spelling} + " 0)";
                     }
                 }
                 if (op == BinaryOp::Add || op == BinaryOp::Sub || op == BinaryOp::Mul) {
@@ -3774,7 +3788,21 @@ namespace hgl::codegen
                                 result.borrowed_value = true;
                                 return result;
                             }
-                            return make_runtime(selector + ".value()", target.type.children.front(), expression.range, selector);
+                            const HType &element = target.type.children.front();
+                            if (target.output_selector && (element.kind == HType::Kind::Native || element.kind == HType::Kind::Enum)) {
+                                // A nominal output child is borrowed as an ordinary value.
+                                auto result           = make_runtime(selector + ".value()", element, expression.range, selector);
+                                result.ordinary_value = true;
+                                result.borrowed_value = true;
+                                return result;
+                            }
+                            if (target.output_selector && element.kind == HType::Kind::Scalar) {
+                                // An output child reads through the erased view; an
+                                // input child's typed selector converts for itself.
+                                return make_runtime(selector + ".value().checked_as<" + value_type(element, expression.range) + ">()",
+                                                    element, expression.range, selector);
+                            }
+                            return make_runtime(selector + ".value()", element, expression.range, selector);
                         }
                         if (!target.is_port()) { unsupported(expression.range, "indexing a constant"); }
                         if (target.type.kind == HType::Kind::List && target.type.concrete_size) {
@@ -4766,7 +4794,22 @@ namespace hgl::codegen
                 if (call.arguments.size() != 1U) { backend(range, "str requires exactly one scalar argument"); }
                 const Value value = eval_planned_expr(call.arguments.front().value, frame);
                 if (value.type.is(hir::ScalarType::Str)) { return value; }
-                if (value.is_port()) { return wire("hgraph::stdlib::str_", {value.code}, range, scalar_type(hir::ScalarType::Str)); }
+                if (value.is_port()) {
+                    // str_ is generic over its input, so name the typed result
+                    // the function returns, as a binary operator's result is.
+                    Value wired = wire("hgraph::stdlib::str_", {value.code}, range, scalar_type(hir::ScalarType::Str));
+                    wired.code += ".as<" + schema(scalar_type(hir::ScalarType::Str), range) + ">()";
+                    return wired;
+                }
+                if (value.type.kind == HType::Kind::Generic || value.type.kind == HType::Kind::Enum) {
+                    // A generic value is a view and an enum an ordinary value; both
+                    // format through the same value ops as a typed scalar.
+                    const std::string view = value.type.kind == HType::Kind::Generic && !value.ordinary_value ? value.code
+                                                                                                                : ordinary_view(value);
+                    const std::string code = "hgl::ordinary::text(" + view + ")";
+                    return value.is_const() ? make_const(code, scalar_type(hir::ScalarType::Str), range)
+                                            : make_runtime(code, scalar_type(hir::ScalarType::Str), range);
+                }
                 if (value.type.kind != HType::Kind::Scalar) { backend(range, "str requires a checked ordinary scalar"); }
                 const std::string native = value_type(value.type, range);
                 const std::string code = "([](const " + native + " &hgl_scalar) { return hgraph::value_ops_detail::to_string_thunk<" +
@@ -4922,7 +4965,14 @@ namespace hgl::codegen
                 Value result;
                 result.kind  = Value::Kind::Void;
                 result.code  = "hgraph::" + name + "(" + join(arguments, ", ") + ")";
-                if (owning_map_value) {
+                const bool generic_key = (output.type.kind == HType::Kind::Set || output.type.kind == HType::Kind::Map) &&
+                                         symbolic(output.type.children.front()) && name != "clear";
+                if (generic_key) {
+                    // The generic mutations stage the value (an owned atomic collection
+                    // included) before they create the child, as the typed facade does.
+                    uses_generic_collections_ = true;
+                    result.code = "hgl::generic::" + name + "(" + join(arguments, ", ") + ")";
+                } else if (owning_map_value) {
                     result.code = "[&]() { auto hgl_key = " + arguments[1] + "; auto hgl_item = " + arguments[2] +
                         "; const bool hgl_existed = hgl_output.contains(hgl_key); ";
                     if (name == "insert") { result.code += "if (hgl_existed) throw std::invalid_argument(\"insert requires an absent TSD key\"); "; }
@@ -5036,10 +5086,22 @@ namespace hgl::codegen
                     backend(range, "collection access requires a live structural collection input in this slice");
                 }
                 if (name == "contains") {
+                    if (!source.key_set_source.empty() && symbolic(source.type.children.front())) {
+                        // A generic key is already a value view of the key schema.
+                        return make_runtime(source.selector + ".contains(" + key.code + ")", scalar_type(hir::ScalarType::Bool),
+                                            range);
+                    }
                     if (!source.key_set_source.empty()) {
                         return make_runtime("([](const auto &hgl_set, const auto &hgl_key) { return "
                                             "hgl_set.contains(hgraph::ValueView{hgl_set.layout().key_binding, &hgl_key}); }(" +
                                                 source.selector + ", " + key.code + "))",
+                                            scalar_type(hir::ScalarType::Bool), range);
+                    }
+                    if ((source.type.kind == HType::Kind::Set || source.type.kind == HType::Kind::Map) &&
+                        symbolic(source.type.children.front())) {
+                        uses_generic_collections_ = true;
+                        return make_runtime(std::string{"hgl::generic::"} + (source.type.kind == HType::Kind::Set ? "set" : "map") +
+                                                "(" + source.selector + ").contains(" + key.code + ")",
                                             scalar_type(hir::ScalarType::Bool), range);
                     }
                     return make_runtime(source.selector + ".contains(" + key.code + ")", scalar_type(hir::ScalarType::Bool), range);
@@ -5206,12 +5268,20 @@ namespace hgl::codegen
                 const bool positional_pack =
                     (runtime_pack && source.atomic_code == "positional") || source.atomic_code == "schema_positional";
                 result.code = positional_pack ? source.selector : source.selector + "." + method + "()";
+                if (!positional_pack && source.key_set_source.empty() && source.type.kind == HType::Kind::Set &&
+                    symbolic(source.type.children.front())) {
+                    // The typed TSS selector converts members to a concrete C++ type;
+                    // a generic member stays a value view.
+                    uses_generic_collections_ = true;
+                    result.code = "hgl::generic::set(" + source.selector + ")." + method + "()";
+                }
                 if (!source.key_set_source.empty() && (predicate == "added" || predicate == "removed")) {
                     result.code = source.key_set_source + "." + predicate + "_keys()";
                 }
                 result.type                       = source.type;
                 result.name                       = name;
                 result.range                      = range;
+                result.output_selector            = source.output_selector;
                 result.planned_iterator_predicate = general_predicate;
                 if (positional_pack) { result.iterator_metadata_predicate = predicate; }
                 if (runtime_pack || schema_pack) {
@@ -6110,7 +6180,9 @@ namespace hgl::codegen
                 return;
             }
             if (!value.borrowed_value) {
-                out.line(selector + ".set(" + converted + ");");
+                // The erased Out<TsVar> of a retained generic copies a whole value
+                // view; it has no typed set.
+                out.line(selector + (target.kind == HType::Kind::Generic ? ".apply(" : ".set(") + converted + ");");
                 return;
             }
             // Use the typed output transaction: maps need its child-link-aware
@@ -6251,8 +6323,34 @@ namespace hgl::codegen
                                         backend(place.range, "typed HIR admitted 'out' in a lifecycle block");
                                     }
                                     const HType result = planned_type(planned.result, planned.range);
+                                    if (result.kind == HType::Kind::List && result.children.size() == 1U) {
+                                        // A write to one existing list child (developer guide: writes
+                                        // to different children accumulate into one delta). The
+                                        // index is checked like `invalidate(out, index)`; the length
+                                        // changes only through push and pop.
+                                        if (node.op != gir::AssignOp::Assign) {
+                                            unsupported(statement.range, "compound assignment to an output collection child");
+                                        }
+                                        const Value index_value = eval_planned_expr(index->index, frame);
+                                        const Value value       = eval_planned_expr(node.value, frame);
+                                        use("hgl_output");
+                                        out.open("");
+                                        out.line("const hgraph::Int hgl_index = " +
+                                                 as_runtime(index_value, scalar_type(hir::ScalarType::I64), index_value.range,
+                                                            "output index") + ";");
+                                        out.open("if (hgl_index < 0 || static_cast<std::size_t>(hgl_index) >= hgl_output.size())");
+                                        out.line("throw std::out_of_range(\"output list index is outside the list\");");
+                                        out.close();
+                                        // Publish through the general output path, so a structural
+                                        // child (a list, map, set, or bundle) is reconciled rather
+                                        // than set as one scalar.
+                                        out.line("auto hgl_list_child = hgl_output[static_cast<std::size_t>(hgl_index)];");
+                                        emit_output_value(value, result.children[0], "hgl_list_child", out);
+                                        out.close();
+                                        return;
+                                    }
                                     if (result.kind != HType::Kind::Map || result.children.size() != 2U) {
-                                        backend(place.range, "indexed output assignment currently requires a map result");
+                                        backend(place.range, "indexed output assignment requires a map or list result");
                                     }
                                     if (node.op != gir::AssignOp::Assign) {
                                         unsupported(statement.range, "compound assignment to an output collection child");
@@ -6260,6 +6358,14 @@ namespace hgl::codegen
                                     const Value key   = eval_planned_expr(index->index, frame);
                                     const Value value = eval_planned_expr(node.value, frame);
                                     use("hgl_output");
+                                    if (symbolic(result.children[0])) {
+                                        // A generic key has no C++ type for the typed selector.
+                                        uses_generic_collections_ = true;
+                                        out.line("hgl::generic::upsert(hgl_output, " +
+                                                 as_runtime(key, result.children[0], key.range, "output key") + ", " +
+                                                 as_runtime(value, result.children[1], value.range, "output value") + ");");
+                                        return;
+                                    }
                                     out.line("hgl_output.set(" + as_runtime(key, result.children[0], key.range, "output key") +
                                              ", " + as_runtime(value, result.children[1], value.range, "output value") + ");");
                                     return;
@@ -6576,14 +6682,33 @@ namespace hgl::codegen
                             value.kind  = Value::Kind::Runtime;
                             value.type  = type;
                             value.range = statement.range;
-                            if (endpoint) {
+                            if (endpoint && iterator.output_selector && nominal_output_child(type)) {
+                                // A nominal output child is borrowed as an ordinary value.
+                                value.selector       = raw;
+                                value.code           = raw + ".value()";
+                                value.ordinary_value = true;
+                                value.borrowed_value = true;
+                            } else if (endpoint) {
                                 value.selector = raw;
-                                value.code     = iterator.type.kind == HType::Kind::List
+                                // A generic element has no C++ type to convert to. Output
+                                // children read through the erased view, so they convert too.
+                                value.code     = (iterator.type.kind == HType::Kind::List ||
+                                                  (iterator.output_selector && type.kind == HType::Kind::Scalar)) &&
+                                                         !symbolic(type)
                                                      ? raw + ".value().checked_as<" + value_type(type, statement.range) + ">()"
                                                      : raw + ".value()";
                             } else if (list_index) {
                                 value.code = "static_cast<hgraph::Int>(" + raw + ")";
                             } else if (map_key) {
+                                // A generic key has no concrete C++ type to convert to.
+                                value.code = symbolic(type) ? raw : raw + ".checked_as<" + value_type(type, statement.range) + ">()";
+                            } else if (iterator.type.kind == HType::Kind::Set && iterator.output_selector && nominal_output_child(type)) {
+                                // A nominal set output member is borrowed as an ordinary value.
+                                value.code           = raw;
+                                value.ordinary_value = true;
+                                value.borrowed_value = true;
+                            } else if (iterator.type.kind == HType::Kind::Set && iterator.output_selector && !symbolic(type)) {
+                                // A set output's members are erased views.
                                 value.code = raw + ".checked_as<" + value_type(type, statement.range) + ">()";
                             } else if (iterator.type.kind == HType::Kind::Set && type.is(hir::ScalarType::Bool)) {
                                 // Typed Boolean ranges may use vector<bool> proxies.
@@ -6919,6 +7044,10 @@ namespace hgl::codegen
                     if (result.kind == HType::Kind::Reference) {
                         value.code = "hgl::ordinary::reference_argument(hgl_output.value())";
                     }
+                } else if (symbolic(result)) {
+                    // A retained generic output reads back as a value view.
+                    value = make_runtime("hgl_output.value()", result, planned_binding(info.out_binding, planned.range).range,
+                                         "hgl_output");
                 } else {
                     value = make_runtime("hgl_output.value().checked_as<" +
                                              value_type(result, graph_type(planned.result, planned.range).range) + ">()",
@@ -8486,6 +8615,7 @@ namespace hgl::codegen
             emit_include("<hgraph/manifest/schema_descriptor.h>");
             emit_include("<hgraph/types/static_schema.h>");
             if (uses_output_mutations_) { emit_include("<hgraph/types/time_series/output_mutation.h>"); }
+            if (uses_generic_collections_) { emit_include("<hgl/generic_collections.h>"); }
             header.line();
             emit_include("<chrono>");
             emit_include("<cstddef>");

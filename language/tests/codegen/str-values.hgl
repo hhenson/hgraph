@@ -1,0 +1,59 @@
+module checks.str_values
+
+# str(value) in every form agrees with hgraph's str_: a composition wires
+# str_, a runtime body formats through the same value ops, a retained generic
+# body formats its value view, and an enum is its member name.
+
+enum Mode { first, second = 5, third }
+
+# str of a generic value needs T constrained to scalars: an unconstrained
+# type parameter may bind a list, map, or bundle, whose text is str_'s, not
+# a scalar's. `text` is materialized per type; `plain_text` stays one generic
+# node that formats its value view.
+operator text<T>(ts: T) -> str
+impl fn text<T>(ts: T) -> str
+requires T in {bool, i64, f64, str, date, datetime, duration} {
+    when { return str(ts) }
+}
+instantiate text<bool>, text<i64>, text<f64>, text<str>, text<date>, text<duration>
+
+fn plain_text<T>(ts: T) -> str
+requires T in {bool, i64, f64, str, date, datetime, duration} {
+    when { return str(ts) }
+}
+
+export fn wired_i64(ts: i64) -> str => str(ts)
+export fn wired_f64(ts: f64) -> str => str(ts)
+export fn wired_bool(ts: bool) -> str => str(ts)
+export fn wired_date(ts: date) -> str => str(ts)
+export fn wired_duration(ts: duration) -> str => str(ts)
+export fn wired_str(ts: str) -> str => str(ts)
+export fn plain_i64(ts: i64) -> str => plain_text(ts)
+export fn plain_str(ts: str) -> str => plain_text(ts)
+export fn plain_date(ts: date) -> str => plain_text(ts)
+export fn generic_i64(ts: i64) -> str => text(ts)
+export fn generic_f64(ts: f64) -> str => text(ts)
+export fn generic_bool(ts: bool) -> str => text(ts)
+export fn generic_date(ts: date) -> str => text(ts)
+export fn generic_duration(ts: duration) -> str => text(ts)
+export fn generic_str(ts: str) -> str => text(ts)
+export fn mode_text(ts: Mode) -> str { when { return str(ts) } }
+
+test generic_and_wired_str_agree {
+    assert eval(generic_i64, ts: [1, -2, 0]) == eval(wired_i64, ts: [1, -2, 0])
+    assert eval(generic_f64, ts: [1.5, 0.1, 1e20, -0.0]) == eval(wired_f64, ts: [1.5, 0.1, 1e20, -0.0])
+    assert eval(generic_bool, ts: [true, false]) == eval(wired_bool, ts: [true, false])
+    assert eval(generic_date, ts: [@2024-02-29, @0001-01-01]) == eval(wired_date, ts: [@2024-02-29, @0001-01-01])
+    assert eval(generic_duration, ts: [90s, -1us]) == eval(wired_duration, ts: [90s, -1us])
+    assert eval(generic_str, ts: ["x", ""]) == eval(wired_str, ts: ["x", ""])
+    assert eval(plain_i64, ts: [1, -2, 0]) == eval(wired_i64, ts: [1, -2, 0])
+    assert eval(plain_str, ts: ["x", ""]) == eval(wired_str, ts: ["x", ""])
+    assert eval(plain_date, ts: [@2024-02-29]) == eval(wired_date, ts: [@2024-02-29])
+    assert eval(generic_bool, ts: [true]) == ["True"]
+    assert eval(generic_str, ts: ["x"]) == ["x"]
+}
+
+test enums_print_their_member_names {
+    assert eval(mode_text, ts: [Mode::first, Mode::third]) == ["first", "third"]
+    assert str(Mode::second) == "second"
+}

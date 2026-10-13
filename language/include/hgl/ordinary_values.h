@@ -336,6 +336,13 @@ namespace hgl::ordinary
             }
         }
     }
+    /** str() of a value view: the value ops' text, except that a string is its own text,
+        as str(value) on a typed str returns the value unchanged. */
+    [[nodiscard]] inline std::string text(const hgraph::ValueView &value) {
+        if (value.schema() == hgraph::scalar_descriptor<hgraph::Str>::value_meta()) { return value.checked_as<hgraph::Str>(); }
+        return value.to_string();
+    }
+
     [[nodiscard]] inline bool checked_equals(const hgraph::ValueView &lhs, const hgraph::ValueView &rhs) {
         validate_box_operation(lhs, rhs, BoxCapability::Equality);
         if (lhs.is_any() && rhs.is_any()) {
