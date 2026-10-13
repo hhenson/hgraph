@@ -1,0 +1,80 @@
+module checks.generic_collections
+
+# Runtime bodies over set members and map keys of a generic type. hgraph's
+# typed selectors need a concrete C++ member type, so generated code reads
+# and writes these through value views; each body runs at several types.
+
+fn union_of<K>(lhs: set<K>, rhs: set<K>) -> set<K> {
+    inject out
+    when {
+        for member in elements(lhs, added) { upsert(out, member) }
+        for member in elements(rhs, added) { upsert(out, member) }
+        for member in elements(lhs, removed) { if !contains(rhs, member) { discard(out, member) } }
+        for member in elements(rhs, removed) { if !contains(lhs, member) { discard(out, member) } }
+    }
+}
+
+fn difference_of<K>(lhs: set<K>, rhs: set<K>) -> set<K> {
+    inject out
+    when {
+        for member in elements(lhs) {
+            if contains(rhs, member) { discard(out, member) } else { upsert(out, member) }
+        }
+        for member in elements(lhs, removed) { discard(out, member) }
+    }
+}
+
+fn keys_of<K, V>(ts: map<K, V>) -> set<K> {
+    inject out
+    when {
+        for key in keys(ts, added) { insert(out, key) }
+        for key in keys(ts, removed) { remove(out, key) }
+    }
+}
+
+fn member_of<K>(ts: set<K>, item: K) -> bool { when { return contains(ts, item) } }
+fn has_key<K, V>(ts: map<K, V>, key: K) -> bool { when { return contains(ts, key) } }
+fn matches<K>(ts: set<K>, item: K) -> i64 {
+    when {
+        var count = 0
+        for member in elements(ts) { if member == item { count += 1 } }
+        return count
+    }
+}
+
+export fn union_i64(lhs: set<i64>, rhs: set<i64>) -> set<i64> => union_of(lhs, rhs)
+export fn union_str(lhs: set<str>, rhs: set<str>) -> set<str> => union_of(lhs, rhs)
+export fn union_date(lhs: set<date>, rhs: set<date>) -> set<date> => union_of(lhs, rhs)
+export fn difference_i64(lhs: set<i64>, rhs: set<i64>) -> set<i64> => difference_of(lhs, rhs)
+export fn keys_str(ts: map<str, f64>) -> set<str> => keys_of(ts)
+export fn keys_i64(ts: map<i64, str>) -> set<i64> => keys_of(ts)
+export fn member_bool(ts: set<bool>, item: bool) -> bool => member_of(ts, item)
+export fn member_str(ts: set<str>, item: str) -> bool => member_of(ts, item)
+export fn has_key_i64(ts: map<i64, f64>, key: i64) -> bool => has_key(ts, key)
+export fn matches_f64(ts: set<f64>, item: f64) -> i64 => matches(ts, item)
+
+test set_algebra_runs_at_each_member_type {
+    assert eval(union_i64, lhs: [delta<set<i64>>(added: [1, 2]), delta<set<i64>>(removed: [2]), delta<set<i64>>(removed: [1])],
+                rhs: [delta<set<i64>>(added: [2, 3]), _, _])
+        == [delta<set<i64>>(added: [1, 2, 3]), _, delta<set<i64>>(removed: [1])]
+    assert eval(union_str, lhs: [delta<set<str>>(added: ["a"])], rhs: [delta<set<str>>(added: ["b", "a"])])
+        == [delta<set<str>>(added: ["a", "b"])]
+    assert eval(union_date, lhs: [delta<set<date>>(added: [@2024-02-29])], rhs: [delta<set<date>>(added: [@1969-12-31])])
+        == [delta<set<date>>(added: [@2024-02-29, @1969-12-31])]
+    assert eval(difference_i64, lhs: [delta<set<i64>>(added: [1, 2, 3]), _], rhs: [delta<set<i64>>(added: [2]), delta<set<i64>>(added: [3])])
+        == [delta<set<i64>>(added: [1, 3]), delta<set<i64>>(removed: [3])]
+}
+
+test map_keys_run_at_each_key_type {
+    assert eval(keys_str, ts: [delta<map<str, f64>>(upsert: ["a": 1.0, "b": 2.0]), delta<map<str, f64>>(remove: ["a"])])
+        == [delta<set<str>>(added: ["a", "b"]), delta<set<str>>(removed: ["a"])]
+    assert eval(keys_i64, ts: [delta<map<i64, str>>(upsert: [-1: "x"]), delta<map<i64, str>>(upsert: [-1: "y"])])
+        == [delta<set<i64>>(added: [-1]), _]
+}
+
+test membership_and_equality_compare_values {
+    assert eval(member_bool, ts: [delta<set<bool>>(added: [false]), _], item: [false, true]) == [true, false]
+    assert eval(member_str, ts: [delta<set<str>>(added: ["a"])], item: ["a"]) == [true]
+    assert eval(has_key_i64, ts: [delta<map<i64, f64>>(upsert: [7: 1.0]), _], key: [7, 8]) == [true, false]
+    assert eval(matches_f64, ts: [delta<set<f64>>(added: [1.5, 2.5])], item: [2.5]) == [1]
+}

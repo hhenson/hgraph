@@ -858,6 +858,7 @@ namespace hgl::codegen
             std::vector<gir::CallableId> callable_declarations_{};
             bool                         uses_analytics_{false};
             bool                         uses_output_mutations_{false};
+            bool                         uses_generic_collections_{false};
             std::vector<std::pair<std::string, std::string>> ordinary_plans_{};
             std::vector<std::pair<HType, std::string>> ordinary_node_plans_{};
             std::vector<std::pair<HType, std::string>> ordinary_held_node_plans_{};
@@ -4922,6 +4923,12 @@ namespace hgl::codegen
                 Value result;
                 result.kind  = Value::Kind::Void;
                 result.code  = "hgraph::" + name + "(" + join(arguments, ", ") + ")";
+                if (output.type.kind == HType::Kind::Set && symbolic(output.type.children.front()) && name != "clear") {
+                    uses_generic_collections_ = true;
+                    result.code = "hgl::generic::" + name + "(" + join(arguments, ", ") + ")";
+                } else if (output.type.kind == HType::Kind::Map && symbolic(output.type.children.front())) {
+                    unsupported(range, "'" + name + "' on a map output with a generic key type");
+                }
                 if (owning_map_value) {
                     result.code = "[&]() { auto hgl_key = " + arguments[1] + "; auto hgl_item = " + arguments[2] +
                         "; const bool hgl_existed = hgl_output.contains(hgl_key); ";
@@ -5040,6 +5047,13 @@ namespace hgl::codegen
                         return make_runtime("([](const auto &hgl_set, const auto &hgl_key) { return "
                                             "hgl_set.contains(hgraph::ValueView{hgl_set.layout().key_binding, &hgl_key}); }(" +
                                                 source.selector + ", " + key.code + "))",
+                                            scalar_type(hir::ScalarType::Bool), range);
+                    }
+                    if ((source.type.kind == HType::Kind::Set || source.type.kind == HType::Kind::Map) &&
+                        symbolic(source.type.children.front())) {
+                        uses_generic_collections_ = true;
+                        return make_runtime(std::string{"hgl::generic::"} + (source.type.kind == HType::Kind::Set ? "set" : "map") +
+                                                "(" + source.selector + ").contains(" + key.code + ")",
                                             scalar_type(hir::ScalarType::Bool), range);
                     }
                     return make_runtime(source.selector + ".contains(" + key.code + ")", scalar_type(hir::ScalarType::Bool), range);
@@ -5206,6 +5220,12 @@ namespace hgl::codegen
                 const bool positional_pack =
                     (runtime_pack && source.atomic_code == "positional") || source.atomic_code == "schema_positional";
                 result.code = positional_pack ? source.selector : source.selector + "." + method + "()";
+                if (!positional_pack && source.type.kind == HType::Kind::Set && symbolic(source.type.children.front())) {
+                    // The typed TSS selector converts members to a concrete C++ type;
+                    // a generic member stays a value view.
+                    uses_generic_collections_ = true;
+                    result.code = "hgl::generic::set(" + source.selector + ")." + method + "()";
+                }
                 if (!source.key_set_source.empty() && (predicate == "added" || predicate == "removed")) {
                     result.code = source.key_set_source + "." + predicate + "_keys()";
                 }
@@ -6610,7 +6630,8 @@ namespace hgl::codegen
                             } else if (list_index) {
                                 value.code = "static_cast<hgraph::Int>(" + raw + ")";
                             } else if (map_key) {
-                                value.code = raw + ".checked_as<" + value_type(type, statement.range) + ">()";
+                                // A generic key has no concrete C++ type to convert to.
+                                value.code = symbolic(type) ? raw : raw + ".checked_as<" + value_type(type, statement.range) + ">()";
                             } else if (iterator.type.kind == HType::Kind::Set && type.is(hir::ScalarType::Bool)) {
                                 // Typed Boolean ranges may use vector<bool> proxies.
                                 // HGL value arguments must retain their declared scalar type.
@@ -8512,6 +8533,7 @@ namespace hgl::codegen
             emit_include("<hgraph/manifest/schema_descriptor.h>");
             emit_include("<hgraph/types/static_schema.h>");
             if (uses_output_mutations_) { emit_include("<hgraph/types/time_series/output_mutation.h>"); }
+            if (uses_generic_collections_) { emit_include("<hgl/generic_collections.h>"); }
             header.line();
             emit_include("<chrono>");
             emit_include("<cstddef>");

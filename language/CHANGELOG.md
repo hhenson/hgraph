@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Runtime bodies over set members and map keys of a generic type now run:
+  iteration, `contains`, member comparison, and set-output `insert`,
+  `upsert`, `remove`, and `discard` read and write value views. Generated
+  code used to convert each member to the type pattern itself, which
+  compiled and then failed every tick with "checked_as<T> type mismatch",
+  so generic set algebra and `keys_` could not be written. Mutating a map
+  output with a generic key is now a clear `emit-cpp` diagnostic instead of
+  C++ that did not compile.
 - Accept `out[index] = value` on a fixed or unbounded list output in a
   runtime body: it publishes that existing child as a whole output would,
   including a reference, list, map, set, or bundle child,

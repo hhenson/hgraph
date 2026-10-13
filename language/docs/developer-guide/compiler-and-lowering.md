@@ -2031,7 +2031,13 @@ expression is read from the syntax tree.
   Runtime `map`, `set`, and `list` parameters retain their typed selectors;
   `keys`, `values`, `elements`, and `items` become ordinary C++ range loops over current,
   `modified`, `added`, or `removed` views. A concise iterator predicate is
-  inlined as a readable loop guard. Keyed `out[key] = value` uses the typed TSD
+  inlined as a readable loop guard. A set member or map key of a generic type
+  has no concrete C++ type for the typed selectors to convert to, so its
+  iteration, `contains`, and set-output `insert`/`upsert`/`remove`/`discard`
+  go through the untyped `TSSInputView`/`TSDInputView`/`TSSOutputView` value
+  views (`hgl/generic_collections.h`), keeping the typed helpers' strictness
+  and messages; mutating a map output with a generic key is rejected.
+  Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta. On a list
   output `out[index] = value` publishes that existing child through the same
   path as a whole output, so a reference, list, map, set, or bundle child

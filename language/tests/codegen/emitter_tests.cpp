@@ -4356,6 +4356,50 @@ TEST_CASE("runtime zoned arithmetic is rejected until a body can reach the provi
     }
 }
 
+TEST_CASE("generic set members and map keys use value views", "[codegen][generic]") {
+    Unit unit{R"(
+module tests.generic_collections
+fn union_of<K>(lhs: set<K>, rhs: set<K>) -> set<K> {
+    inject out
+    when {
+        for member in elements(lhs, added) { upsert(out, member) }
+        for member in elements(rhs, removed) { if !contains(lhs, member) { discard(out, member) } }
+    }
+}
+fn keys_of<K, V>(ts: map<K, V>) -> set<K> {
+    inject out
+    when { for key in keys(ts, added) { insert(out, key) } }
+}
+export fn union_i64(lhs: set<i64>, rhs: set<i64>) -> set<i64> => union_of(lhs, rhs)
+export fn keys_str(ts: map<str, f64>) -> set<str> => keys_of(ts)
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    const std::string code = emitted->header + emitted->source;
+    CHECK(contains(code, "#include <hgl/generic_collections.h>"));
+    CHECK(contains(code, "hgl::generic::set(lhs).added()"));
+    CHECK(contains(code, "hgl::generic::set(lhs).contains("));
+    CHECK(contains(code, "hgl::generic::upsert(hgl_output"));
+    CHECK(contains(code, "hgl::generic::insert(hgl_output"));
+    // The typed selectors' member conversion would name the pattern itself.
+    CHECK_FALSE(contains(code, "checked_as<hgraph::ScalarVar<"));
+}
+
+TEST_CASE("map outputs with a generic key are rejected instead of emitting uncompilable C++", "[codegen][generic]") {
+    Unit unit{R"(
+module tests.generic_map_output
+fn put<K>(key: K, value: i64) -> map<K, i64> {
+    inject out
+    when { upsert(out, key, value) }
+}
+export fn put_i64(key: i64, value: i64) -> map<i64, i64> => put(key, value)
+)"};
+    CHECK_FALSE(unit.emit());
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK(contains(unit.diagnostics.render(unit.file), "'upsert' on a map output with a generic key type is not supported"));
+}
+
 TEST_CASE("generic retained observer plans project const argument schemas before start", "[codegen][temporal]") {
     Unit unit{R"(
 module tests.retained_observer
