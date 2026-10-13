@@ -6262,16 +6262,19 @@ namespace hgl::codegen
                                         const Value index_value = eval_planned_expr(index->index, frame);
                                         const Value value       = eval_planned_expr(node.value, frame);
                                         use("hgl_output");
-                                        out.line("{");
-                                        out.line("    const hgraph::Int hgl_index = " +
+                                        out.open("");
+                                        out.line("const hgraph::Int hgl_index = " +
                                                  as_runtime(index_value, scalar_type(hir::ScalarType::I64), index_value.range,
                                                             "output index") + ";");
-                                        out.line("    if (hgl_index < 0 || static_cast<std::size_t>(hgl_index) >= hgl_output.size()) {");
-                                        out.line("        throw std::out_of_range(\"output list index is outside the list\");");
-                                        out.line("    }");
-                                        out.line("    hgl_output[static_cast<std::size_t>(hgl_index)].set(" +
-                                                 as_runtime(value, result.children[0], value.range, "output value") + ");");
-                                        out.line("}");
+                                        out.open("if (hgl_index < 0 || static_cast<std::size_t>(hgl_index) >= hgl_output.size())");
+                                        out.line("throw std::out_of_range(\"output list index is outside the list\");");
+                                        out.close();
+                                        // Publish through the general output path, so a structural
+                                        // child (a list, map, set, or bundle) is reconciled rather
+                                        // than set as one scalar.
+                                        out.line("auto hgl_list_child = hgl_output[static_cast<std::size_t>(hgl_index)];");
+                                        emit_output_value(value, result.children[0], "hgl_list_child", out);
+                                        out.close();
                                         return;
                                     }
                                     if (result.kind != HType::Kind::Map || result.children.size() != 2U) {

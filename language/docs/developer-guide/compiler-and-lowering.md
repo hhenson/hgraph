@@ -2033,8 +2033,9 @@ expression is read from the syntax tree.
   `modified`, `added`, or `removed` views. A concise iterator predicate is
   inlined as a readable loop guard. Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta. On a list
-  output `out[index] = value` sets that existing child through
-  `out[index].set(...)`, a reference child included; an index outside the
+  output `out[index] = value` publishes that existing child through the same
+  path as a whole output, so a reference, list, map, set, or bundle child
+  is reconciled as `return` would reconcile it; an index outside the
   current length raises, as `invalidate(out, index)` does, because only `push`
   and `pop` change the length.
 - **Exact native value and input-view calls.** Explicit module descriptors

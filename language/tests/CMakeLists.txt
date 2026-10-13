@@ -1066,7 +1066,7 @@ if(UNIX)
         NAME hgraph_language_test_list_output_writes
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/list-output-writes.hgl
     )
-    set_tests_properties(hgraph_language_test_list_output_writes PROPERTIES PASS_REGULAR_EXPRESSION "5 tests, 0 failed")
+    set_tests_properties(hgraph_language_test_list_output_writes PROPERTIES PASS_REGULAR_EXPRESSION "6 tests, 0 failed")
     add_test(NAME hgraph_language_test_nested_reference_fields
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/nested-reference-fields.hgl)
     set_tests_properties(hgraph_language_test_nested_reference_fields PROPERTIES

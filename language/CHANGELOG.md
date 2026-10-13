@@ -3,7 +3,8 @@
 ## Unreleased
 
 - Accept `out[index] = value` on a fixed or unbounded list output in a
-  runtime body: it writes that existing child, including a reference child,
+  runtime body: it publishes that existing child as a whole output would,
+  including a reference, list, map, set, or bundle child,
   and repeated writes keep the last value, as the developer guide specifies
   for writes to collection children. An index outside the list raises. The
   C++ backend used to reject the write ("indexed output assignment currently
