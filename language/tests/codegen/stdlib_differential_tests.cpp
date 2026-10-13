@@ -276,8 +276,29 @@ namespace
         }
     };
 
+    /** Which generated case a comparison runs: its index and the key its inputs
+        were seeded from. Several domains often share one draw (a stream's five
+        operators, a source's const and default), so the key can differ from the
+        domain reported; an empty key means the domain itself. */
+    struct Generated
+    {
+        std::size_t index{};
+        std::string seed_key{};
+
+        Generated(std::size_t case_index) : index{case_index} {}  // NOLINT(google-explicit-constructor)
+        Generated(std::string key, std::size_t case_index) : index{case_index}, seed_key{std::move(key)} {}
+    };
+
+    /** The mismatch heading: the domain, the case, and the seed that drew its inputs. */
+    [[nodiscard]] std::string case_heading(std::string_view domain, const Generated &generated) {
+        const std::string key = generated.seed_key.empty() ? std::string{domain} : generated.seed_key;
+        std::ostringstream text;
+        text << domain << " case " << generated.index << " (seed " << seed_for(key, generated.index) << " from '" << key << "')";
+        return text.str();
+    }
+
     template <typename Hgl, typename Native, typename... Args>
-    void compare(Report &report, std::string_view domain, std::size_t index, const Args &...args) {
+    void compare(Report &report, std::string_view domain, const Generated &generated, const Args &...args) {
         const Outcome hgl    = run<Hgl>(args...);
         const Outcome native = run<Native>(args...);
         ++report.compared;
@@ -287,7 +308,7 @@ namespace
         }
         if (!hgl.threw && !native.threw && same_ticks(hgl, native)) { return; }
         std::ostringstream text;
-        text << domain << " case " << index << " (seed " << seed_for(domain, index) << ")";
+        text << case_heading(domain, generated);
         ((text << "\n  input:  " << render_input(args)), ...);
         text << "\n  hgl:    " << render(hgl) << "\n  native: " << render(native);
         report.mismatches.push_back(text.str());
@@ -300,7 +321,8 @@ namespace
     /** As ``compare``, with explicit input schemas for inputs whose harness
         element is a type-erased ``Value`` (sets and maps). */
     template <typename Hgl, typename Native, typename... Schemas, typename... Args>
-    void compare_typed(Report &report, std::string_view domain, std::size_t index, schemas<Schemas...>, const Args &...args) {
+    void compare_typed(Report &report, std::string_view domain, const Generated &generated, schemas<Schemas...>,
+                       const Args &...args) {
         const Outcome hgl    = run<Hgl, Schemas...>(args...);
         const Outcome native = run<Native, Schemas...>(args...);
         ++report.compared;
@@ -310,7 +332,7 @@ namespace
         }
         if (!hgl.threw && !native.threw && same_ticks(hgl, native)) { return; }
         std::ostringstream text;
-        text << domain << " case " << index << " (seed " << seed_for(domain, index) << ")";
+        text << case_heading(domain, generated);
         ((text << "\n  input:  " << render_input(args)), ...);
         text << "\n  hgl:    " << render(hgl) << "\n  native: " << render(native);
         report.mismatches.push_back(text.str());
@@ -556,15 +578,16 @@ namespace
             const auto name = [&](std::string_view op) { return domain_name(op, type); };
             for (const std::string_view op : {"sample", "drop", "filter_", "take", "freeze"}) { cover(name(op)); }
             for (std::size_t i = 0; i < case_count(); ++i) {
-                Rng rng{seed_for(name("stream"), i)};
+                const Generated generated{name("stream"), i};
+                Rng             rng{seed_for(generated.seed_key, i)};
                 const auto ticks     = sequence<T>(rng, Spread::Any);
                 const auto condition = sequence<Bool>(rng, Spread::Any);
                 const Int count      = std::uniform_int_distribution<Int>(-1, 8)(rng);
-                compare<standard::sample, stdlib::sample>(report, name("sample"), i, condition, ticks);
-                compare<standard::drop, stdlib::drop>(report, name("drop"), i, ticks, count);
-                compare<standard::filter_, stdlib::filter_>(report, name("filter_"), i, condition, ticks);
-                compare<standard::take, stdlib::take>(report, name("take"), i, ticks, count);
-                compare<standard::freeze, stdlib::freeze>(report, name("freeze"), i, condition, ticks);
+                compare<standard::sample, stdlib::sample>(report, name("sample"), generated, condition, ticks);
+                compare<standard::drop, stdlib::drop>(report, name("drop"), generated, ticks, count);
+                compare<standard::filter_, stdlib::filter_>(report, name("filter_"), generated, condition, ticks);
+                compare<standard::take, stdlib::take>(report, name("take"), generated, ticks, count);
+                compare<standard::freeze, stdlib::freeze>(report, name("freeze"), generated, condition, ticks);
             }
         }
     };
@@ -579,6 +602,15 @@ namespace
     };
 }  // namespace
 
+TEST_CASE("differential: a mismatch names the seed that drew its inputs", "[codegen][differential]") {
+    // The five stream operators share one draw seeded from the stream key.
+    const std::string shared = case_heading("sample(i64)", Generated{"stream(i64)", 3});
+    CHECK(shared.find("seed " + std::to_string(seed_for("stream(i64)", 3)) + " from 'stream(i64)'") != std::string::npos);
+    // A domain that seeds its own draw reports itself.
+    const std::string own = case_heading("dedup(i64)", Generated{7});
+    CHECK(own.find("seed " + std::to_string(seed_for("dedup(i64)", 7)) + " from 'dedup(i64)'") != std::string::npos);
+}
+
 TEST_CASE("differential: scalar stream operators match the native operators", "[codegen][differential]") {
     register_catalogue();
     Report report;
@@ -586,19 +618,21 @@ TEST_CASE("differential: scalar stream operators match the native operators", "[
     each_scalar<DedupBody>(report);
     cover("dedup_float(f64,f64)");
     for (std::size_t i = 0; i < case_count(); ++i) {
-        Rng rng{seed_for("dedup_float", i)};
+        const Generated generated{"dedup_float", i};
+        Rng             rng{seed_for(generated.seed_key, i)};
         const auto ticks    = sequence<Float>(rng, Spread::Small);
         const Float abs_tol = pick<Float>(rng, {0.0, 0.25, 0.5, 1.0});
-        compare<standard::dedup_float, stdlib::dedup>(report, "dedup_float(f64,f64)", i, ticks, abs_tol);
+        compare<standard::dedup_float, stdlib::dedup>(report, "dedup_float(f64,f64)", generated, ticks, abs_tol);
     }
     cover("until_true(bool)");
     unary<standard::until_true, stdlib::until_true, Bool>(report, "until_true(bool)");
     cover("if_true(bool,bool)");
     for (std::size_t i = 0; i < case_count(); ++i) {
-        Rng rng{seed_for("if_true", i)};
+        const Generated generated{"if_true", i};
+        Rng             rng{seed_for(generated.seed_key, i)};
         const auto ticks = sequence<Bool>(rng, Spread::Any);
-        compare<standard::if_true, stdlib::if_true>(report, "if_true(bool,bool)", i, ticks, Bool{false});
-        compare<standard::if_true, stdlib::if_true>(report, "if_true(bool,bool)", i, ticks, Bool{true});
+        compare<standard::if_true, stdlib::if_true>(report, "if_true(bool,bool)", generated, ticks, Bool{false});
+        compare<standard::if_true, stdlib::if_true>(report, "if_true(bool,bool)", generated, ticks, Bool{true});
     }
     report.check();
 }
@@ -617,12 +651,13 @@ TEST_CASE("differential: folds and running extrema match the native operators", 
     cover("sum_reset(i64,bool)");
     cover("sum_reset(f64,bool)");
     for (std::size_t i = 0; i < case_count(); ++i) {
-        Rng rng{seed_for("sum_reset", i)};
+        const Generated generated{"sum_reset", i};
+        Rng             rng{seed_for(generated.seed_key, i)};
         const auto integers = sequence<Int>(rng, Spread::Arith);
         const auto floating = sequence<Float>(rng, Spread::Any);
         const auto reset    = sequence<Bool>(rng, Spread::Any);
-        compare<standard::sum_reset, stdlib::sum_>(report, "sum_reset(i64,bool)", i, integers, reset);
-        compare<standard::sum_reset, stdlib::sum_>(report, "sum_reset(f64,bool)", i, floating, reset);
+        compare<standard::sum_reset, stdlib::sum_>(report, "sum_reset(i64,bool)", generated, integers, reset);
+        compare<standard::sum_reset, stdlib::sum_>(report, "sum_reset(f64,bool)", generated, floating, reset);
     }
 #define HGL_RUNNING(OP, A, TYPE)                                                                                       \
     do {                                                                                                               \
@@ -712,15 +747,16 @@ namespace
             cover(domain_name("const", type));
             cover(domain_name("default", type));
             for (std::size_t i = 0; i < case_count(); ++i) {
-                Rng rng{seed_for(domain_name("sources", type), i)};
+                const Generated generated{domain_name("sources", type), i};
+                Rng             rng{seed_for(generated.seed_key, i)};
                 const T value = draw<T>(rng, Spread::Any);
                 // The native const takes its delay after a type argument, so only
                 // the value form compares positionally; the HGL delay is checked in
                 // hgraph_std tests/control.hgl.
-                compare<standard::const_, stdlib::const_>(report, domain_name("const", type), i, value);
+                compare<standard::const_, stdlib::const_>(report, domain_name("const", type), generated, value);
                 const auto ts       = sequence<T>(rng, Spread::Any);
                 const auto fallback = sequence<T>(rng, Spread::Any);
-                compare<standard::default_, stdlib::default_>(report, domain_name("default", type), i, ts, fallback);
+                compare<standard::default_, stdlib::default_>(report, domain_name("default", type), generated, ts, fallback);
             }
         }
     };
@@ -734,13 +770,14 @@ namespace
             cover(item_domain);
             cover(subset_domain);
             for (std::size_t i = 0; i < case_count(); ++i) {
-                Rng rng{seed_for(item_domain, i)};
+                const Generated generated{item_domain, i};
+                Rng             rng{seed_for(generated.seed_key, i)};
                 const auto members = universe<T>(rng, 4);
                 const auto sets    = set_sequence<T>(rng, members);
                 const auto subsets = set_sequence<T>(rng, members);
                 const auto items   = drawn_from<T>(rng, members);
-                compare_typed<standard::contains_, stdlib::contains_>(report, item_domain, i, schemas<TSS<T>>{}, sets, items);
-                compare_typed<standard::contains_, stdlib::contains_>(report, subset_domain, i, schemas<TSS<T>, TSS<T>>{},
+                compare_typed<standard::contains_, stdlib::contains_>(report, item_domain, generated, schemas<TSS<T>>{}, sets, items);
+                compare_typed<standard::contains_, stdlib::contains_>(report, subset_domain, generated, schemas<TSS<T>, TSS<T>>{},
                                                                       sets, subsets);
             }
         }
@@ -760,13 +797,14 @@ namespace
         template <typename V> void values_of(Report &report, std::string_view key_type, std::string_view value_type) const {
             const std::string domain = std::string{key_type} + "->" + std::string{value_type};
             for (std::size_t i = 0; i < std::max<std::size_t>(case_count() / 4, 2); ++i) {
-                Rng rng{seed_for("keyed " + domain, i)};
+                const Generated generated{"keyed " + domain, i};
+                Rng             rng{seed_for(generated.seed_key, i)};
                 const auto keys   = drawn_from<K>(rng, universe<K>(rng, 3));
                 const auto values = sequence<V>(rng, Spread::Any, keys.size());
                 const auto remove = sequence<Bool>(rng, Spread::Any, keys.size());
-                compare<standard::collect_map, NativeCollect<K, V>>(report, "collect_map " + domain, i, keys, values);
-                compare<standard::make_tsd, stdlib::make_tsd>(report, "make_tsd " + domain, i, keys, values);
-                compare<standard::make_tsd_remove, stdlib::make_tsd>(report, "make_tsd_remove " + domain, i, keys, values,
+                compare<standard::collect_map, NativeCollect<K, V>>(report, "collect_map " + domain, generated, keys, values);
+                compare<standard::make_tsd, stdlib::make_tsd>(report, "make_tsd " + domain, generated, keys, values);
+                compare<standard::make_tsd_remove, stdlib::make_tsd>(report, "make_tsd_remove " + domain, generated, keys, values,
                                                                      remove);
             }
         }
