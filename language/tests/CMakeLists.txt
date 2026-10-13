@@ -1084,7 +1084,7 @@ if(UNIX)
         NAME hgraph_language_test_output_reads
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/output-reads.hgl
     )
-    set_tests_properties(hgraph_language_test_output_reads PROPERTIES PASS_REGULAR_EXPRESSION "3 tests, 0 failed")
+    set_tests_properties(hgraph_language_test_output_reads PROPERTIES PASS_REGULAR_EXPRESSION "4 tests, 0 failed")
     add_test(NAME hgraph_language_test_nested_reference_fields
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/nested-reference-fields.hgl)
     set_tests_properties(hgraph_language_test_nested_reference_fields PROPERTIES

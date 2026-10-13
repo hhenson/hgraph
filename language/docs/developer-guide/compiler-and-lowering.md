@@ -2054,7 +2054,9 @@ expression is read from the syntax tree.
   current length raises, as `invalidate(out, index)` does, because only `push`
   and `pop` change the length. Reading the output back (`out[index]`, `elements(out)`,
   `items(out)`) goes through the output's erased child views, so a concrete
-  element is converted to its declared type as an input read is.
+  scalar element is converted to its declared type as an input read is, and
+  a nominal element (an enum, a native scalar, `Any`) is borrowed as an
+  ordinary value.
 - **Exact native value and input-view calls.** Explicit module descriptors
   form a data-only import catalog. A top-level source `native fn` enters the
   same candidate model, retaining its HGL signature and opaque balanced C++

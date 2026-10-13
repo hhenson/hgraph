@@ -786,6 +786,12 @@ namespace hgl::codegen
                        type.kind == HType::Kind::List || type.kind == HType::Kind::Struct || type.kind == HType::Kind::Tuple ||
                        type.kind == HType::Kind::Delta || type.kind == HType::Kind::Set || type.kind == HType::Kind::Map;
             }
+            /// Output children read through erased views; a nominal child (an enum, a
+            /// native scalar, Any) has no typed conversion and is borrowed as an
+            /// ordinary value instead.
+            [[nodiscard]] static bool nominal_output_child(const HType &type) {
+                return type.kind == HType::Kind::Native || type.kind == HType::Kind::Enum || type.is(hir::ScalarType::Any);
+            }
             [[nodiscard]] static bool ordinary_scalar_variable(const HType &type) {
                 return ordinary_aggregate(type) && type.kind != HType::Kind::List && type.kind != HType::Kind::Delta;
             }
@@ -3783,6 +3789,13 @@ namespace hgl::codegen
                                 return result;
                             }
                             const HType &element = target.type.children.front();
+                            if (target.output_selector && (element.kind == HType::Kind::Native || element.kind == HType::Kind::Enum)) {
+                                // A nominal output child is borrowed as an ordinary value.
+                                auto result           = make_runtime(selector + ".value()", element, expression.range, selector);
+                                result.ordinary_value = true;
+                                result.borrowed_value = true;
+                                return result;
+                            }
                             if (target.output_selector && element.kind == HType::Kind::Scalar) {
                                 // An output child reads through the erased view; an
                                 // input child's typed selector converts for itself.
@@ -6654,7 +6667,13 @@ namespace hgl::codegen
                             value.kind  = Value::Kind::Runtime;
                             value.type  = type;
                             value.range = statement.range;
-                            if (endpoint) {
+                            if (endpoint && iterator.output_selector && nominal_output_child(type)) {
+                                // A nominal output child is borrowed as an ordinary value.
+                                value.selector       = raw;
+                                value.code           = raw + ".value()";
+                                value.ordinary_value = true;
+                                value.borrowed_value = true;
+                            } else if (endpoint) {
                                 value.selector = raw;
                                 // A generic element has no C++ type to convert to. Output
                                 // children read through the erased view, so they convert too.
@@ -6668,6 +6687,11 @@ namespace hgl::codegen
                             } else if (map_key) {
                                 // A generic key has no concrete C++ type to convert to.
                                 value.code = symbolic(type) ? raw : raw + ".checked_as<" + value_type(type, statement.range) + ">()";
+                            } else if (iterator.type.kind == HType::Kind::Set && iterator.output_selector && nominal_output_child(type)) {
+                                // A nominal set output member is borrowed as an ordinary value.
+                                value.code           = raw;
+                                value.ordinary_value = true;
+                                value.borrowed_value = true;
                             } else if (iterator.type.kind == HType::Kind::Set && iterator.output_selector && !symbolic(type)) {
                                 // A set output's members are erased views.
                                 value.code = raw + ".checked_as<" + value_type(type, statement.range) + ">()";

@@ -4,6 +4,8 @@ module checks.output_reads
 # Output children are erased views, so generated reads convert them to the
 # declared element type as input reads do.
 
+enum Mode { idle, busy }
+
 # Each child ticks only when its value changes.
 export fn digits(value: i64) -> list<i64, 2> {
     inject out
@@ -45,6 +47,29 @@ export fn doubled_total(ts: map<str, i64>) -> map<str, i64> {
     }
 }
 
+# Nominal children (an enum here) are borrowed as ordinary values.
+export fn mode_by_name(book: map<str, Mode>) -> map<str, Mode> {
+    inject out
+    when {
+        for key, value in items(book, modified) {
+            var changed = true
+            for existing, mode in items(out) { if existing == key && valid(mode) && mode == value { changed = false } }
+            if changed { out[key] = value }
+        }
+    }
+}
+
+export fn distinct_modes(book: map<str, Mode>) -> set<Mode> {
+    inject out
+    when {
+        for key, value in items(book, modified) {
+            var present = false
+            if valid(out) { for existing in elements(out) { if existing == value { present = true } } }
+            if !present { upsert(out, value) }
+        }
+    }
+}
+
 test fixed_list_children_read_back {
     assert eval(digits, value: [12, 13, 23, 23]) == [
         delta<list<i64, 2>>(items: [0: 1, 1: 2]),
@@ -63,4 +88,13 @@ test set_members_read_back {
 test map_values_read_back {
     assert eval(doubled_total, ts: [delta<map<str, i64>>(upsert: ["big": 40, "small": 1]), delta<map<str, i64>>(upsert: ["small": 20])])
         == [delta<map<str, i64>>(upsert: ["big": 80, "small": 2]), delta<map<str, i64>>(upsert: ["small": 40], remove: ["big"])]
+}
+
+test enum_children_read_back {
+    assert eval(mode_by_name, book: [delta<map<str, Mode>>(upsert: ["a": Mode::idle]), delta<map<str, Mode>>(upsert: ["a": Mode::idle]),
+                                     delta<map<str, Mode>>(upsert: ["a": Mode::busy])])
+        == [delta<map<str, Mode>>(upsert: ["a": Mode::idle]), _, delta<map<str, Mode>>(upsert: ["a": Mode::busy])]
+    assert eval(distinct_modes, book: [delta<map<str, Mode>>(upsert: ["a": Mode::idle]), delta<map<str, Mode>>(upsert: ["b": Mode::idle]),
+                                       delta<map<str, Mode>>(upsert: ["c": Mode::busy])])
+        == [delta<set<Mode>>(added: [Mode::idle]), _, delta<set<Mode>>(added: [Mode::busy])]
 }
