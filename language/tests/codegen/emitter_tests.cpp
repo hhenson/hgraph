@@ -3110,7 +3110,7 @@ export fn sinks(book: map<str, f64>, offset: f64) {
     CHECK(occurrences(emitted->header, "hgl_state.field<\"unused\">();") == 1U);
     // The loop reads no element, so it iterates without binding one.
     CHECK_FALSE(contains(emitted->header, "hgl_value_item"));
-    CHECK(contains(emitted->header, "auto &&hgl_range_1 = values.values();"));
+    CHECK(contains(emitted->header, "decltype(auto) hgl_range_1 = values.values();"));
     CHECK(contains(emitted->header, "for (auto hgl_it_1 = std::begin(hgl_range_1), hgl_end_1 = std::end(hgl_range_1); "
                                     "hgl_it_1 != hgl_end_1; ++hgl_it_1)"));
     CHECK_FALSE(contains(emitted->header + emitted->source, "static_cast<void>(hgl_"));

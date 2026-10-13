@@ -936,12 +936,15 @@ namespace hgl::codegen
             [[nodiscard]] gir::BindingUses reachable_in(gir::BlockId block) const { return gir::binding_uses(graph_, block); }
             /// Open a loop over a range whose elements the body never reads: no
             /// element binding, so nothing is unused. The range is bound first so
-            /// a temporary range object outlives the iteration.
+            /// a temporary range object outlives the iteration. decltype(auto)
+            /// holds a returned range by value and an lvalue range by reference;
+            /// `auto &&` on a range returned from a temporary view (such as
+            /// `key_set().values()`) trips GCC's -Wdangling-reference.
             void open_unbound_loop(const std::string &range, Writer &out) {
                 const std::string suffix = std::to_string(++unbound_loop_index_);
                 const std::string it     = "hgl_it_" + suffix;
                 const std::string end    = "hgl_end_" + suffix;
-                out.line("auto &&hgl_range_" + suffix + " = " + range + ";");
+                out.line("decltype(auto) hgl_range_" + suffix + " = " + range + ";");
                 out.open("for (auto " + it + " = std::begin(hgl_range_" + suffix + "), " + end + " = std::end(hgl_range_" + suffix +
                          "); " + it + " != " + end + "; ++" + it + ")");
             }
