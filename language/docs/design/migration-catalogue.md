@@ -27,6 +27,20 @@ unreviewed candidate stays unreviewed, rather than acquiring an invented
 blocker. New declarations and registration sites invalidate the checked
 catalogue so additions cannot silently disappear from the migration plan.
 
+The review status must agree with the sources. An implemented or
+implemented-slice row needs an authored HGL body; a blocked or unreviewed row
+must not have one, so a body the library already authors is reviewed as a
+slice, or kept `native-provider` with the reason it does not count (a test form
+with a different contract, for example). `implemented` claims the whole
+candidate family, so a row that still names a blocker is a slice. The check
+rejects each disagreement.
+
+Authored scalar domains are also compared against the native operators they
+re-implement, over generated tick sequences, by the standard library
+differential in `language/tests/codegen/stdlib_differential_tests.cpp`; its
+ratchet requires every scalar `instantiate` entry and concrete `impl fn` in the
+hgraph_std implementation sources to be compared or excluded with a reason.
+
 Overload-specific parallel names (for example `sum_reset` and `dedup_float`)
 may preserve an admitted algorithm when HGL cannot yet combine its signature
 with the main family. Record the native identity, parameter/default differences,
