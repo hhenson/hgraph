@@ -2045,7 +2045,11 @@ expression is read from the syntax tree.
   element type with one node: its generic inputs, fixed-list elements, and
   `out` read as value views, its erased `Out<TsVar>` output is written with
   `apply`, and comparisons between generic values go through
-  `hgl::ordinary::checked_equals`/`checked_compare` on the payloads.
+  `hgl::ordinary::checked_equals`/`checked_compare` on the payloads. `str(value)`
+  wires `str_` in composition (typed as `TS<str>`), formats a typed scalar
+  through its value ops in a runtime body, and formats a generic value view or
+  an enum through `hgl::ordinary::text`, which uses the same ops and returns a
+  string payload unchanged.
   Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta. On a list
   output `out[index] = value` publishes that existing child through the same

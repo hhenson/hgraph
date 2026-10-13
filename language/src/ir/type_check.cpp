@@ -4988,7 +4988,13 @@ namespace hgl::ir
                     for (ExprId argument : args) {
                         Expr &value = check_expr(argument);
                         const TypeId id = canonical(value.type);
-                        if (!id.valid() || type(id).kind != TypeKind::Scalar) {
+                        // A type parameter and an enum are scalar payloads too: the
+                        // syntax guide defines str(Mode::first) and str of a generic value.
+                        const bool symbolic_scalar =
+                            id.valid() && type(id).kind == TypeKind::Symbol && type(id).symbol.valid() &&
+                            (module_.symbol(type(id).symbol).kind == SymbolKind::TypeParameter ||
+                             module_.symbol(type(id).symbol).kind == SymbolKind::Enum);
+                        if (!id.valid() || (type(id).kind != TypeKind::Scalar && !symbolic_scalar)) {
                             type_error(value.range, "str requires a readable scalar value");
                         }
                     }

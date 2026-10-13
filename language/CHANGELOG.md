@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `str(value)` accepts a generic value and an enum value, as the syntax guide
+  specifies (`str(Mode::first)` is `"first"`), and a composition `str(ts)`
+  compiles. The checker rejected both operands ("str requires a readable
+  scalar value"), and the wired form returned an untyped port that the
+  generated C++ could not convert. Every form now agrees with hgraph's
+  `str_`.
 - A runtime body can read back the children of its own collection output:
   `out[index]` on a list, `elements(out)` on a set, and `items(out)` on a
   map now convert each child to its declared type. Generated code compared

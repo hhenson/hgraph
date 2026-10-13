@@ -4794,7 +4794,22 @@ namespace hgl::codegen
                 if (call.arguments.size() != 1U) { backend(range, "str requires exactly one scalar argument"); }
                 const Value value = eval_planned_expr(call.arguments.front().value, frame);
                 if (value.type.is(hir::ScalarType::Str)) { return value; }
-                if (value.is_port()) { return wire("hgraph::stdlib::str_", {value.code}, range, scalar_type(hir::ScalarType::Str)); }
+                if (value.is_port()) {
+                    // str_ is generic over its input, so name the typed result
+                    // the function returns, as a binary operator's result is.
+                    Value wired = wire("hgraph::stdlib::str_", {value.code}, range, scalar_type(hir::ScalarType::Str));
+                    wired.code += ".as<" + schema(scalar_type(hir::ScalarType::Str), range) + ">()";
+                    return wired;
+                }
+                if (value.type.kind == HType::Kind::Generic || value.type.kind == HType::Kind::Enum) {
+                    // A generic value is a view and an enum an ordinary value; both
+                    // format through the same value ops as a typed scalar.
+                    const std::string view = value.type.kind == HType::Kind::Generic && !value.ordinary_value ? value.code
+                                                                                                                : ordinary_view(value);
+                    const std::string code = "hgl::ordinary::text(" + view + ")";
+                    return value.is_const() ? make_const(code, scalar_type(hir::ScalarType::Str), range)
+                                            : make_runtime(code, scalar_type(hir::ScalarType::Str), range);
+                }
                 if (value.type.kind != HType::Kind::Scalar) { backend(range, "str requires a checked ordinary scalar"); }
                 const std::string native = value_type(value.type, range);
                 const std::string code = "([](const " + native + " &hgl_scalar) { return hgraph::value_ops_detail::to_string_thunk<" +
