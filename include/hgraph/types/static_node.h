@@ -223,9 +223,12 @@ namespace hgraph
         if (!t_binding || !bundle_binding) { throw std::logic_error("set_delta: unresolved binding"); }
 
         SetBuilder added_set{t_binding};
-        for (const auto &e : added) { (void)added_set.insert(e); }
+        // By value: SetBuilder::insert copies from the argument's address, and a
+        // std::vector<bool> element is a bit proxy, not a bool, so a reference
+        // to it would copy the proxy's bytes (every member read back as true).
+        for (const TValue e : added) { (void)added_set.insert(e); }
         SetBuilder removed_set{t_binding};
-        for (const auto &e : removed) { (void)removed_set.insert(e); }
+        for (const TValue e : removed) { (void)removed_set.insert(e); }
 
         BundleBuilder bundle{bundle_binding};
         bundle.set("added", added_set.build());

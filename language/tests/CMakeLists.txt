@@ -765,6 +765,21 @@ hgl_link_runtime_executable(hgl_generated_tests)
 hgl_apply_warnings(hgl_generated_tests)
 
 add_test(NAME hgraph_language_generated COMMAND hgl_generated_tests)
+
+# Every scalar domain of the compiled HGL standard library against the native
+# operator it re-implements, over seeded generated tick sequences; a ratchet
+# reads the hgraph_std implementation sources so new domains must be compared.
+add_executable(hgl_stdlib_differential_tests codegen/stdlib_differential_tests.cpp)
+target_compile_features(hgl_stdlib_differential_tests PRIVATE cxx_std_23)
+target_compile_definitions(hgl_stdlib_differential_tests PRIVATE HGL_STD_IMPL_DIR="${HGRAPH_STD}/impl")
+target_link_libraries(hgl_stdlib_differential_tests PRIVATE
+    hgl::standard_library
+    hgl::wiring
+    Catch2::Catch2WithMain
+)
+hgl_link_runtime_executable(hgl_stdlib_differential_tests)
+hgl_apply_warnings(hgl_stdlib_differential_tests)
+add_test(NAME hgraph_language_stdlib_differential COMMAND hgl_stdlib_differential_tests)
 unset(_hgl_generated_test_sources)
 unset(_hgl_generated_test_libraries)
 
