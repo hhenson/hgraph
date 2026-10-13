@@ -71,13 +71,31 @@ namespace hgl::generic
             return static_cast<const hgraph::TSDOutputView &>(out).contains(key);
         }
 
-        /** Write a child: a value view (a generic payload) applies; a typed value stages and sets. */
+        /** Prepare a child's value before the child exists, so a failure leaves the
+            map untouched: a value view (a generic payload) and an owned value (an
+            atomic collection) are already complete; a typed value is staged. */
         template <typename TValueSchema, typename TValue>
-        void write(const hgraph::Out<TValueSchema> &child, TValue &&value) {
-            if constexpr (std::is_convertible_v<TValue &&, const hgraph::ValueView &>) {
-                child.apply(value);
+        [[nodiscard]] auto stage(TValue &&value) {
+            using Plain = std::remove_cvref_t<TValue>;
+            if constexpr (std::is_same_v<Plain, hgraph::Value>) {
+                return hgraph::Value{std::forward<TValue>(value)};
+            } else if constexpr (std::is_convertible_v<TValue &&, const hgraph::ValueView &>) {
+                return hgraph::ValueView{value};
             } else {
-                child.set(hgraph::output_mutation_detail::stage<TValueSchema>(std::forward<TValue>(value)));
+                return hgraph::output_mutation_detail::stage<TValueSchema>(std::forward<TValue>(value));
+            }
+        }
+
+        /** Publish a staged value into its child. */
+        template <typename TValueSchema, typename TStaged>
+        void commit(const hgraph::Out<TValueSchema> &child, TStaged &&staged) {
+            using Plain = std::remove_cvref_t<TStaged>;
+            if constexpr (std::is_same_v<Plain, hgraph::Value>) {
+                child.apply(staged.view());
+            } else if constexpr (std::is_same_v<Plain, hgraph::ValueView>) {
+                child.apply(staged);
+            } else {
+                child.set(std::forward<TStaged>(staged));
             }
         }
     }  // namespace detail
@@ -86,8 +104,9 @@ namespace hgl::generic
     template <typename TKey, typename TValueSchema, typename TValue>
     void insert(const hgraph::Out<hgraph::TSD<TKey, TValueSchema>> &out, const hgraph::ValueView &key, TValue &&value) {
         if (detail::contains(out, key)) { throw std::invalid_argument("insert requires an absent TSD key"); }
+        auto staged   = detail::stage<TValueSchema>(std::forward<TValue>(value));
         auto rollback = hgraph::make_scope_exit<true>([&] { static_cast<void>(detail::map_mutation(out).erase(key)); });
-        detail::write(detail::child(out, key), std::forward<TValue>(value));
+        detail::commit(detail::child(out, key), std::move(staged));
         rollback.release();
     }
 
@@ -95,17 +114,19 @@ namespace hgl::generic
     template <typename TKey, typename TValueSchema, typename TValue>
     void update(const hgraph::Out<hgraph::TSD<TKey, TValueSchema>> &out, const hgraph::ValueView &key, TValue &&value) {
         if (!detail::contains(out, key)) { throw std::out_of_range("update requires a present TSD key"); }
-        detail::write(out.at_slot(static_cast<const hgraph::TSDOutputView &>(out).find_slot(key)), std::forward<TValue>(value));
+        auto staged = detail::stage<TValueSchema>(std::forward<TValue>(value));
+        detail::commit(out.at_slot(static_cast<const hgraph::TSDOutputView &>(out).find_slot(key)), std::move(staged));
     }
 
     /** Insert or update a map child under a generic key. */
     template <typename TKey, typename TValueSchema, typename TValue>
     void upsert(const hgraph::Out<hgraph::TSD<TKey, TValueSchema>> &out, const hgraph::ValueView &key, TValue &&value) {
+        auto       staged   = detail::stage<TValueSchema>(std::forward<TValue>(value));
         const bool existed  = detail::contains(out, key);
         auto       rollback = hgraph::make_scope_exit<true>([&] {
             if (!existed) { static_cast<void>(detail::map_mutation(out).erase(key)); }
         });
-        detail::write(detail::child(out, key), std::forward<TValue>(value));
+        detail::commit(detail::child(out, key), std::move(staged));
         rollback.release();
     }
 

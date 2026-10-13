@@ -73,6 +73,23 @@ fn counted<K>(ts: map<K, f64>) -> map<K, i64> {
     }
 }
 
+fn shared_members<K>(ts: set<K>, members: atomic<set<i64>>) -> map<K, atomic<set<i64>>> {
+    inject out
+    when modified(ts) {
+        for member in elements(ts, added) { insert(out, member, members) }
+        for member in elements(ts, removed) { remove(out, member) }
+    }
+    when modified(members) {
+        for member in elements(ts) { update(out, member, members) }
+    }
+}
+
+fn copied_or_reset<K>(ts: map<K, f64>, reset: bool) -> map<K, f64> {
+    inject out
+    when modified(ts) { for key, value in items(ts, modified) { out[key] = value } }
+    when modified(reset) { if reset { clear(out) } }
+}
+
 fn member_of<K>(ts: set<K>, item: K) -> bool { when { return contains(ts, item) } }
 fn has_key<K, V>(ts: map<K, V>, key: K) -> bool { when { return contains(ts, key) } }
 fn matches<K>(ts: set<K>, item: K) -> i64 {
@@ -94,6 +111,8 @@ export fn cleared_i64(ts: map<i64, f64>, reset: bool) -> map<i64, f64> => cleare
 export fn tagged_date(ts: set<date>) -> map<date, bool> => tagged(ts)
 export fn copied_str(ts: map<str, f64>) -> map<str, f64> => copied(ts)
 export fn counted_i64(ts: map<i64, f64>) -> map<i64, i64> => counted(ts)
+export fn shared_members_str(ts: set<str>, members: atomic<set<i64>>) -> map<str, atomic<set<i64>>> => shared_members(ts, members)
+export fn copied_or_reset_i64(ts: map<i64, f64>, reset: bool) -> map<i64, f64> => copied_or_reset(ts, reset)
 export fn member_bool(ts: set<bool>, item: bool) -> bool => member_of(ts, item)
 export fn member_str(ts: set<str>, item: str) -> bool => member_of(ts, item)
 export fn has_key_i64(ts: map<i64, f64>, key: i64) -> bool => has_key(ts, key)
@@ -137,4 +156,13 @@ test map_outputs_take_generic_keys {
         == [delta<map<str, f64>>(upsert: ["a": 1.0, "b": 2.0]), delta<map<str, f64>>(upsert: ["a": 3.0], remove: ["b"])]
     assert eval(counted_i64, ts: [delta<map<i64, f64>>(upsert: [1: 1.0]), delta<map<i64, f64>>(upsert: [1: 2.0])])
         == [delta<map<i64, i64>>(upsert: [1: 1]), delta<map<i64, i64>>(upsert: [1: 2])]
+}
+
+test owned_values_and_clear_take_generic_keys {
+    let first: set<i64> = set<i64>(items: [1, 2])
+    let second: set<i64> = set<i64>(items: [3])
+    assert eval(shared_members_str, ts: [delta<set<str>>(added: ["a"]), _], members: [first, second])
+        == [delta<map<str, atomic<set<i64>>>>(upsert: ["a": first]), delta<map<str, atomic<set<i64>>>>(upsert: ["a": second])]
+    assert eval(copied_or_reset_i64, ts: [delta<map<i64, f64>>(upsert: [1: 1.0, 2: 2.0]), _], reset: [false, true])
+        == [delta<map<i64, f64>>(upsert: [1: 1.0, 2: 2.0]), delta<map<i64, f64>>(remove: [1, 2])]
 }

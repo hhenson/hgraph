@@ -4926,15 +4926,14 @@ namespace hgl::codegen
                 Value result;
                 result.kind  = Value::Kind::Void;
                 result.code  = "hgraph::" + name + "(" + join(arguments, ", ") + ")";
-                if ((output.type.kind == HType::Kind::Set || output.type.kind == HType::Kind::Map) &&
-                    symbolic(output.type.children.front()) && name != "clear") {
-                    if (owning_map_value) {
-                        unsupported(range, "'" + name + "' of an atomic collection value under a generic map key");
-                    }
+                const bool generic_key = (output.type.kind == HType::Kind::Set || output.type.kind == HType::Kind::Map) &&
+                                         symbolic(output.type.children.front()) && name != "clear";
+                if (generic_key) {
+                    // The generic mutations stage the value (an owned atomic collection
+                    // included) before they create the child, as the typed facade does.
                     uses_generic_collections_ = true;
                     result.code = "hgl::generic::" + name + "(" + join(arguments, ", ") + ")";
-                }
-                if (owning_map_value) {
+                } else if (owning_map_value) {
                     result.code = "[&]() { auto hgl_key = " + arguments[1] + "; auto hgl_item = " + arguments[2] +
                         "; const bool hgl_existed = hgl_output.contains(hgl_key); ";
                     if (name == "insert") { result.code += "if (hgl_existed) throw std::invalid_argument(\"insert requires an absent TSD key\"); "; }

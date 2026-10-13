@@ -2037,8 +2037,10 @@ expression is read from the syntax tree.
   go through the untyped `TSSInputView`/`TSDInputView`/`TSSOutputView` value
   views (`hgl/generic_collections.h`), keeping the typed helpers' strictness
   and messages. A map output with a generic key is mutated the same way: the
-  child is reached through the map mutation's `at(key)`, a typed value is
-  staged and set, and a generic value view is applied.
+  value is staged first (a typed value through the facade's staging, a
+  generic value view or an owned atomic collection as is), then the child is
+  reached through the map mutation's `at(key)` and the value set or applied,
+  so a failure leaves the map untouched.
   Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta. On a list
   output `out[index] = value` publishes that existing child through the same
