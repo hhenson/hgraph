@@ -2072,20 +2072,105 @@ namespace hgl::ir
                 expression.value_kind = value_kind_for_phase(expression.phase);
             }
 
+            [[nodiscard]] std::optional<ScalarType> scalar_kind(TypeId id) {
+                for (const ScalarType kind : {ScalarType::Date, ScalarType::Time, ScalarType::DateTime, ScalarType::Duration,
+                                              ScalarType::CivilDateTime, ScalarType::ZonedDateTime, ScalarType::ZonedTime,
+                                              ScalarType::TimeZone, ScalarType::I64, ScalarType::F64}) {
+                    if (same(id, scalar(kind))) { return kind; }
+                }
+                return std::nullopt;
+            }
+
+            [[nodiscard]] static bool arithmetic_operator(BinaryOp op) noexcept {
+                return op == BinaryOp::Add || op == BinaryOp::Sub || op == BinaryOp::Mul || op == BinaryOp::Div ||
+                       op == BinaryOp::FloorDiv || op == BinaryOp::Rem;
+            }
+
+            [[nodiscard]] bool temporal_scalar(TypeId id) {
+                const std::optional<ScalarType> kind = scalar_kind(id);
+                return kind && *kind != ScalarType::I64 && *kind != ScalarType::F64;
+            }
+
+            /// The temporal arithmetic table of the developer guide ("Arithmetic
+            /// and comparison"), which follows RFC 0002 and the operators hgraph
+            /// registers: the result scalar, or empty when the pair is undefined.
+            [[nodiscard]] std::optional<ScalarType> temporal_arithmetic_result(BinaryOp op, TypeId lhs_id, TypeId rhs_id) {
+                const std::optional<ScalarType> lhs = scalar_kind(lhs_id);
+                const std::optional<ScalarType> rhs = scalar_kind(rhs_id);
+                if (!lhs || !rhs) { return std::nullopt; }
+                using S = ScalarType;
+                const auto pair = [&](S left, S right) { return *lhs == left && *rhs == right; };
+                switch (op) {
+                    case BinaryOp::Add:
+                        if (pair(S::Duration, S::Duration)) { return S::Duration; }
+                        if (pair(S::DateTime, S::Duration) || pair(S::Duration, S::DateTime)) { return S::DateTime; }
+                        if (pair(S::Date, S::Duration)) { return S::Date; }
+                        if (pair(S::Date, S::Time)) { return S::CivilDateTime; }
+                        if (pair(S::CivilDateTime, S::Duration)) { return S::CivilDateTime; }
+                        if (pair(S::ZonedDateTime, S::Duration) || pair(S::Duration, S::ZonedDateTime)) { return S::ZonedDateTime; }
+                        return std::nullopt;
+                    case BinaryOp::Sub:
+                        if (pair(S::Duration, S::Duration)) { return S::Duration; }
+                        if (pair(S::DateTime, S::Duration)) { return S::DateTime; }
+                        if (pair(S::DateTime, S::DateTime)) { return S::Duration; }
+                        if (pair(S::Date, S::Duration)) { return S::Date; }
+                        if (pair(S::Date, S::Date)) { return S::Duration; }
+                        if (pair(S::CivilDateTime, S::Duration)) { return S::CivilDateTime; }
+                        if (pair(S::CivilDateTime, S::CivilDateTime)) { return S::Duration; }
+                        if (pair(S::ZonedDateTime, S::Duration)) { return S::ZonedDateTime; }
+                        return std::nullopt;
+                    case BinaryOp::Mul:
+                        if (pair(S::Duration, S::I64) || pair(S::Duration, S::F64)) { return S::Duration; }
+                        return std::nullopt;
+                    case BinaryOp::Div:
+                        if (pair(S::Duration, S::I64) || pair(S::Duration, S::F64)) { return S::Duration; }
+                        if (pair(S::Duration, S::Duration)) { return S::F64; }
+                        return std::nullopt;
+                    default: return std::nullopt;
+                }
+            }
+
+            /// The diagnostic for an arithmetic pair with a temporal operand that
+            /// the table leaves undefined, with the developer guide's hints.
+            [[nodiscard]] std::string undefined_temporal_arithmetic(BinaryOp op, TypeId lhs_id, TypeId rhs_id) {
+                using S = ScalarType;
+                const std::optional<S> lhs = scalar_kind(lhs_id);
+                const std::optional<S> rhs = scalar_kind(rhs_id);
+                std::string message = "'" + type_name(lhs_id) + " " + std::string{binary_op_spelling(op)} + " " +
+                                      type_name(rhs_id) + "' is not defined";
+                const auto pair = [&](S left, S right) { return lhs == left && rhs == right; };
+                if (op == BinaryOp::Mul && (pair(S::I64, S::Duration) || pair(S::F64, S::Duration))) {
+                    return message + "; write the duration first";
+                }
+                if (op == BinaryOp::Add && pair(S::DateTime, S::DateTime)) {
+                    return message + "; subtract two instants for a duration";
+                }
+                if (op == BinaryOp::Add && pair(S::Date, S::ZonedTime)) {
+                    // Specified, but hgraph registers no add_ overload to wire or
+                    // kernel to call; accepting it would fail only at run time.
+                    return "'date + zoned_time' is not supported yet: hgraph registers no operator for it; "
+                           "resolve() the civil datetime instead";
+                }
+                if (op == BinaryOp::Sub && pair(S::ZonedDateTime, S::ZonedDateTime)) {
+                    return message + "; subtract the to_instant() of each";
+                }
+                if (lhs == S::Time && (op == BinaryOp::Add || op == BinaryOp::Sub) && (rhs == S::Duration || rhs == S::Time)) {
+                    return message + "; crossing midnight needs a date";
+                }
+                return message;
+            }
+
             [[nodiscard]] TypeId arithmetic_result(BinaryOp op, TypeId lhs, TypeId rhs, syntax::SourceRange range) {
                 if (op == BinaryOp::Add && same(lhs, scalar(ScalarType::Str)) && same(rhs, scalar(ScalarType::Str))) {
                     return scalar(ScalarType::Str);
                 }
-                const TypeId duration = scalar(ScalarType::Duration);
-                const TypeId datetime = scalar(ScalarType::DateTime);
-                if (op == BinaryOp::Add && same(lhs, duration) && same(rhs, duration)) { return duration; }
-                if (op == BinaryOp::Add && same(lhs, datetime) && same(rhs, duration)) { return datetime; }
-                if (op == BinaryOp::Sub && same(lhs, duration) && same(rhs, duration)) { return duration; }
-                if (op == BinaryOp::Sub && same(lhs, datetime) && same(rhs, duration)) { return datetime; }
-                if (op == BinaryOp::Sub && same(lhs, datetime) && same(rhs, datetime)) { return duration; }
-                if (op == BinaryOp::Mul && same(lhs, duration) && same(rhs, scalar(ScalarType::I64))) { return duration; }
+                if (const std::optional<ScalarType> result = temporal_arithmetic_result(op, lhs, rhs)) { return scalar(*result); }
                 const bool lhs_numeric = numeric(lhs) || active_proves_numeric(lhs);
                 const bool rhs_numeric = numeric(rhs) || active_proves_numeric(rhs);
+                if (temporal_scalar(lhs) || temporal_scalar(rhs)) {
+                    type_error(range, undefined_temporal_arithmetic(op, lhs, rhs));
+                    return {};
+                }
                 if (!lhs_numeric || !rhs_numeric) {
                     type_error(range, "arithmetic operands must both be numeric");
                     return {};
@@ -2095,6 +2180,100 @@ namespace hgl::ir
                     return scalar(ScalarType::F64);
                 }
                 return scalar(ScalarType::I64);
+            }
+
+            /// Fold temporal arithmetic with the runtime kernels' results
+            /// (hgl/constant_arithmetic.h). Zoned operands never reach here: they
+            /// need the run's time-zone provider and are materialized at run time.
+            void fold_temporal(Expr &expression, BinaryOp op, const Constant &a, const Constant &b) {
+                namespace temporal = constant_arithmetic::temporal;
+                using syntax::TemporalKind;
+                const auto *left_time   = std::get_if<syntax::TemporalValue>(&a);
+                const auto *right_time  = std::get_if<syntax::TemporalValue>(&b);
+                const auto *right_int   = std::get_if<std::int64_t>(&b);
+                const auto *right_float = std::get_if<double>(&b);
+                const auto  kinds       = [&](TemporalKind left, TemporalKind right) {
+                    return left_time && right_time && left_time->kind == left && right_time->kind == right;
+                };
+                const auto overflow = [&] { type_error(expression.range, "overflow in a temporal constant expression"); };
+                const auto publish  = [&](TemporalKind kind, std::optional<std::int64_t> micros) {
+                    if (!micros) {
+                        overflow();
+                        return;
+                    }
+                    syntax::TemporalValue result;
+                    result.kind         = kind;
+                    result.micros       = *micros;
+                    expression.constant = Constant{result};
+                };
+                const auto days = [](std::int64_t micros) { return temporal::floor_div(micros, temporal::micros_per_day); };
+                switch (op) {
+                    case BinaryOp::Add:
+                        if (kinds(TemporalKind::Duration, TemporalKind::Duration) || kinds(TemporalKind::DateTime, TemporalKind::Duration) ||
+                            kinds(TemporalKind::Duration, TemporalKind::DateTime)) {
+                            const TemporalKind kind = left_time->kind == TemporalKind::Duration ? right_time->kind : left_time->kind;
+                            publish(kind, checked_add(left_time->micros, right_time->micros));
+                        } else if (kinds(TemporalKind::Date, TemporalKind::Duration)) {
+                            publish(TemporalKind::Date, temporal::add_days(left_time->micros, days(right_time->micros)));
+                        } else if (kinds(TemporalKind::Date, TemporalKind::Time)) {
+                            publish(TemporalKind::CivilDateTime, temporal::combine(left_time->micros, right_time->micros));
+                        } else if (kinds(TemporalKind::CivilDateTime, TemporalKind::Duration)) {
+                            publish(TemporalKind::CivilDateTime, temporal::civil(checked_add(left_time->micros, right_time->micros)));
+                        }
+                        return;
+                    case BinaryOp::Sub:
+                        if (kinds(TemporalKind::Duration, TemporalKind::Duration) || kinds(TemporalKind::DateTime, TemporalKind::Duration)) {
+                            publish(left_time->kind, checked_sub(left_time->micros, right_time->micros));
+                        } else if (kinds(TemporalKind::DateTime, TemporalKind::DateTime) ||
+                                   kinds(TemporalKind::CivilDateTime, TemporalKind::CivilDateTime)) {
+                            publish(TemporalKind::Duration, checked_sub(left_time->micros, right_time->micros));
+                        } else if (kinds(TemporalKind::Date, TemporalKind::Duration)) {
+                            publish(TemporalKind::Date, temporal::subtract_days(left_time->micros, days(right_time->micros)));
+                        } else if (kinds(TemporalKind::Date, TemporalKind::Date)) {
+                            publish(TemporalKind::Duration, temporal::date_difference(left_time->micros, right_time->micros));
+                        } else if (kinds(TemporalKind::CivilDateTime, TemporalKind::Duration)) {
+                            publish(TemporalKind::CivilDateTime, temporal::civil(checked_sub(left_time->micros, right_time->micros)));
+                        }
+                        return;
+                    case BinaryOp::Mul:
+                        if (!left_time || left_time->kind != TemporalKind::Duration) { return; }
+                        if (right_int) {
+                            publish(TemporalKind::Duration, checked_mul(left_time->micros, *right_int));
+                        } else if (right_float) {
+                            if (!std::isfinite(*right_float)) {
+                                type_error(expression.range, "a duration scale factor must be finite");
+                                return;
+                            }
+                            publish(TemporalKind::Duration, temporal::rounded_product(left_time->micros, *right_float));
+                        }
+                        return;
+                    case BinaryOp::Div:
+                        if (!left_time || left_time->kind != TemporalKind::Duration) { return; }
+                        if (right_int) {
+                            if (*right_int == 0) {
+                                type_error(expression.range, "division by zero in a constant expression");
+                                return;
+                            }
+                            publish(TemporalKind::Duration, temporal::rounded_integer_ratio(left_time->micros, *right_int));
+                        } else if (right_float) {
+                            if (*right_float == 0.0) {
+                                type_error(expression.range, "division by zero in a constant expression");
+                                return;
+                            }
+                            if (std::isnan(*right_float)) {
+                                type_error(expression.range, "a duration divisor must not be NaN");
+                                return;
+                            }
+                            publish(TemporalKind::Duration, temporal::rounded_ratio(left_time->micros, *right_float));
+                        } else if (kinds(TemporalKind::Duration, TemporalKind::Duration)) {
+                            // hgraph's div_ for two durations is the IEEE ratio of their
+                            // microsecond counts, so a zero divisor is an infinity or NaN.
+                            expression.constant = Constant{static_cast<double>(left_time->micros) /
+                                                           static_cast<double>(right_time->micros)};
+                        }
+                        return;
+                    default: return;
+                }
             }
 
             void fold_binary(Expr &expression, BinaryOp op, const Expr &lhs, const Expr &rhs) {
@@ -2192,55 +2371,9 @@ namespace hgl::ir
                     expression.constant = Constant{op == BinaryOp::Equal ? equal : !equal};
                     return;
                 }
-                const auto *left_temporal  = std::get_if<syntax::TemporalValue>(&a);
-                const auto *right_temporal = std::get_if<syntax::TemporalValue>(&b);
-                if (left_temporal && right_temporal) {
-                    syntax::TemporalValue               result = *left_temporal;
-                    std::optional<std::int64_t>         micros;
-                    std::optional<syntax::TemporalKind> result_kind;
-                    bool                                supported = true;
-                    if (op == BinaryOp::Add && left_temporal->kind == syntax::TemporalKind::Duration &&
-                        right_temporal->kind == syntax::TemporalKind::Duration) {
-                        micros = checked_add(left_temporal->micros, right_temporal->micros);
-                    } else if (op == BinaryOp::Add && left_temporal->kind == syntax::TemporalKind::DateTime &&
-                               right_temporal->kind == syntax::TemporalKind::Duration) {
-                        micros = checked_add(left_temporal->micros, right_temporal->micros);
-                    } else if (op == BinaryOp::Sub && left_temporal->kind == syntax::TemporalKind::Duration &&
-                               right_temporal->kind == syntax::TemporalKind::Duration) {
-                        micros = checked_sub(left_temporal->micros, right_temporal->micros);
-                    } else if (op == BinaryOp::Sub && left_temporal->kind == syntax::TemporalKind::DateTime &&
-                               right_temporal->kind == syntax::TemporalKind::Duration) {
-                        micros = checked_sub(left_temporal->micros, right_temporal->micros);
-                    } else if (op == BinaryOp::Sub && left_temporal->kind == syntax::TemporalKind::DateTime &&
-                               right_temporal->kind == syntax::TemporalKind::DateTime) {
-                        micros      = checked_sub(left_temporal->micros, right_temporal->micros);
-                        result_kind = syntax::TemporalKind::Duration;
-                    } else {
-                        supported = false;
-                    }
-                    if (supported) {
-                        if (!micros) {
-                            type_error(expression.range, "overflow in a temporal constant expression");
-                            return;
-                        }
-                        result.micros = *micros;
-                        if (result_kind) { result.kind = *result_kind; }
-                        expression.constant = Constant{result};
-                        return;
-                    }
-                }
-                if (left_temporal && left_temporal->kind == syntax::TemporalKind::Duration && op == BinaryOp::Mul) {
-                    if (const auto *factor = std::get_if<std::int64_t>(&b)) {
-                        syntax::TemporalValue result = *left_temporal;
-                        const auto            micros = checked_mul(left_temporal->micros, *factor);
-                        if (!micros) {
-                            type_error(expression.range, "overflow in a temporal constant expression");
-                            return;
-                        }
-                        result.micros       = *micros;
-                        expression.constant = Constant{result};
-                        return;
-                    }
+                if (std::holds_alternative<syntax::TemporalValue>(a) || std::holds_alternative<syntax::TemporalValue>(b)) {
+                    fold_temporal(expression, op, a, b);
+                    return;
                 }
                 const std::optional<double> left  = as_double(a);
                 const std::optional<double> right = as_double(b);
@@ -2405,6 +2538,18 @@ namespace hgl::ir
                     } else {
                         expression.type = lhs.type;
                     }
+                    if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
+                    expression.value_kind = value_kind_for_phase(expression.phase);
+                    return;
+                }
+                // The temporal table is closed in every phase. hgraph registers
+                // some pairs the language rejects (`i64 * duration`), so a wired
+                // composition must not reach overload resolution with one.
+                if (arithmetic_operator(node.op) && scalar_kind(lhs.type) && scalar_kind(rhs.type) &&
+                    (temporal_scalar(lhs.type) || temporal_scalar(rhs.type)) &&
+                    !temporal_arithmetic_result(node.op, lhs.type, rhs.type)) {
+                    type_error(expression.range, undefined_temporal_arithmetic(node.op, lhs.type, rhs.type));
+                    expression.type = lhs.type;
                     if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
                     expression.value_kind = value_kind_for_phase(expression.phase);
                     return;

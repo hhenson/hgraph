@@ -247,6 +247,66 @@ test overflow {
     CHECK(unit.has(Category::Type, "overflow in a temporal constant expression"));
 }
 
+TEST_CASE("activated constants follow the temporal arithmetic table", "[wiring][constants][temporal]") {
+    Unit unit{R"(
+module t
+
+fn shifted(const d: date, const x: duration) -> date => d + x
+fn shifted_back(const d: date, const x: duration) -> date => d - x
+fn span(const a: date, const b: date) -> duration => a - b
+fn after(const x: duration, const t: datetime) -> datetime => x + t
+fn at(const d: date, const t: time) -> civil_datetime => d + t
+fn civil_later(const c: civil_datetime, const x: duration) -> civil_datetime => c + x - 1us
+fn civil_span(const a: civil_datetime, const b: civil_datetime) -> duration => a - b
+fn scaled(const x: duration, const f: f64) -> duration => x * f
+fn divided(const x: duration, const n: i64) -> duration => x / n
+fn divided_float(const x: duration, const f: f64) -> duration => x / f
+fn ratio(const x: duration, const y: duration) -> f64 => x / y
+fn zoned_later(const z: zoned_datetime, const x: duration) -> zoned_datetime => x + z - 1h + x
+
+test table {
+    assert shifted(@2026-01-31, 36h) == @2026-02-01
+    assert shifted(@2026-01-31, -1us) == @2026-01-30
+    assert shifted_back(@2026-01-02, 1us) == @2026-01-02
+    assert shifted_back(@2026-01-02, -36h) == @2026-01-04
+    assert span(@2024-03-01, @2024-02-01) == 29d
+    assert after(1h, @2026-01-01T00:00Z) == @2026-01-01T01:00Z
+    assert at(@2026-01-01, @09:30) == @2026-01-01T09:30
+    assert civil_later(@2026-01-01T23:30, 1h) == @2026-01-02T00:29:59.999999
+    assert civil_span(@2026-01-02T00:30, @2026-01-01T23:30) == 1h
+    assert scaled(3us, 0.5) == 2us
+    assert scaled(-3us, 0.5) == -2us
+    assert divided(5us, 2) == 2us
+    assert divided(3us, 2) == 2us
+    assert divided_float(3s, 2.0) == 1s500ms
+    assert ratio(3s, 2s) == 1.5
+    assert zoned_later(@2026-03-29T00:30+00:00[Europe/London], 1h) == @2026-03-29T02:30+01:00[Europe/London]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("activated temporal constants report the checked kernels' failures", "[wiring][constants][temporal]") {
+    const std::vector<std::pair<std::string, std::string>> cases{
+        {"fn f(const d: date) -> date => d + 1d\ntest t { f(@9999-12-31) }", "overflow in a temporal constant expression"},
+        {"fn f(const c: civil_datetime) -> civil_datetime => c + 1h\ntest t { f(@9999-12-31T23:30) }",
+         "overflow in a temporal constant expression"},
+        {"fn f(const x: duration) -> duration => x * 1.5\ntest t { f(106751991d) }", "overflow in a temporal constant expression"},
+        {"fn f(const n: i64) -> duration => 1s / n\ntest t { f(0) }", "division by zero"},
+        {"fn f(const v: f64) -> duration => 1s / v\ntest t { f(0.0) }", "division by zero"},
+        {"fn f(const v: f64) -> duration => 1s * v\ntest t { f(1e308 * 10.0) }", "a duration scale factor must be finite"},
+    };
+    for (const auto &[body, message] : cases) {
+        CAPTURE(body);
+        Unit unit{"module t\n" + body + "\n"};
+        const TestResult result = only(unit.tests());
+        CHECK_FALSE(result.passed);
+        CHECK(unit.has(Category::Type, message));
+    }
+}
+
 TEST_CASE("var assignment retains the initializer's static type", "[wiring]") {
     SECTION("an inferred i64 cannot be narrowed") {
         Unit unit{R"(

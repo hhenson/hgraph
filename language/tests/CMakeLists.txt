@@ -434,6 +434,7 @@ hgl_add_module(hgl_codegen_fixture STATIC SOURCE_PARTS 3 HGL
     codegen/sources.hgl
     codegen/value-functions.hgl
     codegen/system-operators.hgl
+    codegen/temporal-arithmetic.hgl
     ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/test-contexts.hgl
     ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/operator-properties.hgl
     ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/conditional-early-return.hgl
@@ -1053,6 +1054,13 @@ if(UNIX)
         NAME hgraph_language_test_runtime
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
     )
+    # The temporal arithmetic table in composition, runtime bodies and
+    # constants (developer guide, "Arithmetic and comparison").
+    add_test(
+        NAME hgraph_language_test_temporal_arithmetic
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/temporal-arithmetic.hgl
+    )
+    set_tests_properties(hgraph_language_test_temporal_arithmetic PROPERTIES PASS_REGULAR_EXPRESSION "5 tests, 0 failed")
     add_test(NAME hgraph_language_test_nested_reference_fields
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/nested-reference-fields.hgl)
     set_tests_properties(hgraph_language_test_nested_reference_fields PROPERTIES

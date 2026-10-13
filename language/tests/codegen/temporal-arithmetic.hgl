@@ -1,0 +1,114 @@
+module checks.temporal_arithmetic
+
+# The temporal arithmetic table (developer guide, "Arithmetic and
+# comparison") in each phase: composition wires hgraph's operators, a runtime
+# body calls the same checked kernels, and a constant folds at compile time.
+# The three must agree tick for tick.
+
+export fn date_plus(d: date, x: duration) -> date => d + x
+export fn date_minus(d: date, x: duration) -> date => d - x
+export fn date_span(a: date, b: date) -> duration => a - b
+export fn duration_plus_instant(x: duration, t: datetime) -> datetime => x + t
+export fn date_at(d: date, t: time) -> civil_datetime => d + t
+export fn civil_plus(c: civil_datetime, x: duration) -> civil_datetime => c + x
+export fn civil_minus(c: civil_datetime, x: duration) -> civil_datetime => c - x
+export fn civil_span(a: civil_datetime, b: civil_datetime) -> duration => a - b
+export fn scaled(x: duration, f: f64) -> duration => x * f
+export fn divided(x: duration, n: i64) -> duration => x / n
+export fn divided_float(x: duration, f: f64) -> duration => x / f
+export fn ratio(x: duration, y: duration) -> f64 => x / y
+export fn zoned_plus(z: zoned_datetime, x: duration) -> zoned_datetime => z + x
+export fn duration_plus_zoned(x: duration, z: zoned_datetime) -> zoned_datetime => x + z
+export fn zoned_minus(z: zoned_datetime, x: duration) -> zoned_datetime => z - x
+
+export fn date_plus_node(d: date, x: duration) -> date { when { return d + x } }
+export fn date_minus_node(d: date, x: duration) -> date { when { return d - x } }
+export fn date_span_node(a: date, b: date) -> duration { when { return a - b } }
+export fn duration_plus_instant_node(x: duration, t: datetime) -> datetime { when { return x + t } }
+export fn date_at_node(d: date, t: time) -> civil_datetime { when { return d + t } }
+export fn civil_plus_node(c: civil_datetime, x: duration) -> civil_datetime { when { return c + x } }
+export fn civil_minus_node(c: civil_datetime, x: duration) -> civil_datetime { when { return c - x } }
+export fn civil_span_node(a: civil_datetime, b: civil_datetime) -> duration { when { return a - b } }
+export fn scaled_node(x: duration, f: f64) -> duration { when { return x * f } }
+export fn divided_node(x: duration, n: i64) -> duration { when { return x / n } }
+export fn divided_float_node(x: duration, f: f64) -> duration { when { return x / f } }
+export fn ratio_node(x: duration, y: duration) -> f64 { when { return x / y } }
+
+test dates_use_the_whole_day_component {
+    # Python date arithmetic: the duration's floor-based day count is added,
+    # and subtraction removes that count, so a part day leaves a date alone.
+    assert @2026-01-31 + 36h == @2026-02-01
+    assert @2026-01-31 + -1us == @2026-01-30
+    assert @2026-01-02 - 1us == @2026-01-02
+    assert @2026-01-02 - 36h == @2026-01-01
+    assert @2026-01-02 - -36h == @2026-01-04
+    assert @2024-03-01 - @2024-02-01 == 29d
+    assert @2024-02-01 - @2024-03-01 == -29d
+    let days = [36h, -1us, 1us, 0s, -36h]
+    let dates = [@2026-01-31, @2026-01-31, @2026-01-02, @9999-12-31, @2026-01-02]
+    assert eval(date_plus, dates, days) == [@2026-02-01, @2026-01-30, @2026-01-02, @9999-12-31, @2025-12-31]
+    assert eval(date_plus_node, dates, days) == [@2026-02-01, @2026-01-30, @2026-01-02, @9999-12-31, @2025-12-31]
+    assert eval(date_minus, dates, days) == [@2026-01-30, @2026-02-01, @2026-01-02, @9999-12-31, @2026-01-04]
+    assert eval(date_minus_node, dates, days) == [@2026-01-30, @2026-02-01, @2026-01-02, @9999-12-31, @2026-01-04]
+    assert eval(date_span, [@2024-03-01, @0001-01-01], [@2024-02-01, @9999-12-31]) == [29d, -3652058d]
+    assert eval(date_span_node, [@2024-03-01, @0001-01-01], [@2024-02-01, @9999-12-31]) == [29d, -3652058d]
+}
+
+test instants_commute_with_a_duration {
+    assert 1h + @2026-01-01T00:00Z == @2026-01-01T01:00Z
+    assert eval(duration_plus_instant, [1h, -1us], [@2026-01-01T00:00Z, @1970-01-01T00:00Z])
+        == [@2026-01-01T01:00Z, @1969-12-31T23:59:59.999999Z]
+    assert eval(duration_plus_instant_node, [1h, -1us], [@2026-01-01T00:00Z, @1970-01-01T00:00Z])
+        == [@2026-01-01T01:00Z, @1969-12-31T23:59:59.999999Z]
+}
+
+test civil_datetimes_combine_and_shift {
+    assert @2026-01-01 + @09:30 == @2026-01-01T09:30
+    assert @2026-01-01T23:30 + 1h == @2026-01-02T00:30
+    assert @2026-01-02T00:30 - 1h == @2026-01-01T23:30
+    assert @2026-01-02T00:30 - @2026-01-01T23:30 == 1h
+    assert eval(date_at, [@2026-01-01, @9999-12-31], [@09:30, @23:59:59.999999])
+        == [@2026-01-01T09:30, @9999-12-31T23:59:59.999999]
+    assert eval(date_at_node, [@2026-01-01, @9999-12-31], [@09:30, @23:59:59.999999])
+        == [@2026-01-01T09:30, @9999-12-31T23:59:59.999999]
+    assert eval(civil_plus, [@2026-01-01T23:30], [1h]) == [@2026-01-02T00:30]
+    assert eval(civil_plus_node, [@2026-01-01T23:30], [1h]) == [@2026-01-02T00:30]
+    assert eval(civil_minus, [@2026-01-02T00:30], [1h]) == [@2026-01-01T23:30]
+    assert eval(civil_minus_node, [@2026-01-02T00:30], [1h]) == [@2026-01-01T23:30]
+    assert eval(civil_span, [@2026-01-02T00:30], [@2026-01-01T23:30]) == [1h]
+    assert eval(civil_span_node, [@2026-01-02T00:30], [@2026-01-01T23:30]) == [1h]
+}
+
+test durations_scale_with_ties_to_even {
+    assert 1s * 1.5 == 1s500ms
+    assert 1us * 0.5 == 0s
+    assert 3us * 0.5 == 2us
+    assert -3us * 0.5 == -2us
+    assert 3s / 2 == 1s500ms
+    assert 3us / 2 == 2us
+    assert 5us / 2 == 2us
+    assert -5us / 2 == -2us
+    assert 3us / 2.0 == 2us
+    assert 1s / (1e308 * 10.0) == 0s
+    assert 3s / 2s == 1.5
+    let factors = [1.5, 0.5, 0.5, -0.5]
+    let spans = [1s, 1us, 3us, 3us]
+    assert eval(scaled, spans, factors) == [1s500ms, 0s, 2us, -2us]
+    assert eval(scaled_node, spans, factors) == [1s500ms, 0s, 2us, -2us]
+    assert eval(divided, [3s, 3us, 5us, -5us], [2, 2, 2, 2]) == [1s500ms, 2us, 2us, -2us]
+    assert eval(divided_node, [3s, 3us, 5us, -5us], [2, 2, 2, 2]) == [1s500ms, 2us, 2us, -2us]
+    assert eval(divided_float, [3s, 3us], [2.0, 2.0]) == [1s500ms, 2us]
+    assert eval(divided_float_node, [3s, 3us], [2.0, 2.0]) == [1s500ms, 2us]
+    assert eval(ratio, [3s, -1s], [2s, 4s]) == [1.5, -0.25]
+    assert eval(ratio_node, [3s, -1s], [2s, 4s]) == [1.5, -0.25]
+}
+
+test zoned_datetimes_shift_on_the_timeline {
+    # London enters summer time at 01:00 UTC on 2026-03-29: one elapsed hour
+    # from 00:30 UTC lands on 02:30 local, with the new offset.
+    let before: zoned_datetime = @2026-03-29T00:30+00:00[Europe/London]
+    let after: zoned_datetime = @2026-03-29T02:30+01:00[Europe/London]
+    assert eval(zoned_plus, [before], [1h]) == [after]
+    assert eval(duration_plus_zoned, [1h], [before]) == [after]
+    assert eval(zoned_minus, [after], [1h]) == [before]
+}

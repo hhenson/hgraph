@@ -5,6 +5,7 @@
 #include "syntax/parser.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <algorithm>
 #include <array>
@@ -1201,6 +1202,81 @@ fn overflow() -> duration => 106751991d4h54s775ms807us + 1us
     require_clean(lowered);
     CHECK_FALSE(complete(lowered));
     CHECK(lowered.diagnostics.render(lowered.file).find("overflow in a temporal constant expression") != std::string::npos);
+}
+
+TEST_CASE("typed HIR admits the temporal arithmetic table in every phase", "[ir][typed][temporal]") {
+    Lowered lowered{R"(
+module checks.temporal_table
+
+fn wired_date(d: date, x: duration) -> date => d - x + x
+fn wired_span(a: date, b: date) -> duration => a - b
+fn wired_instant(x: duration, t: datetime) -> datetime => x + t
+fn wired_civil(d: date, t: time, x: duration) -> civil_datetime => d + t - x + x
+fn wired_civil_span(a: civil_datetime, b: civil_datetime) -> duration => a - b
+fn wired_scale(x: duration, n: i64, f: f64) -> duration => x * n * f / n / f
+fn wired_ratio(x: duration, y: duration) -> f64 => x / y
+fn wired_zoned(z: zoned_datetime, x: duration) -> zoned_datetime => x + z - x
+fn runtime_date(d: date, x: duration) -> date { when { return d - x + x } }
+fn runtime_civil(d: date, t: time, x: duration) -> duration { when { return (d + t + x) - (d + t) } }
+fn runtime_scale(x: duration, n: i64, f: f64) -> f64 { when { return (x * f / n) / (x / f) } }
+fn folded_date() -> date => @2026-01-31 + 36h - 1us
+fn folded_span() -> duration => @2024-03-01 - @2024-02-01
+fn folded_civil() -> duration => (@2026-01-01 + @23:30 + 1h) - @2026-01-01T23:30
+fn folded_scale() -> duration => 3us * 0.5 + 5us / 2 + 3us / 2.0
+fn folded_ratio() -> f64 => 3s / 2s
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+}
+
+TEST_CASE("typed HIR rejects temporal arithmetic outside the table", "[ir][typed][temporal]") {
+    const std::vector<std::pair<std::string, std::string>> cases{
+        {"fn f(x: duration) -> duration => 2 * x", "'i64 * duration' is not defined; write the duration first"},
+        {"fn f(x: duration) -> duration { when { return 2.0 * x } }", "'f64 * duration' is not defined; write the duration first"},
+        {"fn f(a: datetime, b: datetime) -> datetime => a + b",
+         "'datetime + datetime' is not defined; subtract two instants for a duration"},
+        {"fn f(t: time, x: duration) -> time => t + x", "'time + duration' is not defined; crossing midnight needs a date"},
+        {"fn f(a: time, b: time) -> duration { when { return a - b } }", "'time - time' is not defined; crossing midnight needs a date"},
+        {"fn f(a: zoned_datetime, b: zoned_datetime) -> duration => a - b",
+         "'zoned_datetime - zoned_datetime' is not defined; subtract the to_instant() of each"},
+        {"fn f(z: zoned_time, x: duration) -> zoned_time => z + x", "'zoned_time + duration' is not defined"},
+        {"fn f(d: date, z: zoned_time) -> zoned_datetime => d + z", "'date + zoned_time' is not supported yet"},
+        {"fn f(x: duration, y: duration) -> duration => x % y", "'duration % duration' is not defined"},
+        {"fn f(x: duration, y: duration) -> i64 => x // y", "'duration // duration' is not defined"},
+        {"fn f(x: duration, y: duration) -> duration => x * y", "'duration * duration' is not defined"},
+        {"fn f(d: date, x: date) -> date => d + x", "'date + date' is not defined"},
+        {"fn f(d: date, t: datetime) -> duration => d - t", "'date - datetime' is not defined"},
+        {"fn f() -> duration => 1 * 1s", "'i64 * duration' is not defined; write the duration first"},
+    };
+    for (const auto &[body, message] : cases) {
+        CAPTURE(body);
+        Lowered lowered{"module checks.temporal_rejected\n" + body + "\n"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK_THAT(lowered.diagnostics.render(lowered.file), Catch::Matchers::ContainsSubstring("type: " + message));
+    }
+}
+
+TEST_CASE("typed HIR diagnoses temporal constants outside the calendar or the duration range", "[ir][typed][const][temporal]") {
+    const std::vector<std::pair<std::string, std::string>> cases{
+        {"fn f() -> date => @9999-12-31 + 1d", "overflow in a temporal constant expression"},
+        {"fn f() -> date => @0001-01-01 - 1d", "overflow in a temporal constant expression"},
+        {"fn f() -> date => @2026-01-01 + 106751991d", "overflow in a temporal constant expression"},
+        {"fn f() -> civil_datetime => @9999-12-31T23:30 + 1h", "overflow in a temporal constant expression"},
+        {"fn f() -> civil_datetime => @0001-01-01T00:30 - 1h", "overflow in a temporal constant expression"},
+        {"fn f() -> duration => @9999-12-31T23:30 - @0001-01-01T00:00 + 106751991d", "overflow in a temporal constant expression"},
+        {"fn f() -> duration => 106751991d * 1.5", "overflow in a temporal constant expression"},
+        {"fn f() -> duration => 1s * (1e308 * 10.0)", "a duration scale factor must be finite"},
+        {"fn f() -> duration => 1s / 0", "division by zero in a constant expression"},
+        {"fn f() -> duration => 1s / 0.0", "division by zero in a constant expression"},
+    };
+    for (const auto &[body, message] : cases) {
+        CAPTURE(body);
+        Lowered lowered{"module checks.temporal_constant_range\n" + body + "\n"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK_THAT(lowered.diagnostics.render(lowered.file), Catch::Matchers::ContainsSubstring("type: " + message));
+    }
 }
 
 TEST_CASE("typed HIR folds integer constants without floating-point loss", "[ir][typed][const][integer]") {

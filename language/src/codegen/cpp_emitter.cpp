@@ -681,6 +681,8 @@ namespace hgl::codegen
                                                               SourceRange range);
             [[nodiscard]] Value       fold_unary(hir::UnaryOp op, const Value &operand, SourceRange range);
             [[nodiscard]] Value       fold_binary(hir::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range);
+            [[nodiscard]] std::optional<Value> fold_temporal_binary(hir::BinaryOp op, const Value &lhs, const Value &rhs,
+                                                                    SourceRange range);
             [[nodiscard]] Value       wire_binary(hir::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range);
             [[nodiscard]] Value       wire(std::string marker, const std::vector<std::string> &args, SourceRange range,
                                            const HType &result = HType{});
@@ -2841,6 +2843,96 @@ namespace hgl::codegen
             backend(range, "unsupported unary operator");
         }
 
+        std::optional<Value> Emitter::fold_temporal_binary(hir::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range) {
+            // The temporal rows of the developer guide's arithmetic table that the
+            // general path below does not spell: the same checked hgraph kernels
+            // the wired operators call, so every phase publishes one value.
+            using hir::BinaryOp;
+            using hir::ScalarType;
+            const bool runtime = lhs.is_runtime() || rhs.is_runtime();
+            const auto is      = [&](ScalarType left, ScalarType right) { return lhs.type.is(left) && rhs.type.is(right); };
+            const auto result  = [&](std::string code, ScalarType type) {
+                Value value = make_const(std::move(code), scalar_type(type), range);
+                if (runtime) { value.kind = Value::Kind::Runtime; }
+                return std::optional<Value>{std::move(value)};
+            };
+            const auto zone_provider = [&]() -> std::string {
+                // A cold constant uses the active wiring context's provider, as a
+                // zoned literal does. A runtime body has no provider binding yet.
+                if (runtime || (literal_callable_.valid() && callable(literal_callable_).kind == gir::CallableKind::RuntimeNode)) {
+                    unsupported(range, "zoned arithmetic in a runtime body, which needs the run's time-zone provider");
+                }
+                return "hgl::temporal::provider()";
+            };
+            const auto whole_days = [&](const Value &duration) {
+                return "std::chrono::floor<std::chrono::days>(" + duration.code + ").count()";
+            };
+            switch (op) {
+                case BinaryOp::Add:
+                    if (is(ScalarType::Duration, ScalarType::DateTime)) {
+                        return result("hgraph::checked_add(" + rhs.code + ", " + lhs.code + ")", ScalarType::DateTime);
+                    }
+                    if (is(ScalarType::Date, ScalarType::Duration)) {
+                        return result("hgraph::checked_add_days(" + lhs.code + ", " + whole_days(rhs) + ")", ScalarType::Date);
+                    }
+                    if (is(ScalarType::Date, ScalarType::Time)) {
+                        return result("hgraph::CivilDateTime{" + lhs.code + ", " + rhs.code + "}", ScalarType::CivilDateTime);
+                    }
+                    if (is(ScalarType::CivilDateTime, ScalarType::Duration)) {
+                        return result("hgraph::checked_add(" + lhs.code + ", " + rhs.code + ")", ScalarType::CivilDateTime);
+                    }
+                    if (is(ScalarType::ZonedDateTime, ScalarType::Duration)) {
+                        return result("hgraph::checked_add(" + lhs.code + ", " + rhs.code + ", " + zone_provider() + ")",
+                                      ScalarType::ZonedDateTime);
+                    }
+                    if (is(ScalarType::Duration, ScalarType::ZonedDateTime)) {
+                        return result("hgraph::checked_add(" + rhs.code + ", " + lhs.code + ", " + zone_provider() + ")",
+                                      ScalarType::ZonedDateTime);
+                    }
+                    return std::nullopt;
+                case BinaryOp::Sub:
+                    if (is(ScalarType::Date, ScalarType::Duration)) {
+                        // Python subtracts the duration's day component (sub_date_timedelta).
+                        return result("hgraph::checked_add_days(" + lhs.code + ", -" + whole_days(rhs) + ")", ScalarType::Date);
+                    }
+                    if (is(ScalarType::Date, ScalarType::Date) || is(ScalarType::CivilDateTime, ScalarType::CivilDateTime)) {
+                        return result("hgraph::checked_subtract(" + lhs.code + ", " + rhs.code + ")", ScalarType::Duration);
+                    }
+                    if (is(ScalarType::CivilDateTime, ScalarType::Duration)) {
+                        return result("hgraph::checked_subtract(" + lhs.code + ", " + rhs.code + ")", ScalarType::CivilDateTime);
+                    }
+                    if (is(ScalarType::ZonedDateTime, ScalarType::Duration)) {
+                        return result("hgraph::checked_add(" + lhs.code + ", hgraph::checked_negate(" + rhs.code + "), " +
+                                          zone_provider() + ")",
+                                      ScalarType::ZonedDateTime);
+                    }
+                    return std::nullopt;
+                case BinaryOp::Mul:
+                    if (is(ScalarType::Duration, ScalarType::F64)) {
+                        return result("hgraph::checked_multiply(" + lhs.code + ", static_cast<hgraph::Float>(" + rhs.code + "))",
+                                      ScalarType::Duration);
+                    }
+                    return std::nullopt;
+                case BinaryOp::Div:
+                    if (is(ScalarType::Duration, ScalarType::I64)) {
+                        return result("hgraph::checked_divide(" + lhs.code + ", static_cast<hgraph::Int>(" + rhs.code + "))",
+                                      ScalarType::Duration);
+                    }
+                    if (is(ScalarType::Duration, ScalarType::F64)) {
+                        return result("hgraph::checked_divide(" + lhs.code + ", static_cast<hgraph::Float>(" + rhs.code + "))",
+                                      ScalarType::Duration);
+                    }
+                    if (is(ScalarType::Duration, ScalarType::Duration)) {
+                        // hgraph's div_ for two durations: the IEEE ratio of the counts.
+                        return result("(static_cast<hgraph::Float>((" + lhs.code + ").count()) / static_cast<hgraph::Float>((" +
+                                          rhs.code + ").count()))",
+                                      ScalarType::F64);
+                    }
+                    return std::nullopt;
+                default: return std::nullopt;
+            }
+        }
+
         Value Emitter::fold_binary(hir::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range) {
             using hir::BinaryOp;
             using hir::ScalarType;
@@ -2884,6 +2976,7 @@ namespace hgl::codegen
             };
             const HType float_t = scalar_type(ScalarType::F64);
             const HType bool_t  = scalar_type(ScalarType::Bool);
+            if (std::optional<Value> temporal = fold_temporal_binary(op, lhs, rhs, range)) { return std::move(*temporal); }
             switch (op) {
                 case BinaryOp::Add:
                     if (ints) { return binary("+", lhs.type); }

@@ -349,6 +349,8 @@ namespace hgl::wiring
                                                 SourceRange range, std::string_view role);
             [[nodiscard]] Slot          fold_unary(hir::UnaryOp op, const Slot &operand, SourceRange range);
             [[nodiscard]] Slot          fold_binary(hir::BinaryOp op, const Slot &lhs, const Slot &rhs, SourceRange range);
+            template <typename Checked>
+            [[nodiscard]] std::optional<Slot> fold_temporal_binary(hir::BinaryOp op, const Slot &lhs, const Slot &rhs, Checked &&checked);
             [[nodiscard]] Slot compare_sequences(const Slot &lhs, const Slot &rhs, bool negate, SourceRange range, Frame &frame);
             void resolve_sequence(Slot &slot, const hgraph::ValueTypeMetaData *element, Frame &frame, bool erase_payload = false);
             [[nodiscard]] Slot constant_of(const Slot &slot, const hgraph::ValueTypeMetaData *meta, Frame &frame,
@@ -613,6 +615,83 @@ namespace hgl::wiring
             fail(Category::Type, range, "'!' needs a bool, got " + std::string{operand.meta()->name()});
         }
 
+        template <typename Checked>
+        std::optional<Slot> Compiler::fold_temporal_binary(hir::BinaryOp op, const Slot &lhs, const Slot &rhs, Checked &&checked) {
+            // The temporal rows of the developer guide's arithmetic table that the
+            // switch in fold_binary does not spell, through the checked hgraph
+            // kernels the wired operators call.
+            const auto is = [&](const hgraph::ValueTypeMetaData *left, const hgraph::ValueTypeMetaData *right) {
+                return lhs.meta() == left && rhs.meta() == right;
+            };
+            const auto date     = [](const Slot &item) { return item.value.view().checked_as<hgraph::Date>(); };
+            const auto time     = [](const Slot &item) { return item.value.view().checked_as<hgraph::Time>(); };
+            const auto instant  = [](const Slot &item) { return item.value.view().checked_as<hgraph::DateTime>(); };
+            const auto duration = [](const Slot &item) { return item.value.view().checked_as<hgraph::TimeDelta>(); };
+            const auto civil    = [](const Slot &item) { return item.value.view().checked_as<hgraph::CivilDateTime>(); };
+            const auto zoned    = [](const Slot &item) { return item.value.view().checked_as<hgraph::ZonedDateTime>(); };
+            const auto days     = [](hgraph::TimeDelta value) { return std::chrono::floor<std::chrono::days>(value).count(); };
+            const auto *td = types_.timedelta_type;
+            switch (op) {
+                case hir::BinaryOp::Add:
+                    if (is(td, types_.datetime_type)) { return checked([&] { return hgraph::checked_add(instant(rhs), duration(lhs)); }); }
+                    if (is(types_.date_type, td)) {
+                        return checked([&] { return hgraph::checked_add_days(date(lhs), days(duration(rhs))); });
+                    }
+                    if (is(types_.date_type, types_.time_type)) {
+                        return checked([&] { return hgraph::CivilDateTime{date(lhs), time(rhs)}; });
+                    }
+                    if (is(types_.civil_datetime_type, td)) {
+                        return checked([&] { return hgraph::checked_add(civil(lhs), duration(rhs)); });
+                    }
+                    if (is(types_.zoned_datetime_type, td)) {
+                        return checked([&] { return hgraph::checked_add(zoned(lhs), duration(rhs), *literal_provider_); });
+                    }
+                    if (is(td, types_.zoned_datetime_type)) {
+                        return checked([&] { return hgraph::checked_add(zoned(rhs), duration(lhs), *literal_provider_); });
+                    }
+                    return std::nullopt;
+                case hir::BinaryOp::Sub:
+                    if (is(types_.date_type, td)) {
+                        return checked([&] { return hgraph::checked_add_days(date(lhs), -days(duration(rhs))); });
+                    }
+                    if (is(types_.date_type, types_.date_type)) {
+                        return checked([&] { return hgraph::checked_subtract(date(lhs), date(rhs)); });
+                    }
+                    if (is(types_.civil_datetime_type, td)) {
+                        return checked([&] { return hgraph::checked_subtract(civil(lhs), duration(rhs)); });
+                    }
+                    if (is(types_.civil_datetime_type, types_.civil_datetime_type)) {
+                        return checked([&] { return hgraph::checked_subtract(civil(lhs), civil(rhs)); });
+                    }
+                    if (is(types_.zoned_datetime_type, td)) {
+                        return checked([&] {
+                            return hgraph::checked_add(zoned(lhs), hgraph::checked_negate(duration(rhs)), *literal_provider_);
+                        });
+                    }
+                    return std::nullopt;
+                case hir::BinaryOp::Mul:
+                    if (is(td, types_.float_type)) {
+                        return checked([&] { return hgraph::checked_multiply(duration(lhs), rhs.value.view().checked_as<hgraph::Float>()); });
+                    }
+                    return std::nullopt;
+                case hir::BinaryOp::Div:
+                    if (is(td, types_.int_type)) {
+                        return checked([&] { return hgraph::checked_divide(duration(lhs), rhs.value.view().checked_as<hgraph::Int>()); });
+                    }
+                    if (is(td, types_.float_type)) {
+                        return checked([&] { return hgraph::checked_divide(duration(lhs), rhs.value.view().checked_as<hgraph::Float>()); });
+                    }
+                    if (is(td, td)) {
+                        // hgraph's div_ for two durations: the IEEE ratio of the counts.
+                        return checked([&] {
+                            return static_cast<hgraph::Float>(duration(lhs).count()) / static_cast<hgraph::Float>(duration(rhs).count());
+                        });
+                    }
+                    return std::nullopt;
+                default: return std::nullopt;
+            }
+        }
+
         Slot Compiler::fold_binary(hir::BinaryOp op, const Slot &lhs, const Slot &rhs, SourceRange range) {
             const bool lhs_int   = lhs.meta() == types_.int_type;
             const bool rhs_int   = rhs.meta() == types_.int_type;
@@ -635,8 +714,21 @@ namespace hgl::wiring
             const auto temporal = [&](auto operation) -> Slot {
                 try {
                     return make_const(hgraph::Value{operation()}, range);
-                } catch (const std::overflow_error &) { fail(Category::Type, range, "overflow in a temporal constant expression"); }
+                } catch (const std::overflow_error &) {
+                    fail(Category::Type, range, "overflow in a temporal constant expression");
+                } catch (const std::invalid_argument &error) {
+                    // hgraph's checked kernels reject these domains with invalid_argument;
+                    // report them as the typed-HIR fold does.
+                    const std::string_view text = error.what();
+                    if (text == "division by zero") { fail(Category::Type, range, "division by zero"); }
+                    if (text == "temporal factor must be finite") {
+                        fail(Category::Type, range, "a duration scale factor must be finite");
+                    }
+                    if (text == "temporal divisor must not be NaN") { fail(Category::Type, range, "a duration divisor must not be NaN"); }
+                    fail(Category::Type, range, "overflow in a temporal constant expression");
+                }
             };
+            if (std::optional<Slot> folded = fold_temporal_binary(op, lhs, rhs, temporal)) { return std::move(*folded); }
             switch (op) {
                 case hir::BinaryOp::Add:
                     if (lhs_int && rhs_int) {

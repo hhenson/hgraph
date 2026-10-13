@@ -994,10 +994,17 @@ In a
 temporal position it lifts like any other scalar literal. Temporal arithmetic
 and comparison lower to the standard `add_`, `sub_`, `mul_`, `div_`, `neg_`,
 and comparison operators using exactly the overloads hgraph registers, so the
-language's operation table is hgraph's; in a runtime body the generated code
-calls the same checked helpers on canonical values, and zoned arithmetic
-reaches the provider through `GlobalState` exactly as the standard operators
-do. The hgraph-side asks recorded in the roadmap are the ordering overloads
+language's operation table is hgraph's. The checker enforces the table
+before overload resolution, because hgraph also registers pairs the language
+rejects (`i64 * duration`). In a runtime body the generated code calls the
+same checked kernels on canonical values (`checked_add_days` with the
+duration's floored day count, `CivilDateTime{date, time}`, `checked_divide`
+with ties to even), typed HIR folds constants to the values those kernels
+produce (`hgl/constant_arithmetic.h`), and direct wiring calls the kernels
+on activated constants. A cold zoned constant uses the wiring context's
+provider, as a zoned literal does; zoned arithmetic in a runtime body is
+rejected until a body can reach the run's provider through `GlobalState` as
+the standard operators do. The hgraph-side asks recorded in the roadmap are the ordering overloads
 for `Time` and `CivilDateTime`, which `register_ordered_same_scalar_comparisons`
 does not cover today, and the `ZonedTime` scalar with its `date + zoned_time`
 and policy-taking `resolve` operators.
