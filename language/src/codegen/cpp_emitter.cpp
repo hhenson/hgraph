@@ -3782,7 +3782,14 @@ namespace hgl::codegen
                                 result.borrowed_value = true;
                                 return result;
                             }
-                            return make_runtime(selector + ".value()", target.type.children.front(), expression.range, selector);
+                            const HType &element = target.type.children.front();
+                            if (target.output_selector && element.kind == HType::Kind::Scalar) {
+                                // An output child reads through the erased view; an
+                                // input child's typed selector converts for itself.
+                                return make_runtime(selector + ".value().checked_as<" + value_type(element, expression.range) + ">()",
+                                                    element, expression.range, selector);
+                            }
+                            return make_runtime(selector + ".value()", element, expression.range, selector);
                         }
                         if (!target.is_port()) { unsupported(expression.range, "indexing a constant"); }
                         if (target.type.kind == HType::Kind::List && target.type.concrete_size) {
@@ -5246,6 +5253,7 @@ namespace hgl::codegen
                 result.type                       = source.type;
                 result.name                       = name;
                 result.range                      = range;
+                result.output_selector            = source.output_selector;
                 result.planned_iterator_predicate = general_predicate;
                 if (positional_pack) { result.iterator_metadata_predicate = predicate; }
                 if (runtime_pack || schema_pack) {
@@ -6648,8 +6656,11 @@ namespace hgl::codegen
                             value.range = statement.range;
                             if (endpoint) {
                                 value.selector = raw;
-                                // A generic element has no C++ type to convert to.
-                                value.code     = iterator.type.kind == HType::Kind::List && !symbolic(type)
+                                // A generic element has no C++ type to convert to. Output
+                                // children read through the erased view, so they convert too.
+                                value.code     = (iterator.type.kind == HType::Kind::List ||
+                                                  (iterator.output_selector && type.kind == HType::Kind::Scalar)) &&
+                                                         !symbolic(type)
                                                      ? raw + ".value().checked_as<" + value_type(type, statement.range) + ">()"
                                                      : raw + ".value()";
                             } else if (list_index) {
@@ -6657,6 +6668,9 @@ namespace hgl::codegen
                             } else if (map_key) {
                                 // A generic key has no concrete C++ type to convert to.
                                 value.code = symbolic(type) ? raw : raw + ".checked_as<" + value_type(type, statement.range) + ">()";
+                            } else if (iterator.type.kind == HType::Kind::Set && iterator.output_selector && !symbolic(type)) {
+                                // A set output's members are erased views.
+                                value.code = raw + ".checked_as<" + value_type(type, statement.range) + ">()";
                             } else if (iterator.type.kind == HType::Kind::Set && type.is(hir::ScalarType::Bool)) {
                                 // Typed Boolean ranges may use vector<bool> proxies.
                                 // HGL value arguments must retain their declared scalar type.

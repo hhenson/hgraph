@@ -2052,7 +2052,9 @@ expression is read from the syntax tree.
   path as a whole output, so a reference, list, map, set, or bundle child
   is reconciled as `return` would reconcile it; an index outside the
   current length raises, as `invalidate(out, index)` does, because only `push`
-  and `pop` change the length.
+  and `pop` change the length. Reading the output back (`out[index]`, `elements(out)`,
+  `items(out)`) goes through the output's erased child views, so a concrete
+  element is converted to its declared type as an input read is.
 - **Exact native value and input-view calls.** Explicit module descriptors
   form a data-only import catalog. A top-level source `native fn` enters the
   same candidate model, retaining its HGL signature and opaque balanced C++

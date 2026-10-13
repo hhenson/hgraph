@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A runtime body can read back the children of its own collection output:
+  `out[index]` on a list, `elements(out)` on a set, and `items(out)` on a
+  map now convert each child to its declared type. Generated code compared
+  the erased child view with a typed value, which did not compile, so an
+  operator could not tick only the children that changed.
 - A runtime body materialized with a retained type slot
   (`instantiate op<_>`) may now return or assign a generic value, read its
   generic output back, read generic fixed-list elements, and compare
