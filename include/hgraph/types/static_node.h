@@ -222,13 +222,20 @@ namespace hgraph
         const auto bundle_binding = ValuePlanFactory::instance().type_for(bundle_schema);
         if (!t_binding || !bundle_binding) { throw std::logic_error("set_delta: unresolved binding"); }
 
+        // SetBuilder::insert copies from the argument's address. A std::vector<bool>
+        // element is a bit proxy, not a bool, so a reference to it would copy the
+        // proxy's bytes (every member read back as true); copy those to a bool.
+        const auto insert_all = [](SetBuilder &set, const std::vector<TValue> &values) {
+            if constexpr (std::is_same_v<TValue, bool>) {
+                for (const bool e : values) { (void)set.insert(e); }
+            } else {
+                for (const TValue &e : values) { (void)set.insert(e); }
+            }
+        };
         SetBuilder added_set{t_binding};
-        // By value: SetBuilder::insert copies from the argument's address, and a
-        // std::vector<bool> element is a bit proxy, not a bool, so a reference
-        // to it would copy the proxy's bytes (every member read back as true).
-        for (const TValue e : added) { (void)added_set.insert(e); }
+        insert_all(added_set, added);
         SetBuilder removed_set{t_binding};
-        for (const TValue e : removed) { (void)removed_set.insert(e); }
+        insert_all(removed_set, removed);
 
         BundleBuilder bundle{bundle_binding};
         bundle.set("added", added_set.build());
