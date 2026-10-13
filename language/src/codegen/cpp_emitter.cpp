@@ -4926,7 +4926,8 @@ namespace hgl::codegen
                 if (output.type.kind == HType::Kind::Set && symbolic(output.type.children.front()) && name != "clear") {
                     uses_generic_collections_ = true;
                     result.code = "hgl::generic::" + name + "(" + join(arguments, ", ") + ")";
-                } else if (output.type.kind == HType::Kind::Map && symbolic(output.type.children.front())) {
+                } else if (output.type.kind == HType::Kind::Map && symbolic(output.type.children.front()) && name != "clear") {
+                    // clear takes no key, so hgraph::clear serves a generic key type.
                     unsupported(range, "'" + name + "' on a map output with a generic key type");
                 }
                 if (owning_map_value) {
@@ -5043,6 +5044,11 @@ namespace hgl::codegen
                     backend(range, "collection access requires a live structural collection input in this slice");
                 }
                 if (name == "contains") {
+                    if (!source.key_set_source.empty() && symbolic(source.type.children.front())) {
+                        // A generic key is already a value view of the key schema.
+                        return make_runtime(source.selector + ".contains(" + key.code + ")", scalar_type(hir::ScalarType::Bool),
+                                            range);
+                    }
                     if (!source.key_set_source.empty()) {
                         return make_runtime("([](const auto &hgl_set, const auto &hgl_key) { return "
                                             "hgl_set.contains(hgraph::ValueView{hgl_set.layout().key_binding, &hgl_key}); }(" +
@@ -5220,7 +5226,8 @@ namespace hgl::codegen
                 const bool positional_pack =
                     (runtime_pack && source.atomic_code == "positional") || source.atomic_code == "schema_positional";
                 result.code = positional_pack ? source.selector : source.selector + "." + method + "()";
-                if (!positional_pack && source.type.kind == HType::Kind::Set && symbolic(source.type.children.front())) {
+                if (!positional_pack && source.key_set_source.empty() && source.type.kind == HType::Kind::Set &&
+                    symbolic(source.type.children.front())) {
                     // The typed TSS selector converts members to a concrete C++ type;
                     // a generic member stays a value view.
                     uses_generic_collections_ = true;
