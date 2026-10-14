@@ -285,6 +285,11 @@ Legacy ``NodeError`` adapters keep their bundle output and diagnostic fields.
 The runtime assigns each node incarnation an identity during construction.
 An error stores that identity as an owned display string; allocator reuse after
 keyed child removal cannot make a later child appear to be the original node.
+Exception adapters extract owned messages, canonical diagnostics and active phase
+while the caught exception remains in scope. No pointer or reference to a
+re-thrown exception escapes its catch: MSVC may copy the exception on rethrow
+and destroy that copy when the catch finishes.
+
 Active failure phase travels separately from retained diagnostic provenance, so
 an escaping child start/stop operation remains uncapturable inside evaluation,
 while a new evaluation failure may preserve an older error's context.

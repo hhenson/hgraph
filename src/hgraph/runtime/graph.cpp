@@ -74,24 +74,26 @@ constexpr std::size_t invalid_cursor = std::numeric_limits<std::size_t>::max();
   const std::string prefix =
       node_identity(node, index) + ' ' + phase + " failed: ";
   const auto active = std::current_exception();
-  const auto *error = fallback_on_exception<const std::exception *>(nullptr, [&]() -> const std::exception * {
+  const auto message = fallback_on_exception(std::optional<std::string>{}, [&]() -> std::optional<std::string> {
     try { std::rethrow_exception(active); }
-    catch (const std::exception &failure) { return &failure; }
-  });
-  if (error == nullptr) { throw std::runtime_error(prefix + "unknown error"); }
-  std::string message = prefix + error->what();
-  static_cast<void>(fallback_on_exception(false, [&] {
-    const ErrorCaptureOptions options =
-        node.graph().root().executor().error_capture_options();
-    const NodeErrorFields details = capture_node_error(
-        node, node.graph().evaluation_time(), error->what(), options);
-    if (!details.activation_back_trace.empty()) {
-      message += "\nActivation Back Trace:\n";
-      message += details.activation_back_trace;
+    catch (const std::exception &failure) {
+      std::string owned_message = prefix + failure.what();
+      static_cast<void>(fallback_on_exception(false, [&] {
+        const ErrorCaptureOptions options =
+            node.graph().root().executor().error_capture_options();
+        const NodeErrorFields details = capture_node_error(
+            node, node.graph().evaluation_time(), failure.what(), options);
+        if (!details.activation_back_trace.empty()) {
+          owned_message += "\nActivation Back Trace:\n";
+          owned_message += details.activation_back_trace;
+        }
+        return true;
+      }));
+      return owned_message;
     }
-    return true;
-  }));
-  std::throw_with_nested(std::runtime_error(message));
+  });
+  if (!message) { throw std::runtime_error(prefix + "unknown error"); }
+  std::throw_with_nested(std::runtime_error(*message));
 }
 
 /** Render a graph-schedule entry for dump(): sentinels by name, else raw ticks.

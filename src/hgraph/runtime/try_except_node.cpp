@@ -73,18 +73,33 @@ namespace hgraph
                 [&] { return nested.child_graph().evaluate(evaluation_time); },
                 [&](const char *) { active = std::current_exception(); });
             if (active) {
-                const auto *failure = fallback_on_exception<const std::exception *>(nullptr, [&]() -> const std::exception * {
-                    try { std::rethrow_exception(active); }
-                    catch (const std::exception &cause) { return &cause; }
-                });
-                const std::runtime_error unknown{"unknown error"};
-                if (failure == nullptr) { failure = &unknown; }
                 const auto *schema = view.schema();
                 const auto failed = nested.child_graph().failed_node();
-                if (schema && schema->error_capture.canonical_errors) {
-                    auto error = canonicalize_failure(failed.valid() ? failed : view, evaluation_time, "evaluate", *failure);
-                    const auto phase = execution_failure_phase(*failure);
-                    if (phase != FailurePhase::Evaluate) { throw ExecutionFailure{std::move(error), phase}; }
+                const bool canonical = schema && schema->error_capture.canonical_errors;
+                struct ObservedFailure {
+                    std::string message;
+                    std::optional<CanonicalError> diagnostic;
+                    FailurePhase phase{FailurePhase::Evaluate};
+                };
+                auto failure = fallback_on_exception(ObservedFailure{"unknown error", {}}, [&]() -> ObservedFailure {
+                    try { std::rethrow_exception(active); }
+                    catch (const std::exception &cause) {
+                        ObservedFailure observed{cause.what(), {}, execution_failure_phase(cause)};
+                        if (canonical) {
+                            observed.diagnostic = canonicalize_failure(
+                                failed.valid() ? failed : view, evaluation_time, "evaluate", cause);
+                        }
+                        return observed;
+                    }
+                });
+                if (canonical) {
+                    if (!failure.diagnostic) {
+                        const std::runtime_error unknown{failure.message};
+                        failure.diagnostic = canonicalize_failure(
+                            failed.valid() ? failed : view, evaluation_time, "evaluate", unknown);
+                    }
+                    auto error = std::move(*failure.diagnostic);
+                    if (failure.phase != FailurePhase::Evaluate) { throw ExecutionFailure{std::move(error), failure.phase}; }
                     auto output = view.output(evaluation_time);
                     auto target = [&]() {
                         if (output.schema()->kind == TSTypeKind::TSB) { auto bundle = output.as_bundle(); return bundle.field("error"); }
@@ -93,7 +108,7 @@ namespace hgraph
                     const auto binding = target.value().binding();
                     auto mutation = target.begin_mutation(evaluation_time);
                     static_cast<void>(mutation.copy_value_from(ValueView{binding, &error}));
-                } else { write_try_except_error(view, failed, evaluation_time, failure->what()); }
+                } else { write_try_except_error(view, failed, evaluation_time, std::move(failure.message)); }
                 nested.child_graph().finish_failed_evaluation();
             }
             single_nested_graph_propagate_schedule(nested);
