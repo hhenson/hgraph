@@ -27,6 +27,7 @@ namespace hgl::ir::hir
 
     std::string_view system_operator_name(UnaryOp op) noexcept {
         switch (op) {
+            case UnaryOp::Propagate: return "?";
             case UnaryOp::Negate: return "neg_";
             case UnaryOp::Not: return "not_";
         }

@@ -1,4 +1,5 @@
 #include <hgl/ordinary_values.h>
+#include <hgl/result_values.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -258,7 +259,8 @@ TEST_CASE("required payload guards separate absent errors from present scalar re
     expect_uncoded([&] { (void)list.len(Value::typed_null(list.binding()).view(), false); });
     const PreparedValuePlan map{scalar_descriptor<Map<Int, Int>>::value_meta()};
     const Value empty_map{map.binding()};
-    expect_uncoded([&] { (void)map.map_index(empty_map.view(), zero.view()); });
+    try { (void)map.map_index(empty_map.view(), zero.view()); FAIL("absent map key unexpectedly read"); }
+    catch (const hgl::ExecutionError &error) { CHECK(error.code() == "value.missing_key"); }
     try { (void)map.map_index(Value::typed_null(map.binding()).view(), zero.view()); FAIL("absent mapped root unexpectedly read"); }
     catch (const hgl::ExecutionError &error) { CHECK(error.code() == "value.unset_read"); }
     expect_uncoded([&] { (void)map.map_index(Value::typed_null(map.binding()).view(), zero.view(), false); });
@@ -1073,4 +1075,60 @@ TEST_CASE("native provider rejects incompatible raw scalar storage lifecycle bef
     const Value    retained{ValueView{TypeRegistry::instance().scalar_type<CopyOnly>(), &raw}};
     CHECK(retained.view().checked_as<CopyOnly>().text == raw.text);
     CHECK(retained.view().data() != &raw);
+}
+
+TEST_CASE("ordinary dictionary safe lookup preserves absence and zero with coded strict failure", "[ordinary][lookup]") {
+    using namespace hgraph;
+    using hgl::ordinary::PreparedValuePlan;
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *text = scalar_descriptor<Str>::value_meta();
+    const PreparedValuePlan map{TypeRegistry::instance().map(text, integer)};
+    const Value key{Str{"X"}};
+    const Value other{Str{"missing"}};
+    const Value zero{Int{0}};
+    MapBuilder builder{map.key_binding(), map.element_binding()};
+    builder.set_item(key.view(), zero.view());
+    auto storage = builder.build_storage();
+    const Value values{map.binding(), &storage, Value::AdoptStorage{}};
+    CHECK(map.map_get(values.view(), key.view()).checked_as<Int>() == 0);
+    CHECK_FALSE(map.map_get(values.view(), other.view()).has_value());
+    CHECK(map.map_get(values.view(), other.view()).binding() == map.element_binding());
+    try {
+        static_cast<void>(map.map_index(values.view(), other.view()));
+        FAIL("missing strict read must fail");
+    } catch (const hgl::ExecutionError &error) {
+        CHECK(error.code() == "value.missing_key");
+    }
+}
+
+TEST_CASE("tagged results retain only the selected payload and publish without registry work", "[ordinary][result]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    const PreparedResultPlan plan{result_meta(scalar_descriptor<Int>::value_meta(), scalar_descriptor<CanonicalError>::value_meta())};
+    Value normal{Int{7}};
+    CanonicalError failure{"value.missing_key", "missing price", ErrorContext{"owned", "evaluate", MIN_ST}};
+    Value failed{failure};
+    auto success = plan.make(true, normal.view());
+    auto error = plan.make(false, failed.view());
+    normal = Value{};
+    failed = Value{};
+    CHECK(plan.is_ok(success.view()));
+    CHECK_FALSE(plan.is_ok(error.view()));
+    CHECK(plan.payload(success.view(), true).checked_as<Int>() == 7);
+    CHECK(plan.payload(error.view(), false).checked_as<CanonicalError>().context->node == "owned");
+    CHECK_FALSE(success.view().as_bundle().at(2).valid());
+    CHECK_FALSE(error.view().as_bundle().at(1).valid());
+    const PreparedValuePlan prepared{success.schema()};
+    auto native = Result<Int, CanonicalError>::from_value(error.view(), prepared);
+    CHECK_FALSE(native.is_ok());
+    CHECK(native.error() == failure);
+    auto different_origin = failure;
+    different_origin.context = ErrorContext{"another", "stop", MAX_ET};
+    CHECK(different_origin == failure);
+    const auto locks = type_system_lock_count();
+    for (int index = 0; index < 100; ++index) {
+        CHECK(prepared.result_is_ok(success.view()));
+        CHECK(prepared.result_payload(error.view(), false).checked_as<CanonicalError>().message == "missing price");
+    }
+    CHECK(type_system_lock_count() == locks);
 }

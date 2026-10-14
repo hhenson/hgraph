@@ -648,6 +648,7 @@ namespace hgl::syntax
                         return d == '/'   ? two(TokenKind::FloorSlash)
                                : d == '=' ? two(TokenKind::SlashAssign)
                                           : one(TokenKind::Slash);
+                    case '?': return one(TokenKind::Question);
                     case '!': return d == '=' ? two(TokenKind::NotEqual) : one(TokenKind::Bang);
                     case '<': return d == '=' ? two(TokenKind::LessEqual) : one(TokenKind::Less);
                     case '>': return d == '=' ? two(TokenKind::GreaterEqual) : one(TokenKind::Greater);

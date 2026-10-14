@@ -2,6 +2,7 @@
 #define HGL_EXECUTION_ERROR_H
 
 #include <exception>
+#include <hgraph/runtime/canonical_error.h>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -18,10 +19,10 @@
 
 namespace hgl {
     // Runtime identity, independent of the human-readable diagnostic text.
-    class HGL_EXECUTION_ERROR_VISIBLE ExecutionError : public std::runtime_error {
+    class HGL_EXECUTION_ERROR_VISIBLE ExecutionError : public hgraph::ExecutionFailure {
       public:
         ExecutionError(std::string code, std::string message)
-            : std::runtime_error{std::move(message)}, code_{std::move(code)} {}
+            : hgraph::ExecutionFailure{hgraph::CanonicalError{code, std::move(message), {}}}, code_{std::move(code)} {}
         [[nodiscard]] std::string_view code() const noexcept { return code_; }
       private:
         std::string code_;
@@ -29,6 +30,7 @@ namespace hgl {
 
     [[nodiscard]] inline std::string execution_error_code(const std::exception &error) {
         if (const auto *coded = dynamic_cast<const ExecutionError *>(&error)) { return std::string{coded->code()}; }
+        if (const auto *failure = dynamic_cast<const hgraph::ExecutionFailure *>(&error)) { return failure->error().code.value_or(""); }
         const auto *nested = dynamic_cast<const std::nested_exception *>(&error);
         if (nested != nullptr && nested->nested_ptr()) {
             try { std::rethrow_exception(nested->nested_ptr()); }

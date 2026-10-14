@@ -46,7 +46,10 @@ namespace hgl::syntax
                 case ast::TypeKind::Tuple: return "tuple";
                 case ast::TypeKind::List: return "list";
                 case ast::TypeKind::Set: return "set";
-                case ast::TypeKind::Map: return "map";
+                case ast::TypeKind::Result: return "result";
+case ast::TypeKind::Error: return "error";
+case ast::TypeKind::ErrorContext: return "error-context";
+case ast::TypeKind::Map: return "map";
                 case ast::TypeKind::Rolling: return "rolling";
                 case ast::TypeKind::Delta: return "delta";
                 case ast::TypeKind::Atomic: return "atomic";

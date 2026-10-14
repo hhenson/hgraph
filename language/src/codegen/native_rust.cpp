@@ -25,9 +25,8 @@ namespace hgl::codegen
                 reject("native declaration requires a selected implementation part");
                 continue;
             }
-            if (function.execution_role != NativeExecutionRole::Value || !function.cpp_body.empty() || !function.generics.empty() ||
-                function.throws) {
-                reject("Rust interface emission requires concrete declaration-only native const fn without throws");
+            if (function.execution_role != NativeExecutionRole::Value || !function.cpp_body.empty() || !function.generics.empty()) {
+                reject("Rust interface emission requires concrete declaration-only native const fn");
                 continue;
             }
             const std::string name = function.identity.substr(function.identity.rfind("::") + 2);

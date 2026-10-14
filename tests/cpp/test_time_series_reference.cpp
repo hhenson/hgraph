@@ -161,6 +161,17 @@ namespace
         }
     };
 
+    struct ExplicitScalarInvalidation
+    {
+        static void eval(hgraph::In<"step", hgraph::TS<hgraph::Int>> step,
+                         hgraph::Out<hgraph::TS<hgraph::Int>> out) {
+            const auto control = step.value();
+            if (control == 1 || control == 4 || control == 5) { out.set(7 + control); }
+            else if (control == 2) {
+                static_cast<void>(out.data_view().begin_mutation(out.evaluation_time()).invalidate());
+            }
+        }
+    };
     struct ChooseOpaqueReference
     {
         static void eval(hgraph::In<"index", hgraph::TS<hgraph::Int>> index,
@@ -402,6 +413,39 @@ namespace
             source = invalidated;
         }
     };
+}
+
+namespace {
+    template <int Mode>
+    struct ExplicitScalarInvalidationGraph
+    {
+        static hgraph::Port<hgraph::TS<hgraph::Int>> compose(hgraph::Wiring &w,
+            hgraph::Port<hgraph::TS<hgraph::Int>> index, hgraph::Port<hgraph::TS<hgraph::Int>> step) {
+            auto producer = hgraph::wire<ExplicitScalarInvalidation>(w, step);
+            if constexpr (Mode == 0) {
+                return hgraph::wire<ObserveScalarMetadata>(w, producer, step);
+            } else {
+                auto unpublished = hgraph::wire<hgraph::stdlib::nothing, hgraph::TS<hgraph::Int>>(w);
+                auto selected = hgraph::wire<ChooseOpaqueReference>(w, index, producer, unpublished);
+                if constexpr (Mode == 1) { return hgraph::wire<ObserveScalarMetadata>(w, selected, step); }
+                else { return hgraph::wire<ObserveSignalMetadata>(w, selected, step); }
+            }
+        }
+    };
+}
+
+TEST_CASE("producer invalidation remains observable through scalar REF and SIGNAL inputs",
+          "[reference][signal][invalidation]") {
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+    const auto index = values<Int>(0, std::nullopt, std::nullopt, std::nullopt, std::nullopt, 1);
+    const auto step = values<Int>(0, 1, 2, 3, 4, 5);
+    // Initially unset, then publish, invalidate, stay silent, republish. The
+    // final cycle publishes on the old target before selecting an unset one.
+    CHECK_OUTPUT(eval_node<ExplicitScalarInvalidationGraph<0>>(index, step), values<Int>(0, 3, 1, 0, 3, 3));
+    CHECK_OUTPUT(eval_node<ExplicitScalarInvalidationGraph<1>>(index, step), values<Int>(0, 3, 1, 0, 3, 0));
+    CHECK_OUTPUT(eval_node<ExplicitScalarInvalidationGraph<2>>(index, step), values<Int>(0, 3, 1, 0, 3, 0));
 }
 
 TEST_CASE("TimeSeriesReference: alternative identities reseed after registry reset")

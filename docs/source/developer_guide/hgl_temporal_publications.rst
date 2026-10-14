@@ -121,3 +121,33 @@ introduce a runtime selection node. Passing that child to a REF parameter
 uses the normal binding adaptation. Explicit REF-wrapped List projections
 retain their prepared designation route, and temporal indices retain dynamic
 operator selection.
+
+Graph-time fixed List assembly into explicitly declared REF elements retains
+the ordered child ports in an existing
+``WiringPortRef::structural_source``. Its concrete size comes from the written
+children; the ordinary runtime List literal admission remains separate.
+The inferred element type participates in normal generic substitution and
+REF-transparent input binding, so explicit REF positions preserve designations
+without a value-copying conversion node. Generic test-harness calls bind their
+signature from concrete publication elements before validating input and output
+profiles, and retain those substitutions while wiring replay and recording.
+
+The existing scalar target-link policy also suppresses a sample when a REF
+designates a bound endpoint that has never published; explicit producer
+invalidation remains observable. Sampled structural ``delta_value`` observations use
+``capture_delta`` to preserve the target-link strategy's sampled transition,
+including dictionary removals and current children, rather than borrowing a
+producer delta from an earlier cycle.
+Ordinary producer ticks retain their borrowed delta path; owning capture is
+required only for a sampled rebind or structural transition.
+
+A generated structural delta observation keeps its sampled ``Value`` owner in
+``DeltaObservation`` for the whole local scope. Ordinary producer deltas remain
+borrowed views, so holding a ``let`` does not copy them per tick. Views of sampled
+storage are computed from the current owner after moves and local bindings;
+generator cache retention materializes an independent ordinary delta before it
+crosses a yield boundary. Scalar invalidation retains the forwarding link's
+source-notification stamp independently of designation sampling and the
+producer's cleared payload clock. Rebind resets that stamp, move transfers it,
+and unbind or source disposal clears it. Tracking/sample clocks and structural
+withdrawal transitions retain their existing behavior.

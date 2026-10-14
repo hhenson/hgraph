@@ -1,0 +1,57 @@
+module checks.native_result
+
+native const fn checked(value: i64) -> result<i64, error>
+export fn tags(value: i64) -> bool {
+    when { return is_err(checked(value)) }
+}
+fn required(value: i64) -> i64 {
+    when { return checked(value)? }
+}
+fn message(failure: error) -> str { when { return failure.message } }
+export fn captured(value: i64) -> str {
+    let observed = capture(required, value)
+    message(observed.error)
+}
+
+fn outcomes() -> result<i64, error> {
+    yield 0s: ok(7)
+    yield 1us: err(error(message: "generated error"))
+}
+fn outcome_tag(value: result<i64, error>) -> bool { when { return is_err(value) } }
+export fn generated_tags() -> bool => outcome_tag(outcomes())
+
+
+const fn diagnostic_argument(value: i64) -> str {
+    let outcome = checked(value)
+    if is_ok(outcome) { return "text" }
+    return "failed"
+}
+export fn diagnostic_order(step: i64) -> error {
+    when {
+        if step == 0 { return error(code: diagnostic_argument(1), message: diagnostic_argument(2)) }
+        return error(message: diagnostic_argument(2), code: diagnostic_argument(1))
+    }
+}
+const fn diagnostic_constructors() -> bool {
+    let expected = error(message: "message")
+    let absent = get(map<str, str>(items: []), "missing")
+    let present = get(map<str, str>(items: ["key": "domain"]), "key")
+    let empty = get(map<str, str>(items: ["key": ""]), "key")
+    let missing = error(code: absent, message: "message")
+    let found = error(message: "message", code: present)
+    let no_code = expected.code
+    let copied_code = error(code: "domain", message: "message").code
+    return expected == error(code: null, message: "message") &&
+        missing == expected && any(missing) == any(expected) &&
+        found == error(code: "domain", message: "message") &&
+        error(code: empty, message: "message") == error(code: "", message: "message") &&
+        error(code: no_code, message: "message") == expected &&
+        error(code: copied_code, message: "message") == found &&
+        error(code: "", message: "message") != expected
+}
+export fn constructors(step: i64) -> bool { when { return diagnostic_constructors() } }
+
+test error_constructor_nullable_code {
+    assert diagnostic_constructors()
+    assert eval(constructors, step: [0, _, 1]) == [true, _, true]
+}

@@ -9,6 +9,7 @@
 #include <hgraph/runtime/executor.h>
 #include <hgraph/runtime/lifecycle_observer.h>
 #include <hgraph/runtime/nested_bindings.h>
+#include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/metadata/debug_descriptor.h>
 #include <hgraph/types/metadata/type_record_registry.h>
 #include <hgraph/types/time_series/ts_output.h>
@@ -72,25 +73,27 @@ constexpr std::size_t invalid_cursor = std::numeric_limits<std::size_t>::max();
                                              const char *phase) {
   const std::string prefix =
       node_identity(node, index) + ' ' + phase + " failed: ";
-  try {
-    throw;
-  } catch (const std::exception &e) {
-    std::string message = prefix + e.what();
-    static_cast<void>(fallback_on_exception(false, [&] {
-      const ErrorCaptureOptions options =
-          node.graph().root().executor().error_capture_options();
-      const NodeErrorFields details = capture_node_error(
-          node, node.graph().evaluation_time(), e.what(), options);
-      if (!details.activation_back_trace.empty()) {
-        message += "\nActivation Back Trace:\n";
-        message += details.activation_back_trace;
-      }
-      return true;
-    }));
-    std::throw_with_nested(std::runtime_error(message));
-  } catch (...) {
-    throw std::runtime_error(prefix + "unknown error");
-  }
+  const auto active = std::current_exception();
+  const auto message = fallback_on_exception(std::optional<std::string>{}, [&]() -> std::optional<std::string> {
+    try { std::rethrow_exception(active); }
+    catch (const std::exception &failure) {
+      std::string owned_message = prefix + failure.what();
+      static_cast<void>(fallback_on_exception(false, [&] {
+        const ErrorCaptureOptions options =
+            node.graph().root().executor().error_capture_options();
+        const NodeErrorFields details = capture_node_error(
+            node, node.graph().evaluation_time(), failure.what(), options);
+        if (!details.activation_back_trace.empty()) {
+          owned_message += "\nActivation Back Trace:\n";
+          owned_message += details.activation_back_trace;
+        }
+        return true;
+      }));
+      return owned_message;
+    }
+  });
+  if (!message) { throw std::runtime_error(prefix + "unknown error"); }
+  std::throw_with_nested(std::runtime_error(*message));
 }
 
 /** Render a graph-schedule entry for dump(): sentinels by name, else raw ticks.
@@ -771,6 +774,31 @@ NodeView failed_node_impl(const void *context, void *memory) noexcept {
                  state.evaluation_cursor < runtime.layout.node_count
              ? graph_node_view(runtime, memory, state.evaluation_cursor)
              : NodeView{};
+}
+
+template <typename Storage>
+void finish_failed_evaluation_impl(const void *context, void *memory) noexcept {
+  const auto &runtime = graph_context(context);
+  auto &state = graph_header<Storage>(runtime, memory);
+  state.evaluation_cursor = 0;
+  state.evaluation_failed = false;
+  state.next_scheduled_time = MAX_DT;
+  for (std::size_t index = 0; index < runtime.layout.node_count; ++index) {
+    auto &scheduled = graph_schedule(runtime, memory, index);
+    auto node = graph_node_view(runtime, memory, index);
+    if (node.has_scheduler()) {
+      NodeScheduler scheduler{node.scheduler_state(), nullptr, index, state.evaluation_time};
+      scheduler.advance();
+      if (scheduler.is_scheduled()) {
+        const auto future = scheduler.next_scheduled_time();
+        if (scheduled <= state.evaluation_time || future < scheduled) { scheduled = future; }
+      }
+    }
+    if (scheduled <= state.evaluation_time) { scheduled = MIN_DT; }
+    if (scheduled > state.evaluation_time && scheduled < state.next_scheduled_time) {
+      state.next_scheduled_time = scheduled;
+    }
+  }
 }
 
 template <typename Storage>
@@ -1544,6 +1572,7 @@ struct GraphRuntimeRegistry {
             &next_scheduled_time_impl<RootGraphRuntimeStorage>,
         .node_count_impl = &node_count_impl<RootGraphRuntimeStorage>,
         .node_at_impl = &node_at_impl<RootGraphRuntimeStorage>,
+        .finish_failed_evaluation_impl = &finish_failed_evaluation_impl<RootGraphRuntimeStorage>,
         .failed_node_impl = &failed_node_impl<RootGraphRuntimeStorage>,
         .node_scheduled_time_impl =
             &node_scheduled_time_impl<RootGraphRuntimeStorage>,
@@ -1581,6 +1610,7 @@ struct GraphRuntimeRegistry {
             &next_scheduled_time_impl<NestedGraphRuntimeStorage>,
         .node_count_impl = &node_count_impl<NestedGraphRuntimeStorage>,
         .node_at_impl = &node_at_impl<NestedGraphRuntimeStorage>,
+        .finish_failed_evaluation_impl = &finish_failed_evaluation_impl<NestedGraphRuntimeStorage>,
         .failed_node_impl = &failed_node_impl<NestedGraphRuntimeStorage>,
         .node_scheduled_time_impl =
             &node_scheduled_time_impl<NestedGraphRuntimeStorage>,
@@ -1784,6 +1814,12 @@ std::size_t GraphView::node_count() const noexcept {
 
 NodeView GraphView::node_at(std::size_t index) const {
   return ops().node_at_impl(ops().context, data(), index);
+}
+
+void GraphView::finish_failed_evaluation() const noexcept {
+  if (valid() && ops().finish_failed_evaluation_impl) {
+    ops().finish_failed_evaluation_impl(ops().context, data());
+  }
 }
 
 NodeView GraphView::failed_node() const noexcept {

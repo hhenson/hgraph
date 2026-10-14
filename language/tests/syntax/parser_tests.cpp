@@ -288,33 +288,10 @@ native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
     REQUIRE(dump_clean(source).find("NativeFunctionDecl native fn len") != std::string::npos);
 }
 
-TEST_CASE("native functions may declare that their C++ body throws", "[parser][native][throws]") {
-    const std::string source = R"hgl(
-module checks.throws
-native fn parse(value: str) -> i64 throws {
-    cpp(const hgraph::Str &value) {
-        return std::stoll(value);
-    }
-}
-native fn quiet(value: str) -> i64 {
-    cpp(const hgraph::Str &value) {
-        return 0;
-    }
-}
-)hgl";
-    Parsed            parsed{source};
-    INFO(parsed.diagnostics.render(parsed.file));
-    REQUIRE_FALSE(parsed.diagnostics.has_errors());
-    REQUIRE(parsed.module.declarations.size() == 3U);
-    const auto *throwing = std::get_if<ast::NativeFunctionDecl>(&parsed.module.decl(parsed.module.declarations[1]).node);
-    const auto *quiet    = std::get_if<ast::NativeFunctionDecl>(&parsed.module.decl(parsed.module.declarations[2]).node);
-    REQUIRE(throwing != nullptr);
-    REQUIRE(quiet != nullptr);
-    CHECK(throwing->throws);
-    CHECK_FALSE(quiet->throws);
-    const std::string tree = dump_clean(source);
-    CHECK(tree.find("NativeFunctionDecl native fn parse throws") != std::string::npos);
-    CHECK(tree.find("NativeFunctionDecl native fn quiet\n") != std::string::npos);
+TEST_CASE("native functions reject a source exception clause", "[parser][native][throws]") {
+    Parsed parsed{"module checks.throws\nnative const fn parse(value: str) -> i64 throws {}\n"};
+    CHECK(parsed.diagnostics.has_errors());
+    CHECK(dump_clean("module checks.result\nnative const fn parse(value: str) -> result<i64, error>\n").find("result") != std::string::npos);
 }
 
 TEST_CASE("raises is an assertion form, not a native exception clause", "[parser][native][raises]") {
@@ -333,14 +310,8 @@ TEST_CASE("raises is an assertion form, not a native exception clause", "[parser
             REQUIRE_FALSE(lexical_diagnostics.has_errors());
             CHECK_FALSE(parse_token_grammar(tokens.tokens).accepted);
 
-            Parsed permitted{declaration + "throws" + body};
-            INFO(permitted.diagnostics.render(permitted.file));
-            REQUIRE_FALSE(permitted.diagnostics.has_errors());
-            REQUIRE(permitted.module.declarations.size() == 2U);
-            const auto *native = std::get_if<ast::NativeFunctionDecl>(
-                &permitted.module.decl(permitted.module.declarations[1]).node);
-            REQUIRE(native != nullptr);
-            CHECK(native->throws);
+            Parsed unsupported{declaration + "throws" + body};
+            CHECK(unsupported.diagnostics.has_errors());
         }
     }
 

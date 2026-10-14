@@ -70,7 +70,11 @@ namespace hgl::ir
                 case TypeKind::Tuple: return "tuple";
                 case TypeKind::List: return "list";
                 case TypeKind::Set: return "set";
-                case TypeKind::Map: return "map";
+                case TypeKind::Result: return "result";
+case TypeKind::Error: return "error";
+case TypeKind::ErrorContext: return "error-context";
+            case TypeKind::Capture: return "capture";
+case TypeKind::Map: return "map";
                 case TypeKind::Rolling: return "rolling";
                 case TypeKind::Delta: return "delta";
                 case TypeKind::Atomic: return "atomic";

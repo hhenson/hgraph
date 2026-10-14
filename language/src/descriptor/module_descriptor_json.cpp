@@ -117,7 +117,11 @@ namespace hgl::descriptor
                 case TypeCategory::Tuple: return "tuple";
                 case TypeCategory::List: return "list";
                 case TypeCategory::Set: return "set";
-                case TypeCategory::Map: return "map";
+                case TypeCategory::Result: return "result";
+case TypeCategory::Error: return "error";
+case TypeCategory::ErrorContext: return "error-context";
+            case TypeCategory::Capture: return "capture";
+case TypeCategory::Map: return "map";
                 case TypeCategory::Rolling: return "rolling";
                 case TypeCategory::Atomic: return "atomic";
                 case TypeCategory::Delta: return "delta";

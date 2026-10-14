@@ -14,6 +14,7 @@
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node.h>
+#include <hgraph/runtime/canonical_error.h>
 #include <hgraph/runtime/registry_snapshot.h>
 #include <hgraph/types/frame.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
@@ -415,6 +416,26 @@ struct ConsumerMixedState {
         out.set(total);
     }
 };
+struct ConsumerTypedOutcome {
+    static NodeResult<void> eval(In<"value", TS<Int>> value, Out<TS<Int>> output) {
+        if (value.value() < 0) { return std::unexpected{CanonicalError{"value.missing_key", "missing price", {}}}; }
+        output.set(value.value());
+        return {};
+    }
+};
+void check_typed_outcome() {
+    const auto result = testing::eval_node<ConsumerTypedOutcome>(std::vector<std::optional<Int>>{1, 2});
+    if (result != std::vector<std::optional<Int>>{1, 2}) { throw std::runtime_error("installed typed node outcome is unusable"); }
+    auto callbacks = static_node_detail::static_node_callbacks<ConsumerTypedOutcome>();
+    if (!callbacks.evaluate_result || callbacks.evaluate) { throw std::runtime_error("typed failure channel was erased"); }
+    static_cast<void>(scalar_descriptor<CanonicalError>::value_meta());
+    Value value{CanonicalError{"value.missing_key", "missing price", ErrorContext{"owned", "evaluate", MIN_ST}}};
+    Value retained{value.view()};
+    value = Value{};
+    const auto observation = retained.view();
+    const auto &error = observation.checked_as<CanonicalError>();
+    if (!error.context || error.context->node != "owned") { throw std::runtime_error("installed error provenance lifetime was lost"); }
+}
 void check_mixed_state() {
     const auto result = testing::eval_node<ConsumerMixedState>(std::vector<std::optional<Int>>{1, 2});
     if (result != std::vector<std::optional<Int>>{1, 3})
@@ -797,6 +818,7 @@ int main(int argc, char **argv)
         throw std::runtime_error("installed Arrow frame metadata codec is unusable");
     }
 
+    check_typed_outcome();
     check_mixed_state();
     check_distributed_client();
     check_probe_backend_round_trip();

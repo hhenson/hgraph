@@ -28,6 +28,7 @@ namespace hgl::syntax::ast
     {
         switch (op)
         {
+            case UnaryOp::Propagate: return "?";
             case UnaryOp::Negate: return "-";
             case UnaryOp::Not: return "!";
         }

@@ -15,6 +15,8 @@
         return &hgraph::ops_for<Type>();                                                          \
     }
 
+HGRAPH_DEFINE_STANDARD_BINDING_ACCESSORS(canonical_error, hgraph::CanonicalError)
+HGRAPH_DEFINE_STANDARD_BINDING_ACCESSORS(error_context, hgraph::ErrorContext)
 HGRAPH_DEFINE_STANDARD_BINDING_ACCESSORS(bytes, hgraph::Bytes)
 HGRAPH_DEFINE_STANDARD_BINDING_ACCESSORS(str, hgraph::Str)
 HGRAPH_DEFINE_STANDARD_BINDING_ACCESSORS(divide_by_zero, hgraph::stdlib::DivideByZero)
@@ -25,3 +27,18 @@ HGRAPH_DEFINE_STANDARD_BINDING_ACCESSORS(map_call_config, hgraph::stdlib::MapCal
 HGRAPH_DEFINE_STANDARD_BINDING_ACCESSORS(try_except_call_config, hgraph::stdlib::TryExceptCallConfig)
 
 #undef HGRAPH_DEFINE_STANDARD_BINDING_ACCESSORS
+
+hgraph::Value hgraph_standard_canonical_error()
+{
+    static_cast<void>(hgraph::scalar_descriptor<hgraph::CanonicalError>::value_meta());
+    return hgraph::Value{hgraph::CanonicalError{
+        "value.missing_key", "missing price",
+        hgraph::ErrorContext{"child@owned", "evaluate", hgraph::MIN_ST}}};
+}
+
+hgraph::NodeResult<void> hgraph_standard_node_result()
+{
+    return std::unexpected{hgraph::CanonicalError{
+        "value.missing_key", "missing price",
+        hgraph::ErrorContext{"child@owned", "evaluate", hgraph::MIN_ST}}};
+}

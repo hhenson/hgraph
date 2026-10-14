@@ -186,24 +186,32 @@ namespace hgl::native
                             out.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Signal});
                             return id;
                         }
+                    case ValueTypeCategory::Error:
+                        {
+                            const auto id = static_cast<descriptor::SchemaId>(out.types.size());
+                            out.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Error});
+                            return id;
+                        }
                     case ValueTypeCategory::Schema:
                         {
                             const auto id = static_cast<descriptor::SchemaId>(out.types.size());
                             out.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Schema});
                             return id;
                         }
+                    case ValueTypeCategory::Result:
                     case ValueTypeCategory::List:
                     case ValueTypeCategory::Set:
                     case ValueTypeCategory::Map:
                     case ValueTypeCategory::Rolling:
                     case ValueTypeCategory::Delta:
                         {
-                            const std::size_t expected_children = type.category == ValueTypeCategory::Map ? 2U : 1U;
+                            const std::size_t expected_children = (type.category == ValueTypeCategory::Map || type.category == ValueTypeCategory::Result) ? 2U : 1U;
                             if (type.children.size() != expected_children) {
                                 throw std::invalid_argument{"native collection type has the wrong number of type arguments"};
                             }
                             descriptor::TypeRecord record;
                             switch (type.category) {
+                                case ValueTypeCategory::Result: record.category = descriptor::TypeCategory::Result; break;
                                 case ValueTypeCategory::List: record.category = descriptor::TypeCategory::List; break;
                                 case ValueTypeCategory::Set: record.category = descriptor::TypeCategory::Set; break;
                                 case ValueTypeCategory::Map: record.category = descriptor::TypeCategory::Map; break;

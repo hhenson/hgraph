@@ -62,7 +62,7 @@ namespace hgl::descriptor
             return false;
         }
 
-        [[nodiscard]] bool known_unary_operator(std::string_view spelling) noexcept { return spelling == "-" || spelling == "!"; }
+        [[nodiscard]] bool known_unary_operator(std::string_view spelling) noexcept { return spelling == "-" || spelling == "!" || spelling == "?"; }
 
         [[nodiscard]] bool known_binary_operator(std::string_view spelling) noexcept {
             using ir::hir::BinaryOp;
@@ -644,6 +644,7 @@ namespace hgl::descriptor
                                      {"tuple", TypeCategory::Tuple},
                                      {"list", TypeCategory::List},
                                      {"set", TypeCategory::Set},
+                                     {"result", TypeCategory::Result}, {"error", TypeCategory::Error}, {"error-context", TypeCategory::ErrorContext}, {"capture", TypeCategory::Capture},
                                      {"map", TypeCategory::Map},
                                      {"rolling", TypeCategory::Rolling},
                                      {"atomic", TypeCategory::Atomic},
@@ -1591,7 +1592,14 @@ namespace hgl::descriptor
                                    bool allow_collection = true, bool allow_signal = false, bool allow_schema = true) {
                 if (id == no_schema_id) { return optional || fail(std::string{path}, "missing required native value type"); }
                 const TypeRecord &type = descriptor_.types[id];
-                if (type.category == TypeCategory::Scalar) { return true; }
+                if (type.category == TypeCategory::Scalar || type.category == TypeCategory::Error) { return true; }
+                if (type.category == TypeCategory::Result) {
+                    if (type.children.size() != 2U) { return fail(std::string{path}, "result requires two payload types"); }
+                    for (const auto child : type.children) {
+                        if (!native_value_type(signature, child, path, false, true, false, false)) { return false; }
+                    }
+                    return true;
+                }
                 if (type.category == TypeCategory::Schema) {
                     return allow_schema ||
                            fail(std::string{path}, "'schema' is supported only as a complete native parameter type");
@@ -1930,14 +1938,18 @@ namespace hgl::descriptor
                     case TypeCategory::Delta:
                     case TypeCategory::Reference:
                     case TypeCategory::HarnessSequence: required_children = 1U; break;
+                    case TypeCategory::Result:
                     case TypeCategory::Map: required_children = 2U; break;
                     case TypeCategory::Void:
+                    case TypeCategory::Error:
+                    case TypeCategory::ErrorContext:
                     case TypeCategory::Scalar:
                     case TypeCategory::Symbol:
                     case TypeCategory::Signal:
                     case TypeCategory::Schema:
                     case TypeCategory::Capability:
                     case TypeCategory::Deferred: required_children = 0U; break;
+                    case TypeCategory::Capture:
                     case TypeCategory::Tuple:
                     case TypeCategory::Iterator:
                     case TypeCategory::Callable: break;

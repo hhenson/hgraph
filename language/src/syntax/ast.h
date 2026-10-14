@@ -65,6 +65,9 @@ namespace hgl::syntax::ast
         Tuple,      ///< `children`
         List,       ///< `children[0]`, `size` (no_node = unsized) or `unbounded`
         Set,        ///< `children[0]`
+        Result,
+        Error,
+        ErrorContext,
         Map,        ///< `children[0]` key, `children[1]` value
         Rolling,    ///< `children[0]`, `size` max, `min_size` (no_node = omitted)
         Delta,      ///< ordinary publication delta; children[0] is the originating temporal shape
@@ -108,6 +111,7 @@ namespace hgl::syntax::ast
     // ---------------------------------------------------------- expressions
 
     enum class UnaryOp : std::uint8_t {
+        Propagate,
         Negate,  ///< `-`
         Not,     ///< `!`
     };

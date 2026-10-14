@@ -1026,7 +1026,8 @@ namespace hgl::ir
                         type(canonical(value.children.front())).kind == TypeKind::Scalar) { return; }
                     if (value.kind == TypeKind::Scalar || value.kind == TypeKind::Symbol || value.kind == TypeKind::List ||
                         value.kind == TypeKind::Tuple || value.kind == TypeKind::Map || value.kind == TypeKind::Set ||
-                        value.kind == TypeKind::Delta || (result && value.kind == TypeKind::Void)) {
+                        value.kind == TypeKind::Delta || value.kind == TypeKind::Result || value.kind == TypeKind::Error ||
+                        (result && value.kind == TypeKind::Void)) {
                         if ((result && value.kind == TypeKind::Void) || ordinary_argument(id)) { return; }
                     }
                     type_error(value.range, "const fn signature requires an ordinary value type");
@@ -1156,6 +1157,7 @@ namespace hgl::ir
                     missing = order ? !native->order : !native->equality || (hash && !native->hash);
                 }
                 if (value.kind == TypeKind::Map || value.kind == TypeKind::Set) { missing = missing || order; }
+                if (value.kind == TypeKind::Result || value.kind == TypeKind::Error) { missing = missing || order || hash; }
                 if (value.kind == TypeKind::Delta) {
                     if (value.children.empty()) {
                         missing = true;
@@ -1587,6 +1589,16 @@ namespace hgl::ir
 
             void require_assignable(TypeId expected, const Expr &actual, std::string_view what, bool delta_context = false) {
                 if (!expected.valid() || !actual.type.valid()) { return; }
+                const auto declared = canonical(expected);
+                const auto &shape = type(declared);
+                if (actual.phase == Phase::Wiring && std::holds_alternative<Sequence>(actual.node) &&
+                    shape.kind == TypeKind::List && !shape.unbounded && shape.children.size() == 1U &&
+                    reference(shape.children.front()) && assignable(expected, actual.type)) {
+                    // A fixed list of declared REF positions assembles source
+                    // connections. Ordinary list literal coldness still applies
+                    // everywhere else, including operator and value lambdas.
+                    std::erase(ordinary_list_literals_, &actual);
+                }
                 if (!assignable(expected, actual.type)) {
                     type_error(actual.range,
                                std::string{what} + " has type " + type_name(actual.type) + ", expected " + type_name(expected),
@@ -1761,6 +1773,20 @@ namespace hgl::ir
                 if (const auto *unary = std::get_if<Unary>(&condition.node); unary && unary->op == UnaryOp::Not) {
                     return presence_after(unary->operand, !truth, std::move(incoming));
                 }
+                if (const auto *call = std::get_if<Call>(&condition.node); call && call->arguments.size() == 1U &&
+                    (condition.operation.identity == "is_ok" || condition.operation.identity == "is_err")) {
+                    const auto *reference = std::get_if<SymbolRef>(&module_.expr(call->arguments.front().value).node);
+                    if (reference && reference->symbol.valid()) {
+                        const auto kind = module_.symbol(reference->symbol).kind;
+                        if (kind == SymbolKind::LocalLet || kind == SymbolKind::ValueParameter || kind == SymbolKind::ConstParameter ||
+                            kind == SymbolKind::SignalParameter) {
+                            const bool success = truth == (condition.operation.identity == "is_ok");
+                            incoming.insert(reference->symbol.value | (success ? 0x80000000U : 0x40000000U));
+                            incoming.erase(reference->symbol.value | (success ? 0x40000000U : 0x80000000U));
+                        }
+                    }
+                    return incoming;
+                }
                 const auto *binary = std::get_if<Binary>(&condition.node);
                 if (!binary) { return incoming; }
                 if (binary->op == BinaryOp::And) {
@@ -1809,7 +1835,7 @@ namespace hgl::ir
                 Expr &expression = module_.exprs[id.value];
                 if (expr_state_[id.value] == 2U) {
                     contextualize(expression, expected);
-                    if (!allow_nullable && nullable(expression)) { type_error(expression.range, "nullable payload requires a presence guard"); }
+                    if (!allow_nullable && nullable(expression)) { type_error(expression.range, "nullable payload requires a presence guard", "nullable.required_presence"); }
                     return expression;
                 }
                 if (expr_state_[id.value] == 1U) {
@@ -1853,7 +1879,7 @@ namespace hgl::ir
                     expression.node);
                 contextualize(expression, expected);
                 expr_state_[id.value] = 2U;
-                if (!allow_nullable && nullable(expression)) { type_error(expression.range, "nullable payload requires a presence guard"); }
+                if (!allow_nullable && nullable(expression)) { type_error(expression.range, "nullable payload requires a presence guard", "nullable.required_presence"); }
                 return expression;
             }
 
@@ -2014,6 +2040,36 @@ namespace hgl::ir
             }
 
             void check_unary(Expr &expression, const Unary &node) {
+                if (node.op == UnaryOp::Propagate) {
+                    Expr &operand = check_expr(node.operand, {}, true);
+                    const TypeId source = unwrap_atomic(operand.type);
+                    const auto *fn = function(expression.owner);
+                    const bool value_function = active_value_function_;
+                    const bool handler = runtime_owner(expression.owner) && active_native_phase_ == NativePhase::Evaluation && fn && !fn->is_generator;
+                    if (!value_function && !handler) {
+                        diagnostics_.report(syntax::Category::Phase, expression.range, "result propagation requires a value function or node when", "result.propagation_phase");
+                    }
+                    if (!source.valid() || type(source).kind != TypeKind::Result || nullable(operand)) {
+                        type_error(expression.range, "propagation requires a result value", "result.propagation_type");
+                        expression.type = scalar(ScalarType::I64);
+                    } else {
+                        const Type shape = type(source);
+                        expression.type = shape.children[0];
+                        if (value_function) {
+                            const auto result = fn ? unwrap_atomic(fn->signature.result) : TypeId{};
+                            if (!result.valid() || type(result).kind != TypeKind::Result || !same(type(result).children[1], shape.children[1])) {
+                                type_error(expression.range, "propagation requires the declared result with the same error type", "result.propagation_type");
+                            }
+                        } else if (handler && type(canonical(shape.children[1])).kind != TypeKind::Error) {
+                            type_error(expression.range, "node propagation requires the canonical error type", "result.propagation_type");
+                        }
+                    }
+                    expression.phase = operand.phase;
+                    expression.effects = operand.effects;
+                    expression.value_kind = value_kind_for_phase(expression.phase);
+                    expression.operation = Operation{.kind = OperationKind::Intrinsic, .identity = "result.propagate"};
+                    return;
+                }
                 Expr &operand = check_expr(node.operand);
                 if (runtime_owner(expression.owner) && reference(operand.type)) {
                     type_error(operand.range, "node evaluation cannot read through ref<T>");
@@ -3787,7 +3843,28 @@ namespace hgl::ir
                 }
                 const bool ref_projection = reference(target.type);
                 const TypeId base_id = ref_projection ? type(canonical(target.type)).children.front() : unwrap_atomic(target.type);
-                if (base_id.valid()) {
+                if (base_id.valid() && type(canonical(base_id)).kind == TypeKind::Capture) {
+                    const Type shape = type(canonical(base_id));
+                    if (node.name == "error") { expression.type = shape.children.back(); }
+                    else if (node.name == "value" && shape.children.size() == 2U) { expression.type = shape.children.front(); }
+                    else { type_error(expression.range, "capture has no such output connection", "capture.output_field"); expression.type = scalar(ScalarType::I64); }
+                } else if (base_id.valid() && type(canonical(base_id)).kind == TypeKind::Result) {
+                    const Type shape = type(canonical(base_id));
+                    const bool success = node.name == "value";
+                    const auto *binding = std::get_if<SymbolRef>(&target.node);
+                    if ((node.name != "value" && node.name != "error") || !binding ||
+                        !present_bindings_.contains(binding->symbol.value | (success ? 0x80000000U : 0x40000000U))) {
+                        type_error(expression.range, "result payload requires the selected variant guard", "result.required_variant");
+                    }
+                    expression.type = shape.children[success ? 0U : 1U];
+                } else if (base_id.valid() && type(canonical(base_id)).kind == TypeKind::Error) {
+                    if (node.name == "message" || node.name == "code") { expression.type = scalar(ScalarType::Str); }
+                    else if (node.name == "context") { expression.type = make_type(TypeKind::ErrorContext); }
+                    if (node.name == "code" || node.name == "context") { nullable_expressions_.insert(&expression); }
+                } else if (base_id.valid() && type(canonical(base_id)).kind == TypeKind::ErrorContext) {
+                    if (node.name == "node" || node.name == "phase") { expression.type = scalar(ScalarType::Str); }
+                    else if (node.name == "evaluation_time") { expression.type = scalar(ScalarType::DateTime); }
+                } else if (base_id.valid()) {
                     if (const auto field = active_field_type(base_id, node.name)) {
                         expression.type = ref_projection && !reference(*field)
                             ? make_type(TypeKind::Reference, {*field}) : *field;
@@ -3862,8 +3939,19 @@ namespace hgl::ir
                 const TypeKind kind   = expected.valid() && type(canonical(expected)).kind == TypeKind::HarnessSequence
                                             ? TypeKind::HarnessSequence
                                             : TypeKind::List;
+                const bool assembly = kind == TypeKind::List && phase == Phase::Wiring;
                 if (kind == TypeKind::List && !node.elements.empty()) { ordinary_list_literals_.push_back(&expression); }
-                expression.type       = use_expected_list ? canonical(expected) : make_type(kind, {element_type});
+                expression.type = use_expected_list ? canonical(expected) : make_type(kind, {element_type});
+                if (assembly && !use_expected_list) {
+                    const auto count = static_cast<std::int64_t>(node.elements.size());
+                    const ExprId size{static_cast<std::uint32_t>(module_.exprs.size())};
+                    module_.exprs.push_back(Expr{.range = expression.range, .type = scalar(ScalarType::I64),
+                        .phase = Phase::Constant, .value_kind = ValueKind::Constant,
+                        .node = Literal{count}, .constant = Constant{count}});
+                    expr_state_.push_back(2);
+                    Type shape{.kind = TypeKind::List, .children = {element_type}, .size = size};
+                    expression.type = intern(std::move(shape));
+                }
                 expression.phase      = phase;
                 expression.value_kind = kind == TypeKind::HarnessSequence ? ValueKind::Constant : value_kind_for_phase(phase);
             }
@@ -4036,10 +4124,37 @@ namespace hgl::ir
                     return;
                 }
                 const BoundArguments bound = bind_arguments(fn->signature, node.arguments, expression.range);
+                detail::GenericSubstitution bindings{module_, canonical_types_};
+                if (!fn->generics.empty()) {
+                    for (std::size_t index = 0; index < bound.parameters.size(); ++index) {
+                        if (bound.parameters[index].empty()) { continue; }
+                        const auto &parameter = fn->signature.parameters[index];
+                        const auto argument = bound.parameters[index].front();
+                        if (parameter.is_const) { (void)bindings.bind_value(parameter.symbol, argument); }
+                        const auto *sequence = std::get_if<Sequence>(&module_.expr(argument).node);
+                        if (sequence && !parameter.is_const) {
+                            for (const auto &entry : sequence->elements) {
+                                const auto &source = module_.expr(entry.value);
+                                if (const auto *literal = std::get_if<Literal>(&source.node);
+                                    literal && (std::holds_alternative<PlaceholderValue>(literal->value) ||
+                                                std::holds_alternative<NullValue>(literal->value))) { continue; }
+                                const auto &sample = check_expr(entry.value);
+                                auto payload = canonical(sample.type);
+                                if (type(payload).kind == TypeKind::Delta) { payload = type(payload).children.front(); }
+                                (void)bindings.infer_from_argument(parameter.type, payload);
+                                break;
+                            }
+                        } else {
+                            (void)bindings.infer_from_argument(parameter.type, check_expr(argument).type);
+                        }
+                    }
+                    require_complete_bindings(fn->generics, bindings, expression.range, "eval call");
+                }
                 std::vector<bool>    lift_inputs;
                 bool has_temporal_input = false;
                 for (std::size_t index = 0; index < bound.parameters.size(); ++index) {
                     const Parameter &parameter = fn->signature.parameters[index];
+                    const auto parameter_type = bindings.apply(parameter.type);
                     bool             input     = !parameter.is_const;
                     if (fn->is_const) {
                         input = input && !bound.parameters[index].empty() &&
@@ -4049,35 +4164,37 @@ namespace hgl::ir
                     if (input) {
                         has_temporal_input = true;
                         std::unordered_set<std::uint32_t> visiting;
-                        if (!concrete_property_type(parameter.type) || !admitted_delta_shape(parameter.type, visiting)) {
+                        if (!concrete_property_type(parameter_type) || !admitted_delta_shape(parameter_type, visiting)) {
                             type_error(expression.range, "eval input '" + module_.symbol(parameter.symbol).name +
                                 "' requires an exact concrete shape admitted by the publication profile");
                         }
                     }
-                    const TypeId expected = input ? make_type(TypeKind::HarnessSequence, {parameter.type}) : parameter.type;
+                    const TypeId expected = input ? make_type(TypeKind::HarnessSequence, {parameter_type}) : parameter_type;
                     if (bound.parameters[index].empty()) { continue; }
                     Expr &value = check_expr(bound.parameters[index].front(), expected);
                     const auto &actual = type(canonical(value.type));
                     const bool ordinary_trace = input && actual.kind == TypeKind::List && actual.children.size() == 1U &&
-                        same(actual.children.front(), make_type(TypeKind::Delta, {parameter.type}));
+                        same(actual.children.front(), make_type(TypeKind::Delta, {parameter_type}));
                     if (!ordinary_trace) { require_assignable(expected, value, "eval input"); }
                 }
                 if (!has_temporal_input) {
                     type_error(expression.range, "eval requires at least one temporal sequence input");
                 }
-                if (type(canonical(fn->signature.result)).kind != TypeKind::Void) {
+                const auto result_type = bindings.apply(fn->signature.result);
+                if (type(canonical(result_type)).kind != TypeKind::Void) {
                     std::unordered_set<std::uint32_t> visiting;
-                    if (!concrete_property_type(fn->signature.result) || !admitted_delta_shape(fn->signature.result, visiting)) {
+                    if (!concrete_property_type(result_type) || !admitted_delta_shape(result_type, visiting)) {
                         type_error(expression.range, "eval output requires an exact concrete shape admitted by the publication profile");
                     }
                 }
-                expression.type       = make_type(TypeKind::HarnessSequence, {fn->signature.result});
+                expression.type       = make_type(TypeKind::HarnessSequence, {result_type});
                 expression.phase      = Phase::Constant;
                 expression.value_kind = ValueKind::Constant;
                 expression.effects    = Effect::TestHarness;
                 expression.operation  = Operation{.kind     = OperationKind::HarnessEval,
                                                   .target   = reference->symbol,
-                                                  .identity = module_.path + "." + module_.symbol(reference->symbol).name};
+                                                  .identity = module_.path + "." + module_.symbol(reference->symbol).name,
+                                                  .substitutions = bindings.materialize(fn->generics)};
                 if (fn->is_const) {
                     if (!std::ranges::any_of(lift_inputs, [](bool input) { return input; })) {
                         type_error(expression.range, "eval of a const fn needs at least one tick-sequence input");
@@ -4388,6 +4505,7 @@ namespace hgl::ir
                 id = canonical(id);
                 if (!id.valid()) { return false; }
                 const Type shape = type(id);
+                if (shape.kind == TypeKind::Error) { return true; }
                 if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedTime || shape.scalar == ScalarType::TimeZone); }
                 if (shape.kind == TypeKind::Symbol && shape.symbol.valid() &&
                     (module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter ||
@@ -4400,7 +4518,7 @@ namespace hgl::ir
                 }
                 if (!visiting.insert(id.value).second) { return recursive_edge; }
                 bool admitted = false;
-                if (shape.kind == TypeKind::Tuple || shape.kind == TypeKind::List) {
+                if (shape.kind == TypeKind::Result || shape.kind == TypeKind::Tuple || shape.kind == TypeKind::List) {
                     admitted = true;
                     for (TypeId child : shape.children) { admitted = admitted && admitted_atomic_value(child, visiting); }
                 } else if (shape.kind == TypeKind::Set || shape.kind == TypeKind::Map) {
@@ -4487,6 +4605,7 @@ namespace hgl::ir
                 id = canonical(id);
                 if (!id.valid()) { return false; }
                 const Type shape = type(id);
+                if (shape.kind == TypeKind::Error || shape.kind == TypeKind::Result) { return admitted_atomic_value(id, visiting); }
                 if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedTime || shape.scalar == ScalarType::TimeZone); }
                 if (shape.kind == TypeKind::Symbol && shape.symbol.valid() &&
                     (module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter ||
@@ -4930,6 +5049,84 @@ namespace hgl::ir
                 }
                 std::vector<ExprId> args;
                 for (const Argument &argument : call.arguments) { args.push_back(argument.value); }
+                if (name == "capture") {
+                    if (runtime_owner(expression.owner) || active_value_function_) {
+                        diagnostics_.report(syntax::Category::Phase, expression.range, "capture requires graph composition", "capture.phase");
+                        expression.type = make_type(TypeKind::Capture, {make_type(TypeKind::Error)});
+                        expression.phase = Phase::Wiring;
+                        return;
+                    }
+                    if (args.empty()) { type_error(expression.range, "capture requires a temporal callable"); return; }
+                    const auto capture_callee = call.callee;
+                    Call invocation;
+                    invocation.callee = args.front();
+                    invocation.arguments.assign(call.arguments.begin() + 1, call.arguments.end());
+                    check_call(expression, invocation, {});
+                    if (expression.phase != Phase::Wiring) {
+                        diagnostics_.report(syntax::Category::Phase, expression.range, "capture requires a temporal call", "capture.phase");
+                    }
+                    const auto output = expression.type;
+                    Expr selected_call = expression;
+                    selected_call.node = std::move(invocation);
+                    const ExprId selected{static_cast<std::uint32_t>(module_.exprs.size())};
+                    module_.exprs.push_back(std::move(selected_call));
+                    expr_state_.push_back(2);
+                    for (auto &[site, phase] : value_call_phases_) {
+                        static_cast<void>(phase);
+                        if (site == &expression) { site = &module_.expr(selected); }
+                    }
+                    expression.node = Call{capture_callee, {Argument{"", selected, expression.range}}};
+                    std::vector<TypeId> connections;
+                    if (output.valid() && type(canonical(output)).kind != TypeKind::Void) { connections.push_back(output); }
+                    connections.push_back(make_type(TypeKind::Error));
+                    expression.type = make_type(TypeKind::Capture, std::move(connections));
+                    expression.phase = Phase::Wiring;
+                    expression.value_kind = ValueKind::Signal;
+                    expression.effects |= Effect::WireGraph;
+                    expression.operation = Operation{.kind = OperationKind::Intrinsic, .target = target, .identity = name};
+                    return;
+                }
+                if (name == "ok" || name == "err") {
+                    const auto context = unwrap_atomic(expected);
+                    if (!context.valid() || type(context).kind != TypeKind::Result) {
+                        for (const auto arg : args) { check_expr(arg); }
+                        type_error(expression.range, "result construction requires an expected result type", "result.context_type");
+                        expression.type = context;
+                    } else {
+                        expression.type = context;
+                        const auto payload = type(context).children[name == "ok" ? 0U : 1U];
+                        if (args.size() != 1U || !call.arguments.front().name.empty()) { type_error(expression.range, "result construction takes one positional payload"); }
+                        else { Expr &item = check_expr(args.front(), payload); require_assignable(payload, item, "result payload"); }
+                    }
+                    finish_call_semantics(expression, args, true);
+                    expression.operation = Operation{.kind = OperationKind::Intrinsic, .target = target, .identity = name};
+                    return;
+                }
+                if (name == "error") {
+                    bool message = false;
+                    for (const auto &arg : call.arguments) {
+                        if (arg.name == "message") { message = true; }
+                        else if (arg.name != "code") { type_error(arg.range, "error takes named message and optional code"); }
+                        Expr &value = check_expr(arg.value, scalar(ScalarType::Str), arg.name == "code");
+                        if (arg.name == "message" && is_null(value)) { type_error(arg.range, "error message requires a non-null str"); }
+                        require_assignable(scalar(ScalarType::Str), value, "error diagnostic");
+                    }
+                    if (!message) { type_error(expression.range, "error requires message"); }
+                    expression.type = make_type(TypeKind::Error);
+                    finish_call_semantics(expression, args, true);
+                    expression.operation = Operation{.kind = OperationKind::Intrinsic, .target = target, .identity = name};
+                    return;
+                }
+                if (name == "is_ok" || name == "is_err") {
+                    if (args.size() != 1U) { type_error(expression.range, "result predicate takes one result"); return; }
+                    Expr &source = check_expr(args.front());
+                    const auto payload = unwrap_atomic(source.type);
+                    if (!payload.valid() || type(payload).kind != TypeKind::Result) { type_error(source.range, "result predicate requires a result"); }
+                    expression.type = scalar(ScalarType::Bool);
+                    finish_call_semantics(expression, args, true);
+                    expression.operation = Operation{.kind = OperationKind::Intrinsic, .target = target, .identity = name};
+                    return;
+                }
                 if (name == "any") {
                     if (args.size() > 1U || (!call.arguments.empty() && !call.arguments.front().name.empty())) {
                         type_error(expression.range, "any takes zero arguments or one positional ordinary value");
@@ -5078,6 +5275,34 @@ namespace hgl::ir
                     } else {
                         type_error(value.range, "key_set takes a map");
                     }
+                } else if (name == "get") {
+                    if (args.size() < 2U || args.size() > 3U || !call.arguments[0].name.empty() ||
+                        !call.arguments[1].name.empty() || (args.size() == 3U && call.arguments[2].name != "default")) {
+                        type_error(expression.range, "get takes a map, a key, and an optional named default");
+                        return;
+                    }
+                    Expr &source = check_expr(args[0]);
+                    const TypeId collection = unwrap_atomic(source.type);
+                    if (!collection.valid() || type(collection).kind != TypeKind::Map) {
+                        type_error(source.range, "get takes an ordinary map value");
+                        return;
+                    }
+                    const Type shape = type(collection);
+                    Expr &key = check_expr(args[1], shape.children[0]);
+                    require_assignable(shape.children[0], key, "map key");
+                    expression.type = shape.children[1];
+                    bool absent_default = args.size() == 2U;
+                    if (!absent_default) {
+                        Expr &fallback = check_expr(args[2], shape.children[1]);
+                        absent_default = is_null(fallback);
+                        if (!absent_default && !same(shape.children[1], fallback.type)) {
+                            type_error(fallback.range, "dictionary default requires the exact value type", "lookup.default_type");
+                        }
+                    }
+                    if (absent_default) { nullable_expressions_.insert(&expression); }
+                    finish_call_semantics(expression, args, true);
+                    expression.operation = Operation{.kind = OperationKind::Intrinsic, .target = target, .identity = name};
+                    return;
                 } else if (name == "contains" || name == "at" || name == "time_at" || name == "front" || name == "back" ||
                            name == "removed_value") {
                     for (const auto &argument : call.arguments) {
@@ -5119,6 +5344,11 @@ namespace hgl::ir
                     expression.type = name == "contains"  ? scalar(ScalarType::Bool)
                                       : name == "time_at" ? scalar(ScalarType::DateTime)
                                                           : item;
+                    if (map && source.phase != Phase::Wiring) {
+                        finish_call_semantics(expression, args, true);
+                        expression.operation = Operation{.kind = OperationKind::Intrinsic, .target = target, .identity = name};
+                        return;
+                    }
                 } else if (name == "schemas") {
                     if (args.size() != 1U) { type_error(expression.range, "'schemas' takes one parameter pack"); }
                     Expr            &source = check_expr(args.empty() ? ExprId{} : args.front());
@@ -5828,7 +6058,7 @@ namespace hgl::ir
                     if (!visited.insert(current.value).second) { continue; }
                     const Type shape = type(current);
                     if (shape.kind == TypeKind::Delta) { continue; }
-                    if (shape.kind == TypeKind::Atomic || shape.kind == TypeKind::Reference || shape.kind == TypeKind::Rolling ||
+                    if (shape.kind == TypeKind::Capture || shape.kind == TypeKind::Atomic || shape.kind == TypeKind::Reference || shape.kind == TypeKind::Rolling ||
                         shape.kind == TypeKind::Signal || shape.kind == TypeKind::Schema) {
                         ordinary_admission_.emplace(current.value, false);
                         ordinary_admission_.emplace(root.value, false);
@@ -6051,6 +6281,10 @@ namespace hgl::ir
                             if (valid || !accepted) { checked_struct_occurrences_.emplace(id, accepted); }
                         }
                         if (!valid) { type_error(shape.range, "generic struct arguments do not satisfy their value and delta occurrences"); }
+                    }
+                    if (shape.kind == TypeKind::Result && (shape.children.size() != 2U ||
+                        !ordinary_argument(shape.children[0]) || !ordinary_argument(shape.children[1]))) {
+                        type_error(shape.range, "result payloads require ordinary value types");
                     }
                     if ((shape.kind == TypeKind::Atomic || shape.kind == TypeKind::Rolling) && shape.children.size() == 1U &&
                         !ordinary_argument(shape.children.front())) {

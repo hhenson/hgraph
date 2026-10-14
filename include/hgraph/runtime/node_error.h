@@ -21,6 +21,7 @@ namespace hgraph
     {
         std::size_t trace_back_depth{1};
         bool        capture_values{false};
+        bool        canonical_errors{false};
 
         [[nodiscard]] bool operator==(const ErrorCaptureOptions &) const noexcept = default;
     };

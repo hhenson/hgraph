@@ -151,6 +151,7 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
         DateTime (*next_scheduled_time_impl)(const void *context, const void *memory) noexcept = nullptr;
         std::size_t (*node_count_impl)(const void *context, const void *memory) noexcept = nullptr;
         NodeView (*node_at_impl)(const void *context, void *memory, std::size_t index) = nullptr;
+        void (*finish_failed_evaluation_impl)(const void *context, void *memory) noexcept = nullptr;
         NodeView (*failed_node_impl)(const void *context, void *memory) noexcept = nullptr;
         DateTime (*node_scheduled_time_impl)(const void *context, const void *memory,
                                                            std::size_t index) noexcept = nullptr;
@@ -210,6 +211,7 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
         [[nodiscard]] NodeView node_at(std::size_t index) const;
         /** Node whose exception most recently escaped this graph evaluation. */
         [[nodiscard]] NodeView failed_node() const noexcept;
+        void finish_failed_evaluation() const noexcept;
 
         /** A view over the graph's shared ``GlobalState`` (the owning value lives on the graph). */
         [[nodiscard]] GlobalStateView global_state() const;

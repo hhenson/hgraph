@@ -2,6 +2,7 @@
 
 #include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/runtime/node_error.h>
+#include <hgraph/runtime/canonical_error.h>
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
 #include <hgraph/types/time_series/ts_output/bundle_view.h>
 #include <hgraph/util/scope.h>
@@ -67,14 +68,49 @@ namespace hgraph
             nested.ensure_child_graph();
             single_nested_graph_bind_inputs(nested, evaluation_time);
             single_nested_graph_bind_output(nested, evaluation_time);
+            std::exception_ptr active;
             const bool completed = fallback_on_exception(true,
-                                                         [&] {
-                                                             return nested.child_graph().evaluate(evaluation_time);
-                                                         },
-                                                         [&](const char *error) {
-                                                             NodeView failed = nested.child_graph().failed_node();
-                                                             write_try_except_error(view, failed, evaluation_time, error);
-                                                         });
+                [&] { return nested.child_graph().evaluate(evaluation_time); },
+                [&](const char *) { active = std::current_exception(); });
+            if (active) {
+                const auto *schema = view.schema();
+                const auto failed = nested.child_graph().failed_node();
+                const bool canonical = schema && schema->error_capture.canonical_errors;
+                struct ObservedFailure {
+                    std::string message;
+                    std::optional<CanonicalError> diagnostic;
+                    FailurePhase phase{FailurePhase::Evaluate};
+                };
+                auto failure = fallback_on_exception(ObservedFailure{"unknown error", {}}, [&]() -> ObservedFailure {
+                    try { std::rethrow_exception(active); }
+                    catch (const std::exception &cause) {
+                        ObservedFailure observed{cause.what(), {}, execution_failure_phase(cause)};
+                        if (canonical) {
+                            observed.diagnostic = canonicalize_failure(
+                                failed.valid() ? failed : view, evaluation_time, "evaluate", cause);
+                        }
+                        return observed;
+                    }
+                });
+                if (canonical) {
+                    if (!failure.diagnostic) {
+                        const std::runtime_error unknown{failure.message};
+                        failure.diagnostic = canonicalize_failure(
+                            failed.valid() ? failed : view, evaluation_time, "evaluate", unknown);
+                    }
+                    auto error = std::move(*failure.diagnostic);
+                    if (failure.phase != FailurePhase::Evaluate) { throw ExecutionFailure{std::move(error), failure.phase}; }
+                    auto output = view.output(evaluation_time);
+                    auto target = [&]() {
+                        if (output.schema()->kind == TSTypeKind::TSB) { auto bundle = output.as_bundle(); return bundle.field("error"); }
+                        return std::move(output);
+                    }();
+                    const auto binding = target.value().binding();
+                    auto mutation = target.begin_mutation(evaluation_time);
+                    static_cast<void>(mutation.copy_value_from(ValueView{binding, &error}));
+                } else { write_try_except_error(view, failed, evaluation_time, std::move(failure.message)); }
+                nested.child_graph().finish_failed_evaluation();
+            }
             single_nested_graph_propagate_schedule(nested);
             return completed;
         }

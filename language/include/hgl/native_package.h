@@ -51,6 +51,8 @@ namespace hgl::native
         Signal,
         Schema,
         Delta,
+        Result,
+        Error,
     };
 
     /// One HGL value pattern in a native signature. Type parameters name a
@@ -91,6 +93,11 @@ namespace hgl::native
 
         [[nodiscard]] static ValueType map(ValueType key, ValueType value) {
             return ValueType{.category = ValueTypeCategory::Map, .children = {std::move(key), std::move(value)}};
+        }
+
+        [[nodiscard]] static ValueType error() { return ValueType{.category = ValueTypeCategory::Error}; }
+        [[nodiscard]] static ValueType result(ValueType value, ValueType error) {
+            return ValueType{.category = ValueTypeCategory::Result, .children = {std::move(value), std::move(error)}};
         }
 
         [[nodiscard]] static ValueType rolling(ValueType element, std::string size, std::string min_size = {}) {

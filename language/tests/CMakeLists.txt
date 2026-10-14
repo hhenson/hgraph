@@ -961,6 +961,9 @@ if(UNIX)
             --part ${HGRAPH_STD}/tests/signal_observation_values.hgl
             --part ${HGRAPH_STD}/tests/enum_values.hgl
             --part ${HGRAPH_STD}/tests/scalar_key_values.hgl
+            --part ${HGRAPH_STD}/tests/nullable_dictionary_lookup.hgl
+            --part ${HGRAPH_STD}/tests/result_errors.hgl
+            --part ${HGRAPH_STD}/tests/error_capture.hgl
             --part ${HGRAPH_STD}/tests/atomic_set_map_values.hgl
             --part ${HGRAPH_STD}/tests/growing_list_values.hgl
             --part ${HGRAPH_STD}/tests/rolling_values.hgl
@@ -1329,6 +1332,13 @@ add_custom_command(OUTPUT ${_delta_positive}
     COMMAND $<TARGET_FILE:hgl_shared_fixture> prepare ${_delta_source} ${_delta_positive}
     DEPENDS hgl_shared_fixture ${_delta_source}
     VERBATIM)
+add_test(NAME hgraph_language_nullable_lookup_source_errors
+    COMMAND $<TARGET_FILE:hgl> test
+        ${HGRAPH_SPEC}/language/examples/reject/nullable-map-lookup.hgl)
+set_tests_properties(hgraph_language_nullable_lookup_source_errors PROPERTIES
+    PASS_REGULAR_EXPRESSION "3 rejection cases, 0 failed"
+    FAIL_REGULAR_EXPRESSION "FAILED")
+
 add_test(NAME hgraph_language_delta_source_errors
     COMMAND $<TARGET_FILE:hgl_shared_fixture> reject ${_delta_source})
 set_tests_properties(hgraph_language_delta_source_errors PROPERTIES
@@ -1355,6 +1365,41 @@ set_tests_properties(hgraph_language_any_constant_capability PROPERTIES
     PASS_REGULAR_EXPRESSION "4 rejection cases, 0 failed"
     FAIL_REGULAR_EXPRESSION "FAILED"
     ENVIRONMENT "HGL_CXX=hgl-any-constant-must-not-build;HGL_DISABLE_CACHE=1")
+
+hgl_add_module(hgl_result_fixture STATIC HGL
+    ${HGRAPH_SPEC}/language/examples/result-errors.hgl)
+add_executable(hgl_result_tests negative/result_generated_driver.cpp)
+target_link_libraries(hgl_result_tests PRIVATE hgl_result_fixture hgl_eval_library hgl::driver)
+hgl_link_runtime_executable(hgl_result_tests)
+hgl_stage_runtime_dlls(hgl_result_tests)
+hgl_apply_warnings(hgl_result_tests)
+add_test(NAME hgraph_language_result_generated
+    COMMAND hgl_result_tests test ${HGRAPH_SPEC}/language/examples/result-errors.hgl)
+set_tests_properties(hgraph_language_result_generated PROPERTIES
+    PASS_REGULAR_EXPRESSION "1 test, 0 failed"
+    FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_CXX=hgl-result-must-not-build;HGL_DISABLE_CACHE=1")
+add_test(NAME hgraph_language_result_source_errors
+    COMMAND $<TARGET_FILE:hgl> test ${HGRAPH_SPEC}/language/examples/reject/result-errors.hgl)
+set_tests_properties(hgraph_language_result_source_errors PROPERTIES
+    PASS_REGULAR_EXPRESSION "7 rejection cases, 0 failed"
+    FAIL_REGULAR_EXPRESSION "FAILED")
+
+# The Spec lookup assertions use compiled kernels on every platform.
+hgl_add_module(hgl_nullable_lookup_fixture STATIC HGL
+    ${HGRAPH_SPEC}/language/examples/nullable-map-lookup.hgl)
+add_executable(hgl_nullable_lookup_tests negative/lookup_generated_driver.cpp)
+target_link_libraries(hgl_nullable_lookup_tests PRIVATE hgl_nullable_lookup_fixture hgl_eval_library hgl::driver)
+hgl_link_runtime_executable(hgl_nullable_lookup_tests)
+hgl_stage_runtime_dlls(hgl_nullable_lookup_tests)
+hgl_apply_warnings(hgl_nullable_lookup_tests)
+add_test(NAME hgraph_language_nullable_lookup_generated
+    COMMAND hgl_nullable_lookup_tests test
+        ${HGRAPH_SPEC}/language/examples/nullable-map-lookup.hgl)
+set_tests_properties(hgraph_language_nullable_lookup_generated PROPERTIES
+    PASS_REGULAR_EXPRESSION "1 test, 0 failed"
+    FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_CXX=hgl-lookup-must-not-build;HGL_DISABLE_CACHE=1")
 
 # Build runtime kernels through CMake on every platform, including Windows.
 # The same direct test harness executes the parsed HGL assertions against them.
@@ -1420,3 +1465,92 @@ set_tests_properties(hgraph_language_generated_standard_matrix PROPERTIES
     PASS_REGULAR_EXPRESSION "${_std_matrix_count} tests?, 0 failed"
     FAIL_REGULAR_EXPRESSION "FAILED"
     ENVIRONMENT "HGL_CXX=hgl-scripted-compiler-must-not-run;HGL_DISABLE_CACHE=1")
+
+# Compile the normative capture controls for every supported host.
+hgl_add_module(hgl_capture_fixture STATIC HGL
+    ${HGRAPH_SPEC}/language/examples/error-capture.hgl)
+add_executable(hgl_capture_tests negative/capture_generated_driver.cpp)
+target_link_libraries(hgl_capture_tests PRIVATE hgl_capture_fixture hgl_eval_library hgl::driver)
+hgl_link_runtime_executable(hgl_capture_tests)
+hgl_stage_runtime_dlls(hgl_capture_tests)
+hgl_apply_warnings(hgl_capture_tests)
+add_test(NAME hgraph_language_capture_generated
+    COMMAND hgl_capture_tests test ${HGRAPH_SPEC}/language/examples/error-capture.hgl)
+set_tests_properties(hgraph_language_capture_generated PROPERTIES
+    PASS_REGULAR_EXPRESSION "1 test, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_CXX=hgl-capture-must-not-build;HGL_DISABLE_CACHE=1")
+add_test(NAME hgraph_language_capture_source_errors
+    COMMAND $<TARGET_FILE:hgl> test ${HGRAPH_SPEC}/language/examples/reject/error-capture.hgl)
+set_tests_properties(hgraph_language_capture_source_errors PROPERTIES
+    PASS_REGULAR_EXPRESSION "4 rejection cases, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED")
+
+add_executable(hgl_capture_runtime_tests wiring/capture_tests.cpp)
+target_compile_features(hgl_capture_runtime_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_capture_runtime_tests PRIVATE hgl::wiring_types hgraph::core Catch2::Catch2WithMain)
+hgl_link_runtime_executable(hgl_capture_runtime_tests)
+hgl_apply_warnings(hgl_capture_runtime_tests)
+add_test(NAME hgraph_language_capture_runtime COMMAND hgl_capture_runtime_tests)
+
+hgl_add_module(hgl_native_result_fixture STATIC
+    HGL codegen/native-result.hgl
+    PARTS codegen/native-result-impl.hgl
+    NATIVE_PROVIDER_HEADER provider.h
+    NATIVE_PROVIDER checks::native_result_provider::native)
+target_include_directories(hgl_native_result_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/codegen/native-result)
+hgl_apply_warnings(hgl_native_result_fixture)
+add_executable(hgl_native_result_tests codegen/generated_native_result_tests.cpp)
+target_link_libraries(hgl_native_result_tests PRIVATE hgl_native_result_fixture Catch2::Catch2WithMain)
+hgl_link_runtime_executable(hgl_native_result_tests)
+hgl_apply_warnings(hgl_native_result_tests)
+add_test(NAME hgraph_language_native_result COMMAND hgl_native_result_tests)
+
+hgl_add_module(hgl_capture_call_fixture STATIC HGL codegen/capture-call-selection.hgl)
+hgl_apply_warnings(hgl_capture_call_fixture)
+add_executable(hgl_capture_call_tests negative/capture_call_generated_driver.cpp)
+target_link_libraries(hgl_capture_call_tests PRIVATE hgl_capture_call_fixture hgl_eval_library hgl::driver)
+hgl_link_runtime_executable(hgl_capture_call_tests)
+hgl_stage_runtime_dlls(hgl_capture_call_tests)
+hgl_apply_warnings(hgl_capture_call_tests)
+add_test(NAME hgraph_language_capture_call_generated
+    COMMAND hgl_capture_call_tests test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/capture-call-selection.hgl)
+set_tests_properties(hgraph_language_capture_call_generated PROPERTIES
+    PASS_REGULAR_EXPRESSION "3 tests, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_CXX=hgl-capture-call-must-not-build;HGL_DISABLE_CACHE=1")
+if(NOT WIN32)
+    add_test(NAME hgraph_language_capture_call_jit
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/capture-call-selection.hgl)
+    set_tests_properties(hgraph_language_capture_call_jit PROPERTIES
+        PASS_REGULAR_EXPRESSION "3 tests, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED"
+        ENVIRONMENT "HGL_DISABLE_CACHE=1")
+endif()
+add_test(NAME hgraph_language_capture_call_reject
+    COMMAND hgl_capture_call_tests test ${CMAKE_CURRENT_SOURCE_DIR}/negative/capture-call-selection-reject.hgl)
+set_tests_properties(hgraph_language_capture_call_reject PROPERTIES
+    PASS_REGULAR_EXPRESSION "3 rejection cases, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_DISABLE_CACHE=1")
+
+add_executable(hgl_capture_call_effect_tests codegen/generated_capture_call_tests.cpp)
+target_link_libraries(hgl_capture_call_effect_tests PRIVATE hgl_capture_call_fixture Catch2::Catch2WithMain)
+hgl_link_runtime_executable(hgl_capture_call_effect_tests)
+hgl_apply_warnings(hgl_capture_call_effect_tests)
+add_test(NAME hgraph_language_capture_call_effects COMMAND hgl_capture_call_effect_tests)
+
+
+hgl_add_module(hgl_held_reference_delta_fixture STATIC HGL codegen/held-reference-delta.hgl)
+hgl_apply_warnings(hgl_held_reference_delta_fixture)
+add_executable(hgl_held_reference_delta_tests codegen/held_reference_delta_driver.cpp)
+target_link_libraries(hgl_held_reference_delta_tests PRIVATE hgl_held_reference_delta_fixture hgl_eval_library hgl::driver)
+hgl_link_runtime_executable(hgl_held_reference_delta_tests)
+hgl_stage_runtime_dlls(hgl_held_reference_delta_tests)
+hgl_apply_warnings(hgl_held_reference_delta_tests)
+add_test(NAME hgraph_language_held_reference_delta
+    COMMAND hgl_held_reference_delta_tests test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/held-reference-delta.hgl)
+set_tests_properties(hgraph_language_held_reference_delta PROPERTIES
+    PASS_REGULAR_EXPRESSION "1 test, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_CXX=hgl-held-delta-must-not-build;HGL_DISABLE_CACHE=1")
+
+add_executable(hgl_held_delta_owner_tests codegen/held_delta_owner_tests.cpp)
+target_link_libraries(hgl_held_delta_owner_tests PRIVATE hgl::wiring_types hgraph::core Catch2::Catch2WithMain)
+hgl_link_runtime_executable(hgl_held_delta_owner_tests)
+hgl_apply_warnings(hgl_held_delta_owner_tests)
+add_test(NAME hgraph_language_held_delta_owner COMMAND hgl_held_delta_owner_tests)

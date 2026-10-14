@@ -1,4 +1,5 @@
 #include <hgl/native_package.h>
+#include <hgl/result_values.h>
 #include <native.h>
 #include <operators.h>
 #include <standard.h>
@@ -27,12 +28,21 @@ int main(int argc, char **argv) {
         return 5;
     }
 
+    using Outcome = hgl::NativeScalarResult<hgraph::Int, hgraph::CanonicalError>;
+    const auto recoverable = Outcome::err(hgraph::CanonicalError{"value.missing_key", "missing price", {}});
+    if (recoverable.is_ok() || recoverable.error().code != "value.missing_key") { return 6; }
     using namespace hgl::native;
     Package package{
         .module_identity  = "consumer.native",
         .language_version = "installed-test",
         .declarations =
             {
+                Declaration{
+                    .identity = "consumer.native::recoverable",
+                    .cpp_symbol = "consumer::recoverable",
+                    .result_type = ValueType::result(ValueType::canonical(ScalarType::I64), ValueType::error()),
+                    .phases = {Phase::Evaluation},
+                },
                 Declaration{
                     .identity    = "consumer.native::scale",
                     .cpp_symbol  = "consumer::scale",

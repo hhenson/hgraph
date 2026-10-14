@@ -94,7 +94,10 @@ namespace hgl::ir
                 case semantics::ImportedTypeKind::NativeAtomic: return hir::TypeKind::Symbol;
                 case semantics::ImportedTypeKind::List: return hir::TypeKind::List;
                 case semantics::ImportedTypeKind::Set: return hir::TypeKind::Set;
-                case semantics::ImportedTypeKind::Map: return hir::TypeKind::Map;
+                case semantics::ImportedTypeKind::Result: return hir::TypeKind::Result;
+case semantics::ImportedTypeKind::Error: return hir::TypeKind::Error;
+case semantics::ImportedTypeKind::ErrorContext: return hir::TypeKind::ErrorContext;
+case semantics::ImportedTypeKind::Map: return hir::TypeKind::Map;
                 case semantics::ImportedTypeKind::Rolling: return hir::TypeKind::Rolling;
                 case semantics::ImportedTypeKind::Signal: return hir::TypeKind::Signal;
                 case semantics::ImportedTypeKind::Schema: return hir::TypeKind::Schema;
@@ -112,7 +115,10 @@ namespace hgl::ir
                 case TypeKind::Tuple: return hir::TypeKind::Tuple;
                 case TypeKind::List: return hir::TypeKind::List;
                 case TypeKind::Set: return hir::TypeKind::Set;
-                case TypeKind::Map: return hir::TypeKind::Map;
+                case TypeKind::Result: return hir::TypeKind::Result;
+case TypeKind::Error: return hir::TypeKind::Error;
+case TypeKind::ErrorContext: return hir::TypeKind::ErrorContext;
+case TypeKind::Map: return hir::TypeKind::Map;
                 case TypeKind::Rolling: return hir::TypeKind::Rolling;
                 case TypeKind::Delta: return hir::TypeKind::Delta;
                 case TypeKind::Atomic: return hir::TypeKind::Atomic;
@@ -125,6 +131,7 @@ namespace hgl::ir
 
         [[nodiscard]] constexpr hir::UnaryOp lower_unary_op(ast::UnaryOp op) noexcept {
             switch (op) {
+                case ast::UnaryOp::Propagate: return hir::UnaryOp::Propagate;
                 case ast::UnaryOp::Negate: return hir::UnaryOp::Negate;
                 case ast::UnaryOp::Not: return hir::UnaryOp::Not;
             }
@@ -2016,7 +2023,8 @@ namespace hgl::ir
                             if (!node.is_const && node.implementation.body.empty()) {
                                 function.phases = {hir::NativePhase::Wiring};
                             }
-                            function.throws         = node.throws;
+                            // Host ABI exceptions are translated; source uses typed Result data.
+                            function.throws         = true;
                             function.execution_role = node.is_const                      ? NativeExecutionRole::Value
                                                       : node.implementation.body.empty() ? NativeExecutionRole::Temporal
                                                                                          : NativeExecutionRole::LegacyValue;

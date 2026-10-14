@@ -728,7 +728,7 @@ native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
     cpp(const hgraph::TSLInputView &value) { return static_cast<hgraph::Int>(value.size()); }
 }
 
-native fn len<T>(value: set<T>) -> i64 throws {
+native fn len<T>(value: set<T>) -> i64 {
     cpp(const hgraph::TSSInputView &value) { return static_cast<hgraph::Int>(value.size()); }
 }
 
@@ -745,7 +745,7 @@ fn size(value: set<i64>) -> i64 {
     const hir::NativeFunction &set_len  = lowered.hir.native_functions[1];
     CHECK(list_len.source_defined);
     CHECK(set_len.source_defined);
-    CHECK_FALSE(list_len.throws);
+    CHECK(list_len.throws);
     CHECK(set_len.throws);
     CHECK(list_len.family == set_len.family);
     CHECK(list_len.family != list_len.symbol);
@@ -3494,7 +3494,7 @@ TEST_CASE("native implementation matching rejects changed and duplicate contract
     for (const auto implementation :
          {"native const fn identity(value: bool) -> i64 {}", "native const fn identity(value: i64) -> bool {}",
           "native const fn identity(const value: i64) -> i64 {}", "native const fn identity(other: i64) -> i64 {}",
-          "native const fn identity(value: i64) -> i64 throws {}", "native fn identity(value: i64) -> i64 { when; }",
+          "native const fn identity(value: i64) -> result<i64, error> {}", "native fn identity(value: i64) -> i64 { when; }",
           "native const fn identity(value: i64) -> i64 {}\nnative const fn identity(value: i64) -> i64 {}",
           "native const fn identity(value: i64) -> i64"}) {
         Lowered unit{"module contracts\n" + declaration + implementation + "\n"};
@@ -4825,4 +4825,86 @@ struct Derived:Base {}
     Lowered admitted{declarations + "fn selected(value:ref<Outer>)->ref<i64> => value.inner.child\n"};
     require_clean(admitted);
     CHECK(complete(admitted));
+}
+
+TEST_CASE("ordinary dictionary lookup refines presence and enforces exact defaults", "[ir][typed][nullable][lookup]") {
+    const std::vector<std::string> accepted{
+        "let price = get(book, key)\nif price == null { return 0 }\nreturn price\n",
+        "let price = get(book, key, default: null)\nif !(price == null) { return price + 1 }\nreturn 0\n",
+        "return get(book, key, default: 5)\n",
+        "return at(book, key)\n"
+    };
+    for (const auto &body : accepted) {
+        Lowered unit{"module checks.lookup\nconst fn lookup(book: map<str, i64>, key: str) -> i64 {\n" + body + "}\n"};
+        INFO(body);
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        const bool result = complete(unit);
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(result);
+    }
+    for (const auto &[body, code] : std::vector<std::pair<std::string, std::string>>{
+        {"let price = get(book, key)\nreturn price + 1\n", "nullable.required_presence"},
+        {"return get(book, key, default: \"missing\")\n", "lookup.default_type"},
+        {"let price = get(book, key)\nif price == null { return 0 }\nlet second = get(book, key)\nreturn second\n", "nullable.required_presence"}
+    }) {
+        Lowered unit{"module checks.lookup\nconst fn lookup(book: map<str, i64>, key: str) -> i64 {\n" + body + "}\n"};
+        INFO(body);
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        CHECK_FALSE(complete(unit));
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(unit.diagnostics.render(unit.file).find(code) != std::string::npos);
+    }
+}
+
+TEST_CASE("tagged outcomes refine immutable bindings and preserve propagation boundaries", "[ir][typed][result]") {
+    const std::vector<std::string> accepted{
+        "const fn pick(value: result<i64, error>) -> i64 { if is_err(value) { return 0 }\nreturn value.value }\n",
+        "const fn pick(value: result<i64, error>) -> result<i64, error> { let item = value?\nreturn ok(item + 1) }\n",
+        "fn required(value: result<i64, error>) -> i64 { when { return value? } }\n",
+        "const fn text(value: error) -> str { let code = value.code\nif code == null { return value.message }\nreturn code }\n"
+    };
+    for (const auto &body : accepted) {
+        Lowered unit{"module checks.result\n" + body};
+        INFO(body);
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        const bool result = complete(unit);
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(result);
+    }
+}
+
+TEST_CASE("result tag facts do not refine mutable bindings or independent aliases", "[ir][typed][result]") {
+    for (const auto &body : std::vector<std::string>{
+        "const fn pick(value: result<i64, error>) -> i64 { let alias = value\nif is_ok(value) { return alias.value }\nreturn 0 }\n",
+        "const fn pick(value: result<i64, error>) -> i64 { var item = value\nif is_ok(item) { return item.value }\nreturn 0 }\n"}) {
+        Lowered unit{"module checks.result_facts\n" + body};
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        CHECK_FALSE(complete(unit));
+        CHECK(unit.diagnostics.render(unit.file).find("result.required_variant") != std::string::npos);
+    }
+}
+
+
+TEST_CASE("error constructors admit nullable code but require a present string message", "[ir][typed][error]") {
+    for (const auto &body : std::vector<std::string>{
+        "return error(code: null, message: \"message\")",
+        "let code = get(book, \"key\")\nreturn error(code: code, message: \"message\")",
+        "return error(code: get(book, \"key\"), message: \"message\")"
+    }) {
+        Lowered unit{"module checks.error_constructor\nconst fn diagnostic(book: map<str, str>) -> error {\n" + body + "\n}\n"};
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        const bool accepted = complete(unit);
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(accepted);
+    }
+    for (const auto &body : std::vector<std::string>{
+        "return error(message: null)",
+        "let text = get(book, \"key\")\nreturn error(message: text)",
+        "return error(code: 1, message: \"message\")",
+        "return error(code: \"domain\")"
+    }) {
+        Lowered unit{"module checks.error_constructor\nconst fn diagnostic(book: map<str, str>) -> error {\n" + body + "\n}\n"};
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        CHECK_FALSE(complete(unit));
+    }
 }

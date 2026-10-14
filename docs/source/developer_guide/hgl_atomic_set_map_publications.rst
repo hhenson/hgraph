@@ -22,3 +22,19 @@ or grant permission to mutate the retained child container in place.
 The contract is ``atomic-set-map-publications.md`` in the pinned specification.
 Optional fields, recursive nominal values, composite keys, NaN keys, and
 invalidation retain their separate profile boundaries.
+
+Ordinary dictionary lookup
+--------------------------
+
+The compiler implements the pinned ``nullable-map-lookup.md`` contract through
+``PreparedValuePlan`` map operations. Strict lookup checks membership before
+reading the child and preserves ``value.missing_key`` through the backend error
+boundary. Safe lookup returns a typed absent observation or the existing child
+view. It does not allocate a reference or publish a graph output.
+
+The frontend reuses evaluation-local presence facts for inferred immutable
+bindings. Generated bodies retain scalar observations until a payload read;
+presence comparisons read only observation validity. An explicit fallback is an
+ordinary argument evaluated once in written order and must have the exact map
+value type. Atomic map inputs use their ordinary payload plan; temporal map
+connection selection retains its existing wiring path.

@@ -1,6 +1,7 @@
 #include "wiring/type_bridge.h"
 #include "hgraph_ir/shape_parameters.h"
 #include <hgl/ordinary_values.h>
+#include <hgl/result_values.h>
 
 #include <hgl/temporal_literals.h>
 
@@ -902,6 +903,15 @@ namespace hgl::wiring
         if (!id.valid() || id.value >= module_.types.size()) { return nullptr; }
         const hgraph_ir::Type &type = module_.types[id.value];
         switch (type.kind) {
+            case hir::TypeKind::Error: return hgraph::scalar_descriptor<hgraph::CanonicalError>::value_meta();
+            case hir::TypeKind::ErrorContext: return hgraph::scalar_descriptor<hgraph::ErrorContext>::value_meta();
+            case hir::TypeKind::Result:
+                if (type.children.size() == 2U) {
+                    const auto *success = value(type.children[0], bindings);
+                    const auto *failure = value(type.children[1], bindings);
+                    if (success && failure) { return ordinary::result_meta(success, failure); }
+                }
+                return nullptr;
             case hir::TypeKind::Scalar:
                 {
                     const hgraph::ValueTypeMetaData *result = scalar_meta(type.scalar, types_);
@@ -982,7 +992,8 @@ namespace hgl::wiring
             case hir::TypeKind::Void:
             case hir::TypeKind::Iterator:
             case hir::TypeKind::Callable:
-            case hir::TypeKind::Capability:
+            case hir::TypeKind::Capture:
+                    case hir::TypeKind::Capability:
             case hir::TypeKind::HarnessSequence:
             case hir::TypeKind::Deferred: break;
         }
@@ -1003,6 +1014,11 @@ namespace hgl::wiring
         if (!id.valid() || id.value >= module_.types.size()) { return nullptr; }
         const hgraph_ir::Type &type = module_.types[id.value];
         switch (type.kind) {
+            case hir::TypeKind::Result:
+            case hir::TypeKind::Error:
+            case hir::TypeKind::ErrorContext:
+                if (const auto *payload = value(id, bindings)) { return registry_.ts(payload); }
+                return nullptr;
             case hir::TypeKind::Scalar:
                 {
                     const hgraph::ValueTypeMetaData *meta = scalar_meta(type.scalar, types_);
@@ -1121,7 +1137,8 @@ namespace hgl::wiring
             case hir::TypeKind::Void:
             case hir::TypeKind::Iterator:
             case hir::TypeKind::Callable:
-            case hir::TypeKind::Capability:
+            case hir::TypeKind::Capture:
+                    case hir::TypeKind::Capability:
             case hir::TypeKind::HarnessSequence:
             case hir::TypeKind::Deferred: break;
         }

@@ -888,7 +888,7 @@ namespace hgl::hgraph_ir
             }
 
             [[nodiscard]] static bool composition_intrinsic(std::string_view name) noexcept {
-                return name == "str" || name == "valid" || name == "modified" || name == "all_valid" || name == "last_modified" ||
+                return name == "capture" || name == "is_ok" || name == "is_err" || name == "str" || name == "valid" || name == "modified" || name == "all_valid" || name == "last_modified" ||
                        name == "last_modified_time" || name == "key_set" || name == "keys" || name == "values" ||
                        name == "elements" || name == "items";
             }

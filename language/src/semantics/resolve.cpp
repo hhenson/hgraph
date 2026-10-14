@@ -46,7 +46,7 @@ namespace hgl::semantics
             "remove", "discard",  "invalidate", "clear",     "push",          "pop",         "schemas",      "contains",
             "at",     "time_at",  "front",      "back",      "removed_value", "scheduled",   "passivate",    "activate",
             "str",    "bytes",    "any",        "len",       "schedule",      "schedule_at", "is_scheduled", "next_scheduled_time",
-            "info",   "get",      "set",
+            "info",   "get",      "set", "ok", "err", "is_ok", "is_err", "error", "capture",
         };
 
         /// Tarjan's strongly connected components over an adjacency list,
@@ -1246,6 +1246,7 @@ namespace hgl::semantics
                                 if (!node.raises_literal || literal == nullptr ||
                                     (literal->value != "yield.negative_duration" && literal->value != "yield.non_increasing_time" &&
                                      literal->value != "eval.input_delta_profile" && literal->value != "value.unset_read" &&
+                                     literal->value != "value.missing_key" &&
                                      literal->value != "value.byte_range" && literal->value != "value.capability")) {
                                     diagnostics_.report(Category::Type, node.raises_argument_range,
                                                         "raises requires a literal execution error code", "test.raises_code");

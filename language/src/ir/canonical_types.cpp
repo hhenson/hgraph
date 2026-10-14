@@ -113,6 +113,7 @@ namespace hgl::ir::detail
         }
         if (value.kind == TypeKind::Atomic && value.children.size() == 1U &&
             (module_.type(value.children.front()).kind == TypeKind::Scalar ||
+             module_.type(value.children.front()).kind == TypeKind::Result || module_.type(value.children.front()).kind == TypeKind::Error ||
              (module_.type(value.children.front()).kind == TypeKind::Symbol &&
               (module_.symbol(module_.type(value.children.front()).symbol).kind == SymbolKind::Enum ||
                module_.symbol(module_.type(value.children.front()).symbol).kind == SymbolKind::NativeType)))) {
@@ -120,6 +121,7 @@ namespace hgl::ir::detail
         }
         if (value.kind == TypeKind::Delta && value.children.size() == 1U) {
             const Type &origin = module_.type(value.children.front());
+            if (origin.kind == TypeKind::Result || origin.kind == TypeKind::Error) { return value.children.front(); }
             if (origin.kind == TypeKind::Scalar && (origin.scalar <= ScalarType::ZonedTime || origin.scalar == ScalarType::TimeZone)) { return value.children.front(); }
             if (origin.kind == TypeKind::Symbol && origin.symbol.valid() &&
                 (module_.symbol(origin.symbol).kind == SymbolKind::Enum ||
@@ -266,6 +268,9 @@ namespace hgl::ir::detail
         const Type from = module_.type(actual);
         if (to.kind == TypeKind::Signal) {
             switch (from.kind) {
+                case TypeKind::Result:
+                case TypeKind::Error:
+                case TypeKind::ErrorContext:
                 case TypeKind::Scalar:
                 case TypeKind::Symbol:
                 case TypeKind::List:
@@ -282,6 +287,7 @@ namespace hgl::ir::detail
                 case TypeKind::Tuple:
                 case TypeKind::Iterator:
                 case TypeKind::Callable:
+                case TypeKind::Capture:
                 case TypeKind::Capability:
                 case TypeKind::HarnessSequence:
                 case TypeKind::Deferred: return false;
@@ -462,7 +468,11 @@ namespace hgl::ir::detail
             case TypeKind::Tuple: return "tuple";
             case TypeKind::List: return "list";
             case TypeKind::Set: return "set";
-            case TypeKind::Map: return "map";
+            case TypeKind::Result: return "result";
+case TypeKind::Error: return "error";
+case TypeKind::ErrorContext: return "error-context";
+            case TypeKind::Capture: return "capture";
+case TypeKind::Map: return "map";
             case TypeKind::Rolling: return "rolling";
             case TypeKind::Delta: return "delta";
                 case TypeKind::Atomic: return "atomic";

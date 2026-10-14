@@ -1,0 +1,92 @@
+module checks.capture_calls
+const fn plus(value: i64, offset: i64 = 2) -> i64 => value * 10 + offset
+fn observed(value: i64) -> i64 { let seen = capture(plus, value)
+seen.value }
+operator choose<T>(value: T, offset: T) -> T
+impl fn choose(value: i64, offset: i64) -> i64 { when { return value * 10 + offset } }
+fn selected(value: i64) -> i64 { let seen = capture(choose, offset: 3, value: value)
+seen.value }
+fn temporal(value: i64) -> i64 { when { return value + 7 } }
+fn scalar_temporal(step: i64) -> i64 {
+    let seen = capture(temporal, 3)
+    seen.value
+}
+test calls {
+assert eval(observed, value: [1, 2]) == [12, 22]
+assert eval(selected, value: [1, 2]) == [13, 23]
+assert eval(scalar_temporal, step: [0]) == [10]
+}
+
+native const fn native_selected(value: i64, offset: i64) -> i64 {
+    cpp(hgraph::Int value, hgraph::Int offset) { return value * 10 + offset; }
+}
+native const fn native_selected(value: bool, offset: bool) -> bool {
+    cpp(hgraph::Bool value, hgraph::Bool offset) { return value && offset; }
+}
+fn selected_native(value: i64) -> i64 {
+    let seen = capture(native_selected, offset: 4, value: value)
+    seen.value
+}
+fn selected_native_bool(value: bool) -> bool {
+    let seen = capture(native_selected, value, offset: true)
+    seen.value
+}
+const fn nested(value: i64) -> i64 => plus(value, offset: 5)
+fn selected_helper(value: i64) -> i64 {
+    let seen = capture(nested, value)
+    seen.value
+}
+fn argument(value: i64) -> i64 {
+    inject logger
+    when { info(logger, "argument evaluated")
+    return value }
+}
+export fn selected_argument(value: i64) -> i64 {
+    let seen = capture(choose, offset: 6, value: argument(value))
+    seen.value
+}
+native const fn lifecycle(value: i64) -> i64 {
+    cpp(hgraph::Int value) {
+        const auto phase = value == 1 ? hgraph::FailurePhase::Start : hgraph::FailurePhase::Stop;
+        throw hgraph::ExecutionFailure{hgraph::CanonicalError{"value.missing_key", "native lifecycle", {}}, phase};
+    }
+}
+fn lifecycle_handler(value: i64) -> i64 { when { return lifecycle(value) } }
+export fn capture_lifecycle(value: i64) -> i64 {
+    let seen = capture(lifecycle_handler, value)
+    seen.value
+}
+native const fn historical(value: i64) -> result<i64, error> {
+    cpp(hgraph::Int value) {
+        static_cast<void>(value);
+        return hgl::NativeScalarResult<hgraph::Int, hgraph::CanonicalError>::err(
+            hgraph::CanonicalError{"value.missing_key", "historical", hgraph::ErrorContext{"original", "start", hgraph::MIN_ST}});
+    }
+}
+fn historical_handler(value: i64) -> i64 { when { return historical(value)? } }
+fn event(failure: error) -> bool { when { return modified(failure) } }
+fn capture_historical(value: i64) -> bool {
+    let seen = capture(historical_handler, value)
+    event(seen.error)
+}
+test candidates_and_channels {
+    assert eval(selected_native, value: [1, 2]) == [14, 24]
+    assert eval(selected_native_bool, value: [false, true]) == [false, true]
+    assert eval(selected_helper, value: [1, 2]) == [15, 25]
+    assert eval(selected_argument, value: [1, 2]) == [16, 26]
+    assert raises("value.missing_key") { eval(capture_lifecycle, value: [1]) }
+    assert raises("value.missing_key") { eval(capture_lifecycle, value: [2]) }
+    assert eval(capture_historical, value: [1, 2]) == [true, true]
+}
+
+operator consume<T>(value: T)
+impl fn consume(value: i64) {
+    when { if value < 0 { at(map<str, i64>(items: []), "X") } }
+}
+fn captured_sink(value: i64) -> bool {
+    let seen = capture(consume, value)
+    event(seen.error)
+}
+test outputless_operator {
+    assert eval(captured_sink, value: [1, -1, -1]) == [_, true, true]
+}

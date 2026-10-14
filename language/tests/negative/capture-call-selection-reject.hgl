@@ -1,0 +1,21 @@
+module checks.reject_capture_calls
+const fn plus(value: i64, offset: i64 = 2) -> i64 => value + offset
+const fn nested(value: i64) -> i64 => plus(value)
+fn ordinary_scalar() -> i64 {
+    # expect-error(phase, "capture.phase")
+    let seen = capture(plus, 1)
+    seen.value
+}
+fn named_scalars() -> i64 {
+    # expect-error(phase, "capture.phase")
+    let seen = capture(plus, offset: 3, value: 1)
+    seen.value
+}
+fn nested_scalar() -> i64 {
+    # expect-error(phase, "capture.phase")
+    let seen = capture(nested, 1)
+    seen.value
+}
+test surviving {
+    assert plus(1) == 3
+}

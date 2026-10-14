@@ -657,7 +657,7 @@ native fn increment(value: f64) -> f64 {
     }
 }
 
-native fn reciprocal(value: f64) -> f64 throws {
+native fn reciprocal(value: f64) -> f64 {
     cpp(hgraph::Float value) {
         if (value == 0.0) { throw std::domain_error("reciprocal: division by zero"); }
         return 1.0 / value;
@@ -679,22 +679,22 @@ export fn inverted(value: f64) -> f64 {
     const auto emitted = unit.emit();
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE(emitted);
-    // A `throws` native is emitted without noexcept; its siblings keep it.
+    // Native host failures use the translated ABI policy independent of source syntax.
     CHECK(contains(emitted->header, "hgraph::Float reciprocal(hgraph::Float value);"));
     CHECK(contains(emitted->source, "hgraph::Float reciprocal(hgraph::Float value)"));
     CHECK_FALSE(contains(emitted->source, "reciprocal(hgraph::Float value) noexcept"));
     CHECK(contains(emitted->header, "checks::inline_native::native::reciprocal(value.value())"));
     CHECK(contains(emitted->descriptor, "\"identity\": \"checks.inline_native::reciprocal\""));
     CHECK(contains(emitted->descriptor, "\"exception\": \"translated\""));
-    CHECK(contains(emitted->descriptor, "\"exception\": \"noexcept\""));
+    CHECK_FALSE(contains(emitted->descriptor, "\"exception\": \"noexcept\""));
     CHECK(contains(emitted->header, "#include <cstdint>"));
     CHECK(contains(emitted->header, "#include \"native/helpers.h\""));
     CHECK(emitted->header.find("#include <cstdint>") == emitted->header.rfind("#include <cstdint>"));
     CHECK(emitted->header.find("#include <cstdint>") < emitted->header.find("#include \"native/helpers.h\""));
     CHECK_FALSE(contains(emitted->source, "native/helpers.h"));
     CHECK(contains(emitted->header, "namespace native"));
-    CHECK(contains(emitted->header, "hgraph::Float increment(hgraph::Float value) noexcept;"));
-    CHECK(contains(emitted->source, "hgraph::Float increment(hgraph::Float value) noexcept"));
+    CHECK(contains(emitted->header, "hgraph::Float increment(hgraph::Float value);"));
+    CHECK(contains(emitted->source, "hgraph::Float increment(hgraph::Float value)"));
     CHECK(contains(emitted->source, "return value + 1.0;"));
     CHECK(contains(emitted->header, "checks::inline_native::native::increment(value.value())"));
     CHECK_FALSE(contains(emitted->header, "struct increment\n"));
@@ -806,9 +806,9 @@ export fn window(value: rolling<i64, 3, 1>) -> i64 {
     const auto emitted = unit.emit();
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE(emitted);
-    CHECK(contains(emitted->source, "hgraph::Int len(const hgraph::TSLInputView &value) noexcept"));
-    CHECK(contains(emitted->source, "hgraph::Int len__candidate_2(const hgraph::TSLInputView &value) noexcept"));
-    CHECK(contains(emitted->source, "hgraph::Int len__candidate_3(const hgraph::TSWInputView &value) noexcept"));
+    CHECK(contains(emitted->source, "hgraph::Int len(const hgraph::TSLInputView &value)"));
+    CHECK(contains(emitted->source, "hgraph::Int len__candidate_2(const hgraph::TSLInputView &value)"));
+    CHECK(contains(emitted->source, "hgraph::Int len__candidate_3(const hgraph::TSWInputView &value)"));
     CHECK(contains(emitted->header, "checks::native_candidates::native::len(value)"));
     CHECK(contains(emitted->header, "checks::native_candidates::native::len__candidate_2(value)"));
     CHECK(contains(emitted->header, "checks::native_candidates::native::len__candidate_3(value)"));
@@ -833,7 +833,7 @@ export fn valid_float(value: f64) -> bool {
     const auto emitted = unit.emit();
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE(emitted);
-    CHECK(contains(emitted->header, "hgraph::Bool endpoint_valid(const hgraph::TSInputView &value) noexcept;"));
+    CHECK(contains(emitted->header, "hgraph::Bool endpoint_valid(const hgraph::TSInputView &value);"));
     CHECK(contains(emitted->header, "checks::native_signal::native::endpoint_valid(value)"));
     CHECK(contains(emitted->descriptor, "\"kind\": \"signal\""));
     CHECK(contains(emitted->descriptor, "\"access\": \"input-view\""));
@@ -3698,10 +3698,10 @@ TEST_CASE("external native interface generates exact source-owned binding checks
     Unit unit{R"hgl(module checks.binding
 native const fn bit_and(lhs: i64, rhs: i64) -> i64
 native const fn bit_and(lhs: bool, rhs: bool) -> bool
-native const fn checked(value: i64) -> i64 throws
+native const fn checked(value: i64) -> i64
 native const fn bit_and(lhs: i64, rhs: i64) -> i64 {}
 native const fn bit_and(lhs: bool, rhs: bool) -> bool {}
-native const fn checked(value: i64) -> i64 throws {}
+native const fn checked(value: i64) -> i64 {}
 )hgl"};
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE_FALSE(unit.diagnostics.has_errors());
@@ -3709,9 +3709,9 @@ native const fn checked(value: i64) -> i64 throws {}
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE(emitted);
     CHECK(contains(emitted->header, "concept Implementation = requires"));
-    CHECK(contains(emitted->header, "bit_and(const hgraph::Int & lhs, const hgraph::Int & rhs) noexcept;"));
-    CHECK(contains(emitted->header, "static_cast<hgraph::Int (*)(hgraph::Int, hgraph::Int) noexcept>(&T::bit_and)"));
-    CHECK(contains(emitted->header, "static_cast<hgraph::Bool (*)(hgraph::Bool, hgraph::Bool) noexcept>(&T::bit_and)"));
+    CHECK(contains(emitted->header, "bit_and(const hgraph::Int & lhs, const hgraph::Int & rhs);"));
+    CHECK(contains(emitted->header, "static_cast<hgraph::Int (*)(hgraph::Int, hgraph::Int)>(&T::bit_and)"));
+    CHECK(contains(emitted->header, "static_cast<hgraph::Bool (*)(hgraph::Bool, hgraph::Bool)>(&T::bit_and)"));
     CHECK(contains(emitted->header, "static_cast<hgraph::Int (*)(hgraph::Int)>(&T::checked)"));
     CHECK(contains(emitted->header, "constexpr auto bind() noexcept"));
     CHECK_FALSE(contains(emitted->header, "#include \"provider.h\""));
@@ -3751,7 +3751,7 @@ TEST_CASE("Rust native traits use the same resolved value contract", "[codegen][
 }
 
 TEST_CASE("Rust native interfaces reject unsupported ABI shapes", "[codegen][native][interface]") {
-    for (const auto declaration : {"native const fn f(value: str) -> i64", "native const fn f(value: i64) -> i64 throws",
+    for (const auto declaration : {"native const fn f(value: str) -> i64", "native fn f(value: i64) -> i64",
                                    "native const fn f(value: i64) -> i64\nnative const fn f(value: i64) -> i64 { inject clock }",
                                    "native const fn f(value: i64) -> i64\nnative const fn f(value: bool) -> bool"}) {
         Unit unit{std::string{"module t\n"} + declaration + "\n"};

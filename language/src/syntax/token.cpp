@@ -113,6 +113,7 @@ namespace hgl::syntax
             case TokenKind::Slash: return "'/'";
             case TokenKind::FloorSlash: return "'//'";
             case TokenKind::Percent: return "'%'";
+            case TokenKind::Question: return "?";
             case TokenKind::Bang: return "'!'";
             case TokenKind::AndAnd: return "'&&'";
             case TokenKind::OrOr: return "'||'";
