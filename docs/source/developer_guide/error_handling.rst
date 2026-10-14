@@ -270,7 +270,11 @@ uses the prepared result plan to bridge its selected payload.
 Canonical Error and ErrorContext have exported core scalar plans and operations,
 so metadata and payload reads agree across separately compiled libraries. Their
 owned strings and provenance survive the producing node's lifetime. The SDK
-consumer and ABI boundary controls exercise these contracts.
+consumer exercises owned Error and typed callbacks in static and shared builds.
+The core-linked shared scalar binding boundary verifies Error and ErrorContext
+plan/ops identity, registry-backed Error values, and typed operational outcomes
+across a DSO. The independent pointer ABI fixture retains its private registry
+and pointer implementation without depending on core scalar metadata.
 
 HGL capture uses the existing node error-output endpoint for a runtime node and
 the existing nested graph wrapper for a graph. The wrapper finishes a failed

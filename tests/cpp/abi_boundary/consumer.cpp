@@ -44,14 +44,6 @@ int main()
 
     try
     {
-        auto retained_error = hgraph_abi_fixture_canonical_error();
-        require(retained_error.schema() == scalar_descriptor<CanonicalError>::value_meta(), "canonical error schema differs across DSO");
-        const auto observation = retained_error.view();
-        const auto &error = observation.checked_as<CanonicalError>();
-        require(error.code == "value.missing_key" && error.context && error.context->node == "child@owned", "owned error provenance was lost across DSO");
-        auto outcome = hgraph_abi_fixture_node_result();
-        require(!outcome && outcome.error() == error, "typed operational outcome was lost across DSO");
-        require(outcome.error().context->evaluation_time == MIN_ST, "error origin time was lost across DSO");
         const HGraphAbiLayoutSnapshot layout = hgraph_abi_fixture_layout();
         require(layout.fixture_abi_version == 1, "fixture ABI version mismatch");
         require(layout.pointer_size == sizeof(void *), "pointer size mismatch");

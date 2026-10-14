@@ -6,9 +6,17 @@
 #include <hgraph/lib/std/standard_types.h>
 
 #include <iostream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 
 namespace
 {
+    void require(bool condition, std::string_view message)
+    {
+        if (!condition) { throw std::runtime_error{std::string{message}}; }
+    }
+
     template <typename T>
     [[nodiscard]] bool canonical_binding(
         const hgraph::MemoryUtils::StoragePlan *(*plan)() noexcept,
@@ -20,7 +28,31 @@ namespace
 
 int main()
 {
+    try
+    {
+        auto retained_error = hgraph_standard_canonical_error();
+        require(retained_error.schema() == hgraph::scalar_descriptor<hgraph::CanonicalError>::value_meta(),
+                "canonical error schema differs across DSO");
+        const auto observation = retained_error.view();
+        const auto &error = observation.checked_as<hgraph::CanonicalError>();
+        require(error.code == "value.missing_key" && error.context && error.context->node == "child@owned",
+                "owned error provenance was lost across DSO");
+        auto outcome = hgraph_standard_node_result();
+        require(!outcome && outcome.error() == error, "typed operational outcome was lost across DSO");
+        require(outcome.error().context && outcome.error().context->evaluation_time == hgraph::MIN_ST,
+                "error origin time was lost across DSO");
+    }
+    catch (const std::exception &error)
+    {
+        std::cerr << "canonical error boundary test failed: " << error.what() << '\n';
+        return 1;
+    }
+
     const bool canonical =
+        canonical_binding<hgraph::CanonicalError>(
+            hgraph_standard_canonical_error_plan, hgraph_standard_canonical_error_ops) &&
+        canonical_binding<hgraph::ErrorContext>(
+            hgraph_standard_error_context_plan, hgraph_standard_error_context_ops) &&
         canonical_binding<hgraph::Bytes>(hgraph_standard_bytes_plan, hgraph_standard_bytes_ops) &&
         canonical_binding<hgraph::Str>(hgraph_standard_str_plan, hgraph_standard_str_ops) &&
         canonical_binding<hgraph::stdlib::DivideByZero>(

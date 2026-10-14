@@ -1,5 +1,6 @@
 #include "native-provider/provider.h"
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <native-provider-consumer.h>
