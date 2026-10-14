@@ -22,6 +22,7 @@
 #include <hgraph/lib/std/std_nodes.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
+#include <hgraph/util/environment.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -65,8 +66,8 @@ namespace
     }
 
     [[nodiscard]] std::size_t case_count() {
-        if (const char *text = std::getenv("HGL_DIFFERENTIAL_CASES"); text != nullptr) {
-            if (const auto value = std::strtoul(text, nullptr, 10); value > 0) { return value; }
+        if (const auto text = hgraph::environment_variable("HGL_DIFFERENTIAL_CASES")) {
+            if (const auto value = std::strtoul(text->c_str(), nullptr, 10); value > 0) { return value; }
         }
         return 24;
     }

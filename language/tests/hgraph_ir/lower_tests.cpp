@@ -582,7 +582,7 @@ module checks.source_native
 cpp include <hgraph/types/time_series/ts_input/list_view.h>
 cpp include "native/helpers.h"
 
-native fn len<T, const size: i64>(value: list<T, size>) -> i64 throws {
+native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
     cpp(const hgraph::TSLInputView &value) {
         return static_cast<hgraph::Int>(value.size());
     }

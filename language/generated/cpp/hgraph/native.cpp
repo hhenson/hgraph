@@ -12,60 +12,54 @@ namespace hgraph_::native
     namespace native
     {
         // native.hgl:13
-        hgraph::Bool valid(const hgraph::TSInputView &value) noexcept { return value.valid(); }
+        hgraph::Bool valid(const hgraph::TSInputView &value) { return value.valid(); }
 
         // native.hgl:19
-        hgraph::Bool all_valid(const hgraph::TSInputView &value) noexcept { return value.all_valid(); }
+        hgraph::Bool all_valid(const hgraph::TSInputView &value) { return value.all_valid(); }
 
         // native.hgl:25
-        hgraph::Bool modified(const hgraph::TSInputView &value) noexcept { return value.modified(); }
+        hgraph::Bool modified(const hgraph::TSInputView &value) { return value.modified(); }
 
         // native.hgl:31
-        hgraph::DateTime last_modified(const hgraph::TSInputView &value) noexcept { return value.last_modified_time(); }
+        hgraph::DateTime last_modified(const hgraph::TSInputView &value) { return value.last_modified_time(); }
 
         // native.hgl:38
-        hgraph::Bool bound(const hgraph::TSInputView &value) noexcept { return value.bound(); }
+        hgraph::Bool bound(const hgraph::TSInputView &value) { return value.bound(); }
 
         // native.hgl:45
-        hgraph::Bool active(const hgraph::TSInputView &value) noexcept { return value.active(); }
+        hgraph::Bool active(const hgraph::TSInputView &value) { return value.active(); }
 
         // native.hgl:73
-        hgraph::DateTime midnight(const hgraph::Date &value) noexcept { return hgraph::DateTime{std::chrono::sys_days{value}}; }
+        hgraph::DateTime midnight(const hgraph::Date &value) { return hgraph::DateTime{std::chrono::sys_days{value}}; }
 
-        hgraph::Int add(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept {
+        hgraph::Int   add(const hgraph::Int &lhs, const hgraph::Int &rhs) { return hgl::stdlib::scalar_native.add(lhs, rhs); }
+        hgraph::Float add__candidate_2(const hgraph::Int &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.add(lhs, rhs);
         }
-        hgraph::Float add__candidate_2(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept {
+        hgraph::Float add__candidate_3(const hgraph::Float &lhs, const hgraph::Int &rhs) {
             return hgl::stdlib::scalar_native.add(lhs, rhs);
         }
-        hgraph::Float add__candidate_3(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept {
+        hgraph::Float add__candidate_4(const hgraph::Float &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.add(lhs, rhs);
         }
-        hgraph::Float add__candidate_4(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept {
-            return hgl::stdlib::scalar_native.add(lhs, rhs);
-        }
-        hgraph::Int sub(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept {
+        hgraph::Int   sub(const hgraph::Int &lhs, const hgraph::Int &rhs) { return hgl::stdlib::scalar_native.sub(lhs, rhs); }
+        hgraph::Float sub__candidate_2(const hgraph::Int &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.sub(lhs, rhs);
         }
-        hgraph::Float sub__candidate_2(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept {
+        hgraph::Float sub__candidate_3(const hgraph::Float &lhs, const hgraph::Int &rhs) {
             return hgl::stdlib::scalar_native.sub(lhs, rhs);
         }
-        hgraph::Float sub__candidate_3(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept {
+        hgraph::Float sub__candidate_4(const hgraph::Float &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.sub(lhs, rhs);
         }
-        hgraph::Float sub__candidate_4(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept {
-            return hgl::stdlib::scalar_native.sub(lhs, rhs);
-        }
-        hgraph::Int mul(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept {
+        hgraph::Int   mul(const hgraph::Int &lhs, const hgraph::Int &rhs) { return hgl::stdlib::scalar_native.mul(lhs, rhs); }
+        hgraph::Float mul__candidate_2(const hgraph::Int &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.mul(lhs, rhs);
         }
-        hgraph::Float mul__candidate_2(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept {
+        hgraph::Float mul__candidate_3(const hgraph::Float &lhs, const hgraph::Int &rhs) {
             return hgl::stdlib::scalar_native.mul(lhs, rhs);
         }
-        hgraph::Float mul__candidate_3(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept {
-            return hgl::stdlib::scalar_native.mul(lhs, rhs);
-        }
-        hgraph::Float mul__candidate_4(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept {
+        hgraph::Float mul__candidate_4(const hgraph::Float &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.mul(lhs, rhs);
         }
         hgraph::Float div(const hgraph::Int &lhs, const hgraph::Int &rhs) { return hgl::stdlib::scalar_native.div(lhs, rhs); }
@@ -100,187 +94,185 @@ namespace hgraph_::native
         hgraph::Float mod__candidate_4(const hgraph::Float &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.mod(lhs, rhs);
         }
-        hgraph::Bool eq(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept { return hgl::stdlib::scalar_native.eq(lhs, rhs); }
-        hgraph::Bool eq__candidate_2(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+        hgraph::Bool eq(const hgraph::Int &lhs, const hgraph::Int &rhs) { return hgl::stdlib::scalar_native.eq(lhs, rhs); }
+        hgraph::Bool eq__candidate_2(const hgraph::Str &lhs, const hgraph::Str &rhs) {
             return hgl::stdlib::scalar_native.eq(lhs, rhs);
         }
-        hgraph::Bool eq__candidate_3(const hgraph::Bool &lhs, const hgraph::Bool &rhs) noexcept {
+        hgraph::Bool eq__candidate_3(const hgraph::Bool &lhs, const hgraph::Bool &rhs) {
             return hgl::stdlib::scalar_native.eq(lhs, rhs);
         }
-        hgraph::Bool ne(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept { return hgl::stdlib::scalar_native.ne(lhs, rhs); }
-        hgraph::Bool ne__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept {
+        hgraph::Bool ne(const hgraph::Int &lhs, const hgraph::Int &rhs) { return hgl::stdlib::scalar_native.ne(lhs, rhs); }
+        hgraph::Bool ne__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.ne(lhs, rhs);
         }
-        hgraph::Bool ne__candidate_3(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept {
+        hgraph::Bool ne__candidate_3(const hgraph::Int &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.ne(lhs, rhs);
         }
-        hgraph::Bool ne__candidate_4(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept {
+        hgraph::Bool ne__candidate_4(const hgraph::Float &lhs, const hgraph::Int &rhs) {
             return hgl::stdlib::scalar_native.ne(lhs, rhs);
         }
-        hgraph::Bool ne__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+        hgraph::Bool ne__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) {
             return hgl::stdlib::scalar_native.ne(lhs, rhs);
         }
-        hgraph::Bool ne__candidate_6(const hgraph::Bool &lhs, const hgraph::Bool &rhs) noexcept {
+        hgraph::Bool ne__candidate_6(const hgraph::Bool &lhs, const hgraph::Bool &rhs) {
             return hgl::stdlib::scalar_native.ne(lhs, rhs);
         }
-        hgraph::Bool lt(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept { return hgl::stdlib::scalar_native.lt(lhs, rhs); }
-        hgraph::Bool lt__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept {
+        hgraph::Bool lt(const hgraph::Int &lhs, const hgraph::Int &rhs) { return hgl::stdlib::scalar_native.lt(lhs, rhs); }
+        hgraph::Bool lt__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.lt(lhs, rhs);
         }
-        hgraph::Bool lt__candidate_3(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept {
+        hgraph::Bool lt__candidate_3(const hgraph::Int &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.lt(lhs, rhs);
         }
-        hgraph::Bool lt__candidate_4(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept {
+        hgraph::Bool lt__candidate_4(const hgraph::Float &lhs, const hgraph::Int &rhs) {
             return hgl::stdlib::scalar_native.lt(lhs, rhs);
         }
-        hgraph::Bool lt__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+        hgraph::Bool lt__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) {
             return hgl::stdlib::scalar_native.lt(lhs, rhs);
         }
-        hgraph::Bool le(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept { return hgl::stdlib::scalar_native.le(lhs, rhs); }
-        hgraph::Bool le__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept {
+        hgraph::Bool le(const hgraph::Int &lhs, const hgraph::Int &rhs) { return hgl::stdlib::scalar_native.le(lhs, rhs); }
+        hgraph::Bool le__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.le(lhs, rhs);
         }
-        hgraph::Bool le__candidate_3(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept {
+        hgraph::Bool le__candidate_3(const hgraph::Int &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.le(lhs, rhs);
         }
-        hgraph::Bool le__candidate_4(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept {
+        hgraph::Bool le__candidate_4(const hgraph::Float &lhs, const hgraph::Int &rhs) {
             return hgl::stdlib::scalar_native.le(lhs, rhs);
         }
-        hgraph::Bool le__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+        hgraph::Bool le__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) {
             return hgl::stdlib::scalar_native.le(lhs, rhs);
         }
-        hgraph::Bool gt(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept { return hgl::stdlib::scalar_native.gt(lhs, rhs); }
-        hgraph::Bool gt__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept {
+        hgraph::Bool gt(const hgraph::Int &lhs, const hgraph::Int &rhs) { return hgl::stdlib::scalar_native.gt(lhs, rhs); }
+        hgraph::Bool gt__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.gt(lhs, rhs);
         }
-        hgraph::Bool gt__candidate_3(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept {
+        hgraph::Bool gt__candidate_3(const hgraph::Int &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.gt(lhs, rhs);
         }
-        hgraph::Bool gt__candidate_4(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept {
+        hgraph::Bool gt__candidate_4(const hgraph::Float &lhs, const hgraph::Int &rhs) {
             return hgl::stdlib::scalar_native.gt(lhs, rhs);
         }
-        hgraph::Bool gt__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+        hgraph::Bool gt__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) {
             return hgl::stdlib::scalar_native.gt(lhs, rhs);
         }
-        hgraph::Bool ge(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept { return hgl::stdlib::scalar_native.ge(lhs, rhs); }
-        hgraph::Bool ge__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept {
+        hgraph::Bool ge(const hgraph::Int &lhs, const hgraph::Int &rhs) { return hgl::stdlib::scalar_native.ge(lhs, rhs); }
+        hgraph::Bool ge__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.ge(lhs, rhs);
         }
-        hgraph::Bool ge__candidate_3(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept {
+        hgraph::Bool ge__candidate_3(const hgraph::Int &lhs, const hgraph::Float &rhs) {
             return hgl::stdlib::scalar_native.ge(lhs, rhs);
         }
-        hgraph::Bool ge__candidate_4(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept {
+        hgraph::Bool ge__candidate_4(const hgraph::Float &lhs, const hgraph::Int &rhs) {
             return hgl::stdlib::scalar_native.ge(lhs, rhs);
         }
-        hgraph::Bool ge__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+        hgraph::Bool ge__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) {
             return hgl::stdlib::scalar_native.ge(lhs, rhs);
         }
-        hgraph::Int   neg(const hgraph::Int &ts) noexcept { return hgl::stdlib::scalar_native.neg(ts); }
-        hgraph::Float neg__candidate_2(const hgraph::Float &ts) noexcept { return hgl::stdlib::scalar_native.neg(ts); }
+        hgraph::Int   neg(const hgraph::Int &ts) { return hgl::stdlib::scalar_native.neg(ts); }
+        hgraph::Float neg__candidate_2(const hgraph::Float &ts) { return hgl::stdlib::scalar_native.neg(ts); }
         hgraph::Str   add__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) {
             return hgl::stdlib::scalar_native.add(lhs, rhs);
         }
-        hgraph::Bool eq__candidate_4(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+        hgraph::Bool eq__candidate_4(const hgraph::Date &lhs, const hgraph::Date &rhs) {
             return hgl::stdlib::scalar_native.eq(lhs, rhs);
         }
-        hgraph::Bool eq__candidate_5(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+        hgraph::Bool eq__candidate_5(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) {
             return hgl::stdlib::scalar_native.eq(lhs, rhs);
         }
-        hgraph::Bool eq__candidate_6(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+        hgraph::Bool eq__candidate_6(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) {
             return hgl::stdlib::scalar_native.eq(lhs, rhs);
         }
-        hgraph::Bool ne__candidate_7(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+        hgraph::Bool ne__candidate_7(const hgraph::Date &lhs, const hgraph::Date &rhs) {
             return hgl::stdlib::scalar_native.ne(lhs, rhs);
         }
-        hgraph::Bool ne__candidate_8(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+        hgraph::Bool ne__candidate_8(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) {
             return hgl::stdlib::scalar_native.ne(lhs, rhs);
         }
-        hgraph::Bool ne__candidate_9(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+        hgraph::Bool ne__candidate_9(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) {
             return hgl::stdlib::scalar_native.ne(lhs, rhs);
         }
-        hgraph::Bool lt__candidate_6(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+        hgraph::Bool lt__candidate_6(const hgraph::Date &lhs, const hgraph::Date &rhs) {
             return hgl::stdlib::scalar_native.lt(lhs, rhs);
         }
-        hgraph::Bool lt__candidate_7(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+        hgraph::Bool lt__candidate_7(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) {
             return hgl::stdlib::scalar_native.lt(lhs, rhs);
         }
-        hgraph::Bool lt__candidate_8(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+        hgraph::Bool lt__candidate_8(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) {
             return hgl::stdlib::scalar_native.lt(lhs, rhs);
         }
-        hgraph::Bool le__candidate_6(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+        hgraph::Bool le__candidate_6(const hgraph::Date &lhs, const hgraph::Date &rhs) {
             return hgl::stdlib::scalar_native.le(lhs, rhs);
         }
-        hgraph::Bool le__candidate_7(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+        hgraph::Bool le__candidate_7(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) {
             return hgl::stdlib::scalar_native.le(lhs, rhs);
         }
-        hgraph::Bool le__candidate_8(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+        hgraph::Bool le__candidate_8(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) {
             return hgl::stdlib::scalar_native.le(lhs, rhs);
         }
-        hgraph::Bool gt__candidate_6(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+        hgraph::Bool gt__candidate_6(const hgraph::Date &lhs, const hgraph::Date &rhs) {
             return hgl::stdlib::scalar_native.gt(lhs, rhs);
         }
-        hgraph::Bool gt__candidate_7(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+        hgraph::Bool gt__candidate_7(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) {
             return hgl::stdlib::scalar_native.gt(lhs, rhs);
         }
-        hgraph::Bool gt__candidate_8(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+        hgraph::Bool gt__candidate_8(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) {
             return hgl::stdlib::scalar_native.gt(lhs, rhs);
         }
-        hgraph::Bool ge__candidate_6(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+        hgraph::Bool ge__candidate_6(const hgraph::Date &lhs, const hgraph::Date &rhs) {
             return hgl::stdlib::scalar_native.ge(lhs, rhs);
         }
-        hgraph::Bool ge__candidate_7(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+        hgraph::Bool ge__candidate_7(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) {
             return hgl::stdlib::scalar_native.ge(lhs, rhs);
         }
-        hgraph::Bool ge__candidate_8(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+        hgraph::Bool ge__candidate_8(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) {
             return hgl::stdlib::scalar_native.ge(lhs, rhs);
         }
-        hgraph::Bool eq__candidate_7(const hgraph::Time &lhs, const hgraph::Time &rhs) noexcept {
+        hgraph::Bool eq__candidate_7(const hgraph::Time &lhs, const hgraph::Time &rhs) {
             return hgl::stdlib::scalar_native.eq(lhs, rhs);
         }
-        hgraph::Bool ne__candidate_10(const hgraph::Time &lhs, const hgraph::Time &rhs) noexcept {
+        hgraph::Bool ne__candidate_10(const hgraph::Time &lhs, const hgraph::Time &rhs) {
             return hgl::stdlib::scalar_native.ne(lhs, rhs);
         }
-        hgraph::Int  len(const hgraph::Str &value) noexcept { return hgl::stdlib::scalar_native.len(value); }
-        hgraph::Bool is_empty(const hgraph::Str &value) noexcept { return hgl::stdlib::scalar_native.is_empty(value); }
-        hgraph::Bool contains(const hgraph::Str &value, const hgraph::Str &needle) noexcept {
+        hgraph::Int  len(const hgraph::Str &value) { return hgl::stdlib::scalar_native.len(value); }
+        hgraph::Bool is_empty(const hgraph::Str &value) { return hgl::stdlib::scalar_native.is_empty(value); }
+        hgraph::Bool contains(const hgraph::Str &value, const hgraph::Str &needle) {
             return hgl::stdlib::scalar_native.contains(value, needle);
         }
-        hgraph::Bool starts_with(const hgraph::Str &value, const hgraph::Str &prefix) noexcept {
+        hgraph::Bool starts_with(const hgraph::Str &value, const hgraph::Str &prefix) {
             return hgl::stdlib::scalar_native.starts_with(value, prefix);
         }
-        hgraph::Bool ends_with(const hgraph::Str &value, const hgraph::Str &suffix) noexcept {
+        hgraph::Bool ends_with(const hgraph::Str &value, const hgraph::Str &suffix) {
             return hgl::stdlib::scalar_native.ends_with(value, suffix);
         }
-        hgraph::Bool  truthy(const hgraph::Bool &value) noexcept { return hgl::stdlib::scalar_native.truthy(value); }
-        hgraph::Bool  truthy__candidate_2(const hgraph::Int &value) noexcept { return hgl::stdlib::scalar_native.truthy(value); }
-        hgraph::Bool  truthy__candidate_3(const hgraph::Float &value) noexcept { return hgl::stdlib::scalar_native.truthy(value); }
-        hgraph::Bool  truthy__candidate_4(const hgraph::Str &value) noexcept { return hgl::stdlib::scalar_native.truthy(value); }
-        hgraph::Int   absolute(const hgraph::Int &value) noexcept { return hgl::stdlib::scalar_native.absolute(value); }
-        hgraph::Float absolute__candidate_2(const hgraph::Float &value) noexcept {
-            return hgl::stdlib::scalar_native.absolute(value);
-        }
-        hgraph::Float logarithm(const hgraph::Float &value) noexcept { return hgl::stdlib::scalar_native.logarithm(value); }
+        hgraph::Bool  truthy(const hgraph::Bool &value) { return hgl::stdlib::scalar_native.truthy(value); }
+        hgraph::Bool  truthy__candidate_2(const hgraph::Int &value) { return hgl::stdlib::scalar_native.truthy(value); }
+        hgraph::Bool  truthy__candidate_3(const hgraph::Float &value) { return hgl::stdlib::scalar_native.truthy(value); }
+        hgraph::Bool  truthy__candidate_4(const hgraph::Str &value) { return hgl::stdlib::scalar_native.truthy(value); }
+        hgraph::Int   absolute(const hgraph::Int &value) { return hgl::stdlib::scalar_native.absolute(value); }
+        hgraph::Float absolute__candidate_2(const hgraph::Float &value) { return hgl::stdlib::scalar_native.absolute(value); }
+        hgraph::Float logarithm(const hgraph::Float &value) { return hgl::stdlib::scalar_native.logarithm(value); }
         hgraph::Float round_decimal(const hgraph::Float &value, const hgraph::Int &digits) {
             return hgl::stdlib::scalar_native.round_decimal(value, digits);
         }
-        hgraph::Int  invert(const hgraph::Bool &value) noexcept { return hgl::stdlib::scalar_native.invert(value); }
-        hgraph::Bool bit_and(const hgraph::Bool &lhs, const hgraph::Bool &rhs) noexcept {
+        hgraph::Int  invert(const hgraph::Bool &value) { return hgl::stdlib::scalar_native.invert(value); }
+        hgraph::Bool bit_and(const hgraph::Bool &lhs, const hgraph::Bool &rhs) {
             return hgl::stdlib::scalar_native.bit_and(lhs, rhs);
         }
-        hgraph::Bool bit_or(const hgraph::Bool &lhs, const hgraph::Bool &rhs) noexcept {
+        hgraph::Bool bit_or(const hgraph::Bool &lhs, const hgraph::Bool &rhs) {
             return hgl::stdlib::scalar_native.bit_or(lhs, rhs);
         }
-        hgraph::Bool bit_xor(const hgraph::Bool &lhs, const hgraph::Bool &rhs) noexcept {
+        hgraph::Bool bit_xor(const hgraph::Bool &lhs, const hgraph::Bool &rhs) {
             return hgl::stdlib::scalar_native.bit_xor(lhs, rhs);
         }
-        hgraph::Int invert__candidate_2(const hgraph::Int &value) noexcept { return hgl::stdlib::scalar_native.invert(value); }
-        hgraph::Int bit_or__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept {
+        hgraph::Int invert__candidate_2(const hgraph::Int &value) { return hgl::stdlib::scalar_native.invert(value); }
+        hgraph::Int bit_or__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) {
             return hgl::stdlib::scalar_native.bit_or(lhs, rhs);
         }
-        hgraph::Int bit_xor__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept {
+        hgraph::Int bit_xor__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) {
             return hgl::stdlib::scalar_native.bit_xor(lhs, rhs);
         }
-        hgraph::Int as_int(const hgraph::Bool &value) noexcept { return hgl::stdlib::scalar_native.as_int(value); }
+        hgraph::Int as_int(const hgraph::Bool &value) { return hgl::stdlib::scalar_native.as_int(value); }
         void        require_positive_delay(const hgraph::TimeDelta &delay) {
             return hgl::stdlib::scalar_native.require_positive_delay(delay);
         }
@@ -294,111 +286,97 @@ namespace hgraph_::native
         hgraph::Int shift_right(const hgraph::Int &lhs, const hgraph::Int &rhs) {
             return hgl::stdlib::scalar_native.shift_right(lhs, rhs);
         }
-        hgraph::Str slice(const hgraph::Str &value, const hgraph::Int &begin, const hgraph::Int &end) noexcept {
+        hgraph::Str slice(const hgraph::Str &value, const hgraph::Int &begin, const hgraph::Int &end) {
             return hgl::stdlib::scalar_native.slice(value, begin, end);
         }
-        hgraph::Int   as_int__candidate_2(const hgraph::Float &value) noexcept { return hgl::stdlib::scalar_native.as_int(value); }
-        hgraph::Float as_float(const hgraph::Bool &value) noexcept { return hgl::stdlib::scalar_native.as_float(value); }
-        hgraph::Float as_float__candidate_2(const hgraph::Int &value) noexcept {
-            return hgl::stdlib::scalar_native.as_float(value);
-        }
-        hgraph::Str as_str(const hgraph::Bool &value) noexcept { return hgl::stdlib::scalar_native.as_str(value); }
-        hgraph::Str as_str__candidate_2(const hgraph::Int &value) noexcept { return hgl::stdlib::scalar_native.as_str(value); }
-        hgraph::Str as_str__candidate_3(const hgraph::Float &value) noexcept { return hgl::stdlib::scalar_native.as_str(value); }
-        hgraph::Str as_str__candidate_4(const hgraph::Str &value) noexcept { return hgl::stdlib::scalar_native.as_str(value); }
-        hgraph::Str as_str__candidate_5(const hgraph::Date &value) noexcept { return hgl::stdlib::scalar_native.as_str(value); }
-        hgraph::Str as_str__candidate_6(const hgraph::Time &value) noexcept { return hgl::stdlib::scalar_native.as_str(value); }
-        hgraph::Str as_str__candidate_7(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.as_str(value); }
-        hgraph::Str as_str__candidate_8(const hgraph::TimeDelta &value) noexcept {
-            return hgl::stdlib::scalar_native.as_str(value);
-        }
-        void        print_line(const hgraph::Str &text) noexcept { return hgl::stdlib::scalar_native.print_line(text); }
-        void        raise_error(const hgraph::Str &message) { return hgl::stdlib::scalar_native.raise_error(message); }
-        hgraph::Int bit_and__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept {
+        hgraph::Int   as_int__candidate_2(const hgraph::Float &value) { return hgl::stdlib::scalar_native.as_int(value); }
+        hgraph::Float as_float(const hgraph::Bool &value) { return hgl::stdlib::scalar_native.as_float(value); }
+        hgraph::Float as_float__candidate_2(const hgraph::Int &value) { return hgl::stdlib::scalar_native.as_float(value); }
+        hgraph::Str   as_str(const hgraph::Bool &value) { return hgl::stdlib::scalar_native.as_str(value); }
+        hgraph::Str   as_str__candidate_2(const hgraph::Int &value) { return hgl::stdlib::scalar_native.as_str(value); }
+        hgraph::Str   as_str__candidate_3(const hgraph::Float &value) { return hgl::stdlib::scalar_native.as_str(value); }
+        hgraph::Str   as_str__candidate_4(const hgraph::Str &value) { return hgl::stdlib::scalar_native.as_str(value); }
+        hgraph::Str   as_str__candidate_5(const hgraph::Date &value) { return hgl::stdlib::scalar_native.as_str(value); }
+        hgraph::Str   as_str__candidate_6(const hgraph::Time &value) { return hgl::stdlib::scalar_native.as_str(value); }
+        hgraph::Str   as_str__candidate_7(const hgraph::DateTime &value) { return hgl::stdlib::scalar_native.as_str(value); }
+        hgraph::Str   as_str__candidate_8(const hgraph::TimeDelta &value) { return hgl::stdlib::scalar_native.as_str(value); }
+        void          print_line(const hgraph::Str &text) { return hgl::stdlib::scalar_native.print_line(text); }
+        void          raise_error(const hgraph::Str &message) { return hgl::stdlib::scalar_native.raise_error(message); }
+        hgraph::Int   bit_and__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) {
             return hgl::stdlib::scalar_native.bit_and(lhs, rhs);
         }
         // sequences.hgl:6
-        hgraph::Int len__candidate_2(const hgraph::TSLInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
+        hgraph::Int len__candidate_2(const hgraph::TSLInputView &value) { return static_cast<hgraph::Int>(value.size()); }
 
         // sequences.hgl:12
-        hgraph::Int len__candidate_3(const hgraph::TSLInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
+        hgraph::Int len__candidate_3(const hgraph::TSLInputView &value) { return static_cast<hgraph::Int>(value.size()); }
 
         // sequences.hgl:18
-        hgraph::Bool is_empty__candidate_2(const hgraph::TSLInputView &value) noexcept { return value.empty(); }
+        hgraph::Bool is_empty__candidate_2(const hgraph::TSLInputView &value) { return value.empty(); }
 
         // sequences.hgl:24
-        hgraph::Bool is_empty__candidate_3(const hgraph::TSLInputView &value) noexcept { return value.empty(); }
+        hgraph::Bool is_empty__candidate_3(const hgraph::TSLInputView &value) { return value.empty(); }
 
         // sets_maps.hgl:6
-        hgraph::Int len__candidate_4(const hgraph::TSSInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
+        hgraph::Int len__candidate_4(const hgraph::TSSInputView &value) { return static_cast<hgraph::Int>(value.size()); }
 
         // sets_maps.hgl:12
-        hgraph::Int len__candidate_5(const hgraph::TSDInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
+        hgraph::Int len__candidate_5(const hgraph::TSDInputView &value) { return static_cast<hgraph::Int>(value.size()); }
 
         // sets_maps.hgl:18
-        hgraph::Bool is_empty__candidate_4(const hgraph::TSSInputView &value) noexcept { return value.empty(); }
+        hgraph::Bool is_empty__candidate_4(const hgraph::TSSInputView &value) { return value.empty(); }
 
         // sets_maps.hgl:24
-        hgraph::Bool is_empty__candidate_5(const hgraph::TSDInputView &value) noexcept { return value.empty(); }
+        hgraph::Bool is_empty__candidate_5(const hgraph::TSDInputView &value) { return value.empty(); }
 
-        hgraph::Int year(const hgraph::Date &value) noexcept { return hgl::stdlib::scalar_native.year(value); }
-        hgraph::Int month(const hgraph::Date &value) noexcept { return hgl::stdlib::scalar_native.month(value); }
-        hgraph::Int day(const hgraph::Date &value) noexcept { return hgl::stdlib::scalar_native.day(value); }
-        hgraph::Int weekday(const hgraph::Date &value) noexcept { return hgl::stdlib::scalar_native.weekday(value); }
-        hgraph::Int isoweekday(const hgraph::Date &value) noexcept { return hgl::stdlib::scalar_native.isoweekday(value); }
-        hgraph::Int year__candidate_2(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.year(value); }
-        hgraph::Int month__candidate_2(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.month(value); }
-        hgraph::Int day__candidate_2(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.day(value); }
-        hgraph::Int weekday__candidate_2(const hgraph::DateTime &value) noexcept {
-            return hgl::stdlib::scalar_native.weekday(value);
-        }
-        hgraph::Int isoweekday__candidate_2(const hgraph::DateTime &value) noexcept {
-            return hgl::stdlib::scalar_native.isoweekday(value);
-        }
-        hgraph::Int hour(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.hour(value); }
-        hgraph::Int minute(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.minute(value); }
-        hgraph::Int second(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.second(value); }
-        hgraph::Int microsecond(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.microsecond(value); }
-        hgraph::Int hour__candidate_2(const hgraph::Time &value) noexcept { return hgl::stdlib::scalar_native.hour(value); }
-        hgraph::Int minute__candidate_2(const hgraph::Time &value) noexcept { return hgl::stdlib::scalar_native.minute(value); }
-        hgraph::Int second__candidate_2(const hgraph::Time &value) noexcept { return hgl::stdlib::scalar_native.second(value); }
-        hgraph::Int microsecond__candidate_2(const hgraph::Time &value) noexcept {
-            return hgl::stdlib::scalar_native.microsecond(value);
-        }
-        hgraph::Int days(const hgraph::TimeDelta &value) noexcept { return hgl::stdlib::scalar_native.days(value); }
-        hgraph::Int seconds(const hgraph::TimeDelta &value) noexcept { return hgl::stdlib::scalar_native.seconds(value); }
-        hgraph::Int microseconds(const hgraph::TimeDelta &value) noexcept { return hgl::stdlib::scalar_native.microseconds(value); }
-        hgraph::Float total_seconds(const hgraph::TimeDelta &value) noexcept {
-            return hgl::stdlib::scalar_native.total_seconds(value);
-        }
-        hgraph::Float    timestamp(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.timestamp(value); }
-        hgraph::DateTime datepart(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.datepart(value); }
-        hgraph::Date     calendar_date(const hgraph::DateTime &value) noexcept {
-            return hgl::stdlib::scalar_native.calendar_date(value);
-        }
+        hgraph::Int year(const hgraph::Date &value) { return hgl::stdlib::scalar_native.year(value); }
+        hgraph::Int month(const hgraph::Date &value) { return hgl::stdlib::scalar_native.month(value); }
+        hgraph::Int day(const hgraph::Date &value) { return hgl::stdlib::scalar_native.day(value); }
+        hgraph::Int weekday(const hgraph::Date &value) { return hgl::stdlib::scalar_native.weekday(value); }
+        hgraph::Int isoweekday(const hgraph::Date &value) { return hgl::stdlib::scalar_native.isoweekday(value); }
+        hgraph::Int year__candidate_2(const hgraph::DateTime &value) { return hgl::stdlib::scalar_native.year(value); }
+        hgraph::Int month__candidate_2(const hgraph::DateTime &value) { return hgl::stdlib::scalar_native.month(value); }
+        hgraph::Int day__candidate_2(const hgraph::DateTime &value) { return hgl::stdlib::scalar_native.day(value); }
+        hgraph::Int weekday__candidate_2(const hgraph::DateTime &value) { return hgl::stdlib::scalar_native.weekday(value); }
+        hgraph::Int isoweekday__candidate_2(const hgraph::DateTime &value) { return hgl::stdlib::scalar_native.isoweekday(value); }
+        hgraph::Int hour(const hgraph::DateTime &value) { return hgl::stdlib::scalar_native.hour(value); }
+        hgraph::Int minute(const hgraph::DateTime &value) { return hgl::stdlib::scalar_native.minute(value); }
+        hgraph::Int second(const hgraph::DateTime &value) { return hgl::stdlib::scalar_native.second(value); }
+        hgraph::Int microsecond(const hgraph::DateTime &value) { return hgl::stdlib::scalar_native.microsecond(value); }
+        hgraph::Int hour__candidate_2(const hgraph::Time &value) { return hgl::stdlib::scalar_native.hour(value); }
+        hgraph::Int minute__candidate_2(const hgraph::Time &value) { return hgl::stdlib::scalar_native.minute(value); }
+        hgraph::Int second__candidate_2(const hgraph::Time &value) { return hgl::stdlib::scalar_native.second(value); }
+        hgraph::Int microsecond__candidate_2(const hgraph::Time &value) { return hgl::stdlib::scalar_native.microsecond(value); }
+        hgraph::Int days(const hgraph::TimeDelta &value) { return hgl::stdlib::scalar_native.days(value); }
+        hgraph::Int seconds(const hgraph::TimeDelta &value) { return hgl::stdlib::scalar_native.seconds(value); }
+        hgraph::Int microseconds(const hgraph::TimeDelta &value) { return hgl::stdlib::scalar_native.microseconds(value); }
+        hgraph::Float    total_seconds(const hgraph::TimeDelta &value) { return hgl::stdlib::scalar_native.total_seconds(value); }
+        hgraph::Float    timestamp(const hgraph::DateTime &value) { return hgl::stdlib::scalar_native.timestamp(value); }
+        hgraph::DateTime datepart(const hgraph::DateTime &value) { return hgl::stdlib::scalar_native.datepart(value); }
+        hgraph::Date     calendar_date(const hgraph::DateTime &value) { return hgl::stdlib::scalar_native.calendar_date(value); }
         // windows.hgl:10
-        hgraph::Int len__candidate_6(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
+        hgraph::Int len__candidate_6(const hgraph::TSWInputView &value) { return static_cast<hgraph::Int>(value.size()); }
 
         // windows.hgl:18
-        hgraph::Bool is_empty__candidate_6(const hgraph::TSWInputView &value) noexcept { return value.empty(); }
+        hgraph::Bool is_empty__candidate_6(const hgraph::TSWInputView &value) { return value.empty(); }
 
         // windows.hgl:26
-        hgraph::Int capacity(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.capacity()); }
+        hgraph::Int capacity(const hgraph::TSWInputView &value) { return static_cast<hgraph::Int>(value.capacity()); }
 
         // windows.hgl:34
-        hgraph::Int period(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.period()); }
+        hgraph::Int period(const hgraph::TSWInputView &value) { return static_cast<hgraph::Int>(value.period()); }
 
         // windows.hgl:42
-        hgraph::Int min_period(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.min_period()); }
+        hgraph::Int min_period(const hgraph::TSWInputView &value) { return static_cast<hgraph::Int>(value.min_period()); }
 
         // windows.hgl:50
-        hgraph::Bool is_full(const hgraph::TSWInputView &value) noexcept { return value.full(); }
+        hgraph::Bool is_full(const hgraph::TSWInputView &value) { return value.full(); }
 
         // windows.hgl:59
-        hgraph::Bool has_removed_value(const hgraph::TSWInputView &value) noexcept { return value.has_removed_value(); }
+        hgraph::Bool has_removed_value(const hgraph::TSWInputView &value) { return value.has_removed_value(); }
 
         // windows.hgl:68
-        hgraph::DateTime first_modified(const hgraph::TSWInputView &value) noexcept { return value.first_modified_time(); }
+        hgraph::DateTime first_modified(const hgraph::TSWInputView &value) { return value.first_modified_time(); }
 
     }  // namespace native
 
