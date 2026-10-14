@@ -4883,3 +4883,28 @@ TEST_CASE("result tag facts do not refine mutable bindings or independent aliase
         CHECK(unit.diagnostics.render(unit.file).find("result.required_variant") != std::string::npos);
     }
 }
+
+
+TEST_CASE("error constructors admit nullable code but require a present string message", "[ir][typed][error]") {
+    for (const auto &body : std::vector<std::string>{
+        "return error(code: null, message: \"message\")",
+        "let code = get(book, \"key\")\nreturn error(code: code, message: \"message\")",
+        "return error(code: get(book, \"key\"), message: \"message\")"
+    }) {
+        Lowered unit{"module checks.error_constructor\nconst fn diagnostic(book: map<str, str>) -> error {\n" + body + "\n}\n"};
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        const bool accepted = complete(unit);
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(accepted);
+    }
+    for (const auto &body : std::vector<std::string>{
+        "return error(message: null)",
+        "let text = get(book, \"key\")\nreturn error(message: text)",
+        "return error(code: 1, message: \"message\")",
+        "return error(code: \"domain\")"
+    }) {
+        Lowered unit{"module checks.error_constructor\nconst fn diagnostic(book: map<str, str>) -> error {\n" + body + "\n}\n"};
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        CHECK_FALSE(complete(unit));
+    }
+}

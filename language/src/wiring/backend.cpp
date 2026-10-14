@@ -2031,6 +2031,7 @@ namespace hgl::wiring
                 hgraph::CanonicalError error;
                 for (const auto &argument : arguments) {
                     const auto payload = eval_value(argument.value, frame);
+                    if (argument.name == "code" && payload.kind == Slot::Kind::Null) { continue; }
                     const auto text = payload.value.view().checked_as<hgraph::Str>();
                     if (argument.name == "code") { error.code = text; }
                     else { error.message = text; }

@@ -5107,7 +5107,8 @@ namespace hgl::ir
                     for (const auto &arg : call.arguments) {
                         if (arg.name == "message") { message = true; }
                         else if (arg.name != "code") { type_error(arg.range, "error takes named message and optional code"); }
-                        Expr &value = check_expr(arg.value, scalar(ScalarType::Str));
+                        Expr &value = check_expr(arg.value, scalar(ScalarType::Str), arg.name == "code");
+                        if (arg.name == "message" && is_null(value)) { type_error(arg.range, "error message requires a non-null str"); }
                         require_assignable(scalar(ScalarType::Str), value, "error diagnostic");
                     }
                     if (!message) { type_error(expression.range, "error requires message"); }

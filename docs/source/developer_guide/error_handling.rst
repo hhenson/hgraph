@@ -253,7 +253,10 @@ input validity. The two execution backends consume that checked plan.
 Ordinary results retain one selected owning payload with a tag. Their prepared
 value representation exposes neither independent temporal fields nor inactive
 payloads. Publication validates the tag and the complete selected value.
-Canonical errors own optional code and provenance, and compare diagnostic
+Error construction evaluates arguments once in written order and retains an
+optional code from either a string or a nullable string observation. An absent
+code never reads a payload; a present code owns its string, including an empty
+string. Canonical errors own optional code and provenance, and compare diagnostic
 content without comparing provenance. Native recoverable helpers return typed
 result data; operational node failure is a separate runtime contract. Host
 exception translation remains an implementation boundary.

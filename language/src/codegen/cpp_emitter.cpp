@@ -4874,9 +4874,18 @@ namespace hgl::codegen
                 std::string code = "{}", message;
                 for (std::size_t index = 0; index < call.arguments.size(); ++index) {
                     const auto &argument = call.arguments[index];
-                    const Value value = eval_planned_expr(argument.value, frame);
                     const std::string local = "hgl_error_arg_" + std::to_string(index);
-                    preparation += "auto " + local + " = " + value.code + "; ";
+                    if (argument.name == "code" && planned_null(argument.value, argument.range)) {
+                        preparation += "std::optional<hgraph::Str> " + local + "{}; ";
+                    } else {
+                        const Value value = eval_planned_expr(argument.value, frame, argument.name == "code");
+                        const std::string argument_code = argument.name == "code" && value.ordinary_value
+                            ? "([&](const hgraph::ValueView &hgl_code) -> std::optional<hgraph::Str> { "
+                              "if (!hgl_code.has_value()) return {}; return hgl::ordinary::native_argument<hgraph::Str>(hgl_code); }(" +
+                              ordinary_view(value) + "))"
+                            : value.code;
+                        preparation += "auto " + local + " = " + argument_code + "; ";
+                    }
                     if (argument.name == "code") { code = local; } else { message = local; }
                 }
                 const std::string value = "[&]() { " + preparation + "return hgraph::CanonicalError{" + code + ", " + message + ", {}}; }()";
