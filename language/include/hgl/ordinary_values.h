@@ -16,10 +16,12 @@
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/mutable_container_ops.h>
 #include <hgraph/types/value/value_builder.h>
 #include <limits>
+#include <optional>
 #include <span>
 
 #include <stdexcept>
@@ -1306,6 +1308,35 @@ namespace hgl::ordinary
             [](const PreparedPublicationPlan &, const hgraph::TSOutputView &, const hgraph::ValueView &) {
                 throw std::logic_error("unprepared ordinary publication plan");
             }};
+    };
+
+    // A delta observation borrows ordinary producer traffic and retains the
+    // complete sampled transition only when the input's binding requires it.
+    // Its view is computed after moves, so an inline Value payload never leaves
+    // a cached pointer into the previous owner.
+    class DeltaObservation
+    {
+      public:
+        explicit DeltaObservation(const hgraph::TSInputView &input) {
+            if (input.delta_is_sampled_rebind()) { owned_.emplace(hgraph::capture_delta(input)); }
+            else { borrowed_ = input.delta_value(); }
+        }
+        DeltaObservation(const DeltaObservation &other)
+            : owned_{other.owned_}, borrowed_{other.borrowed_.binding(), other.borrowed_.data()} {}
+        DeltaObservation &operator=(const DeltaObservation &other) {
+            if (this != &other) {
+                owned_ = other.owned_;
+                borrowed_ = hgraph::ValueView{other.borrowed_.binding(), other.borrowed_.data()};
+            }
+            return *this;
+        }
+        DeltaObservation(DeltaObservation &&) noexcept = default;
+        DeltaObservation &operator=(DeltaObservation &&) noexcept = default;
+        [[nodiscard]] hgraph::ValueView view() const { return owned_ ? owned_->view() : hgraph::ValueView{borrowed_.binding(), borrowed_.data()}; }
+
+      private:
+        std::optional<hgraph::Value> owned_{};
+        hgraph::ValueView borrowed_{};
     };
 
     class PreparedDeltaPlan

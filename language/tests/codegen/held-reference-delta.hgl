@@ -1,0 +1,53 @@
+module checks.held_reference_delta
+
+native const fn heap_churn(seed: i64) -> i64 {
+    cpp(hgraph::Int seed) {
+        std::vector<std::vector<hgraph::Int>> garbage;
+        garbage.reserve(64);
+        for (std::size_t count = 1; count <= 64; ++count) { garbage.emplace_back(count, seed); }
+        volatile hgraph::Int checksum = 0;
+        for (const auto &block : garbage) { checksum = checksum + block.back(); }
+        return checksum;
+    }
+}
+fn route(index: i64, first: ref<map<i64, i64>>, second: ref<map<i64, i64>>) -> ref<map<i64, i64>> {
+    when valid(index) {
+        if index == 0 {
+            if valid(first) && (modified(index) || modified(first)) { return first }
+        } else {
+            if valid(second) && (modified(index) || modified(second)) { return second }
+        }
+    }
+}
+fn read_held(value: map<i64, i64>) -> map<i64, i64> {
+    when {
+        let d = delta_value(value)
+        heap_churn(17)
+        return d
+    }
+}
+fn read_alias(value: map<i64, i64>) -> map<i64, i64> {
+    when {
+        let d = delta_value(value)
+        let alias = d
+        heap_churn(19)
+        return alias
+    }
+}
+export fn held(index: i64, first: map<i64, i64>, second: map<i64, i64>) -> map<i64, i64> => read_held(route(index, first, second))
+export fn aliased(index: i64, first: map<i64, i64>, second: map<i64, i64>) -> map<i64, i64> => read_alias(route(index, first, second))
+
+test held_delta {
+    assert eval(held, index: [0, _, 1, _, 0],
+        first: [delta<map<i64, i64>>(upsert: [1: 7, 2: 20]), delta<map<i64, i64>>(upsert: [2: 21])],
+        second: [delta<map<i64, i64>>(upsert: [1: 7, 3: 30]), delta<map<i64, i64>>(upsert: [3: 31]), _, delta<map<i64, i64>>(upsert: [1: 8])]
+    ) == [delta<map<i64, i64>>(upsert: [1: 7, 2: 20]), delta<map<i64, i64>>(upsert: [2: 21]),
+          delta<map<i64, i64>>(remove: [2], upsert: [1: 7, 3: 31]), delta<map<i64, i64>>(upsert: [1: 8]),
+          delta<map<i64, i64>>(remove: [3], upsert: [1: 7, 2: 21])]
+    assert eval(aliased, index: [0, _, 1, _, 0],
+        first: [delta<map<i64, i64>>(upsert: [1: 7, 2: 20]), delta<map<i64, i64>>(upsert: [2: 21])],
+        second: [delta<map<i64, i64>>(upsert: [1: 7, 3: 30]), delta<map<i64, i64>>(upsert: [3: 31]), _, delta<map<i64, i64>>(upsert: [1: 8])]
+    ) == [delta<map<i64, i64>>(upsert: [1: 7, 2: 20]), delta<map<i64, i64>>(upsert: [2: 21]),
+          delta<map<i64, i64>>(remove: [2], upsert: [1: 7, 3: 31]), delta<map<i64, i64>>(upsert: [1: 8]),
+          delta<map<i64, i64>>(remove: [3], upsert: [1: 7, 2: 21])]
+}

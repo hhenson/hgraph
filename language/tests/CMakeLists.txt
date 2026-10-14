@@ -1534,3 +1534,23 @@ target_link_libraries(hgl_capture_call_effect_tests PRIVATE hgl_capture_call_fix
 hgl_link_runtime_executable(hgl_capture_call_effect_tests)
 hgl_apply_warnings(hgl_capture_call_effect_tests)
 add_test(NAME hgraph_language_capture_call_effects COMMAND hgl_capture_call_effect_tests)
+
+
+hgl_add_module(hgl_held_reference_delta_fixture STATIC HGL codegen/held-reference-delta.hgl)
+hgl_apply_warnings(hgl_held_reference_delta_fixture)
+add_executable(hgl_held_reference_delta_tests codegen/held_reference_delta_driver.cpp)
+target_link_libraries(hgl_held_reference_delta_tests PRIVATE hgl_held_reference_delta_fixture hgl_eval_library hgl::driver)
+hgl_link_runtime_executable(hgl_held_reference_delta_tests)
+hgl_stage_runtime_dlls(hgl_held_reference_delta_tests)
+hgl_apply_warnings(hgl_held_reference_delta_tests)
+add_test(NAME hgraph_language_held_reference_delta
+    COMMAND hgl_held_reference_delta_tests test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/held-reference-delta.hgl)
+set_tests_properties(hgraph_language_held_reference_delta PROPERTIES
+    PASS_REGULAR_EXPRESSION "1 test, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_CXX=hgl-held-delta-must-not-build;HGL_DISABLE_CACHE=1")
+
+add_executable(hgl_held_delta_owner_tests codegen/held_delta_owner_tests.cpp)
+target_link_libraries(hgl_held_delta_owner_tests PRIVATE hgl::wiring_types hgraph::core Catch2::Catch2WithMain)
+hgl_link_runtime_executable(hgl_held_delta_owner_tests)
+hgl_apply_warnings(hgl_held_delta_owner_tests)
+add_test(NAME hgraph_language_held_delta_owner COMMAND hgl_held_delta_owner_tests)

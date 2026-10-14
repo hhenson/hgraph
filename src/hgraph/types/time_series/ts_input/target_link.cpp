@@ -854,7 +854,10 @@ namespace hgraph::detail
 
     void TSInputTargetLinkState::notify(DateTime modified_time)
     {
-        if (owner != nullptr) { owner->record_target_modified(modified_time); }
+        if (owner != nullptr) {
+            owner->last_source_notification_time = modified_time;
+            owner->record_target_modified(modified_time);
+        }
         const auto *root = active_root();
         if (root != nullptr && root->locally_active &&
             root->observation_kind == TSInputObservationKind::Value &&
@@ -940,6 +943,7 @@ namespace hgraph::detail
         const TSInputTargetLinkStructuralOps &structural_ops) noexcept
         : tracking(std::move(other.tracking)),
           last_sample_time(std::exchange(other.last_sample_time, MIN_DT)),
+          last_source_notification_time(std::exchange(other.last_source_notification_time, MIN_DT)),
           state_(*this),
           structural_ops_(&structural_ops)
     {
@@ -962,6 +966,7 @@ namespace hgraph::detail
             clear_declared_source_view();
             other.clear_declared_source_view();
             last_sample_time = std::exchange(other.last_sample_time, MIN_DT);
+            last_source_notification_time = std::exchange(other.last_source_notification_time, MIN_DT);
             state_.move_from(other.state_);
             structural_ops_->resubscribe_after_move_assignment(*this);
         }
@@ -1168,6 +1173,7 @@ namespace hgraph::detail
 
         auto &state = state_;
         last_sample_time = MIN_DT;
+        last_source_notification_time = MIN_DT;
         state.target = target;
         // RFC 0036: whether the bound endpoint can move is a property of the
         // handle chosen here, so it is recorded once per bind / rebind and
@@ -1231,6 +1237,7 @@ namespace hgraph::detail
     void TSInputTargetLinkStorage::detach_target(bool retain_structural_target, DateTime modified_time)
     {
         last_sample_time = MIN_DT;
+        last_source_notification_time = MIN_DT;
         structural_ops_->detach_target(*this, retain_structural_target, modified_time);
         unsubscribe_active_target();
         if (state_.target.bound()) { state_.target.data_view().unsubscribe(&state_); }
@@ -1243,6 +1250,7 @@ namespace hgraph::detail
     {
         clear_declared_source_view();
         last_sample_time = MIN_DT;
+        last_source_notification_time = MIN_DT;
         state_.scalar_target_link = nullptr;
         structural_ops_->unbind_noexcept(*this);
         if (state_.active_root_node) { unsubscribe_tree_noexcept(*state_.active_root_node, state_.scheduling_notifier); }
@@ -1253,6 +1261,7 @@ namespace hgraph::detail
     {
         clear_declared_source_view();
         last_sample_time = MIN_DT;
+        last_source_notification_time = MIN_DT;
         static_cast<void>(source);
         state_.clear_active_observed();
         state_.target.reset();
@@ -1433,15 +1442,15 @@ namespace hgraph::detail
 
     bool TSInputTargetLinkStorage::empty_scalar_route() const noexcept
     {
-        if (!state_.target.bound()) { return false; }
-        auto *link = state_.scalar_target_link;
+        auto *link = this;
         while (link != nullptr)
         {
             if (!link->bound()) { return true; }
             const auto target = link->target_view();
-            // A designation of an endpoint that has never published carries
-            // no scalar sample. A later explicit invalidation keeps its tick.
-            if (!target.has_current_value() && target.last_modified_time() == MIN_DT) { return true; }
+            // A producer clears its payload clock after notifying this link.
+            // Only the independent source-notification stamp can distinguish
+            // that invalidation from a designation of an unset endpoint.
+            if (!target.has_current_value() && link->last_source_notification_time == MIN_DT) { return true; }
             link = link->state_.scalar_target_link;
         }
         return false;

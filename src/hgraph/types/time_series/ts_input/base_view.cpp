@@ -177,8 +177,10 @@ namespace hgraph
             route_node->observation_kind == detail::TSInputObservationKind::Value && route_node->observed.bound())
         {
             if (route_node->resolved.tracking->last_modified_time == evaluation_time) { return true; }
-            return is_target_root() && raw_data.modified(evaluation_time) &&
-                   route_node->observed.data_view().has_current_value();
+            if (!is_target_root() || !raw_data.modified(evaluation_time)) { return false; }
+            const auto *link = link_storage();
+            return route_node->observed.data_view().has_current_value() ||
+                   (link != nullptr && !link->empty_scalar_route());
         }
         const auto &data = resolved_value_data(evaluation_time);
         if (is_target_position())

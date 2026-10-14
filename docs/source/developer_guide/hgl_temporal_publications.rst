@@ -140,3 +140,14 @@ including dictionary removals and current children, rather than borrowing a
 producer delta from an earlier cycle.
 Ordinary producer ticks retain their borrowed delta path; owning capture is
 required only for a sampled rebind or structural transition.
+
+A generated structural delta observation keeps its sampled ``Value`` owner in
+``DeltaObservation`` for the whole local scope. Ordinary producer deltas remain
+borrowed views, so holding a ``let`` does not copy them per tick. Views of sampled
+storage are computed from the current owner after moves and local bindings;
+generator cache retention materializes an independent ordinary delta before it
+crosses a yield boundary. Scalar invalidation retains the forwarding link's
+source-notification stamp independently of designation sampling and the
+producer's cleared payload clock. Rebind resets that stamp, move transfers it,
+and unbind or source disposal clears it. Tracking/sample clocks and structural
+withdrawal transitions retain their existing behavior.

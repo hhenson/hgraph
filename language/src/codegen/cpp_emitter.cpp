@@ -197,6 +197,8 @@ namespace hgl::codegen
             std::string           global_entry{};
             bool                  ordinary_writable{false};
             bool                  raw_delta{false};
+            /// A raw delta object retains its sampled owner through local use.
+            bool                  delta_observation{false};
             /// The expression is a borrowed ValueView, not a native container.
             /// Whole-output writes copy it synchronously into owned TS storage.
             bool               borrowed_value{false};
@@ -781,7 +783,7 @@ namespace hgl::codegen
             }
             [[nodiscard]] std::string convert_observation(const Value &value, bool to_ordinary);
             [[nodiscard]] std::string native_delta_view(const Value &value) {
-                if (value.raw_delta) { return value.code; }
+                if (value.raw_delta) { return value.delta_observation ? "(" + value.code + ").view()" : value.code; }
                 if (value.type.kind == HType::Kind::Delta) {
                     return delta_plan(value.type.children.front(), value.range) + ".payload(" + ordinary_view(value) + ")";
                 }
@@ -2687,7 +2689,7 @@ namespace hgl::codegen
         }
 
         std::string Emitter::ordinary_view(const Value &value) {
-            if (value.raw_delta) { return "(" + delta_plan(value.type.children.front(), value.range) + ".capture(" + value.code + ")).view()"; }
+            if (value.raw_delta) { return "(" + delta_plan(value.type.children.front(), value.range) + ".capture(" + native_delta_view(value) + ")).view()"; }
             if (value.borrowed_value) { return value.code; }
             if (value.ordinary_value) { return value.borrowed_value ? value.code : "(" + value.code + ").view()"; }
             // The temporary scalar remains alive for the complete retention
@@ -2697,7 +2699,7 @@ namespace hgl::codegen
         }
 
         std::string Emitter::ordinary_retain(const Value &value) {
-            if (value.raw_delta) { return delta_plan(value.type.children.front(), value.range) + ".capture(" + value.code + ")"; }
+            if (value.raw_delta) { return delta_plan(value.type.children.front(), value.range) + ".capture(" + native_delta_view(value) + ")"; }
             if (observation_needs_conversion(value.type) && !value.ordinary_value && value.borrowed_value) {
                 return convert_observation(value, true);
             }
@@ -4915,9 +4917,8 @@ namespace hgl::codegen
                 type.kind = HType::Kind::Delta;
                 type.children.push_back(input.type);
                 const auto observation = input.selector + (input.type.kind == HType::Kind::Generic ? "" : ".base()");
-                const auto sampled = observation + ".delta_is_sampled_rebind()";
-                Value value = make_runtime("(" + sampled + " ? hgraph::capture_delta(" + observation +
-                    ").view() : " + input.selector + ".delta_value())", type, range);
+                Value value = make_runtime("hgl::ordinary::DeltaObservation{" + observation + "}", type, range);
+                value.delta_observation = true;
                 value.ordinary_value = true;
                 value.borrowed_value = true;
                 value.raw_delta = true;
@@ -6234,7 +6235,7 @@ namespace hgl::codegen
                 return;
             }
             if (value.type.kind == HType::Kind::Delta && same_type(value.type.children.front(), target)) {
-                const std::string payload = value.raw_delta ? value.code
+                const std::string payload = value.raw_delta ? native_delta_view(value)
                     : delta_plan(target, value.range) + ".payload(" + ordinary_view(value) + ")";
                 out.line("hgraph::apply_delta(" + selector + (target.kind == HType::Kind::Generic ? "" : ".base()") + ", " + payload + ");");
                 return;
@@ -6454,8 +6455,10 @@ namespace hgl::codegen
                             init.type = declared;
                             if ((init.ordinary_value || ((ordinary_aggregate(declared) || declared.kind == HType::Kind::Generic) &&
                                                          init.borrowed_value)) &&
-                                (!init.global_borrow || declared.kind == HType::Kind::Native) && !init.raw_delta) {
+                                (!init.global_borrow || declared.kind == HType::Kind::Native)) {
                                 init.code = ordinary_retain(init);
+                                init.raw_delta = false;
+                                init.delta_observation = false;
                                 init.borrowed_value = false;
                                 init.ordinary_value = true;
                                 if (declared.kind == HType::Kind::Native) {

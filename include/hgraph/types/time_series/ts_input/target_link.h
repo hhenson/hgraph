@@ -192,6 +192,9 @@ namespace hgraph::detail
         // Input sampling is distinct from source modification, including
         // when both happen at the same time on a fixed collection.
         DateTime last_sample_time{MIN_DT};
+        // Source notifications are distinct from a newly sampled designation.
+        // Payload invalidation clears the producer clock after notifying us.
+        DateTime last_source_notification_time{MIN_DT};
         TSInputTargetLinkState state_;
 
       private:
