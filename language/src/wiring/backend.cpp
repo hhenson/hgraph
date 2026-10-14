@@ -385,7 +385,7 @@ namespace hgl::wiring
             [[nodiscard]] hgraph::ValueView ordinary_place(gir::ValueId id, Frame &frame);
             [[nodiscard]] Slot eval_intrinsic(std::string_view name, const std::vector<gir::Argument> &arguments, SourceRange range,
                                               Frame &frame, gir::TypeId result_type = {}, const std::vector<gir::Substitution> &substitutions = {});
-            [[nodiscard]] Slot eval_harness(const gir::HarnessEval &eval, SourceRange range, Frame &frame);
+            [[nodiscard]] Slot eval_harness(const gir::HarnessEval &eval, SourceRange range, Frame &frame, const std::vector<gir::Substitution> &substitutions);
             [[nodiscard]] Slot eval_map_lambda_call(const gir::Value &expression, const gir::Call &call, std::string_view name,
                                                     Frame &frame);
             [[nodiscard]] Slot eval_sequence(gir::ValueId id, const gir::Sequence &sequence, SourceRange range, Frame &frame);
@@ -1344,6 +1344,17 @@ namespace hgl::wiring
                 result.range      = range;
                 return result;
             }
+            if (value(id).phase == hir::Phase::Wiring) {
+                const auto *shape = schema(value(id).type);
+                std::vector<hgraph::WiringPortRef> children;
+                children.reserve(sequence.elements.size());
+                for (const auto &element : sequence.elements) {
+                    auto item = eval_value(element.value, frame);
+                    if (item.is_const()) { item = wire_constant(item, shape->element_ts()); }
+                    children.push_back(item.port);
+                }
+                return make_port(hgraph::WiringPortRef::structural_source(shape, std::move(children)), range);
+            }
             std::vector<hgraph::Value> values;
             for (const gir::SequenceElement &element : sequence.elements) {
                 if (element.key.valid()) {
@@ -1967,7 +1978,7 @@ namespace hgl::wiring
                     for (const auto &argument : invocation.arguments) {
                         auto &item = prepared.selected_arguments.at(argument.value.value);
                         if (item.is_port()) { rebind(item.port); }
-                        for (auto &[name, port] : item.pack_ports) { static_cast<void>(name); rebind(port); }
+                        for (auto &[field_name, port] : item.pack_ports) { static_cast<void>(field_name); rebind(port); }
                     }
                     wiring_ = &child;
                     auto restore = hgraph::make_scope_exit([&]() noexcept { wiring_ = parent; });
@@ -2728,7 +2739,7 @@ namespace hgl::wiring
                     } else if constexpr (std::is_same_v<T, gir::BlockValue>) {
                         return exec_block(node.block, frame);
                     } else if constexpr (std::is_same_v<T, gir::HarnessEval>) {
-                        return eval_harness(node, expression.range, frame);
+                        return eval_harness(node, expression.range, frame, expression.operation.substitutions);
                     } else if constexpr (std::is_same_v<T, gir::Construct>) {
                         return eval_construct(node.type, node.arguments, node.delta, expression.range, frame);
                     }
@@ -3193,7 +3204,7 @@ namespace hgl::wiring
             return wire(name, std::move(arguments), expression.range, true, expected);
         }
 
-        Slot Compiler::eval_harness(const gir::HarnessEval &eval, SourceRange range, Frame &caller) {
+        Slot Compiler::eval_harness(const gir::HarnessEval &eval, SourceRange range, Frame &caller, const std::vector<gir::Substitution> &substitutions) {
             Slot callee_slot = eval_value(eval.callee, caller);
             if (callee_slot.kind == Slot::Kind::Operator || callee_slot.kind == Slot::Kind::Intrinsic) {
                 backend(value(eval.callee).range, "eval takes a module function; wrap the operator in a fn to evaluate it");
@@ -3202,7 +3213,6 @@ namespace hgl::wiring
                 fail(Category::Type, value(eval.callee).range, "eval takes a function");
             }
             const gir::Callable &target = callable(callee_slot.callable);
-            if (!target.generics.empty()) { backend(range, "generic functions are not supported by the first pass"); }
             const auto bound = bind_arguments(target, eval.arguments, range);
 
             hgraph::GlobalState run_seed;
@@ -3214,6 +3224,14 @@ namespace hgl::wiring
 
             Frame callee;
             callee.callable = callee_slot.callable;
+            callee.generic_bindings = caller.generic_bindings;
+            for (const auto &substitution : substitutions) {
+                if (substitution.type.valid()) { callee.generic_bindings.types[substitution.parameter.value] = substitution.type; }
+                if (substitution.value.valid()) { callee.generic_bindings.values[substitution.parameter.value] = substitution.value; }
+            }
+            const auto *previous_bindings = active_bindings_;
+            active_bindings_ = &callee.generic_bindings;
+            auto restore_bindings = hgraph::make_scope_exit([&]() noexcept { active_bindings_ = previous_bindings; });
             std::vector<std::vector<std::optional<hgraph::Value>>> inputs;
             std::size_t                                            cycles = 0;
             std::size_t                                            temporal_inputs = 0;

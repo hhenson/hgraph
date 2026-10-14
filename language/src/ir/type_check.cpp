@@ -1589,6 +1589,16 @@ namespace hgl::ir
 
             void require_assignable(TypeId expected, const Expr &actual, std::string_view what, bool delta_context = false) {
                 if (!expected.valid() || !actual.type.valid()) { return; }
+                const auto declared = canonical(expected);
+                const auto &shape = type(declared);
+                if (actual.phase == Phase::Wiring && std::holds_alternative<Sequence>(actual.node) &&
+                    shape.kind == TypeKind::List && !shape.unbounded && shape.children.size() == 1U &&
+                    reference(shape.children.front()) && assignable(expected, actual.type)) {
+                    // A fixed list of declared REF positions assembles source
+                    // connections. Ordinary list literal coldness still applies
+                    // everywhere else, including operator and value lambdas.
+                    std::erase(ordinary_list_literals_, &actual);
+                }
                 if (!assignable(expected, actual.type)) {
                     type_error(actual.range,
                                std::string{what} + " has type " + type_name(actual.type) + ", expected " + type_name(expected),
@@ -3929,8 +3939,19 @@ namespace hgl::ir
                 const TypeKind kind   = expected.valid() && type(canonical(expected)).kind == TypeKind::HarnessSequence
                                             ? TypeKind::HarnessSequence
                                             : TypeKind::List;
+                const bool assembly = kind == TypeKind::List && phase == Phase::Wiring;
                 if (kind == TypeKind::List && !node.elements.empty()) { ordinary_list_literals_.push_back(&expression); }
-                expression.type       = use_expected_list ? canonical(expected) : make_type(kind, {element_type});
+                expression.type = use_expected_list ? canonical(expected) : make_type(kind, {element_type});
+                if (assembly && !use_expected_list) {
+                    const auto count = static_cast<std::int64_t>(node.elements.size());
+                    const ExprId size{static_cast<std::uint32_t>(module_.exprs.size())};
+                    module_.exprs.push_back(Expr{.range = expression.range, .type = scalar(ScalarType::I64),
+                        .phase = Phase::Constant, .value_kind = ValueKind::Constant,
+                        .node = Literal{count}, .constant = Constant{count}});
+                    expr_state_.push_back(2);
+                    Type shape{.kind = TypeKind::List, .children = {element_type}, .size = size};
+                    expression.type = intern(std::move(shape));
+                }
                 expression.phase      = phase;
                 expression.value_kind = kind == TypeKind::HarnessSequence ? ValueKind::Constant : value_kind_for_phase(phase);
             }
@@ -4103,10 +4124,37 @@ namespace hgl::ir
                     return;
                 }
                 const BoundArguments bound = bind_arguments(fn->signature, node.arguments, expression.range);
+                detail::GenericSubstitution bindings{module_, canonical_types_};
+                if (!fn->generics.empty()) {
+                    for (std::size_t index = 0; index < bound.parameters.size(); ++index) {
+                        if (bound.parameters[index].empty()) { continue; }
+                        const auto &parameter = fn->signature.parameters[index];
+                        const auto argument = bound.parameters[index].front();
+                        if (parameter.is_const) { (void)bindings.bind_value(parameter.symbol, argument); }
+                        const auto *sequence = std::get_if<Sequence>(&module_.expr(argument).node);
+                        if (sequence && !parameter.is_const) {
+                            for (const auto &entry : sequence->elements) {
+                                const auto &source = module_.expr(entry.value);
+                                if (const auto *literal = std::get_if<Literal>(&source.node);
+                                    literal && (std::holds_alternative<PlaceholderValue>(literal->value) ||
+                                                std::holds_alternative<NullValue>(literal->value))) { continue; }
+                                const auto &sample = check_expr(entry.value);
+                                auto payload = canonical(sample.type);
+                                if (type(payload).kind == TypeKind::Delta) { payload = type(payload).children.front(); }
+                                (void)bindings.infer_from_argument(parameter.type, payload);
+                                break;
+                            }
+                        } else {
+                            (void)bindings.infer_from_argument(parameter.type, check_expr(argument).type);
+                        }
+                    }
+                    require_complete_bindings(fn->generics, bindings, expression.range, "eval call");
+                }
                 std::vector<bool>    lift_inputs;
                 bool has_temporal_input = false;
                 for (std::size_t index = 0; index < bound.parameters.size(); ++index) {
                     const Parameter &parameter = fn->signature.parameters[index];
+                    const auto parameter_type = bindings.apply(parameter.type);
                     bool             input     = !parameter.is_const;
                     if (fn->is_const) {
                         input = input && !bound.parameters[index].empty() &&
@@ -4116,35 +4164,37 @@ namespace hgl::ir
                     if (input) {
                         has_temporal_input = true;
                         std::unordered_set<std::uint32_t> visiting;
-                        if (!concrete_property_type(parameter.type) || !admitted_delta_shape(parameter.type, visiting)) {
+                        if (!concrete_property_type(parameter_type) || !admitted_delta_shape(parameter_type, visiting)) {
                             type_error(expression.range, "eval input '" + module_.symbol(parameter.symbol).name +
                                 "' requires an exact concrete shape admitted by the publication profile");
                         }
                     }
-                    const TypeId expected = input ? make_type(TypeKind::HarnessSequence, {parameter.type}) : parameter.type;
+                    const TypeId expected = input ? make_type(TypeKind::HarnessSequence, {parameter_type}) : parameter_type;
                     if (bound.parameters[index].empty()) { continue; }
                     Expr &value = check_expr(bound.parameters[index].front(), expected);
                     const auto &actual = type(canonical(value.type));
                     const bool ordinary_trace = input && actual.kind == TypeKind::List && actual.children.size() == 1U &&
-                        same(actual.children.front(), make_type(TypeKind::Delta, {parameter.type}));
+                        same(actual.children.front(), make_type(TypeKind::Delta, {parameter_type}));
                     if (!ordinary_trace) { require_assignable(expected, value, "eval input"); }
                 }
                 if (!has_temporal_input) {
                     type_error(expression.range, "eval requires at least one temporal sequence input");
                 }
-                if (type(canonical(fn->signature.result)).kind != TypeKind::Void) {
+                const auto result_type = bindings.apply(fn->signature.result);
+                if (type(canonical(result_type)).kind != TypeKind::Void) {
                     std::unordered_set<std::uint32_t> visiting;
-                    if (!concrete_property_type(fn->signature.result) || !admitted_delta_shape(fn->signature.result, visiting)) {
+                    if (!concrete_property_type(result_type) || !admitted_delta_shape(result_type, visiting)) {
                         type_error(expression.range, "eval output requires an exact concrete shape admitted by the publication profile");
                     }
                 }
-                expression.type       = make_type(TypeKind::HarnessSequence, {fn->signature.result});
+                expression.type       = make_type(TypeKind::HarnessSequence, {result_type});
                 expression.phase      = Phase::Constant;
                 expression.value_kind = ValueKind::Constant;
                 expression.effects    = Effect::TestHarness;
                 expression.operation  = Operation{.kind     = OperationKind::HarnessEval,
                                                   .target   = reference->symbol,
-                                                  .identity = module_.path + "." + module_.symbol(reference->symbol).name};
+                                                  .identity = module_.path + "." + module_.symbol(reference->symbol).name,
+                                                  .substitutions = bindings.materialize(fn->generics)};
                 if (fn->is_const) {
                     if (!std::ranges::any_of(lift_inputs, [](bool input) { return input; })) {
                         type_error(expression.range, "eval of a const fn needs at least one tick-sequence input");

@@ -1438,6 +1438,10 @@ namespace hgraph::detail
         while (link != nullptr)
         {
             if (!link->bound()) { return true; }
+            const auto target = link->target_view();
+            // A designation of an endpoint that has never published carries
+            // no scalar sample. A later explicit invalidation keeps its tick.
+            if (!target.has_current_value() && target.last_modified_time() == MIN_DT) { return true; }
             link = link->state_.scalar_target_link;
         }
         return false;

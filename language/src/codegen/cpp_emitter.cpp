@@ -3980,6 +3980,16 @@ namespace hgl::codegen
                         HType type = planned_type(expression.type, expression.range);
                         if (type.kind == HType::Kind::Atomic) { type = HType{type.children.front()}; }
                         if (type.kind != HType::Kind::List) { backend(expression.range, "ordinary sequence has no list type"); }
+                        if (expression.phase == hir::Phase::Wiring) {
+                            std::vector<std::string> children;
+                            for (const auto &element : node.elements) {
+                                Value item = eval_planned_expr(element.value, frame);
+                                children.push_back("(" + as_port(item, type.children.front(), expression.range) + ").erased()");
+                            }
+                            return make_port("hgraph::Port<" + schema(type, expression.range) +
+                                ">{w, hgraph::WiringPortRef::structural_source(hgraph::schema_descriptor<" +
+                                schema(type, expression.range) + ">::ts_meta(), {" + join(children, ", ") + "})}", type, expression.range);
+                        }
                         const std::string plan = ordinary_plan(type, expression.range);
                         std::string code = plan + ".empty_list()";
                         if (!node.elements.empty()) {
@@ -4904,7 +4914,10 @@ namespace hgl::codegen
                 HType type;
                 type.kind = HType::Kind::Delta;
                 type.children.push_back(input.type);
-                Value value = make_runtime(input.selector + ".delta_value()", type, range);
+                const auto observation = input.selector + (input.type.kind == HType::Kind::Generic ? "" : ".base()");
+                const auto sampled = observation + ".delta_is_sampled_rebind()";
+                Value value = make_runtime("(" + sampled + " ? hgraph::capture_delta(" + observation +
+                    ").view() : " + input.selector + ".delta_value())", type, range);
                 value.ordinary_value = true;
                 value.borrowed_value = true;
                 value.raw_delta = true;
