@@ -4826,3 +4826,32 @@ struct Derived:Base {}
     require_clean(admitted);
     CHECK(complete(admitted));
 }
+
+TEST_CASE("ordinary dictionary lookup refines presence and enforces exact defaults", "[ir][typed][nullable][lookup]") {
+    const std::vector<std::string> accepted{
+        "let price = get(book, key)\nif price == null { return 0 }\nreturn price\n",
+        "let price = get(book, key, default: null)\nif !(price == null) { return price + 1 }\nreturn 0\n",
+        "return get(book, key, default: 5)\n",
+        "return at(book, key)\n"
+    };
+    for (const auto &body : accepted) {
+        Lowered unit{"module checks.lookup\nconst fn lookup(book: map<str, i64>, key: str) -> i64 {\n" + body + "}\n"};
+        INFO(body);
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        const bool result = complete(unit);
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(result);
+    }
+    for (const auto &[body, code] : std::vector<std::pair<std::string, std::string>>{
+        {"let price = get(book, key)\nreturn price + 1\n", "nullable.required_presence"},
+        {"return get(book, key, default: \"missing\")\n", "lookup.default_type"},
+        {"let price = get(book, key)\nif price == null { return 0 }\nlet second = get(book, key)\nreturn second\n", "nullable.required_presence"}
+    }) {
+        Lowered unit{"module checks.lookup\nconst fn lookup(book: map<str, i64>, key: str) -> i64 {\n" + body + "}\n"};
+        INFO(body);
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        CHECK_FALSE(complete(unit));
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(unit.diagnostics.render(unit.file).find(code) != std::string::npos);
+    }
+}

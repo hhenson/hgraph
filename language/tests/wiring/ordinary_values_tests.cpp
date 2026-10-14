@@ -258,7 +258,8 @@ TEST_CASE("required payload guards separate absent errors from present scalar re
     expect_uncoded([&] { (void)list.len(Value::typed_null(list.binding()).view(), false); });
     const PreparedValuePlan map{scalar_descriptor<Map<Int, Int>>::value_meta()};
     const Value empty_map{map.binding()};
-    expect_uncoded([&] { (void)map.map_index(empty_map.view(), zero.view()); });
+    try { (void)map.map_index(empty_map.view(), zero.view()); FAIL("absent map key unexpectedly read"); }
+    catch (const hgl::ExecutionError &error) { CHECK(error.code() == "value.missing_key"); }
     try { (void)map.map_index(Value::typed_null(map.binding()).view(), zero.view()); FAIL("absent mapped root unexpectedly read"); }
     catch (const hgl::ExecutionError &error) { CHECK(error.code() == "value.unset_read"); }
     expect_uncoded([&] { (void)map.map_index(Value::typed_null(map.binding()).view(), zero.view(), false); });
@@ -1073,4 +1074,28 @@ TEST_CASE("native provider rejects incompatible raw scalar storage lifecycle bef
     const Value    retained{ValueView{TypeRegistry::instance().scalar_type<CopyOnly>(), &raw}};
     CHECK(retained.view().checked_as<CopyOnly>().text == raw.text);
     CHECK(retained.view().data() != &raw);
+}
+
+TEST_CASE("ordinary dictionary safe lookup preserves absence and zero with coded strict failure", "[ordinary][lookup]") {
+    using namespace hgraph;
+    using hgl::ordinary::PreparedValuePlan;
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *text = scalar_descriptor<Str>::value_meta();
+    const PreparedValuePlan map{TypeRegistry::instance().map(text, integer)};
+    const Value key{Str{"X"}};
+    const Value other{Str{"missing"}};
+    const Value zero{Int{0}};
+    MapBuilder builder{map.key_binding(), map.element_binding()};
+    builder.set_item(key.view(), zero.view());
+    auto storage = builder.build_storage();
+    const Value values{map.binding(), &storage, Value::AdoptStorage{}};
+    CHECK(map.map_get(values.view(), key.view()).checked_as<Int>() == 0);
+    CHECK_FALSE(map.map_get(values.view(), other.view()).has_value());
+    CHECK(map.map_get(values.view(), other.view()).binding() == map.element_binding());
+    try {
+        static_cast<void>(map.map_index(values.view(), other.view()));
+        FAIL("missing strict read must fail");
+    } catch (const hgl::ExecutionError &error) {
+        CHECK(error.code() == "value.missing_key");
+    }
 }

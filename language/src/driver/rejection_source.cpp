@@ -51,6 +51,8 @@ namespace hgl::driver
             {"rolling.size_bounds", syntax::Category::Type},
             {"yield.time_type", syntax::Category::Type},
             {"test.raises_code", syntax::Category::Type},
+            {"nullable.required_presence", syntax::Category::Type},
+            {"lookup.default_type", syntax::Category::Type},
             {"test.statement_phase", syntax::Category::Phase},
             {"delta.unsupported_shape", syntax::Category::Shape},
             {"delta.type_mismatch", syntax::Category::Type},

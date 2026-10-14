@@ -1329,6 +1329,13 @@ add_custom_command(OUTPUT ${_delta_positive}
     COMMAND $<TARGET_FILE:hgl_shared_fixture> prepare ${_delta_source} ${_delta_positive}
     DEPENDS hgl_shared_fixture ${_delta_source}
     VERBATIM)
+add_test(NAME hgraph_language_nullable_lookup_source_errors
+    COMMAND $<TARGET_FILE:hgl> test
+        ${HGRAPH_SPEC}/language/examples/reject/nullable-map-lookup.hgl)
+set_tests_properties(hgraph_language_nullable_lookup_source_errors PROPERTIES
+    PASS_REGULAR_EXPRESSION "3 rejection cases, 0 failed"
+    FAIL_REGULAR_EXPRESSION "FAILED")
+
 add_test(NAME hgraph_language_delta_source_errors
     COMMAND $<TARGET_FILE:hgl_shared_fixture> reject ${_delta_source})
 set_tests_properties(hgraph_language_delta_source_errors PROPERTIES
@@ -1355,6 +1362,22 @@ set_tests_properties(hgraph_language_any_constant_capability PROPERTIES
     PASS_REGULAR_EXPRESSION "4 rejection cases, 0 failed"
     FAIL_REGULAR_EXPRESSION "FAILED"
     ENVIRONMENT "HGL_CXX=hgl-any-constant-must-not-build;HGL_DISABLE_CACHE=1")
+
+# The Spec lookup assertions use compiled kernels on every platform.
+hgl_add_module(hgl_nullable_lookup_fixture STATIC HGL
+    ${HGRAPH_SPEC}/language/examples/nullable-map-lookup.hgl)
+add_executable(hgl_nullable_lookup_tests negative/lookup_generated_driver.cpp)
+target_link_libraries(hgl_nullable_lookup_tests PRIVATE hgl_nullable_lookup_fixture hgl_eval_library hgl::driver)
+hgl_link_runtime_executable(hgl_nullable_lookup_tests)
+hgl_stage_runtime_dlls(hgl_nullable_lookup_tests)
+hgl_apply_warnings(hgl_nullable_lookup_tests)
+add_test(NAME hgraph_language_nullable_lookup_generated
+    COMMAND hgl_nullable_lookup_tests test
+        ${HGRAPH_SPEC}/language/examples/nullable-map-lookup.hgl)
+set_tests_properties(hgraph_language_nullable_lookup_generated PROPERTIES
+    PASS_REGULAR_EXPRESSION "1 test, 0 failed"
+    FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_CXX=hgl-lookup-must-not-build;HGL_DISABLE_CACHE=1")
 
 # Build runtime kernels through CMake on every platform, including Windows.
 # The same direct test harness executes the parsed HGL assertions against them.

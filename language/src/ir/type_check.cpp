@@ -1809,7 +1809,7 @@ namespace hgl::ir
                 Expr &expression = module_.exprs[id.value];
                 if (expr_state_[id.value] == 2U) {
                     contextualize(expression, expected);
-                    if (!allow_nullable && nullable(expression)) { type_error(expression.range, "nullable payload requires a presence guard"); }
+                    if (!allow_nullable && nullable(expression)) { type_error(expression.range, "nullable payload requires a presence guard", "nullable.required_presence"); }
                     return expression;
                 }
                 if (expr_state_[id.value] == 1U) {
@@ -1853,7 +1853,7 @@ namespace hgl::ir
                     expression.node);
                 contextualize(expression, expected);
                 expr_state_[id.value] = 2U;
-                if (!allow_nullable && nullable(expression)) { type_error(expression.range, "nullable payload requires a presence guard"); }
+                if (!allow_nullable && nullable(expression)) { type_error(expression.range, "nullable payload requires a presence guard", "nullable.required_presence"); }
                 return expression;
             }
 
@@ -5078,6 +5078,34 @@ namespace hgl::ir
                     } else {
                         type_error(value.range, "key_set takes a map");
                     }
+                } else if (name == "get") {
+                    if (args.size() < 2U || args.size() > 3U || !call.arguments[0].name.empty() ||
+                        !call.arguments[1].name.empty() || (args.size() == 3U && call.arguments[2].name != "default")) {
+                        type_error(expression.range, "get takes a map, a key, and an optional named default");
+                        return;
+                    }
+                    Expr &source = check_expr(args[0]);
+                    const TypeId collection = unwrap_atomic(source.type);
+                    if (!collection.valid() || type(collection).kind != TypeKind::Map) {
+                        type_error(source.range, "get takes an ordinary map value");
+                        return;
+                    }
+                    const Type shape = type(collection);
+                    Expr &key = check_expr(args[1], shape.children[0]);
+                    require_assignable(shape.children[0], key, "map key");
+                    expression.type = shape.children[1];
+                    bool absent_default = args.size() == 2U;
+                    if (!absent_default) {
+                        Expr &fallback = check_expr(args[2], shape.children[1]);
+                        absent_default = is_null(fallback);
+                        if (!absent_default && !same(shape.children[1], fallback.type)) {
+                            type_error(fallback.range, "dictionary default requires the exact value type", "lookup.default_type");
+                        }
+                    }
+                    if (absent_default) { nullable_expressions_.insert(&expression); }
+                    finish_call_semantics(expression, args, true);
+                    expression.operation = Operation{.kind = OperationKind::Intrinsic, .target = target, .identity = name};
+                    return;
                 } else if (name == "contains" || name == "at" || name == "time_at" || name == "front" || name == "back" ||
                            name == "removed_value") {
                     for (const auto &argument : call.arguments) {
@@ -5119,6 +5147,11 @@ namespace hgl::ir
                     expression.type = name == "contains"  ? scalar(ScalarType::Bool)
                                       : name == "time_at" ? scalar(ScalarType::DateTime)
                                                           : item;
+                    if (map && source.phase != Phase::Wiring) {
+                        finish_call_semantics(expression, args, true);
+                        expression.operation = Operation{.kind = OperationKind::Intrinsic, .target = target, .identity = name};
+                        return;
+                    }
                 } else if (name == "schemas") {
                     if (args.size() != 1U) { type_error(expression.range, "'schemas' takes one parameter pack"); }
                     Expr            &source = check_expr(args.empty() ? ExprId{} : args.front());

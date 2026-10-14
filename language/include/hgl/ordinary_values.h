@@ -814,8 +814,15 @@ namespace hgl::ordinary
             require_payload(value, retained_observation);
             if (map_ == nullptr) { throw std::invalid_argument("ordinary value storage is not a map"); }
             if (!map_->contains(map_->context, value.data(), key.data())) {
-                throw std::out_of_range("ordinary map key not present");
+                throw hgl::ExecutionError{"value.missing_key", "ordinary map key not present"};
             }
+            return hgraph::ValueView{element_, map_->value_at(map_->context, value.data(), key.data())};
+        }
+        [[nodiscard]] hgraph::ValueView map_get(const hgraph::ValueView &value, const hgraph::ValueView &key,
+                                                bool retained_observation = true) const {
+            require_payload(value, retained_observation);
+            if (map_ == nullptr) { throw std::invalid_argument("ordinary value storage is not a map"); }
+            if (!map_->contains(map_->context, value.data(), key.data())) { return hgraph::ValueView{element_, nullptr}; }
             return hgraph::ValueView{element_, map_->value_at(map_->context, value.data(), key.data())};
         }
         [[nodiscard]] bool map_contains(const hgraph::ValueView &value, const hgraph::ValueView &key) const {

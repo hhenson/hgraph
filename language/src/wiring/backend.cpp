@@ -936,6 +936,10 @@ namespace hgl::wiring
                     {
                         const Slot target = eval_const_expr(expression.lhs, frame);
                         const Slot index  = eval_const_expr(expression.rhs, frame);
+                        if (target.is_const() && target.value.view().is_map() && index.is_const()) {
+                            const auto child = ordinary::PreparedValuePlan{target.value.binding()}.map_index(target.value.view(), index.value.view());
+                            return make_const(ordinary::PreparedValuePlan{child.binding()}.retain(child), expression.range);
+                        }
                         if (!target.is_const() || index.meta() != types_.int_type) {
                             backend(expression.range, "a compile-time index needs a tuple/list and i64");
                         }
@@ -1946,6 +1950,22 @@ namespace hgl::wiring
                 if (!item.is_const()) { backend(range, "bytes requires a checked ordinary list value"); }
                 return make_const(hgraph::Value{ordinary::bytes_from_octets(item.value.view())}, range);
             }
+            if (name == "get" || name == "at" || name == "contains") {
+                const Slot source = eval_value(arguments.at(0).value, frame);
+                const Slot key = eval_value(arguments.at(1).value, frame);
+                if (source.is_const() && source.value.view().is_map() && key.is_const()) {
+                    const ordinary::PreparedValuePlan plan{source.value.binding()};
+                    if (name == "contains") { return make_const(hgraph::Value{plan.map_contains(source.value.view(), key.value.view())}, range); }
+                    // Arguments retain the ordinary eager call order, even when the key is present.
+                    const Slot fallback = arguments.size() == 3U ? eval_value(arguments.at(2).value, frame)
+                                                                 : make_marker(Slot::Kind::Null, range);
+                    const auto child = name == "at" ? plan.map_index(source.value.view(), key.value.view())
+                                                       : plan.map_get(source.value.view(), key.value.view());
+                    if (!child.has_value()) { return fallback; }
+                    return make_const(ordinary::PreparedValuePlan{child.binding()}.retain(child), range);
+                }
+                backend(range, "dictionary value access requires ordinary map and key values");
+            }
             if (name == "len") {
                 Slot item = eval_value(arguments.front().value, frame);
                 if (item.kind == Slot::Kind::Sequence) {
@@ -2530,6 +2550,10 @@ namespace hgl::wiring
                             const std::string name =
                                 expression.operation.registry_name.empty() ? "getitem_" : expression.operation.registry_name;
                             return wire(name, {argument_of(target, {}), argument_of(index, {})}, expression.range);
+                        }
+                        if (target.is_const() && target.value.view().is_map() && index.is_const()) {
+                            const auto child = ordinary::PreparedValuePlan{target.value.binding()}.map_index(target.value.view(), index.value.view());
+                            return make_const(ordinary::PreparedValuePlan{child.binding()}.retain(child), expression.range);
                         }
                         if (target.is_const() && index.is_const() && index.meta() == types_.int_type) {
                             const auto position = index.value.view().checked_as<hgraph::Int>();

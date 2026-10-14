@@ -380,6 +380,13 @@ namespace hgl::hgraph_ir
                         }
                         for (const gir::Argument &argument : node.arguments) { check_runtime_expr(argument.value, decl, valid); }
                     } else if constexpr (std::is_same_v<T, gir::Index>) {
+                        const auto &target_type = graph_type(planned_value(node.target, expression.range).type, expression.range);
+                        if (target_type.kind == hir::TypeKind::Atomic && target_type.children.size() == 1U &&
+                            graph_type(target_type.children.front(), expression.range).kind == hir::TypeKind::Map) {
+                            check_runtime_expr(node.target, decl, valid);
+                            check_runtime_expr(node.index, decl, valid);
+                            return;
+                        }
                         if (!runtime_root_parameter(id, decl)) {
                             check_runtime_expr(node.target, decl, valid);
                             check_runtime_expr(node.index, decl, valid);
@@ -431,6 +438,8 @@ namespace hgl::hgraph_ir
                 check_runtime_selector(index->target, decl, valid);
                 check_runtime_expr(index->index, decl, valid);
                 const gir::Type target = graph_type(planned_value(index->target, expression.range).type, expression.range);
+                if (target.kind == hir::TypeKind::Atomic && target.children.size() == 1U &&
+                    graph_type(target.children.front(), expression.range).kind == hir::TypeKind::Map) { return; }
                 if (target.kind == hir::TypeKind::Tuple) {
                     const auto position = runtime_integer_constant(index->index, decl);
                     if (!position) { backend(expression.range, "runtime tuple indexing requires a checked constant position"); }

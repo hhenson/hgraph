@@ -3679,6 +3679,15 @@ namespace hgl::codegen
                                                             expression.range),
                                     {operand.code}, expression.range);
                     } else if constexpr (std::is_same_v<T, gir::Binary>) {
+                        if (expression.operation.identity == "presence") {
+                            const auto payload_id = planned_null(node.lhs, expression.range) ? node.rhs : node.lhs;
+                            const Value payload = eval_planned_expr(payload_id, frame, true);
+                            const std::string present = "(" + ordinary_view(payload) + ").has_value()";
+                            return frame.runtime ? make_runtime(node.op == hir::BinaryOp::Equal ? "!" + present : present,
+                                                                  scalar_type(hir::ScalarType::Bool), expression.range)
+                                                 : make_const(node.op == hir::BinaryOp::Equal ? "!" + present : present,
+                                                              scalar_type(hir::ScalarType::Bool), expression.range);
+                        }
                         Value lhs = eval_planned_expr(node.lhs, frame);
                         Value rhs = eval_planned_expr(node.rhs, frame);
                         if (expression.operation.identity == "ref.compare") {
@@ -3707,7 +3716,10 @@ namespace hgl::codegen
                     } else if constexpr (std::is_same_v<T, gir::Call>) {
                         return eval_planned_call(expression, node, frame);
                     } else if constexpr (std::is_same_v<T, gir::Index>) {
-                        const Value target = eval_planned_expr(node.target, frame, preserve_observation);
+                        Value target = eval_planned_expr(node.target, frame, preserve_observation);
+                        if (target.type.kind == HType::Kind::Atomic && target.type.children.front().kind == HType::Kind::Map) {
+                            target.type = HType{target.type.children.front()};
+                        }
                         const Value index  = eval_planned_expr(node.index, frame);
                         if (target.ordinary_value && target.type.kind == HType::Kind::Map) {
                             const HType item = target.type.children.back();
@@ -5070,6 +5082,46 @@ namespace hgl::codegen
                 }
                 return wire(name == "key_set" ? "hgraph::stdlib::keys_" : "hgraph::stdlib::last_modified_time", {value.code},
                             range);
+            }
+            if (name == "get" || name == "at" || name == "contains") {
+                Value source = eval_planned_expr(call.arguments.at(0).value, frame);
+                if (source.type.kind == HType::Kind::Atomic && source.type.children.front().kind == HType::Kind::Map) {
+                    source.type = HType{source.type.children.front()};
+                }
+                if (source.ordinary_value && source.type.kind == HType::Kind::Map) {
+                    const Value key = eval_planned_expr(call.arguments.at(1).value, frame);
+                    const std::string plan = ordinary_plan(source.type, range);
+                    if (name == "contains") {
+                        const auto code = plan + ".map_contains(" + ordinary_view(source) + ", " + ordinary_view(key) + ")";
+                        return frame.runtime ? make_runtime(code, scalar_type(hir::ScalarType::Bool), range)
+                                             : make_const(code, scalar_type(hir::ScalarType::Bool), range);
+                    }
+                    const HType item = source.type.children.back();
+                    const bool nullable_default = name == "get" && (call.arguments.size() == 2U || planned_null(call.arguments.at(2).value, range));
+                    std::string code = plan + (name == "at" ? ".map_index(" : ".map_get(") + ordinary_view(source) + ", " + ordinary_view(key) + ")";
+                    if (name == "get" && !nullable_default) {
+                        const Value fallback = eval_planned_expr(call.arguments.at(2).value, frame);
+                        // Locals sequence eager ordinary arguments once, before selecting the result.
+                        code = "[&]() { auto hgl_source = " + ordinary_retain(source) + "; auto hgl_key = " + ordinary_retain(key) +
+                               "; auto hgl_default = " + ordinary_retain(fallback) + "; auto hgl_child = " + plan +
+                               ".map_get(hgl_source.view(), hgl_key.view()); if (hgl_child.has_value()) return " + ordinary_plan(item, range) +
+                               ".retain(hgl_child); return " + ordinary_plan(item, range) + ".retain(hgl_default.view()); }()";
+                        Value result = frame.runtime ? make_runtime(code, item, range) : make_const(code, item, range);
+                        result.ordinary_value = ordinary_aggregate(item);
+                        if (!result.ordinary_value) { result.code = ordinary_scalar("(" + code + ").view()", item, range, true); }
+                        return result;
+                    }
+                    Value result = frame.runtime ? make_runtime(code, item, range) : make_const(code, item, range);
+                    result.ordinary_value = true;
+                    result.borrowed_value = true;
+                    result.observed_scalar = !ordinary_aggregate(item);
+                    if (!nullable_default && result.observed_scalar) {
+                        result.code = ordinary_scalar(code, item, range, true);
+                        result.ordinary_value = result.borrowed_value = result.observed_scalar = false;
+                    }
+                    return result;
+                }
+                if (name == "get") { backend(range, "get requires an ordinary dictionary payload"); }
             }
             if (name == "contains" || name == "at" || name == "time_at" || name == "front" || name == "back" ||
                 name == "removed_value") {
