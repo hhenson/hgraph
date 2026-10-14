@@ -103,7 +103,11 @@ namespace hgl::descriptor
                 case TypeCategory::List: result.kind = ImportedTypeKind::List; break;
                 case TypeCategory::Delta: result.kind = ImportedTypeKind::Delta; break;
                 case TypeCategory::Set: result.kind = ImportedTypeKind::Set; break;
-                case TypeCategory::Map: result.kind = ImportedTypeKind::Map; break;
+                case TypeCategory::Result: result.kind = ImportedTypeKind::Result; break;
+case TypeCategory::Error: result.kind = ImportedTypeKind::Error; break;
+case TypeCategory::Capture: return {};
+                case TypeCategory::ErrorContext: result.kind = ImportedTypeKind::ErrorContext; break;
+case TypeCategory::Map: result.kind = ImportedTypeKind::Map; break;
                 case TypeCategory::Rolling: result.kind = ImportedTypeKind::Rolling; break;
                 case TypeCategory::Signal: result.kind = ImportedTypeKind::Signal; break;
                 case TypeCategory::Schema: result.kind = ImportedTypeKind::Schema; break;

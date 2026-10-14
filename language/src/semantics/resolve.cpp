@@ -46,7 +46,7 @@ namespace hgl::semantics
             "remove", "discard",  "invalidate", "clear",     "push",          "pop",         "schemas",      "contains",
             "at",     "time_at",  "front",      "back",      "removed_value", "scheduled",   "passivate",    "activate",
             "str",    "bytes",    "any",        "len",       "schedule",      "schedule_at", "is_scheduled", "next_scheduled_time",
-            "info",   "get",      "set",
+            "info",   "get",      "set", "ok", "err", "is_ok", "is_err", "error", "capture",
         };
 
         /// Tarjan's strongly connected components over an adjacency list,

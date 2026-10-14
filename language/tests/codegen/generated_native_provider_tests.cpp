@@ -15,13 +15,13 @@ namespace
     struct WrongInput : checks::scalar_provider::Implementation
     { static Int bit_and(double, Int) noexcept; };
     struct MayThrow : checks::scalar_provider::Implementation
-    { static Int bit_and(Int, Int); };
+    { static Int bit_and(Int, Int) { throw std::runtime_error("provider failure"); } };
     struct Missing
     {};
 
     static_assert(!checks::native_provider::native_interface::Implementation<WrongResult>);
     static_assert(!checks::native_provider::native_interface::Implementation<WrongInput>);
-    static_assert(!checks::native_provider::native_interface::Implementation<MayThrow>);
+    static_assert(checks::native_provider::native_interface::Implementation<MayThrow>);
     static_assert(!checks::native_provider::native_interface::Implementation<Missing>);
 }  // namespace
 
@@ -66,4 +66,9 @@ TEST_CASE("inferred services reach native and HGL helpers without changing ticks
 TEST_CASE("an inferred clock reads the enclosing evaluation time", "[codegen][capabilities]") {
     CHECK_OUTPUT(eval_node<checks::native_provider::stamped>(values<Int>(2, none, 2, 3)),
                  values<DateTime>(MIN_ST, none, MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD));
+}
+
+TEST_CASE("source native ABI translates host exception policy without source throws syntax", "[native][interface]") {
+    const auto native = checks::native_provider::native_interface::bind<MayThrow>();
+    CHECK_THROWS_WITH(native.bit_and(1, 2), "provider failure");
 }

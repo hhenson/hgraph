@@ -5,6 +5,7 @@
 #include <hgraph/runtime/executor.h>
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node_error.h>
+#include <hgraph/runtime/canonical_error.h>
 #include <hgraph/types/metadata/debug_descriptor.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_record_registry.h>
@@ -15,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cassert>
 #include <deque>
 #include <exception>
@@ -119,6 +121,8 @@ namespace hgraph
         // GDB resolves notification targets through RTTI. Give this private type
         // a stable name: GCC IPO can add .lto_priv suffixes to anonymous-namespace
         // RTTI symbols that GDB cannot match to their debug information.
+        std::atomic<std::uint64_t> next_instance_identity{1};
+
         struct HGRAPH_LOCAL NodeRuntimeStorage final : Notifiable
         {
             explicit NodeRuntimeStorage(std::shared_ptr<const NodeRuntimeMetadata> runtime_metadata = {},
@@ -134,6 +138,7 @@ namespace hgraph
 
             GraphValue   *graph{nullptr};
             std::size_t   node_index{0};
+            std::uint64_t instance_identity{next_instance_identity.fetch_add(1, std::memory_order_relaxed)};
             std::shared_ptr<const NodeRuntimeMetadata> metadata{};
             std::uint8_t metadata_fields{0};
             bool owns_output{true};
@@ -835,6 +840,10 @@ namespace hgraph
             return default_label != nullptr ? std::string_view{default_label} : std::string_view{};
         }
 
+        std::uint64_t instance_identity_impl(const void *context, const void *memory) noexcept {
+            return node_storage(runtime_context(context), memory).instance_identity;
+        }
+
         const NodeCheckpointIdentity &checkpoint_identity_impl(const void *context, const void *memory) noexcept
         {
             const auto &storage = node_storage(runtime_context(context), memory);
@@ -1033,7 +1042,11 @@ namespace hgraph
             activate_input_slots(view, evaluation_time);
             activated = 1;
 
-            if (callbacks(context).start) { callbacks(context).start(view, evaluation_time); }
+            if (callbacks(context).start) {
+                try { callbacks(context).start(view, evaluation_time); }
+                catch (const std::exception &failure) { throw ExecutionFailure{canonicalize_failure(view, evaluation_time, "start", failure),
+                    execution_failure_phase(failure) == FailurePhase::Stop ? FailurePhase::Stop : FailurePhase::Start}; }
+            }
             state.started = true;
             rollback.release();
 
@@ -1057,7 +1070,11 @@ namespace hgraph
             state.stopping = true;
             auto clear_stopping = make_scope_exit([&] noexcept { state.stopping = false; });
             auto deactivate = UnwindCleanupGuard([&] { deactivate_input_slots(view, evaluation_time); });
-            if (callbacks(context).stop) { callbacks(context).stop(view, evaluation_time); }
+            if (callbacks(context).stop) {
+                try { callbacks(context).stop(view, evaluation_time); }
+                catch (const std::exception &failure) { throw ExecutionFailure{canonicalize_failure(view, evaluation_time, "stop", failure),
+                    execution_failure_phase(failure) == FailurePhase::Start ? FailurePhase::Start : FailurePhase::Stop}; }
+            }
             deactivate.complete();
         }
 
@@ -1082,7 +1099,7 @@ namespace hgraph
 
             if (do_eval)
             {
-                if (callbacks(context).evaluate)
+                if (callbacks(context).evaluate || callbacks(context).evaluate_result)
                 {
                     bool capture = false;
                     if (runtime.layout.has_error_output())
@@ -1090,18 +1107,53 @@ namespace hgraph
                         const NodeTypeMetaData *schema = view.schema();
                         capture = schema != nullptr && schema->captures_errors;
                     }
-                    if (capture)
-                    {
-                        static_cast<void>(fallback_on_exception(false,
-                                                               [&] {
-                                                                   callbacks(context).evaluate(view, evaluation_time);
-                                                                   return true;
-                                                               },
-                                                               [&](const char *error) {
-                                                                   write_node_error(runtime, view, evaluation_time, error);
-                                                               }));
+                    try {
+                        if (callbacks(context).evaluate_result) {
+                            auto outcome = callbacks(context).evaluate_result(view, evaluation_time);
+                            if (!outcome) {
+                                ExecutionFailure failure{std::move(outcome.error())};
+                                const auto *schema = view.schema();
+                                if (capture && schema && schema->error_capture.canonical_errors) {
+                                    auto error = canonicalize_failure(view, evaluation_time, "evaluate", failure);
+                                    auto output = node_error_output(runtime, view.data()).view(evaluation_time);
+                                    const auto binding = output.value().binding();
+                                    auto mutation = output.begin_mutation(evaluation_time);
+                                    static_cast<void>(mutation.copy_value_from(ValueView{binding, &error}));
+                                } else if (capture) { write_node_error(runtime, view, evaluation_time, failure.what()); }
+                                else { throw ExecutionFailure{canonicalize_failure(view, evaluation_time, "evaluate", failure)}; }
+                            }
+                        } else { callbacks(context).evaluate(view, evaluation_time); }
                     }
-                    else { callbacks(context).evaluate(view, evaluation_time); }
+                    catch (const std::exception &failure) {
+                        const auto active_phase = execution_failure_phase(failure);
+                        if (active_phase != FailurePhase::Evaluate) {
+                            throw ExecutionFailure{canonicalize_failure(view, evaluation_time, "evaluate", failure), active_phase};
+                        }
+                        const auto *schema = view.schema();
+                        const bool canonical = schema && schema->error_capture.canonical_errors;
+                        if (capture && canonical) {
+                            auto error = canonicalize_failure(view, evaluation_time, "evaluate", failure);
+                            auto output = node_error_output(runtime, view.data()).view(evaluation_time);
+                            const auto binding = output.value().binding();
+                            auto mutation = output.begin_mutation(evaluation_time);
+                            static_cast<void>(mutation.copy_value_from(ValueView{binding, &error}));
+                        } else if (capture) { write_node_error(runtime, view, evaluation_time, failure.what()); }
+                        else if (dynamic_cast<const ExecutionFailure *>(&failure)) {
+                            throw ExecutionFailure{canonicalize_failure(view, evaluation_time, "evaluate", failure)};
+                        } else { throw; }
+                    }
+                    catch (...) {
+                        if (!capture) { throw; }
+                        const auto *schema = view.schema();
+                        if (schema && schema->error_capture.canonical_errors) {
+                            const std::runtime_error unknown{"unknown error"};
+                            auto error = canonicalize_failure(view, evaluation_time, "evaluate", unknown);
+                            auto output = node_error_output(runtime, view.data()).view(evaluation_time);
+                            const auto binding = output.value().binding();
+                            auto mutation = output.begin_mutation(evaluation_time);
+                            static_cast<void>(mutation.copy_value_from(ValueView{binding, &error}));
+                        } else { write_node_error(runtime, view, evaluation_time, "unknown error"); }
+                    }
                 }
             }
 
@@ -1277,6 +1329,7 @@ namespace hgraph
                 if (ops.graph_impl == nullptr) { ops.graph_impl = &graph_impl; }
                 if (ops.node_index_impl == nullptr) { ops.node_index_impl = &node_index_impl; }
                 if (ops.label_impl == nullptr) { ops.label_impl = &label_impl; }
+                if (ops.instance_identity_impl == nullptr) { ops.instance_identity_impl = &instance_identity_impl; }
                 if (ops.checkpoint_identity_impl == nullptr) { ops.checkpoint_identity_impl = &checkpoint_identity_impl; }
                 if (ops.owns_output_impl == nullptr) { ops.owns_output_impl = &owns_output_impl; }
                 if (ops.started_impl == nullptr) { ops.started_impl = &started_impl; }
@@ -1637,6 +1690,10 @@ namespace hgraph
     std::string_view NodeView::label() const noexcept
     {
         return ops().label_impl(ops().context, data());
+    }
+
+    std::uint64_t NodeView::instance_identity() const noexcept {
+        return valid() ? ops().instance_identity_impl(ops().context, data()) : 0;
     }
 
     const NodeCheckpointIdentity &NodeView::checkpoint_identity() const noexcept
@@ -2201,7 +2258,7 @@ namespace hgraph
         const bool uses_standard_evaluator = node_ops.evaluate_impl == &evaluate_impl;
         const bool has_capture_fallback = node_ops.start_impl == &start_impl &&
                                           node_ops.stop_impl == &stop_impl &&
-                                          static_cast<bool>(origin.callbacks.evaluate);
+                                          (static_cast<bool>(origin.callbacks.evaluate) || static_cast<bool>(origin.callbacks.evaluate_result));
         if (!uses_standard_evaluator && !has_capture_fallback)
         {
             throw std::invalid_argument(
@@ -2215,6 +2272,7 @@ namespace hgraph
             options.trace_back_depth =
                 std::max(schema.error_capture.trace_back_depth, options.trace_back_depth);
             options.capture_values = schema.error_capture.capture_values || options.capture_values;
+            options.canonical_errors = schema.error_capture.canonical_errors || options.canonical_errors;
         }
         schema.captures_errors     = true;
         schema.error_capture       = options;

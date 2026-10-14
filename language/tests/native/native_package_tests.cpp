@@ -406,3 +406,25 @@ TEST_CASE("native any signatures preserve scalar identity and existing enum ordi
     CHECK(parsed.value->types[signature.result].scalar_name == "any");
     CHECK(signature.parameters.front().type == signature.result);
 }
+
+TEST_CASE("native recoverable result descriptors preserve both payload types", "[native][result]") {
+    using namespace hgl::native;
+    Package source{
+        .module_identity = "checks.fallible",
+        .language_version = "0.1-test",
+        .declarations = {Declaration{
+            .category = DeclarationCategory::Function,
+            .identity = "checks.fallible::lookup",
+            .cpp_symbol = "checks::lookup",
+            .result_type = ValueType::result(ValueType::canonical(ScalarType::I64), ValueType::error()),
+            .phases = {Phase::Evaluation},
+        }},
+    };
+    const auto parsed = hgl::descriptor::read_json(descriptor_json(source));
+    REQUIRE(parsed);
+    REQUIRE(parsed.value->native_declarations.size() == 1);
+    const auto &result = parsed.value->types.at(parsed.value->native_declarations.front().signature.result);
+    CHECK(result.category == hgl::descriptor::TypeCategory::Result);
+    REQUIRE(result.children.size() == 2);
+    CHECK(parsed.value->types.at(result.children[1]).category == hgl::descriptor::TypeCategory::Error);
+}

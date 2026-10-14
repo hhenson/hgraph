@@ -120,3 +120,11 @@ void hgraph_abi_fixture_reset() noexcept
 {
     value_payload = 41;
 }
+
+hgraph::Value hgraph_abi_fixture_canonical_error() {
+    static_cast<void>(hgraph::scalar_descriptor<hgraph::CanonicalError>::value_meta());
+    return hgraph::Value{hgraph::CanonicalError{"value.missing_key", "missing price", hgraph::ErrorContext{"child@owned", "evaluate", hgraph::MIN_ST}}};
+}
+hgraph::NodeResult<void> hgraph_abi_fixture_node_result() {
+    return std::unexpected{hgraph::CanonicalError{"value.missing_key", "missing price", hgraph::ErrorContext{"child@owned", "evaluate", hgraph::MIN_ST}}};
+}

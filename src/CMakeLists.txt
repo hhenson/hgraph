@@ -29,6 +29,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/runtime/nested_graph_node.cpp
     hgraph/runtime/node.cpp
     hgraph/runtime/node_error.cpp
+    hgraph/runtime/canonical_error.cpp
     hgraph/runtime/ordered_reduce_node.cpp
     hgraph/runtime/prepared_output_route.cpp
     hgraph/runtime/push_source_node.cpp

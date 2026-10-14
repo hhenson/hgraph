@@ -28,6 +28,8 @@ namespace hgl::syntax
             List,
             Set,
             Map,
+            Result,
+            Error,
             Rolling,
             Ref,
             Signal,
@@ -52,7 +54,7 @@ namespace hgl::syntax
         inline constexpr auto contextual_name =
             contextual<ContextToken::In> / contextual<ContextToken::Native> / contextual<ContextToken::Type> /
             contextual<ContextToken::Include> / contextual<ContextToken::Atomic> / contextual<ContextToken::Tuple> /
-            contextual<ContextToken::List> / contextual<ContextToken::Set> / contextual<ContextToken::Map> /
+            contextual<ContextToken::List> / contextual<ContextToken::Set> / contextual<ContextToken::Map> / contextual<ContextToken::Result> / contextual<ContextToken::Error> /
             contextual<ContextToken::Rolling> / contextual<ContextToken::Ref> / contextual<ContextToken::Signal> /
             contextual<ContextToken::Schema> / contextual<ContextToken::Unbounded> / contextual<ContextToken::Delta> /
             contextual<ContextToken::Properties> / contextual<ContextToken::AppliedConstructor> / contextual<ContextToken::Each> /
@@ -160,6 +162,16 @@ namespace hgl::syntax
                                              token<TokenKind::Greater>;
         };
 
+        struct result_type
+        {
+            static constexpr auto rule = dsl::peek(contextual<ContextToken::Result> + token<TokenKind::Less>) >>
+                                         contextual<ContextToken::Result> + token<TokenKind::Less> + dsl::p<newlines> +
+                                             dsl::recurse<type> + dsl::p<comma_separator> + dsl::recurse<type> + dsl::p<newlines> +
+                                             token<TokenKind::Greater>;
+        };
+        struct error_type
+        { static constexpr auto rule = contextual<ContextToken::Error>; };
+
         struct rolling_type
         {
             static constexpr auto rule = dsl::peek(contextual<ContextToken::Rolling> + token<TokenKind::Less>) >>
@@ -199,14 +211,14 @@ namespace hgl::syntax
         struct type
         {
             static constexpr auto rule = scalar_type | dsl::p<tuple_type> | dsl::p<list_type> | dsl::p<set_type> |
-                                         dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<delta_type> | dsl::p<atomic_type> | dsl::p<ref_type> |
+                                         dsl::p<map_type> | dsl::p<result_type> | dsl::p<error_type> | dsl::p<rolling_type> | dsl::p<delta_type> | dsl::p<atomic_type> | dsl::p<ref_type> |
                                          dsl::p<signal_type> | dsl::p<schema_type> | dsl::p<named_type>;
         };
 
         struct generic_argument
         {
             static constexpr auto rule = scalar_type | dsl::p<tuple_type> | dsl::p<list_type> | dsl::p<set_type> |
-                                         dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<delta_type> | dsl::p<atomic_type> | dsl::p<ref_type> |
+                                         dsl::p<map_type> | dsl::p<result_type> | dsl::p<error_type> | dsl::p<rolling_type> | dsl::p<delta_type> | dsl::p<atomic_type> | dsl::p<ref_type> |
                                          dsl::p<signal_type> | dsl::p<schema_type> |
                                          dsl::peek(ordinary_name + (token<TokenKind::Less> / token<TokenKind::ColonColon>)) >>
                                              dsl::p<named_type> |
@@ -300,8 +312,11 @@ namespace hgl::syntax
         struct field_postfix
         { static constexpr auto rule = token<TokenKind::Dot> >> dsl::p<name>; };
 
+        struct propagation_postfix
+        { static constexpr auto rule = token<TokenKind::Question>; };
+
         struct postfix
-        { static constexpr auto rule = dsl::p<call_postfix> | dsl::p<index_postfix> | dsl::p<field_postfix>; };
+        { static constexpr auto rule = dsl::p<call_postfix> | dsl::p<index_postfix> | dsl::p<field_postfix> | dsl::p<propagation_postfix>; };
 
         struct tuple_or_group;
         struct sequence_literal;
@@ -627,7 +642,7 @@ namespace hgl::syntax
                                                 token<TokenKind::KwTrue> / token<TokenKind::KwFalse> / token<TokenKind::KwNull> /
                                                 token<TokenKind::Minus>;
             static constexpr auto rule = dsl::p<constraint_set> | scalar_type | dsl::p<tuple_type> | dsl::p<list_type> |
-                                         dsl::p<set_type> | dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<delta_type> | dsl::p<atomic_type> |
+                                         dsl::p<set_type> | dsl::p<map_type> | dsl::p<result_type> | dsl::p<error_type> | dsl::p<rolling_type> | dsl::p<delta_type> | dsl::p<atomic_type> |
                                          dsl::p<ref_type> | dsl::p<signal_type> | dsl::p<constraint_call> |
                                          dsl::peek(ordinary_name + (token<TokenKind::Less> / token<TokenKind::ColonColon>)) >>
                                              dsl::p<named_type> |
@@ -719,7 +734,7 @@ namespace hgl::syntax
             static constexpr auto
                 rule = start >> contextual<ContextToken::Native> + dsl::opt(token<TokenKind::KwConst>) + token<TokenKind::KwFn> +
                                     dsl::p<name> + dsl::if_(dsl::p<generic_parameters>) + dsl::p<signature> +
-                                    dsl::if_(dsl::p<throws_clause>) + dsl::p<optional_requires_clause> +
+                                    dsl::p<optional_requires_clause> +
                                     dsl::if_(dsl::peek(dsl::p<newlines> + token<TokenKind::LBrace>) >> dsl::p<newlines> + body);
         };
 
@@ -988,6 +1003,8 @@ namespace hgl::syntax
                 if (token.text == "tuple") { return static_cast<std::uint8_t>(grammar::ContextToken::Tuple); }
                 if (token.text == "list") { return static_cast<std::uint8_t>(grammar::ContextToken::List); }
                 if (token.text == "set") { return static_cast<std::uint8_t>(grammar::ContextToken::Set); }
+                if (token.text == "result") { return static_cast<std::uint8_t>(grammar::ContextToken::Result); }
+                if (token.text == "error") { return static_cast<std::uint8_t>(grammar::ContextToken::Error); }
                 if (token.text == "map") { return static_cast<std::uint8_t>(grammar::ContextToken::Map); }
                 if (token.text == "raises") { return static_cast<std::uint8_t>(grammar::ContextToken::Raises); }
                 if (token.text == "rolling") { return static_cast<std::uint8_t>(grammar::ContextToken::Rolling); }

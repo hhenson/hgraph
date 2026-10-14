@@ -12,6 +12,7 @@
 #include <hgraph/runtime/evaluation_clock.h>
 #include <hgraph/runtime/global_state.h>
 #include <hgraph/runtime/node_error.h>
+#include <hgraph/runtime/canonical_error.h>
 #include <hgraph/runtime/node_fwd.h>
 #include <hgraph/runtime/node_checkpoint.h>
 #include <hgraph/runtime/node_type_ref.h>
@@ -188,6 +189,7 @@ namespace hgraph
     {
         const void *context{nullptr};
         const NodeCheckpointOps *checkpoint_ops{&unsupported_node_checkpoint_ops()};
+        std::uint64_t (*instance_identity_impl)(const void *, const void *) noexcept = nullptr;
         const NodeCheckpointIdentity &(*checkpoint_identity_impl)(const void *, const void *) noexcept = nullptr;
         bool (*owns_output_impl)(const void *, const void *) noexcept = nullptr;
 
@@ -252,6 +254,7 @@ namespace hgraph
     {
         std::function<void(const NodeView &, DateTime)> start{};
         std::function<void(const NodeView &, DateTime)> evaluate{};
+        std::function<NodeResult<void>(const NodeView &, DateTime)> evaluate_result{};
         std::function<void(const NodeView &, DateTime)> stop{};
         /** True when ``evaluate`` performs its own input-validity gating on
             the selector views it builds anyway. The generic
@@ -370,6 +373,7 @@ namespace hgraph
         /** True only while this node's native stop callback is running. */
         [[nodiscard]] bool is_stopping() const noexcept;
         [[nodiscard]] std::size_t node_index() const noexcept;
+        [[nodiscard]] std::uint64_t instance_identity() const noexcept;
         [[nodiscard]] GraphValue *graph_value() const noexcept;
         [[nodiscard]] GraphView graph() const;
 

@@ -639,7 +639,7 @@ namespace hgl::hgraph_ir
             }
             if (graph_type(planned.result, planned.range).kind != hir::TypeKind::Void) {
                 const gir::Type result = graph_type(planned.result, planned.range);
-                if (result.kind != hir::TypeKind::Scalar && result.kind != hir::TypeKind::Atomic && result.kind != hir::TypeKind::Symbol &&
+                if (result.kind != hir::TypeKind::Result && result.kind != hir::TypeKind::Error && result.kind != hir::TypeKind::Scalar && result.kind != hir::TypeKind::Atomic && result.kind != hir::TypeKind::Symbol &&
                     result.kind != hir::TypeKind::Map && result.kind != hir::TypeKind::Set && result.kind != hir::TypeKind::List &&
                     result.kind != hir::TypeKind::Rolling && result.kind != hir::TypeKind::Reference && result.kind != hir::TypeKind::Tuple) {
                     backend(graph_type(planned.result, planned.range).range,
@@ -660,7 +660,7 @@ namespace hgl::hgraph_ir
                 const bool declared_struct = type.kind == hir::TypeKind::Symbol && std::ranges::any_of(graph_.structures, [&](const auto &item) {
                     return item.identity == type.nominal_identity && (parameter.is_const || !item.abstract);
                 });
-                if (type.kind != hir::TypeKind::Scalar && type.kind != hir::TypeKind::Atomic && type.kind != hir::TypeKind::Map &&
+                if (type.kind != hir::TypeKind::Result && type.kind != hir::TypeKind::Error && type.kind != hir::TypeKind::Scalar && type.kind != hir::TypeKind::Atomic && type.kind != hir::TypeKind::Map &&
                     type.kind != hir::TypeKind::Set && type.kind != hir::TypeKind::List && type.kind != hir::TypeKind::Rolling &&
                     type.kind != hir::TypeKind::Reference && type.kind != hir::TypeKind::Signal &&
                     type.kind != hir::TypeKind::Tuple && !(parameter.is_const && type.kind == hir::TypeKind::Delta) &&

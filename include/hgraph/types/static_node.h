@@ -2467,14 +2467,14 @@ namespace hgraph
 
         // ---- invoke a static hook by injecting each parameter by type ----
         template <auto Fn, typename CanonicalArgs, std::size_t... I>
-        void invoke_impl(const NodeView &view,
+        auto invoke_impl(const NodeView &view,
                          DateTime evaluation_time,
                          const detail::PreparedInputSlotRoute *routes,
                          std::index_sequence<I...>)
         {
             using args = typename fn_traits<decltype(Fn)>::args_tuple;
             StaticNodeInvocationFrame frame{view, evaluation_time, routes, prepared_output_route_for(view)};
-            Fn(provide_arg<selector_of<std::tuple_element_t<I, args>>, CanonicalArgs>(
+            return Fn(provide_arg<selector_of<std::tuple_element_t<I, args>>, CanonicalArgs>(
                 frame)...);
         }
 
@@ -2560,7 +2560,7 @@ namespace hgraph
         // all_valid_inputs are collected from the same ``E::validity``
         // constants in the same canonical slot order.
         template <auto Fn, typename CanonicalArgs, std::size_t... I>
-        void invoke_gated_impl(const NodeView &view,
+        auto invoke_gated_impl(const NodeView &view,
                                DateTime evaluation_time,
                                const detail::PreparedInputSlotRoute *routes,
                                std::index_sequence<I...>)
@@ -2589,35 +2589,36 @@ namespace hgraph
             if (!inputs_ready ||
                 !residual_canonical_inputs_ready<CanonicalArgs, args>(frame))
             {
-                return;
+                if constexpr (std::is_void_v<typename fn_traits<decltype(Fn)>::return_type>) { return; }
+                else { return NodeResult<void>{}; }
             }
-            std::apply(
-                [](auto &&...hook_arg) { Fn(std::forward<decltype(hook_arg)>(hook_arg)...); },
+            return std::apply(
+                [](auto &&...hook_arg) { return Fn(std::forward<decltype(hook_arg)>(hook_arg)...); },
                 std::move(hook_args));
         }
 
         template <auto Fn,
                   typename CanonicalArgs = typename fn_traits<decltype(Fn)>::args_tuple>
-        void invoke_gated(const NodeView &view, DateTime evaluation_time,
+        auto invoke_gated(const NodeView &view, DateTime evaluation_time,
                           const detail::PreparedInputSlotRoute *routes)
         {
             using traits = fn_traits<decltype(Fn)>;
-            static_assert(std::is_same_v<typename traits::return_type, void>,
-                          "Static node hooks must return void");
-            invoke_gated_impl<Fn, CanonicalArgs>(
+            static_assert(std::is_same_v<typename traits::return_type, void> || std::is_same_v<typename traits::return_type, NodeResult<void>>,
+                          "Static node hooks must return void or NodeResult<void>");
+            return invoke_gated_impl<Fn, CanonicalArgs>(
                 view, evaluation_time, routes,
                 std::make_index_sequence<std::tuple_size_v<typename traits::args_tuple>>{});
         }
 
         template <auto Fn,
                   typename CanonicalArgs = typename fn_traits<decltype(Fn)>::args_tuple>
-        void invoke(const NodeView &view, DateTime evaluation_time,
+        auto invoke(const NodeView &view, DateTime evaluation_time,
                     const detail::PreparedInputSlotRoute *routes = nullptr)
         {
             using traits = fn_traits<decltype(Fn)>;
-            static_assert(std::is_same_v<typename traits::return_type, void>,
-                          "Static node hooks must return void");
-            invoke_impl<Fn, CanonicalArgs>(
+            static_assert(std::is_same_v<typename traits::return_type, void> || std::is_same_v<typename traits::return_type, NodeResult<void>>,
+                          "Static node hooks must return void or NodeResult<void>");
+            return invoke_impl<Fn, CanonicalArgs>(
                 view, evaluation_time, routes,
                 std::make_index_sequence<std::tuple_size_v<typename traits::args_tuple>>{});
         }
@@ -3399,9 +3400,11 @@ namespace hgraph
             }
             if constexpr (slot_count == 0)
             {
-                callbacks.evaluate = [](const NodeView &view, DateTime evaluation_time) {
-                    invoke<&TImplementation::eval, signature_args>(view, evaluation_time);
+                auto evaluate = [](const NodeView &view, DateTime evaluation_time) {
+                    return invoke<&TImplementation::eval, signature_args>(view, evaluation_time);
                 };
+                if constexpr (std::is_same_v<typename fn_traits<decltype(&TImplementation::eval)>::return_type, NodeResult<void>>) { callbacks.evaluate_result = evaluate; }
+                else { callbacks.evaluate = evaluate; }
 #if defined(_MSC_VER)
                 // A deliberately throwing start hook makes the route-acquire
                 // success path unreachable in that specialization.
@@ -3431,10 +3434,12 @@ namespace hgraph
             }
             else
             {
-                callbacks.evaluate = [](const NodeView &view, DateTime evaluation_time) {
-                    invoke_gated<&TImplementation::eval, signature_args>(
+                auto evaluate = [](const NodeView &view, DateTime evaluation_time) {
+                    return invoke_gated<&TImplementation::eval, signature_args>(
                         view, evaluation_time, prepared_input_routes_for(view));
                 };
+                if constexpr (std::is_same_v<typename fn_traits<decltype(&TImplementation::eval)>::return_type, NodeResult<void>>) { callbacks.evaluate_result = evaluate; }
+                else { callbacks.evaluate = evaluate; }
                 callbacks.input_validity_in_evaluate = true;
 #if defined(_MSC_VER)
                 // A deliberately throwing start hook makes the route-acquire

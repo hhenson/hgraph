@@ -1,0 +1,3 @@
+module checks.native_result part cpp_impl
+
+native const fn checked(value: i64) -> result<i64, error> {}

@@ -12,7 +12,7 @@ native const fn truthy(value: str) -> bool {}
 native const fn absolute(value: i64) -> i64 {}
 native const fn absolute(value: f64) -> f64 {}
 native const fn logarithm(value: f64) -> f64 {}
-native const fn round_decimal(value: f64, digits: i64) -> f64 throws {}
+native const fn round_decimal(value: f64, digits: i64) -> f64 {}
 native const fn invert(value: bool) -> i64 {}
 native const fn bit_and(lhs: bool, rhs: bool) -> bool {}
 native const fn bit_or(lhs: bool, rhs: bool) -> bool {}
@@ -21,11 +21,11 @@ native const fn invert(value: i64) -> i64 {}
 native const fn bit_or(lhs: i64, rhs: i64) -> i64 {}
 native const fn bit_xor(lhs: i64, rhs: i64) -> i64 {}
 native const fn as_int(value: bool) -> i64 {}
-native const fn require_positive_delay(delay: duration) throws {}
-native const fn power(lhs: i64, rhs: i64) -> i64 throws {}
-native const fn power(lhs: f64, rhs: f64) -> f64 throws {}
-native const fn shift_left(lhs: i64, rhs: i64) -> i64 throws {}
-native const fn shift_right(lhs: i64, rhs: i64) -> i64 throws {}
+native const fn require_positive_delay(delay: duration) {}
+native const fn power(lhs: i64, rhs: i64) -> i64 {}
+native const fn power(lhs: f64, rhs: f64) -> f64 {}
+native const fn shift_left(lhs: i64, rhs: i64) -> i64 {}
+native const fn shift_right(lhs: i64, rhs: i64) -> i64 {}
 native const fn slice(value: str, begin: i64, end: i64) -> str {}
 native const fn as_int(value: f64) -> i64 {}
 native const fn as_float(value: bool) -> f64 {}
@@ -39,4 +39,4 @@ native const fn as_str(value: time) -> str {}
 native const fn as_str(value: datetime) -> str {}
 native const fn as_str(value: duration) -> str {}
 native const fn print_line(text: str) {}
-native const fn raise_error(message: str) throws {}
+native const fn raise_error(message: str) {}

@@ -1,0 +1,21 @@
+module checks.native_result
+
+native const fn checked(value: i64) -> result<i64, error>
+export fn tags(value: i64) -> bool {
+    when { return is_err(checked(value)) }
+}
+fn required(value: i64) -> i64 {
+    when { return checked(value)? }
+}
+fn message(failure: error) -> str { when { return failure.message } }
+export fn captured(value: i64) -> str {
+    let observed = capture(required, value)
+    message(observed.error)
+}
+
+fn outcomes() -> result<i64, error> {
+    yield 0s: ok(7)
+    yield 1us: err(error(message: "generated error"))
+}
+fn outcome_tag(value: result<i64, error>) -> bool { when { return is_err(value) } }
+export fn generated_tags() -> bool => outcome_tag(outcomes())

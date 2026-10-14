@@ -8,6 +8,7 @@
 #include <functional>
 #include <hgl/execution_error.h>
 #include <hgl/native_values.h>
+#include <hgraph/runtime/canonical_error.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_record_registry.h>
 #include <hgraph/types/operator_dispatch.h>
@@ -209,7 +210,9 @@ namespace hgl::ordinary
 
     inline void validate_atomic_schema(const hgraph::ValueTypeMetaData                       *schema,
                                        std::unordered_set<const hgraph::ValueTypeMetaData *> &visiting) {
-        if (schema->try_value_kind() == hgraph::ValueTypeKind::Any) { return; }
+        if (schema->try_value_kind() == hgraph::ValueTypeKind::Any ||
+            schema == hgraph::scalar_descriptor<hgraph::CanonicalError>::value_meta() ||
+            schema == hgraph::scalar_descriptor<hgraph::ErrorContext>::value_meta()) { return; }
         const std::array leaves{hgraph::scalar_descriptor<hgraph::Bool>::value_meta(),
                                 hgraph::scalar_descriptor<hgraph::Int>::value_meta(),
                                 hgraph::scalar_descriptor<hgraph::Float>::value_meta(),
@@ -460,7 +463,17 @@ namespace hgl::ordinary
                 pending.push_back({value.binding(), value.data(), true});
             }
             const auto kind = value.schema()->try_value_kind();
-            if (kind == hgraph::ValueTypeKind::Map) {
+            if (value.schema()->bundle_namespace() == "hgl.result") {
+                const auto result = value.as_bundle();
+                const auto tag = result.at(0);
+                if (!tag.has_value()) { throw PublicationProfileError("result outcome requires a tag"); }
+                const bool success = tag.checked_as<hgraph::Bool>();
+                const auto selected = result.at(success ? 1U : 2U);
+                if (!selected.has_value() || result.at(success ? 2U : 1U).has_value()) {
+                    throw PublicationProfileError("result outcome requires exactly its selected payload");
+                }
+                pending.push_back({selected.binding(), selected.data()});
+            } else if (kind == hgraph::ValueTypeKind::Map) {
                 for (const auto [key, child] : value.as_map()) {
                     validate_scalar_key(key);
                     pending.push_back({key.binding(), key.data()});
@@ -648,6 +661,11 @@ namespace hgl::ordinary
         // Any's capabilities dispatch on its actual contents; never descend
         // through that dynamic boundary while preparing a containing type.
         if (schema->try_value_kind() == hgraph::ValueTypeKind::Any) { return {}; }
+        if (schema->bundle_namespace() == "hgl.result") {
+            const auto value = source_capabilities(schema->fields[1].type, visiting);
+            const auto error = source_capabilities(schema->fields[2].type, visiting);
+            return {value.equality && error.equality, false, false};
+        }
         // Legacy source equality admission retains the physical hash promise;
         // schema flags do not describe every provider hash implementation.
         // No capability is granted here. Native contracts override hash below.
@@ -798,6 +816,21 @@ namespace hgl::ordinary
             if (!value.has_value()) { return hgraph::Value::typed_null(binding_); }
             if (binding_.schema()->is_abstract_bundle()) { return hgraph::Value{binding_, value.concrete()}; }
             return hgraph::Value{binding_, value};
+        }
+        [[nodiscard]] bool result_is_ok(const hgraph::ValueView &result) const {
+            return required_scalar<hgraph::Bool>(index(result, 0));
+        }
+        [[nodiscard]] hgraph::ValueView result_payload(const hgraph::ValueView &result, bool success) const {
+            if (result_is_ok(result) != success) { throw std::logic_error("result payload requires the selected variant"); }
+            return index(result, success ? 1 : 2);
+        }
+        [[nodiscard]] hgraph::Value result_make(bool success, const hgraph::ValueView &payload) const {
+            require_payload(payload, true);
+            hgraph::Value tag{success};
+            std::array<std::pair<std::size_t, hgraph::ValueView>, 2> fields{
+                std::pair<std::size_t, hgraph::ValueView>{0, tag.view()},
+                std::pair<std::size_t, hgraph::ValueView>{success ? 1U : 2U, hgraph::ValueView{payload.binding(), payload.data()}}};
+            return bundle(fields);
         }
         [[nodiscard]] hgraph::Value empty_list() const {
             if (!binding_.schema()->is_fixed_size()) { return hgraph::Value{binding_}; }

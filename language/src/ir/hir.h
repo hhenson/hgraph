@@ -118,6 +118,10 @@ namespace hgl::ir::hir
         Tuple,
         List,
         Set,
+        Result,
+        Error,
+        ErrorContext,
+        Capture,
         Map,
         Rolling,
         Delta,
@@ -278,6 +282,7 @@ namespace hgl::ir::hir
     };
 
     enum class UnaryOp : std::uint8_t {
+        Propagate,
         Negate,
         Not,
     };

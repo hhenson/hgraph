@@ -2,6 +2,7 @@
 
 #include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/runtime/node_error.h>
+#include <hgraph/runtime/canonical_error.h>
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
 #include <hgraph/types/time_series/ts_output/bundle_view.h>
 #include <hgraph/util/scope.h>
@@ -67,14 +68,43 @@ namespace hgraph
             nested.ensure_child_graph();
             single_nested_graph_bind_inputs(nested, evaluation_time);
             single_nested_graph_bind_output(nested, evaluation_time);
-            const bool completed = fallback_on_exception(true,
-                                                         [&] {
-                                                             return nested.child_graph().evaluate(evaluation_time);
-                                                         },
-                                                         [&](const char *error) {
-                                                             NodeView failed = nested.child_graph().failed_node();
-                                                             write_try_except_error(view, failed, evaluation_time, error);
-                                                         });
+            bool completed = true;
+            try { completed = nested.child_graph().evaluate(evaluation_time); }
+            catch (const std::exception &failure) {
+                const auto *schema = view.schema();
+                const auto failed = nested.child_graph().failed_node();
+                if (schema && schema->error_capture.canonical_errors) {
+                    auto error = canonicalize_failure(failed.valid() ? failed : view, evaluation_time, "evaluate", failure);
+                    if (execution_failure_phase(failure) != FailurePhase::Evaluate) { throw ExecutionFailure{std::move(error), execution_failure_phase(failure)}; }
+                    auto output = view.output(evaluation_time);
+                    auto target = [&]() {
+                        if (output.schema()->kind == TSTypeKind::TSB) { auto bundle = output.as_bundle(); return bundle.field("error"); }
+                        return std::move(output);
+                    }();
+                    const auto binding = target.value().binding();
+                    auto mutation = target.begin_mutation(evaluation_time);
+                    static_cast<void>(mutation.copy_value_from(ValueView{binding, &error}));
+                } else { write_try_except_error(view, failed, evaluation_time, failure.what()); }
+                nested.child_graph().finish_failed_evaluation();
+            }
+            catch (...) {
+                const auto *schema = view.schema();
+                const auto failed = nested.child_graph().failed_node();
+                if (schema && schema->error_capture.canonical_errors) {
+                    const std::runtime_error failure{"unknown error"};
+                    auto error = canonicalize_failure(failed.valid() ? failed : view, evaluation_time, "evaluate", failure);
+                    if (execution_failure_phase(failure) != FailurePhase::Evaluate) { throw ExecutionFailure{std::move(error), execution_failure_phase(failure)}; }
+                    auto output = view.output(evaluation_time);
+                    auto target = [&]() {
+                        if (output.schema()->kind == TSTypeKind::TSB) { auto bundle = output.as_bundle(); return bundle.field("error"); }
+                        return std::move(output);
+                    }();
+                    const auto binding = target.value().binding();
+                    auto mutation = target.begin_mutation(evaluation_time);
+                    static_cast<void>(mutation.copy_value_from(ValueView{binding, &error}));
+                } else { write_try_except_error(view, failed, evaluation_time, "unknown error"); }
+                nested.child_graph().finish_failed_evaluation();
+            }
             single_nested_graph_propagate_schedule(nested);
             return completed;
         }

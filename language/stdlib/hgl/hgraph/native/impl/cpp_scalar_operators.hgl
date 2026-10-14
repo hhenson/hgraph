@@ -12,18 +12,18 @@ native const fn mul(lhs: i64, rhs: i64) -> i64 {}
 native const fn mul(lhs: i64, rhs: f64) -> f64 {}
 native const fn mul(lhs: f64, rhs: i64) -> f64 {}
 native const fn mul(lhs: f64, rhs: f64) -> f64 {}
-native const fn div(lhs: i64, rhs: i64) -> f64 throws {}
-native const fn div(lhs: i64, rhs: f64) -> f64 throws {}
-native const fn div(lhs: f64, rhs: i64) -> f64 throws {}
-native const fn div(lhs: f64, rhs: f64) -> f64 throws {}
-native const fn floordiv(lhs: i64, rhs: i64) -> i64 throws {}
-native const fn floordiv(lhs: i64, rhs: f64) -> f64 throws {}
-native const fn floordiv(lhs: f64, rhs: i64) -> f64 throws {}
-native const fn floordiv(lhs: f64, rhs: f64) -> f64 throws {}
-native const fn mod(lhs: i64, rhs: i64) -> i64 throws {}
-native const fn mod(lhs: i64, rhs: f64) -> f64 throws {}
-native const fn mod(lhs: f64, rhs: i64) -> f64 throws {}
-native const fn mod(lhs: f64, rhs: f64) -> f64 throws {}
+native const fn div(lhs: i64, rhs: i64) -> f64 {}
+native const fn div(lhs: i64, rhs: f64) -> f64 {}
+native const fn div(lhs: f64, rhs: i64) -> f64 {}
+native const fn div(lhs: f64, rhs: f64) -> f64 {}
+native const fn floordiv(lhs: i64, rhs: i64) -> i64 {}
+native const fn floordiv(lhs: i64, rhs: f64) -> f64 {}
+native const fn floordiv(lhs: f64, rhs: i64) -> f64 {}
+native const fn floordiv(lhs: f64, rhs: f64) -> f64 {}
+native const fn mod(lhs: i64, rhs: i64) -> i64 {}
+native const fn mod(lhs: i64, rhs: f64) -> f64 {}
+native const fn mod(lhs: f64, rhs: i64) -> f64 {}
+native const fn mod(lhs: f64, rhs: f64) -> f64 {}
 native const fn eq(lhs: i64, rhs: i64) -> bool {}
 native const fn eq(lhs: str, rhs: str) -> bool {}
 native const fn eq(lhs: bool, rhs: bool) -> bool {}
@@ -55,7 +55,7 @@ native const fn ge(lhs: f64, rhs: i64) -> bool {}
 native const fn ge(lhs: str, rhs: str) -> bool {}
 native const fn neg(ts: i64) -> i64 {}
 native const fn neg(ts: f64) -> f64 {}
-native const fn add(lhs: str, rhs: str) -> str throws {}
+native const fn add(lhs: str, rhs: str) -> str {}
 native const fn eq(lhs: date, rhs: date) -> bool {}
 native const fn eq(lhs: datetime, rhs: datetime) -> bool {}
 native const fn eq(lhs: duration, rhs: duration) -> bool {}

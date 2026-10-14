@@ -2262,7 +2262,7 @@ namespace hgraph
                 std::span<const WiringPortRef>{inputs.data(), inputs.size()}));
             WiringPortRef out = w.add_node(std::type_index(typeid(Impl)), std::move(builder), inputs, std::move(scalars));
             if constexpr (sig::has_output()) { return OperatorWireResult{true, Port<void>{w, std::move(out)}}; }
-            else { return OperatorWireResult{}; }
+            else { return OperatorWireResult{false, Port<void>{w, std::move(out)}}; }
         };
         return impl;
     }

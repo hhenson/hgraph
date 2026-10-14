@@ -1,11 +1,11 @@
 Error handling
 ==============
 
-This page is the **authoritative design record** for runtime error handling:
+This page records the C++ runtime implementation of error handling:
 per-node exception capture, the ``NodeError`` value, ``exception_time_series``
-(the per-node extractor) and ``try_except`` (wrapping a whole sub-graph). It
-mirrors the Python reference (``release/0.5:hgraph/_wiring/_exception_handling.py``,
-``_types/_error_type.py``) and records the deliberate C++ adaptations.
+(the per-node extractor) and ``try_except`` (wrapping a whole sub-graph). The existing Python ``NodeError`` adapter keeps its public shape. HGL source
+semantics are defined by the pinned Spec ``result-errors.md`` and
+``error-capture.md`` documents.
 
 The substrate this builds on (an error-output port already plumbed into the
 node storage, the ``ErrorOutput`` graph-edge source kind, and the
@@ -239,4 +239,48 @@ Deferred (recorded, not yet built):
 - richer portable ``stack_trace`` content;
 - error capture on the remaining custom-ops nodes (nested/switch/mesh) via
   their own evaluate paths;
-- child-graph reset/rebuild policy after an exception (currently kept as-is).
+- child-graph reset/rebuild policy beyond finishing a captured evaluation pass.
+
+HGL tagged outcomes and canonical diagnostics
+--------------------------------------------
+
+HGL follows the pinned ``result-errors.md`` and ``error-capture.md`` source
+contracts. The compiler records Result and Error as canonical types and records
+postfix propagation as a checked unary operation. Frontend flow facts prove a
+result variant on each immutable binding; those facts do not grant temporal
+input validity. The two execution backends consume that checked plan.
+
+Ordinary results retain one selected owning payload with a tag. Their prepared
+value representation exposes neither independent temporal fields nor inactive
+payloads. Publication validates the tag and the complete selected value.
+Canonical errors own optional code and provenance, and compare diagnostic
+content without comparing provenance. Native recoverable helpers return typed
+result data; operational node failure is a separate runtime contract. Host
+exception translation remains an implementation boundary.
+
+
+Native node callbacks may use ``NodeResult<void>`` from
+``hgraph/runtime/canonical_error.h``. ``NodeCallbacks::evaluate_result`` retains
+that typed operational outcome; existing void callbacks remain supported. Static
+node invocation builds and checks selector arguments once for either callback
+shape. HGL generated evaluation returns through this channel. A native value
+helper returning ``hgl::NativeScalarResult<T,E>`` carries ordinary result data and
+uses the prepared result plan to bridge its selected payload.
+
+Canonical Error and ErrorContext have exported core scalar plans and operations,
+so metadata and payload reads agree across separately compiled libraries. Their
+owned strings and provenance survive the producing node's lifetime. The SDK
+consumer and ABI boundary controls exercise these contracts.
+
+HGL capture uses the existing node error-output endpoint for a runtime node and
+the existing nested graph wrapper for a graph. The wrapper finishes a failed
+child pass, resets its evaluation cursor, and recomputes its next wakeup from
+future schedule entries. It preserves earlier mutations and child instances.
+Legacy ``NodeError`` adapters keep their bundle output and diagnostic fields.
+
+The runtime assigns each node incarnation an identity during construction.
+An error stores that identity as an owned display string; allocator reuse after
+keyed child removal cannot make a later child appear to be the original node.
+Active failure phase travels separately from retained diagnostic provenance, so
+an escaping child start/stop operation remains uncapturable inside evaluation,
+while a new evaluation failure may preserve an older error's context.

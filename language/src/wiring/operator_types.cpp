@@ -1,5 +1,6 @@
 #include "wiring/operator_types.h"
 #include <hgl/ordinary_values.h>
+#include <hgl/result_values.h>
 
 #include "wiring/backend.h"
 
@@ -153,6 +154,15 @@ namespace hgl::wiring
                 const hir::Type                 &type   = module_.type(id);
                 const hgraph::ValueTypeMetaData *result = nullptr;
                 switch (type.kind) {
+                    case hir::TypeKind::Error: result = hgraph::scalar_descriptor<hgraph::CanonicalError>::value_meta(); break;
+                    case hir::TypeKind::ErrorContext: result = hgraph::scalar_descriptor<hgraph::ErrorContext>::value_meta(); break;
+                    case hir::TypeKind::Result:
+                        if (type.children.size() == 2U) {
+                            const auto *success = value(type.children[0]);
+                            const auto *failure = value(type.children[1]);
+                            if (success && failure) { result = ordinary::result_meta(success, failure); }
+                        }
+                        break;
                     case hir::TypeKind::Scalar: result = scalar(type.scalar); break;
                     case hir::TypeKind::Tuple:
                         {
@@ -207,6 +217,7 @@ namespace hgl::wiring
                     case hir::TypeKind::Void:
                     case hir::TypeKind::Iterator:
                     case hir::TypeKind::Callable:
+                    case hir::TypeKind::Capture:
                     case hir::TypeKind::Capability:
                     case hir::TypeKind::HarnessSequence:
                     case hir::TypeKind::Deferred: break;
@@ -225,6 +236,11 @@ namespace hgl::wiring
                 const hir::Type                   &type   = module_.type(id);
                 const hgraph::TSValueTypeMetaData *result = nullptr;
                 switch (type.kind) {
+                    case hir::TypeKind::Result:
+                    case hir::TypeKind::Error:
+                    case hir::TypeKind::ErrorContext:
+                        if (const auto *payload = value(id)) { result = registry_.ts(payload); }
+                        break;
                     case hir::TypeKind::Scalar:
                         if (const auto *meta = scalar(type.scalar)) { result = registry_.ts(meta); }
                         break;
@@ -291,6 +307,7 @@ namespace hgl::wiring
                     case hir::TypeKind::Delta:
                     case hir::TypeKind::Iterator:
                     case hir::TypeKind::Callable:
+                    case hir::TypeKind::Capture:
                     case hir::TypeKind::Capability:
                     case hir::TypeKind::HarnessSequence:
                     case hir::TypeKind::Deferred: break;

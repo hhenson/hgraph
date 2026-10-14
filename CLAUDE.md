@@ -155,7 +155,8 @@ deviations in `parity_matrix.rst`; direction in `roadmap.rst`.
 - **Services, adaptors, contexts**: all three service flavours, service
   adaptors, shared outputs, `context::scope`/`Context<>`. Record:
   `services.rst`.
-- **Error handling**: per-node capture, `exception_time_series`, `try_except_`.
+- **Error handling**: per-node capture, `exception_time_series`, `try_except_`,
+  HGL tagged results and canonical errors, typed `NodeResult<void>` callbacks.
   Record: `error_handling.rst`.
 - **Temporal types (RFC 0002)**: Instant/Duration/CivilDateTime/Period/ZoneId/
   ZonedDateTime/ranges, checked arithmetic, dual TZ backends (std chrono vs

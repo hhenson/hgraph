@@ -2,6 +2,8 @@
 #define HGRAPH_TESTS_CPP_ABI_BOUNDARY_FIXTURE_API_H
 
 #include <hgraph/types/type_pointer.h>
+#include <hgraph/runtime/canonical_error.h>
+#include <hgraph/types/value/value.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -48,5 +50,8 @@ HGRAPH_ABI_FIXTURE_API hgraph::AnyPtr hgraph_abi_fixture_ts_input_pointer();
 HGRAPH_ABI_FIXTURE_API const hgraph::TypeRecord *hgraph_abi_fixture_bad_record() noexcept;
 HGRAPH_ABI_FIXTURE_API int hgraph_abi_fixture_payload() noexcept;
 HGRAPH_ABI_FIXTURE_API void hgraph_abi_fixture_reset() noexcept;
+
+HGRAPH_ABI_FIXTURE_API hgraph::Value hgraph_abi_fixture_canonical_error();
+HGRAPH_ABI_FIXTURE_API hgraph::NodeResult<void> hgraph_abi_fixture_node_result();
 
 #endif // HGRAPH_TESTS_CPP_ABI_BOUNDARY_FIXTURE_API_H

@@ -36,10 +36,10 @@ native fn len<K, V>(value: map<K, V>) -> i64 {
     }
 }
 
-# A `throws` native may raise. The exception ends the evaluation under
+# A host-native execution failure ends the evaluation under
 # hgraph's node error model: it reaches the node's error output when one is
 # captured, otherwise the enclosing try_except or the graph.
-native fn checked_reciprocal(value: f64) -> f64 throws {
+native fn checked_reciprocal(value: f64) -> f64 {
     cpp(hgraph::Float value) {
         if (value == 0.0) { throw std::domain_error("checked_reciprocal: division by zero"); }
         return 1.0 / value;

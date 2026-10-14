@@ -21,7 +21,11 @@ namespace hgl::hgraph_ir
                 case hir::TypeKind::Tuple: return "tuple";
                 case hir::TypeKind::List: return "list";
                 case hir::TypeKind::Set: return "set";
-                case hir::TypeKind::Map: return "map";
+                case hir::TypeKind::Result: return "result";
+case hir::TypeKind::Error: return "error";
+case hir::TypeKind::ErrorContext: return "error-context";
+            case hir::TypeKind::Capture: return "capture";
+case hir::TypeKind::Map: return "map";
                 case hir::TypeKind::Rolling: return "rolling";
                 case hir::TypeKind::Delta: return "delta";
                 case hir::TypeKind::Atomic: return "atomic";

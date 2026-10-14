@@ -3,6 +3,8 @@
 #include <hgl/constant_arithmetic.h>
 #include <hgl/execution_error.h>
 #include <hgl/ordinary_values.h>
+#include <hgl/result_values.h>
+#include <hgl/capture.h>
 #include <hgl/temporal_literals.h>
 
 #include "hgraph_ir/control_flow.h"
@@ -122,6 +124,7 @@ namespace hgl::wiring
                 Iterator,
                 Sequence,
                 Pack,
+                Capture,
             };
 
             Kind                                                       kind{Kind::Void};
@@ -170,6 +173,8 @@ namespace hgl::wiring
             result.range = range;
             return result;
         }
+
+        struct PropagatedResult { Slot outcome; };
 
         struct Frame
         {
@@ -363,7 +368,7 @@ namespace hgl::wiring
 
             [[nodiscard]] Slot              wire(std::string_view name, std::vector<hgraph::WiringArg> arguments, SourceRange range,
                                                  std::optional<bool>                output_required = std::nullopt,
-                                                 const hgraph::TSValueTypeMetaData *expected        = nullptr);
+                                                 const hgraph::TSValueTypeMetaData *expected        = nullptr, bool preserve_sink = false);
             [[nodiscard]] hgraph::WiringArg argument_of(const Slot &slot, std::string name);
             [[nodiscard]] Slot              wire_constant(const Slot &slot, const hgraph::TSValueTypeMetaData *target);
             [[nodiscard]] Slot              convert_port(const Slot &slot, const hgraph::TSValueTypeMetaData *target);
@@ -378,7 +383,7 @@ namespace hgl::wiring
             [[nodiscard]] Slot eval_call(const gir::Value &expression, const gir::Call &call, Frame &frame);
             [[nodiscard]] hgraph::ValueView ordinary_place(gir::ValueId id, Frame &frame);
             [[nodiscard]] Slot eval_intrinsic(std::string_view name, const std::vector<gir::Argument> &arguments, SourceRange range,
-                                              Frame &frame);
+                                              Frame &frame, gir::TypeId result_type = {}, const std::vector<gir::Substitution> &substitutions = {});
             [[nodiscard]] Slot eval_harness(const gir::HarnessEval &eval, SourceRange range, Frame &frame);
             [[nodiscard]] Slot eval_map_lambda_call(const gir::Value &expression, const gir::Call &call, std::string_view name,
                                                     Frame &frame);
@@ -394,8 +399,8 @@ namespace hgl::wiring
                                                     SourceRange range, Frame &frame);
             [[nodiscard]] hgraph::Value eval_delta_literal(const hgraph::TSValueTypeMetaData *shape, gir::ValueId id, Frame &frame);
             [[nodiscard]] Slot call_function(gir::CallableId id, const std::vector<gir::Argument> &arguments, SourceRange range,
-                                             Frame &frame, const std::vector<gir::Substitution> &substitutions);
-            [[nodiscard]] Slot wire_function(gir::CallableId id, Frame &frame, SourceRange range);
+                                             Frame &frame, const std::vector<gir::Substitution> &substitutions, Frame *bound_frame = nullptr);
+            [[nodiscard]] Slot wire_function(gir::CallableId id, Frame &frame, SourceRange range, bool preserve_sink = false);
             [[nodiscard]] Slot invoke(gir::CallableId id, Frame &frame);
             [[nodiscard]] Slot exec_block(gir::BlockId id, Frame &frame,
                                           std::optional<gir::ConditionalContinuationPlan> following     = std::nullopt,
@@ -1133,11 +1138,11 @@ namespace hgl::wiring
         }
 
         Slot Compiler::wire(std::string_view name, std::vector<hgraph::WiringArg> arguments, SourceRange range,
-                            std::optional<bool> output_required, const hgraph::TSValueTypeMetaData *expected) {
+                            std::optional<bool> output_required, const hgraph::TSValueTypeMetaData *expected, bool preserve_sink) {
             try {
                 hgraph::OperatorWireResult result = hgraph::wire_operator(
                     wiring(range), name, std::span<const hgraph::WiringArg>{arguments}, output_required, expected);
-                return result.has_output ? make_port(result.output.erased(), range) : Slot{};
+                return result.has_output || preserve_sink ? make_port(result.output.erased(), range) : Slot{};
             } catch (const hgraph::OperatorResolutionError &error) {
                 fail(Category::Operator, range, std::string{name} + ": " + error.what());
             } catch (const std::exception &error) { backend(range, std::string{name} + ": " + error.what()); }
@@ -1699,13 +1704,13 @@ namespace hgl::wiring
             return result;
         }
 
-        Slot Compiler::wire_function(gir::CallableId id, Frame &frame, SourceRange range) {
+        Slot Compiler::wire_function(gir::CallableId id, Frame &frame, SourceRange range, bool preserve_sink) {
             const gir::Callable           &target = callable(id);
             std::vector<hgraph::WiringArg> arguments;
             for (const gir::Parameter &parameter : target.parameters) {
                 arguments.push_back(argument_of(frame.bindings.at(parameter.binding.value), parameter.name));
             }
-            return wire(target.identity, std::move(arguments), range);
+            return wire(target.identity, std::move(arguments), range, std::nullopt, nullptr, preserve_sink);
         }
 
         Slot Compiler::invoke(gir::CallableId id, Frame &frame) {
@@ -1718,8 +1723,9 @@ namespace hgl::wiring
             invocations_.push_back(id);
             auto                 pop_invocation = hgraph::make_scope_exit([&]() noexcept { invocations_.pop_back(); });
             const gir::Callable &target = callable(id);
-            Slot                 result =
-                target.concise_body.valid() ? eval_value(target.concise_body, frame) : exec_block(target.block_body, frame);
+            Slot result;
+            try { result = target.concise_body.valid() ? eval_value(target.concise_body, frame) : exec_block(target.block_body, frame); }
+            catch (const PropagatedResult &failure) { result = failure.outcome; }
             if (frame.returned) { result = *frame.returned; }
             if (result.is_const()) {
                 const hgraph::ValueTypeMetaData *expected = value_meta(target.result);
@@ -1736,7 +1742,7 @@ namespace hgl::wiring
         }
 
         Slot Compiler::call_function(gir::CallableId id, const std::vector<gir::Argument> &arguments, SourceRange range,
-                                     Frame &caller, const std::vector<gir::Substitution> &substitutions) {
+                                     Frame &caller, const std::vector<gir::Substitution> &substitutions, Frame *bound_frame) {
             const gir::Callable &target = callable(id);
             if (target.visibility == gir::CallableVisibility::Implementation) {
                 backend(range, "an impl fn is reached through its operator, not called directly");
@@ -1861,6 +1867,7 @@ namespace hgl::wiring
                     Slot value                               = default_argument(parameter.default_value, callee);
                     callee.bindings[parameter.binding.value] = bind_parameter(parameter, value, callee, value.range);
                 }
+                if (bound_frame) { *bound_frame = std::move(callee); return {}; }
                 Slot result = target.kind == gir::CallableKind::RuntimeNode ? wire_function(id, callee, range) : invoke(id, callee);
                 result.range = range;
                 return result;
@@ -1896,6 +1903,7 @@ namespace hgl::wiring
                     callee.bindings[parameter.binding.value] = bind_parameter(parameter, argument, callee, argument.range);
                 }
             }
+            if (bound_frame) { *bound_frame = std::move(callee); return {}; }
             Slot result  = target.kind == gir::CallableKind::RuntimeNode ? wire_function(id, callee, range) : invoke(id, callee);
             result.range = range;
             return result;
@@ -1935,7 +1943,61 @@ namespace hgl::wiring
         }
 
         Slot Compiler::eval_intrinsic(std::string_view name, const std::vector<gir::Argument> &arguments, SourceRange range,
-                                      Frame &frame) {
+                                      Frame &frame, gir::TypeId result_type, const std::vector<gir::Substitution> &substitutions) {
+            if (name == "capture") {
+                const auto target = eval_value(arguments.front().value, frame);
+                if (target.kind != Slot::Kind::Function) { backend(range, "capture requires a temporal callable"); }
+                Frame callee;
+                std::vector<gir::Argument> actual(arguments.begin() + 1, arguments.end());
+                (void)call_function(target.callable, actual, range, frame, substitutions, &callee);
+                hgl::CapturedPorts ports;
+                if (callable(target.callable).kind == gir::CallableKind::RuntimeNode) {
+                    ports = hgl::capture_node(*wiring_, wire_function(target.callable, callee, range, true).port);
+                } else {
+                    auto *parent = wiring_;
+                    auto child = parent->child_wiring();
+                    std::vector<hgraph::WiringPortRef> inputs;
+                    std::vector<const hgraph::TSValueTypeMetaData *> schemas;
+                    for (const auto &parameter : callable(target.callable).parameters) {
+                        if (parameter.is_const) { continue; }
+                        auto &argument = callee.bindings.at(parameter.binding.value);
+                        schemas.push_back(argument.port.schema);
+                        inputs.push_back(argument.port);
+                        argument = make_port(hgraph::WiringPortRef::boundary_source(inputs.size() - 1, {}, schemas.back()), range);
+                    }
+                    wiring_ = &child;
+                    auto restore = hgraph::make_scope_exit([&]() noexcept { wiring_ = parent; });
+                    auto output = invoke(target.callable, callee);
+                    auto compiled = std::move(child).finish_subgraph(output.is_port() ? std::optional{output.port} : std::nullopt, std::move(schemas));
+                    wiring_ = parent;
+                    ports = hgl::capture_compiled(*parent, std::move(compiled), std::move(inputs));
+                }
+                auto result = make_marker(Slot::Kind::Capture, range);
+                if (ports.value) { result.pack_ports.emplace_back("value", *ports.value); }
+                result.pack_ports.emplace_back("error", ports.error);
+                return result;
+            }
+            if (name == "ok" || name == "err") {
+                const Slot payload = eval_value(arguments.front().value, frame);
+                const auto *meta = value_meta(result_type);
+                return make_const(ordinary::PreparedResultPlan{meta}.make(name == "ok", payload.value.view()), range);
+            }
+            if (name == "is_ok" || name == "is_err") {
+                const Slot source = eval_value(arguments.front().value, frame);
+                if (source.is_port()) { return make_port(ordinary::result_predicate(*wiring_, source.port, name == "is_ok"), range); }
+                const bool success = ordinary::PreparedResultPlan{source.meta()}.is_ok(source.value.view());
+                return make_const(hgraph::Value{name == "is_ok" ? success : !success}, range);
+            }
+            if (name == "error") {
+                hgraph::CanonicalError error;
+                for (const auto &argument : arguments) {
+                    const auto payload = eval_value(argument.value, frame);
+                    const auto text = payload.value.view().checked_as<hgraph::Str>();
+                    if (argument.name == "code") { error.code = text; }
+                    else { error.message = text; }
+                }
+                return make_const(hgraph::Value{error}, range);
+            }
             if (name == "any") {
                 const ordinary::PreparedValuePlan plan{registry_.any()};
                 if (arguments.empty()) { return make_const(plan.empty_box(), range); }
@@ -2102,7 +2164,7 @@ namespace hgl::wiring
                                 : nullptr;
                         return wire(name, std::move(arguments), expression.range, std::nullopt, expected);
                     }
-                case Slot::Kind::Intrinsic: return eval_intrinsic(callee.name, call.arguments, expression.range, frame);
+                case Slot::Kind::Intrinsic: return eval_intrinsic(callee.name, call.arguments, expression.range, frame, expression.type, expression.operation.substitutions);
                 case Slot::Kind::Struct: return eval_construct(expression.type, call.arguments, false, expression.range, frame);
                 default: break;
             }
@@ -2495,6 +2557,15 @@ namespace hgl::wiring
                         return eval_reference(node, expression.range, frame);
                     } else if constexpr (std::is_same_v<T, gir::Unary>) {
                         Slot operand = eval_value(node.operand, frame);
+                        if (node.op == hir::UnaryOp::Propagate) {
+                            const ordinary::PreparedResultPlan plan{operand.meta()};
+                            if (!plan.is_ok(operand.value.view())) {
+                                const auto error = plan.payload(operand.value.view(), false);
+                                throw PropagatedResult{make_const(ordinary::PreparedResultPlan{value_meta(callable(frame.callable).result)}.make(false, error), expression.range)};
+                            }
+                            const auto payload = plan.payload(operand.value.view(), true);
+                            return make_const(ordinary::PreparedValuePlan{payload.binding()}.retain(payload), expression.range);
+                        }
                         if (operand.is_const()) { return fold_unary(node.op, operand, expression.range); }
                         const std::string name = expression.operation.registry_name.empty()
                                                      ? std::string{hir::system_operator_name(node.op)}
@@ -2576,10 +2647,34 @@ namespace hgl::wiring
                         backend(expression.range, "indexing is supported on time-series values and constant tuples and lists");
                     } else if constexpr (std::is_same_v<T, gir::Field>) {
                         Slot target = eval_value(node.target, frame);
+                        if (target.kind == Slot::Kind::Capture) {
+                            for (const auto &[name, port] : target.pack_ports) {
+                                if (name == node.name) { return make_port(port, expression.range); }
+                            }
+                            backend(expression.range, "capture has no such output connection");
+                        }
                         if (target.is_port()) {
                             const std::string name =
                                 expression.operation.registry_name.empty() ? "getattr_" : expression.operation.registry_name;
                             return wire(name, {argument_of(target, {}), scalar_arg(hgraph::Value{node.name})}, expression.range);
+                        }
+                        if (target.is_const() && target.meta() == hgraph::scalar_descriptor<hgraph::CanonicalError>::value_meta()) {
+                            const auto observation = target.value.view();
+                            const auto &error = ordinary::native_argument<hgraph::CanonicalError>(observation);
+                            if (node.name == "message") { return make_const(hgraph::Value{error.message}, expression.range); }
+                            if (node.name == "code") { return error.code ? make_const(hgraph::Value{*error.code}, expression.range) : make_marker(Slot::Kind::Null, expression.range); }
+                            if (node.name == "context") { return error.context ? make_const(hgraph::Value{*error.context}, expression.range) : make_marker(Slot::Kind::Null, expression.range); }
+                        }
+                        if (target.is_const() && target.meta() == hgraph::scalar_descriptor<hgraph::ErrorContext>::value_meta()) {
+                            const auto observation = target.value.view();
+                            const auto &context = ordinary::native_argument<hgraph::ErrorContext>(observation);
+                            if (node.name == "node") { return make_const(hgraph::Value{context.node}, expression.range); }
+                            if (node.name == "phase") { return make_const(hgraph::Value{context.phase}, expression.range); }
+                            if (node.name == "evaluation_time") { return make_const(hgraph::Value{context.evaluation_time}, expression.range); }
+                        }
+                        if (target.is_const() && target.meta()->bundle_namespace() == "hgl.result") {
+                            const auto child = ordinary::PreparedResultPlan{target.meta()}.payload(target.value.view(), node.name == "value");
+                            return make_const(ordinary::PreparedValuePlan{child.binding()}.retain(child), expression.range);
                         }
                         if ((target.is_const() || target.kind == Slot::Kind::Delta) && target.value.view().is_bundle()) {
                             const auto field = target.value.view().as_bundle().field(node.name);
@@ -3302,6 +3397,7 @@ namespace hgl::wiring
                 case Slot::Kind::Iterator: return "iterator " + slot.name;
                 case Slot::Kind::Sequence: return slot.resolved ? describe_sequence(slot.elements) : slice(slot.range);
                 case Slot::Kind::Pack: return "parameter pack";
+                case Slot::Kind::Capture: return "captured connections";
                 case Slot::Kind::Void: return {};
             }
             return {};

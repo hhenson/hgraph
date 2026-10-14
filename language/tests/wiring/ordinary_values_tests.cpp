@@ -1,4 +1,5 @@
 #include <hgl/ordinary_values.h>
+#include <hgl/result_values.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -1098,4 +1099,36 @@ TEST_CASE("ordinary dictionary safe lookup preserves absence and zero with coded
     } catch (const hgl::ExecutionError &error) {
         CHECK(error.code() == "value.missing_key");
     }
+}
+
+TEST_CASE("tagged results retain only the selected payload and publish without registry work", "[ordinary][result]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    const PreparedResultPlan plan{result_meta(scalar_descriptor<Int>::value_meta(), scalar_descriptor<CanonicalError>::value_meta())};
+    Value normal{Int{7}};
+    CanonicalError failure{"value.missing_key", "missing price", ErrorContext{"owned", "evaluate", MIN_ST}};
+    Value failed{failure};
+    auto success = plan.make(true, normal.view());
+    auto error = plan.make(false, failed.view());
+    normal = Value{};
+    failed = Value{};
+    CHECK(plan.is_ok(success.view()));
+    CHECK_FALSE(plan.is_ok(error.view()));
+    CHECK(plan.payload(success.view(), true).checked_as<Int>() == 7);
+    CHECK(plan.payload(error.view(), false).checked_as<CanonicalError>().context->node == "owned");
+    CHECK_FALSE(success.view().as_bundle().at(2).valid());
+    CHECK_FALSE(error.view().as_bundle().at(1).valid());
+    const PreparedValuePlan prepared{success.schema()};
+    auto native = Result<Int, CanonicalError>::from_value(error.view(), prepared);
+    CHECK_FALSE(native.is_ok());
+    CHECK(native.error() == failure);
+    auto different_origin = failure;
+    different_origin.context = ErrorContext{"another", "stop", MAX_ET};
+    CHECK(different_origin == failure);
+    const auto locks = type_system_lock_count();
+    for (int index = 0; index < 100; ++index) {
+        CHECK(prepared.result_is_ok(success.view()));
+        CHECK(prepared.result_payload(error.view(), false).checked_as<CanonicalError>().message == "missing price");
+    }
+    CHECK(type_system_lock_count() == locks);
 }

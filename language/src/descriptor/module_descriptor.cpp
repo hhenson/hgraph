@@ -37,7 +37,11 @@ namespace hgl::descriptor
                 case TypeKind::Tuple: return TypeCategory::Tuple;
                 case TypeKind::List: return TypeCategory::List;
                 case TypeKind::Set: return TypeCategory::Set;
-                case TypeKind::Map: return TypeCategory::Map;
+                case TypeKind::Result: return TypeCategory::Result;
+case TypeKind::Error: return TypeCategory::Error;
+case TypeKind::ErrorContext: return TypeCategory::ErrorContext;
+                case TypeKind::Capture: return TypeCategory::Capture;
+case TypeKind::Map: return TypeCategory::Map;
                 case TypeKind::Rolling: return TypeCategory::Rolling;
                 case TypeKind::Atomic: return TypeCategory::Atomic;
                 case TypeKind::Delta: return TypeCategory::Delta;

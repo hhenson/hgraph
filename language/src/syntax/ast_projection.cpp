@@ -320,9 +320,10 @@ namespace hgl::syntax
                         type.kind = ast::TypeKind::Set;
                         type.children.push_back(project_type(only_child(id, SyntaxKind::Type), true));
                         break;
+                    case SyntaxKind::ResultType:
                     case SyntaxKind::MapType:
                         {
-                            type.kind                             = ast::TypeKind::Map;
+                            type.kind = node(id).kind == SyntaxKind::ResultType ? ast::TypeKind::Result : ast::TypeKind::Map;
                             const std::vector<SyntaxNodeId> types = child_nodes(id, SyntaxKind::Type);
                             require(types.size() == 2, "map type does not contain two types");
                             type.children.push_back(project_type(types[0], true));
@@ -351,6 +352,7 @@ namespace hgl::syntax
                         type.kind = ast::TypeKind::Reference;
                         type.children.push_back(project_type(only_child(id, SyntaxKind::Type), value_position));
                         break;
+                    case SyntaxKind::ErrorType: type.kind = ast::TypeKind::Error; break;
                     case SyntaxKind::SignalType: type.kind = ast::TypeKind::Signal; break;
                     case SyntaxKind::SchemaType: type.kind = ast::TypeKind::Schema; break;
                     default: malformed("expected a type production");
@@ -505,6 +507,10 @@ namespace hgl::syntax
                                                                ast::Index{result, index}});
                                 break;
                             }
+                        case SyntaxKind::PropagationPostfix:
+                            result = module_.add(ast::Expr{{module_.expr(result).range.begin, node(operation).range.end},
+                                                           ast::Unary{ast::UnaryOp::Propagate, result}});
+                            break;
                         case SyntaxKind::FieldPostfix:
                             {
                                 const std::vector<ast::Name> names = direct_names(operation, "a field name");
@@ -1020,7 +1026,8 @@ namespace hgl::syntax
                         case SyntaxKind::TupleType:
                         case SyntaxKind::ListType:
                         case SyntaxKind::SetType:
-                        case SyntaxKind::MapType:
+                        case SyntaxKind::ResultType:
+                    case SyntaxKind::MapType:
                         case SyntaxKind::RollingType:
                         case SyntaxKind::DeltaType:
                         case SyntaxKind::AtomicType:
