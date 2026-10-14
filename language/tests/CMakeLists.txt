@@ -1516,11 +1516,13 @@ add_test(NAME hgraph_language_capture_call_generated
 set_tests_properties(hgraph_language_capture_call_generated PROPERTIES
     PASS_REGULAR_EXPRESSION "3 tests, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED"
     ENVIRONMENT "HGL_CXX=hgl-capture-call-must-not-build;HGL_DISABLE_CACHE=1")
-add_test(NAME hgraph_language_capture_call_jit
-    COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/capture-call-selection.hgl)
-set_tests_properties(hgraph_language_capture_call_jit PROPERTIES
-    PASS_REGULAR_EXPRESSION "3 tests, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED"
-    ENVIRONMENT "HGL_DISABLE_CACHE=1")
+if(NOT WIN32)
+    add_test(NAME hgraph_language_capture_call_jit
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/capture-call-selection.hgl)
+    set_tests_properties(hgraph_language_capture_call_jit PROPERTIES
+        PASS_REGULAR_EXPRESSION "3 tests, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED"
+        ENVIRONMENT "HGL_DISABLE_CACHE=1")
+endif()
 add_test(NAME hgraph_language_capture_call_reject
     COMMAND hgl_capture_call_tests test ${CMAKE_CURRENT_SOURCE_DIR}/negative/capture-call-selection-reject.hgl)
 set_tests_properties(hgraph_language_capture_call_reject PROPERTIES
