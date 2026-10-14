@@ -284,3 +284,11 @@ keyed child removal cannot make a later child appear to be the original node.
 Active failure phase travels separately from retained diagnostic provenance, so
 an escaping child start/stop operation remains uncapturable inside evaluation,
 while a new evaluation failure may preserve an older error's context.
+
+Capture retains the checked ordinary call as a child expression in HGraph IR.
+Value lifting consumes the same callable selection, input mask and candidate
+metadata as an ordinary call. Native and operator selection are not reconstructed
+from a source name by either backend. Argument preparation precedes a captured
+operator's child boundary; a runtime node still uses the direct error endpoint.
+Generated evaluation adapters preserve the active lifecycle failure channel and
+convert only evaluation failures to typed node outcomes.

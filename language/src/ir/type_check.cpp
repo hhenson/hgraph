@@ -5007,11 +5007,25 @@ namespace hgl::ir
                         return;
                     }
                     if (args.empty()) { type_error(expression.range, "capture requires a temporal callable"); return; }
+                    const auto capture_callee = call.callee;
                     Call invocation;
                     invocation.callee = args.front();
                     invocation.arguments.assign(call.arguments.begin() + 1, call.arguments.end());
                     check_call(expression, invocation, {});
+                    if (expression.phase != Phase::Wiring) {
+                        diagnostics_.report(syntax::Category::Phase, expression.range, "capture requires a temporal call", "capture.phase");
+                    }
                     const auto output = expression.type;
+                    Expr selected_call = expression;
+                    selected_call.node = std::move(invocation);
+                    const ExprId selected{static_cast<std::uint32_t>(module_.exprs.size())};
+                    module_.exprs.push_back(std::move(selected_call));
+                    expr_state_.push_back(2);
+                    for (auto &[site, phase] : value_call_phases_) {
+                        static_cast<void>(phase);
+                        if (site == &expression) { site = &module_.expr(selected); }
+                    }
+                    expression.node = Call{capture_callee, {Argument{"", selected, expression.range}}};
                     std::vector<TypeId> connections;
                     if (output.valid() && type(canonical(output)).kind != TypeKind::Void) { connections.push_back(output); }
                     connections.push_back(make_type(TypeKind::Error));
@@ -5019,7 +5033,7 @@ namespace hgl::ir
                     expression.phase = Phase::Wiring;
                     expression.value_kind = ValueKind::Signal;
                     expression.effects |= Effect::WireGraph;
-                    expression.operation = Operation{.kind = OperationKind::Intrinsic, .target = target, .identity = name, .substitutions = std::move(expression.operation.substitutions)};
+                    expression.operation = Operation{.kind = OperationKind::Intrinsic, .target = target, .identity = name};
                     return;
                 }
                 if (name == "ok" || name == "err") {

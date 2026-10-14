@@ -181,6 +181,7 @@ namespace hgl::wiring
             gir::CallableId                         callable{};
             TypeBridge::Bindings                    generic_bindings{};
             std::unordered_map<std::uint32_t, Slot> bindings{};
+            std::unordered_map<std::uint32_t, Slot> selected_arguments{};
             std::optional<Slot>                     returned{};
             bool                                    in_test{false};
             std::vector<std::uint32_t>              *scoped_locals{nullptr};
@@ -1943,34 +1944,61 @@ namespace hgl::wiring
         }
 
         Slot Compiler::eval_intrinsic(std::string_view name, const std::vector<gir::Argument> &arguments, SourceRange range,
-                                      Frame &frame, gir::TypeId result_type, const std::vector<gir::Substitution> &substitutions) {
+                                      Frame &frame, gir::TypeId result_type, const std::vector<gir::Substitution> &) {
             if (name == "capture") {
-                const auto target = eval_value(arguments.front().value, frame);
-                if (target.kind != Slot::Kind::Function) { backend(range, "capture requires a temporal callable"); }
-                Frame callee;
-                std::vector<gir::Argument> actual(arguments.begin() + 1, arguments.end());
-                (void)call_function(target.callable, actual, range, frame, substitutions, &callee);
+                const auto &selected = value(arguments.front().value);
+                const auto &invocation = std::get<gir::Call>(selected.node);
+                const auto target = eval_value(invocation.callee, frame);
                 hgl::CapturedPorts ports;
-                if (callable(target.callable).kind == gir::CallableKind::RuntimeNode) {
-                    ports = hgl::capture_node(*wiring_, wire_function(target.callable, callee, range, true).port);
-                } else {
+                if (target.kind != Slot::Kind::Function) {
+                    Frame prepared = frame;
+                    for (const auto &argument : invocation.arguments) {
+                        prepared.selected_arguments.insert_or_assign(argument.value.value, eval_value(argument.value, frame));
+                    }
                     auto *parent = wiring_;
                     auto child = parent->child_wiring();
                     std::vector<hgraph::WiringPortRef> inputs;
                     std::vector<const hgraph::TSValueTypeMetaData *> schemas;
-                    for (const auto &parameter : callable(target.callable).parameters) {
-                        if (parameter.is_const) { continue; }
-                        auto &argument = callee.bindings.at(parameter.binding.value);
-                        schemas.push_back(argument.port.schema);
-                        inputs.push_back(argument.port);
-                        argument = make_port(hgraph::WiringPortRef::boundary_source(inputs.size() - 1, {}, schemas.back()), range);
+                    const auto rebind = [&](hgraph::WiringPortRef &port) {
+                        inputs.push_back(port);
+                        schemas.push_back(port.schema);
+                        port = hgraph::WiringPortRef::boundary_source(inputs.size() - 1, {}, port.schema);
+                    };
+                    for (const auto &argument : invocation.arguments) {
+                        auto &item = prepared.selected_arguments.at(argument.value.value);
+                        if (item.is_port()) { rebind(item.port); }
+                        for (auto &[name, port] : item.pack_ports) { static_cast<void>(name); rebind(port); }
                     }
                     wiring_ = &child;
                     auto restore = hgraph::make_scope_exit([&]() noexcept { wiring_ = parent; });
-                    auto output = invoke(target.callable, callee);
+                    auto output = eval_call(selected, invocation, prepared);
                     auto compiled = std::move(child).finish_subgraph(output.is_port() ? std::optional{output.port} : std::nullopt, std::move(schemas));
                     wiring_ = parent;
                     ports = hgl::capture_compiled(*parent, std::move(compiled), std::move(inputs));
+                } else {
+                    Frame callee;
+                    (void)call_function(target.callable, invocation.arguments, range, frame, selected.operation.substitutions, &callee);
+                    if (callable(target.callable).kind == gir::CallableKind::RuntimeNode) {
+                        ports = hgl::capture_node(*wiring_, wire_function(target.callable, callee, range, true).port);
+                    } else {
+                        auto *parent = wiring_;
+                        auto child = parent->child_wiring();
+                        std::vector<hgraph::WiringPortRef> inputs;
+                        std::vector<const hgraph::TSValueTypeMetaData *> schemas;
+                        for (const auto &parameter : callable(target.callable).parameters) {
+                            if (parameter.is_const) { continue; }
+                            auto &argument = callee.bindings.at(parameter.binding.value);
+                            schemas.push_back(argument.port.schema);
+                            inputs.push_back(argument.port);
+                            argument = make_port(hgraph::WiringPortRef::boundary_source(inputs.size() - 1, {}, schemas.back()), range);
+                        }
+                        wiring_ = &child;
+                        auto restore = hgraph::make_scope_exit([&]() noexcept { wiring_ = parent; });
+                        auto output = invoke(target.callable, callee);
+                        auto compiled = std::move(child).finish_subgraph(output.is_port() ? std::optional{output.port} : std::nullopt, std::move(schemas));
+                        wiring_ = parent;
+                        ports = hgl::capture_compiled(*parent, std::move(compiled), std::move(inputs));
+                    }
                 }
                 auto result = make_marker(Slot::Kind::Capture, range);
                 if (ports.value) { result.pack_ports.emplace_back("value", *ports.value); }
@@ -2546,6 +2574,7 @@ namespace hgl::wiring
         }
 
         Slot Compiler::eval_value(gir::ValueId id, Frame &frame) {
+            if (const auto selected = frame.selected_arguments.find(id.value); selected != frame.selected_arguments.end()) { return selected->second; }
             const gir::Value &expression = value(id);
             if (expression.constant) { return constant(*expression.constant, expression.range); }
             return std::visit(

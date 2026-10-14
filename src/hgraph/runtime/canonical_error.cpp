@@ -33,6 +33,9 @@ namespace hgraph {
         if (auto original = original_failure(failure)) { error = std::move(*original); }
         else { error.message = failure.what(); }
         if (!error.context) {
+            const auto active = execution_failure_phase(failure);
+            if (active == FailurePhase::Start) { phase = "start"; }
+            else if (active == FailurePhase::Stop) { phase = "stop"; }
             const auto *schema = node.schema();
             std::string identity = schema && schema->display_name ? schema->display_name : "node";
             identity += "@" + std::to_string(node.instance_identity());

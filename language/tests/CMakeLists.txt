@@ -1482,7 +1482,7 @@ set_tests_properties(hgraph_language_capture_generated PROPERTIES
 add_test(NAME hgraph_language_capture_source_errors
     COMMAND $<TARGET_FILE:hgl> test ${HGRAPH_SPEC}/language/examples/reject/error-capture.hgl)
 set_tests_properties(hgraph_language_capture_source_errors PROPERTIES
-    PASS_REGULAR_EXPRESSION "3 rejection cases, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED")
+    PASS_REGULAR_EXPRESSION "4 rejection cases, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED")
 
 add_executable(hgl_capture_runtime_tests wiring/capture_tests.cpp)
 target_compile_features(hgl_capture_runtime_tests PRIVATE cxx_std_23)
@@ -1503,3 +1503,32 @@ target_link_libraries(hgl_native_result_tests PRIVATE hgl_native_result_fixture 
 hgl_link_runtime_executable(hgl_native_result_tests)
 hgl_apply_warnings(hgl_native_result_tests)
 add_test(NAME hgraph_language_native_result COMMAND hgl_native_result_tests)
+
+hgl_add_module(hgl_capture_call_fixture STATIC HGL codegen/capture-call-selection.hgl)
+hgl_apply_warnings(hgl_capture_call_fixture)
+add_executable(hgl_capture_call_tests negative/capture_call_generated_driver.cpp)
+target_link_libraries(hgl_capture_call_tests PRIVATE hgl_capture_call_fixture hgl_eval_library hgl::driver)
+hgl_link_runtime_executable(hgl_capture_call_tests)
+hgl_stage_runtime_dlls(hgl_capture_call_tests)
+hgl_apply_warnings(hgl_capture_call_tests)
+add_test(NAME hgraph_language_capture_call_generated
+    COMMAND hgl_capture_call_tests test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/capture-call-selection.hgl)
+set_tests_properties(hgraph_language_capture_call_generated PROPERTIES
+    PASS_REGULAR_EXPRESSION "3 tests, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_CXX=hgl-capture-call-must-not-build;HGL_DISABLE_CACHE=1")
+add_test(NAME hgraph_language_capture_call_jit
+    COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/capture-call-selection.hgl)
+set_tests_properties(hgraph_language_capture_call_jit PROPERTIES
+    PASS_REGULAR_EXPRESSION "3 tests, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_DISABLE_CACHE=1")
+add_test(NAME hgraph_language_capture_call_reject
+    COMMAND hgl_capture_call_tests test ${CMAKE_CURRENT_SOURCE_DIR}/negative/capture-call-selection-reject.hgl)
+set_tests_properties(hgraph_language_capture_call_reject PROPERTIES
+    PASS_REGULAR_EXPRESSION "3 rejection cases, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_DISABLE_CACHE=1")
+
+add_executable(hgl_capture_call_effect_tests codegen/generated_capture_call_tests.cpp)
+target_link_libraries(hgl_capture_call_effect_tests PRIVATE hgl_capture_call_fixture Catch2::Catch2WithMain)
+hgl_link_runtime_executable(hgl_capture_call_effect_tests)
+hgl_apply_warnings(hgl_capture_call_effect_tests)
+add_test(NAME hgraph_language_capture_call_effects COMMAND hgl_capture_call_effect_tests)

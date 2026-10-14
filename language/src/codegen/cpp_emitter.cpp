@@ -4832,21 +4832,11 @@ namespace hgl::codegen
             return constructed_struct(type, fields, range);
         }
 
-        Value Emitter::eval_planned_intrinsic(const Value &callee, const gir::Call &call, SourceRange range, Frame &frame, gir::TypeId result_type, const std::vector<gir::Substitution> &substitutions) {
+        Value Emitter::eval_planned_intrinsic(const Value &callee, const gir::Call &call, SourceRange range, Frame &frame, gir::TypeId result_type, const std::vector<gir::Substitution> &) {
             const std::string &name = callee.name;
             if (name == "capture") {
-                const auto target = eval_planned_expr(call.arguments.front().value, frame);
-                if (target.kind != Value::Kind::Function) { backend(range, "capture requires a temporal callable"); }
-                std::vector<gir::Argument> arguments(call.arguments.begin() + 1, call.arguments.end());
-                gir::Value expression;
-                expression.range = range;
-                expression.operation.kind = gir::OperationKind::ExactFunction;
-                expression.operation.callable = target.callable;
-                expression.operation.substitutions = substitutions;
-                gir::Call invocation;
-                invocation.callee = call.arguments.front().value;
-                invocation.arguments = std::move(arguments);
-                return eval_planned_call(expression, invocation, frame, true);
+                const auto &selected = planned_value(call.arguments.front().value, range);
+                return eval_planned_call(selected, std::get<gir::Call>(selected.node), frame, true);
             }
             if (name == "ok" || name == "err") {
                 const HType type = planned_type(result_type, range);
@@ -5599,13 +5589,33 @@ namespace hgl::codegen
                                                           expression.range)
                                 : callee.name;
                         std::vector<std::string> planned_arguments;
+                        std::vector<std::string> retained_arguments;
+                        std::string preparation;
                         planned_arguments.reserve(call.arguments.size());
                         for (const gir::Argument &argument : call.arguments) {
                             std::string code = argument_code(eval_planned_expr(argument.value, frame));
+                            if (capture) {
+                                const auto local = "hgl_capture_arg_" + std::to_string(retained_arguments.size());
+                                preparation += "const auto " + local + " = " + code + "; ";
+                                retained_arguments.push_back(local);
+                                code = local;
+                            }
                             if (!argument.name.empty()) { code = "hgraph::arg<" + quote(argument.name) + ">(" + code + ")"; }
                             planned_arguments.push_back(std::move(code));
                         }
                         Value value = wire(marker, planned_arguments, expression.range);
+                        if (capture) {
+                            const bool outputless = expression.value_kind == hir::ValueKind::Void;
+                            if (!outputless) { value.code += ".template as<" + schema(planned_type(expression.type, expression.range), expression.range) + ">()"; }
+                            std::string parameters;
+                            for (const auto &argument : retained_arguments) { parameters += ", const auto &" + argument; }
+                            value.code = "[&]() { " + preparation + "return hgl::capture_call(w, [&](hgraph::Wiring &w" + parameters + ") { " +
+                                (outputless ? value.code + ";" : "return " + value.code + ";") + " }" +
+                                (retained_arguments.empty() ? "" : ", " + join(retained_arguments, ", ")) + "); }()";
+                            value.kind = Value::Kind::Capture;
+                            value.type.kind = HType::Kind::Capture;
+                            return value;
+                        }
                         if (expression.value_kind == hir::ValueKind::Void) { value.kind = Value::Kind::Void; }
                         return value;
                     }
@@ -7846,6 +7856,7 @@ namespace hgl::codegen
             out.line("return {};");
             out.close();
             out.open("catch (const hgraph::ExecutionFailure &hgl_failure)");
+            out.line("if (hgl_failure.active_phase() != hgraph::FailurePhase::Evaluate) { throw; }");
             out.line("return std::unexpected{hgl_failure.error()};");
             out.close();
             finish_hook(eval_placeholder, true, has_output);

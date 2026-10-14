@@ -3,6 +3,7 @@
 
 #include <hgraph/runtime/canonical_error.h>
 #include <hgraph/types/subgraph_wiring.h>
+#include <tuple>
 
 namespace hgl {
     struct CapturedPorts {
@@ -79,6 +80,48 @@ namespace hgl {
             result.error = hgraph::WiringPortRef::peered_source(source.peered_node(), {1}, error);
         } else { result.error = std::move(source); }
         return result;
+    }
+    template <typename Call, typename... Args>
+    [[nodiscard]] auto capture_call(hgraph::Wiring &wiring, Call call, const Args &...arguments) {
+        auto child = wiring.child_wiring();
+        std::vector<hgraph::WiringPortRef> inputs;
+        std::vector<const hgraph::TSValueTypeMetaData *> schemas;
+        const auto rebind_port = [&](hgraph::WiringPortRef &port) {
+            inputs.push_back(port);
+            schemas.push_back(port.schema);
+            port = hgraph::WiringPortRef::boundary_source(inputs.size() - 1, {}, port.schema);
+        };
+        const auto rebind = [&]<typename Arg>(const Arg &argument) {
+            if constexpr (requires { argument.erased(); typename Arg::schema; }) {
+                auto source = argument.erased();
+                rebind_port(source);
+                return hgraph::Port<typename Arg::schema>{child, std::move(source)};
+            } else {
+                auto result = argument;
+                if constexpr (requires { result.ports; }) {
+                    for (auto &port : result.ports) {
+                        if constexpr (requires { port.second; }) { rebind_port(port.second); }
+                        else { rebind_port(port); }
+                    }
+                }
+                return result;
+            }
+        };
+        // Braced initialization fixes argument preparation in written order.
+        auto rebound = std::tuple{rebind(arguments)...};
+        using Result = decltype(std::apply([&](const auto &...args) { return call(child, args...); }, rebound));
+        if constexpr (std::is_void_v<Result>) {
+            std::apply([&](const auto &...args) { call(child, args...); }, rebound);
+            auto compiled = std::move(child).finish_subgraph(std::nullopt, std::move(schemas));
+            auto ports = capture_compiled(wiring, std::move(compiled), std::move(inputs));
+            return Captured<void>{hgraph::Port<hgraph::TS<hgraph::CanonicalError>>{wiring, ports.error}};
+        } else {
+            auto output = std::apply([&](const auto &...args) { return call(child, args...); }, rebound);
+            auto compiled = std::move(child).finish_subgraph(output.erased(), std::move(schemas));
+            auto ports = capture_compiled(wiring, std::move(compiled), std::move(inputs));
+            return Captured<typename Result::schema>{hgraph::Port<typename Result::schema>{wiring, *ports.value},
+                hgraph::Port<hgraph::TS<hgraph::CanonicalError>>{wiring, ports.error}};
+        }
     }
     template <typename Schema, typename Graph, typename... Args>
     [[nodiscard]] Captured<Schema> capture_graph(hgraph::Wiring &wiring, const Args &...arguments) {
