@@ -1,5 +1,6 @@
 #include <hgraph/runtime/canonical_error.h>
 #include <hgraph/runtime/node.h>
+#include <hgraph/util/scope.h>
 namespace hgraph {
     template HGRAPH_EXPORT const MemoryUtils::StoragePlan &MemoryUtils::plan_for<CanonicalError>() noexcept;
     template HGRAPH_EXPORT const ValueOps &ops_for<CanonicalError>() noexcept;
@@ -11,9 +12,10 @@ namespace hgraph {
             if (const auto *known = dynamic_cast<const ExecutionFailure *>(&failure)) { return known->error(); }
             const auto *nested = dynamic_cast<const std::nested_exception *>(&failure);
             if (nested && nested->nested_ptr()) {
-                try { std::rethrow_exception(nested->nested_ptr()); }
-                catch (const std::exception &cause) { return original_failure(cause); }
-                catch (...) {}
+                return fallback_on_exception(std::optional<CanonicalError>{}, [&]() -> std::optional<CanonicalError> {
+                    try { std::rethrow_exception(nested->nested_ptr()); }
+                    catch (const std::exception &cause) { return original_failure(cause); }
+                });
             }
             return std::nullopt;
         }
@@ -22,9 +24,10 @@ namespace hgraph {
         if (const auto *known = dynamic_cast<const ExecutionFailure *>(&failure)) { return known->active_phase(); }
         const auto *nested = dynamic_cast<const std::nested_exception *>(&failure);
         if (nested && nested->nested_ptr()) {
-            try { std::rethrow_exception(nested->nested_ptr()); }
-            catch (const std::exception &cause) { return execution_failure_phase(cause); }
-            catch (...) {}
+            return fallback_on_exception(FailurePhase::Evaluate, [&]() -> FailurePhase {
+                try { std::rethrow_exception(nested->nested_ptr()); }
+                catch (const std::exception &cause) { return execution_failure_phase(cause); }
+            });
         }
         return FailurePhase::Evaluate;
     }

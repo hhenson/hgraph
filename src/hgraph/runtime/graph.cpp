@@ -73,25 +73,25 @@ constexpr std::size_t invalid_cursor = std::numeric_limits<std::size_t>::max();
                                              const char *phase) {
   const std::string prefix =
       node_identity(node, index) + ' ' + phase + " failed: ";
-  try {
-    throw;
-  } catch (const std::exception &e) {
-    std::string message = prefix + e.what();
-    static_cast<void>(fallback_on_exception(false, [&] {
-      const ErrorCaptureOptions options =
-          node.graph().root().executor().error_capture_options();
-      const NodeErrorFields details = capture_node_error(
-          node, node.graph().evaluation_time(), e.what(), options);
-      if (!details.activation_back_trace.empty()) {
-        message += "\nActivation Back Trace:\n";
-        message += details.activation_back_trace;
-      }
-      return true;
-    }));
-    std::throw_with_nested(std::runtime_error(message));
-  } catch (...) {
-    throw std::runtime_error(prefix + "unknown error");
-  }
+  const auto active = std::current_exception();
+  const auto *error = fallback_on_exception<const std::exception *>(nullptr, [&]() -> const std::exception * {
+    try { std::rethrow_exception(active); }
+    catch (const std::exception &failure) { return &failure; }
+  });
+  if (error == nullptr) { throw std::runtime_error(prefix + "unknown error"); }
+  std::string message = prefix + error->what();
+  static_cast<void>(fallback_on_exception(false, [&] {
+    const ErrorCaptureOptions options =
+        node.graph().root().executor().error_capture_options();
+    const NodeErrorFields details = capture_node_error(
+        node, node.graph().evaluation_time(), error->what(), options);
+    if (!details.activation_back_trace.empty()) {
+      message += "\nActivation Back Trace:\n";
+      message += details.activation_back_trace;
+    }
+    return true;
+  }));
+  std::throw_with_nested(std::runtime_error(message));
 }
 
 /** Render a graph-schedule entry for dump(): sentinels by name, else raw ticks.

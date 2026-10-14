@@ -292,3 +292,9 @@ from a source name by either backend. Argument preparation precedes a captured
 operator's child boundary; a runtime node still uses the direct error endpoint.
 Generated evaluation adapters preserve the active lifecycle failure channel and
 convert only evaluation failures to typed node outcomes.
+
+Unknown host-exception handling uses the owned ``scope.h`` exception boundaries.
+Nested exception inspection retains the exception object while borrowing its
+standard exception view. Capture performs output mutation and lifecycle-phase
+propagation after that inspection boundary, so those operations are not
+suppressed by the host-exception fallback.
