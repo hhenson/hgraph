@@ -242,7 +242,7 @@ Deferred (recorded, not yet built):
 - child-graph reset/rebuild policy beyond finishing a captured evaluation pass.
 
 HGL tagged outcomes and canonical diagnostics
---------------------------------------------
+---------------------------------------------
 
 HGL follows the pinned ``result-errors.md`` and ``error-capture.md`` source
 contracts. The compiler records Result and Error as canonical types and records
