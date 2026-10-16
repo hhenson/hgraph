@@ -132,9 +132,10 @@ without a value-copying conversion node. Generic test-harness calls bind their
 signature from concrete publication elements before validating input and output
 profiles, and retain those substitutions while wiring replay and recording.
 
-The existing scalar target-link policy also suppresses a sample when a REF
-designates a bound endpoint that has never published; explicit producer
-invalidation remains observable. Sampled structural ``delta_value`` observations use
+The scalar target-link policy suppresses a sample when a REF designates an
+invalid endpoint, including an unpublished or explicitly invalidated producer.
+Invalidation still notifies and schedules active consumers; an ordinary invalid
+scalar input reads unmodified with no current delta. Sampled structural ``delta_value`` observations use
 ``capture_delta`` to preserve the target-link strategy's sampled transition,
 including dictionary removals and current children, rather than borrowing a
 producer delta from an earlier cycle.
@@ -146,8 +147,22 @@ A generated structural delta observation keeps its sampled ``Value`` owner in
 borrowed views, so holding a ``let`` does not copy them per tick. Views of sampled
 storage are computed from the current owner after moves and local bindings;
 generator cache retention materializes an independent ordinary delta before it
-crosses a yield boundary. Scalar invalidation retains the forwarding link's
-source-notification stamp independently of designation sampling and the
-producer's cleared payload clock. Rebind resets that stamp, move transfers it,
-and unbind or source disposal clears it. Tracking/sample clocks and structural
-withdrawal transitions retain their existing behavior.
+crosses a yield boundary. Scalar invalidation keeps notification/scheduling
+separate from payload modification. Tracking/sample clocks and structural
+withdrawal transitions retain their existing behavior, including the distinct
+child-change observations of a still-valid assembled structure.
+
+
+Live map key connections
+------------------------
+
+Graph indexing of a non-atomic map, including a map reached through an outer
+REF, preserves the native ``getitem_`` selector's REF result. The checked
+Index result is ``ref<V>``; ordinary dictionary values and atomic payloads keep
+their value lookup rules. Both backends use the existing native dictionary
+selector and ordinary input-side REF binding, including parent-map retargeting.
+No child payload is read during wiring and no value-forwarding node is added.
+The selector observes structural membership changes, retains a stable child
+position while it exists, and deduplicates equal designations. The pinned
+``map-key-connections.md`` specification owns absence, sampling and lifetime
+semantics; native and generated HGL controls exercise those observations.

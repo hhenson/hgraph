@@ -416,6 +416,25 @@ namespace
 }
 
 namespace {
+    struct ScalarInvalidationNotification {
+        static void eval(hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
+                         hgraph::Out<hgraph::TS<hgraph::Int>> out) {
+            out.set((value.valid() ? 2 : 0) + (value.modified() ? 1 : 0));
+        }
+    };
+    template <bool FollowReference>
+    struct ScalarInvalidationNotificationGraph {
+        static hgraph::Port<hgraph::TS<hgraph::Int>> compose(hgraph::Wiring &w,
+            hgraph::Port<hgraph::TS<hgraph::Int>> index, hgraph::Port<hgraph::TS<hgraph::Int>> step) {
+            auto producer = hgraph::wire<ExplicitScalarInvalidation>(w, step);
+            if constexpr (FollowReference) {
+                auto unpublished = hgraph::wire<hgraph::stdlib::nothing, hgraph::TS<hgraph::Int>>(w);
+                auto selected = hgraph::wire<ChooseOpaqueReference>(w, index, producer, unpublished);
+                return hgraph::wire<ScalarInvalidationNotification>(w, selected);
+            } else { return hgraph::wire<ScalarInvalidationNotification>(w, producer); }
+        }
+    };
+
     template <int Mode>
     struct ExplicitScalarInvalidationGraph
     {
@@ -434,7 +453,7 @@ namespace {
     };
 }
 
-TEST_CASE("producer invalidation remains observable through scalar REF and SIGNAL inputs",
+TEST_CASE("producer invalidation notifies while scalar REF and SIGNAL inputs read unmodified",
           "[reference][signal][invalidation]") {
     using namespace hgraph;
     using namespace hgraph::testing;
@@ -443,9 +462,13 @@ TEST_CASE("producer invalidation remains observable through scalar REF and SIGNA
     const auto step = values<Int>(0, 1, 2, 3, 4, 5);
     // Initially unset, then publish, invalidate, stay silent, republish. The
     // final cycle publishes on the old target before selecting an unset one.
-    CHECK_OUTPUT(eval_node<ExplicitScalarInvalidationGraph<0>>(index, step), values<Int>(0, 3, 1, 0, 3, 3));
-    CHECK_OUTPUT(eval_node<ExplicitScalarInvalidationGraph<1>>(index, step), values<Int>(0, 3, 1, 0, 3, 0));
-    CHECK_OUTPUT(eval_node<ExplicitScalarInvalidationGraph<2>>(index, step), values<Int>(0, 3, 1, 0, 3, 0));
+    CHECK_OUTPUT(eval_node<ExplicitScalarInvalidationGraph<0>>(index, step), values<Int>(0, 3, 0, 0, 3, 3));
+    CHECK_OUTPUT(eval_node<ExplicitScalarInvalidationGraph<1>>(index, step), values<Int>(0, 3, 0, 0, 3, 0));
+    CHECK_OUTPUT(eval_node<ExplicitScalarInvalidationGraph<2>>(index, step), values<Int>(0, 3, 0, 0, 3, 0));
+    // No independent step input wakes these consumers: the invalidation itself
+    // must schedule them even though their scalar metadata is unmodified.
+    CHECK_OUTPUT(eval_node<ScalarInvalidationNotificationGraph<false>>(index, step), values<Int>(none, 3, 0, none, 3, 3));
+    CHECK_OUTPUT(eval_node<ScalarInvalidationNotificationGraph<true>>(index, step), values<Int>(none, 3, 0, none, 3, 0));
 }
 
 TEST_CASE("TimeSeriesReference: alternative identities reseed after registry reset")

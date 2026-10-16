@@ -285,6 +285,7 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     test_reduce_checkpoint.cpp
     test_std_nodes.cpp
     test_std_operators.cpp
+    test_map_key_connections.cpp
     test_std_type_registration.cpp
     test_switch.cpp
     test_switch_arguments.cpp

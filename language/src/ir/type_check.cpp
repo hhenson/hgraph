@@ -3779,7 +3779,13 @@ namespace hgl::ir
                 TypeId base_id = ref_projection ? type(canonical(target.type)).children.front() : unwrap_atomic(target.type);
                 if (!base_id.valid()) { return; }
                 const Type &base = type(canonical(base_id));
-                if (ref_projection) {
+                if (base.kind == TypeKind::Map && base.children.size() == 2U) {
+                    require_assignable(base.children.front(), index, "map key");
+                    const bool connection = target.phase == Phase::Wiring && !runtime_owner(expression.owner) &&
+                        type(canonical(target.type)).kind != TypeKind::Atomic;
+                    expression.type = connection && !reference(base.children[1])
+                        ? make_type(TypeKind::Reference, {base.children[1]}) : base.children[1];
+                } else if (ref_projection) {
                     const auto *position = index.constant ? std::get_if<std::int64_t>(&*index.constant) : nullptr;
                     const auto *size = base.size.valid() && module_.expr(base.size).constant
                                            ? std::get_if<std::int64_t>(&*module_.expr(base.size).constant) : nullptr;
@@ -3804,9 +3810,6 @@ namespace hgl::ir
                 } else if (base.kind == TypeKind::List && !base.children.empty()) {
                     if (!same(index.type, scalar(ScalarType::I64))) { type_error(index.range, "list index must be i64"); }
                     expression.type = base.children.front();
-                } else if (base.kind == TypeKind::Map && base.children.size() == 2U) {
-                    require_assignable(base.children.front(), index, "map key");
-                    expression.type = base.children[1];
                 } else {
                     type_error(target.range, "this type cannot be indexed");
                 }
