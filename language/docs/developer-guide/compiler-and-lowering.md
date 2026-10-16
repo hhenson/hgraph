@@ -2031,8 +2031,9 @@ expression is read from the syntax tree.
   Runtime `map`, `set`, and `list` parameters retain their typed selectors;
   `keys`, `values`, `elements`, and `items` become ordinary C++ range loops over current,
   `modified`, `added`, or `removed` views. A concise iterator predicate is
-  inlined as a readable loop guard. A set member or map key of a generic type
-  has no concrete C++ type for the typed selectors to convert to, so its
+  inlined as a readable loop guard. A set member or map key of a generic or
+  enum type has no C++ type the typed selectors can convert to (an enum's
+  generated struct is not its registered storage type), so its
   iteration, `contains`, and set-output `insert`/`upsert`/`remove`/`discard`
   go through the untyped `TSSInputView`/`TSDInputView`/`TSSOutputView` value
   views (`hgl/generic_collections.h`), keeping the typed helpers' strictness

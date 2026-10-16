@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Enum set members and map keys work in runtime bodies: iteration,
+  `contains`, member comparison, set and map output mutations, and
+  `out[key] = value`, including enum literals such as `Mode::busy` as
+  members, keys, and membership probes. Iterating an enum set failed every
+  tick with "checked_as<T> type mismatch", and an enum literal passed to a
+  set or map produced C++ that did not compile.
 - `str(value)` accepts an enum value, as the syntax guide specifies
   (`str(Mode::first)` is `"first"`), and a generic value whose type
   parameter a `requires T in {...}` membership constrains to scalar types;

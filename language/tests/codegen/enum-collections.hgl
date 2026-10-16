@@ -1,0 +1,46 @@
+module checks.enum_collections
+
+# Enum set members and map keys in runtime bodies. An enum's generated C++
+# struct is not the registered storage type the typed TSS/TSD selectors
+# convert to, so members and keys go through value views, and an enum
+# literal can be a member, a key, or a membership probe.
+enum Mode { idle, busy, done }
+export fn copy_modes(ts: set<Mode>) -> set<Mode> {
+    inject out
+    when {
+        for member in elements(ts, added) { upsert(out, member) }
+        for member in elements(ts, removed) { discard(out, member) }
+    }
+}
+export fn busy_seen(ts: set<Mode>) -> bool { when { return contains(ts, Mode::busy) } }
+export fn force_idle(ts: set<Mode>) -> set<Mode> {
+    inject out
+    when {
+        for member in elements(ts, added) { if member == Mode::busy { upsert(out, Mode::idle) } else { upsert(out, member) } }
+        if contains(ts, Mode::done) { discard(out, Mode::idle) }
+    }
+}
+export fn count_by_mode(book: map<Mode, i64>) -> i64 {
+    when {
+        var total = 0
+        for key, value in items(book) { if key != Mode::done && valid(value) { total += value } }
+        return total
+    }
+}
+export fn tag_modes(ts: set<Mode>) -> map<Mode, str> {
+    inject out
+    when {
+        for member in elements(ts, added) { out[member] = str(member) }
+        if contains(ts, Mode::done) { upsert(out, Mode::done, "finished") }
+    }
+}
+test enum_members_and_keys {
+    assert eval(copy_modes, ts: [delta<set<Mode>>(added: [Mode::idle, Mode::busy]), delta<set<Mode>>(removed: [Mode::idle])])
+        == [delta<set<Mode>>(added: [Mode::idle, Mode::busy]), delta<set<Mode>>(removed: [Mode::idle])]
+    assert eval(busy_seen, ts: [delta<set<Mode>>(added: [Mode::idle]), delta<set<Mode>>(added: [Mode::busy])]) == [false, true]
+    assert eval(force_idle, ts: [delta<set<Mode>>(added: [Mode::busy]), delta<set<Mode>>(added: [Mode::done])])
+        == [delta<set<Mode>>(added: [Mode::idle]), delta<set<Mode>>(added: [Mode::done], removed: [Mode::idle])]
+    assert eval(count_by_mode, book: [delta<map<Mode, i64>>(upsert: [Mode::idle: 2, Mode::done: 5, Mode::busy: 3])]) == [5]
+    assert eval(tag_modes, ts: [delta<set<Mode>>(added: [Mode::idle]), delta<set<Mode>>(added: [Mode::done])])
+        == [delta<map<Mode, str>>(upsert: [Mode::idle: "idle"]), delta<map<Mode, str>>(upsert: [Mode::done: "finished"])]
+}
