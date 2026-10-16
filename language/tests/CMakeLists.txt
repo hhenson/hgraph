@@ -451,6 +451,7 @@ hgl_add_module(hgl_codegen_fixture STATIC SOURCE_PARTS 3 HGL
     codegen/output-reads.hgl
     codegen/str-values.hgl
     codegen/enum-collections.hgl
+    codegen/runtime-packs.hgl
     ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/test-contexts.hgl
     ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/operator-properties.hgl
     ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/conditional-early-return.hgl
@@ -1110,6 +1111,11 @@ if(UNIX)
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/enum-collections.hgl
     )
     set_tests_properties(hgraph_language_test_enum_collections PROPERTIES PASS_REGULAR_EXPRESSION "1 test, 0 failed")
+    add_test(
+        NAME hgraph_language_test_runtime_packs
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime-packs.hgl
+    )
+    set_tests_properties(hgraph_language_test_runtime_packs PROPERTIES PASS_REGULAR_EXPRESSION "1 test, 0 failed")
     add_test(NAME hgraph_language_test_nested_reference_fields
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/nested-reference-fields.hgl)
     set_tests_properties(hgraph_language_test_nested_reference_fields PROPERTIES

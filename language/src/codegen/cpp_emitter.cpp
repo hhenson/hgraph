@@ -4169,6 +4169,10 @@ namespace hgl::codegen
                 return sequence ? supplied.at(argument.value.value) : eval_planned_expr(argument.value, frame);
             };
             std::vector<std::string> args(target.parameters.size());
+            // The same arguments as an operator call spells them, for a runtime
+            // node wired through its contract: a positional pack's ports in
+            // order, a keyword pack's ports as hgraph::arg<"name">(port).
+            std::vector<std::string> operator_args;
             for (std::size_t index = 0; index < target.parameters.size(); ++index) {
                 const gir::Parameter &parameter = target.parameters[index];
                 const HType           type      = planned_type(parameter.type, target.range);
@@ -4185,6 +4189,10 @@ namespace hgl::codegen
                             // the callee's selector type, even when its source
                             // parameter has a different name.
                             args[index] = wrapper + "{" + forwarded.code + ".ports}";
+                            if (target.kind == gir::CallableKind::RuntimeNode && parameter.pack == gir::ParameterPack::Keyword) {
+                                unsupported(range, "forwarding a named parameter pack to a runtime function");
+                            }
+                            operator_args.push_back(args[index]);
                             continue;
                         }
                     }
@@ -4201,6 +4209,9 @@ namespace hgl::codegen
                             ".erased()";
                         entries.push_back(
                             parameter.pack == gir::ParameterPack::Keyword ? "{" + quote(source.name) + ", " + port + "}" : port);
+                        operator_args.push_back(parameter.pack == gir::ParameterPack::Keyword
+                                                    ? "hgraph::arg<" + quote(source.name) + ">(hgraph::Port<void>{w, " + port + "})"
+                                                    : "hgraph::Port<void>{w, " + port + "}");
                     }
                     args[index] = wrapper + "{{" + join(entries, ", ") + "}}";
                     continue;
@@ -4214,6 +4225,7 @@ namespace hgl::codegen
                 }
                 args[index] = parameter.is_const ? as_const(argument, type, argument.range, "parameter '" + parameter.name + "'")
                                                  : as_port(argument, type, argument.range);
+                operator_args.push_back(args[index]);
             }
             const auto prepared_call = [&](std::string code) {
                 return preparation.empty() ? code : "[&]() { " + preparation + "return " + code + "; }()";
@@ -4260,6 +4272,21 @@ namespace hgl::codegen
                 use("w");
                 value = make_port("hgl::ordinary::preflight_wire<" + callable_cpp_name(id) + ">(w" +
                                   (args.empty() ? "" : ", " + join(args, ", ")) + ")", result, range);
+            } else if (target.kind == gir::CallableKind::RuntimeNode &&
+                       std::ranges::any_of(target.parameters, [](const gir::Parameter &parameter) {
+                           return parameter.pack != gir::ParameterPack::None;
+                       })) {
+                // A pack is an aggregate VarIn / VarKwIn selector, which the direct
+                // wire<Node> path does not accept; the node's registered operator
+                // contract dispatches the tail, as an `operator` + `impl fn` call does.
+                const std::string contract =
+                    (target.visibility == gir::CallableVisibility::Export ? "operators::" : "operator_contracts::") +
+                    callable_cpp_name(id);
+                use("w");
+                value = wire(contract, operator_args, range, result);
+                if (has_planned_result(target.result, target.range) && !symbolic(result)) {
+                    value.code += ".as<" + schema(result, range) + ">()";
+                }
             } else { value = wire(callable_cpp_name(id), args, range, result); }
             // Source generics and erased ordinary const selectors both make
             // native nodes generic. Recover an independently concrete result
