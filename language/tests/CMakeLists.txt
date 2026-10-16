@@ -1554,3 +1554,18 @@ target_link_libraries(hgl_held_delta_owner_tests PRIVATE hgl::wiring_types hgrap
 hgl_link_runtime_executable(hgl_held_delta_owner_tests)
 hgl_apply_warnings(hgl_held_delta_owner_tests)
 add_test(NAME hgraph_language_held_delta_owner COMMAND hgl_held_delta_owner_tests)
+
+
+# MAP-CONN-1--4: compile the same frozen source cases on every host.
+hgl_add_module(hgl_map_key_connections_fixture STATIC HGL
+    ${HGRAPH_SPEC}/language/examples/map-key-connections.hgl)
+add_executable(hgl_map_key_connections_tests negative/map_key_connections_generated_driver.cpp)
+target_link_libraries(hgl_map_key_connections_tests PRIVATE hgl_map_key_connections_fixture hgl_eval_library hgl::driver)
+hgl_link_runtime_executable(hgl_map_key_connections_tests)
+hgl_stage_runtime_dlls(hgl_map_key_connections_tests)
+hgl_apply_warnings(hgl_map_key_connections_tests)
+add_test(NAME hgraph_language_map_key_connections_generated
+    COMMAND hgl_map_key_connections_tests test ${HGRAPH_SPEC}/language/examples/map-key-connections.hgl)
+set_tests_properties(hgraph_language_map_key_connections_generated PROPERTIES
+    PASS_REGULAR_EXPRESSION "1 test, 0 failed" FAIL_REGULAR_EXPRESSION "FAILED"
+    ENVIRONMENT "HGL_CXX=hgl-map-key-must-not-build;HGL_DISABLE_CACHE=1")

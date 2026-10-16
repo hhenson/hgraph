@@ -4908,3 +4908,33 @@ TEST_CASE("error constructors admit nullable code but require a present string m
         CHECK_FALSE(complete(unit));
     }
 }
+
+
+TEST_CASE("graph map indexing has a REF result while value lookup keeps its payload type", "[ir][map][reference]") {
+    Lowered unit{R"(
+module checks.map_index_type
+fn ordinary(book: map<str, i64>, key: str) -> ref<i64> => book[key]
+fn referenced(book: ref<map<str, i64>>, key: str) -> ref<i64> => book[key]
+fn atomic_payload(book: atomic<map<str, i64>>, key: str) -> i64 { when { return book[key] } }
+const fn scalar(book: map<str, i64>, key: str) -> i64 => book[key]
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    const bool accepted = complete(unit);
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(accepted);
+    std::size_t references = 0, payloads = 0;
+    for (const auto &expression : unit.hir.exprs) {
+        if (!std::holds_alternative<hir::Index>(expression.node)) { continue; }
+        const auto &type = unit.hir.types.at(expression.type.value);
+        if (type.kind == hir::TypeKind::Reference) { ++references; }
+        else { ++payloads; }
+    }
+    CHECK(references == 2);
+    CHECK(payloads == 2);
+    Lowered opaque{R"(
+module checks.opaque_map
+fn forbidden(book: ref<map<str, i64>>, key: str) -> i64 { when { return book[key] } }
+)"};
+    REQUIRE_FALSE(opaque.diagnostics.has_errors());
+    CHECK_FALSE(complete(opaque));
+}
