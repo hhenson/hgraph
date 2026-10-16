@@ -202,6 +202,19 @@ output can move, recorded when the link binds. ``TypeRegistry::ref`` is
 idempotent (``ref(REF[X])`` is ``REF[X]``), so wrapping a possibly-referenced
 schema is ``ref(x)``, never ``ref(dereference(x))``.
 
+**A structure of references refreshes per leaf.** A value consumer of a bundle
+or fixed list whose children are references (``if_``, ``route_by_index``)
+binds to the output's interior from-REF alternative, whose per-child links
+follow the references. A producer writes those children one at a time, and
+the parent output is marked modified, and notifies, only at the first child
+write of a cycle. The alternative therefore observes every reference leaf as
+well as the root: a leaf's notification follows its own write, so each
+retargeted child is sampled with its new reference in the cycle it changes
+(runtime spec TS-25, ``cases_references.md`` REF-PER-CHILD). Re-applying an
+unchanged reference is a no-op, so the root's earlier refresh is harmless.
+Forwarding sources, whose children can be retargeted, keep the root
+notification alone.
+
 **SIGNAL input compatibility.** In input position, ``SIGNAL`` follows the same
 rule as ordinary node / graph wiring: an ``In<..., SIGNAL>`` or ``Port<SIGNAL>``
 overload accepts any time-series source and observes only its tick / modified

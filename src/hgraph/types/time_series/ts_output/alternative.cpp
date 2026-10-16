@@ -2039,6 +2039,32 @@ namespace hgraph::detail
             InteriorFromRefAlternativeState *owner{nullptr};
         };
 
+        /**
+         * Re-applies one reference leaf of a fixed (TSL / TSB) source when that
+         * leaf is written. The root notifier fires at the first child write of a
+         * cycle, before later siblings are written, and a parent is marked
+         * modified only once per cycle; a leaf's own notification follows its
+         * write, so each changed reference is applied with its new value.
+         */
+        struct LeafNotifier final : Notifiable
+        {
+            LeafNotifier(InteriorFromRefAlternativeState &owner, std::vector<std::size_t> path) noexcept
+                : owner{&owner}, path{std::move(path)}
+            {
+            }
+
+            void notify(DateTime modified_time) override
+            {
+                if (owner != nullptr) { owner->refresh_leaf(path, modified_time); }
+            }
+
+            InteriorFromRefAlternativeState *owner{nullptr};
+            /// Child positions from the plan root to the reference leaf.
+            std::vector<std::size_t> path;
+            /// The leaf's source endpoint this notifier observes.
+            TSOutputHandle subscribed{};
+        };
+
         InteriorFromRefAlternativeState(const TSValueTypeMetaData &requested_schema, const TSOutputView &source,
                                        bool initialise = true)
             : requested_schema{&requested_schema},
@@ -2058,6 +2084,7 @@ namespace hgraph::detail
 
         ~InteriorFromRefAlternativeState() noexcept
         {
+            unsubscribe_leaves(false);
             if (!source.bound()) { return; }
             static_cast<void>(fallback_on_exception(false, [&] {
                 auto view = source.data_view();
@@ -2072,6 +2099,24 @@ namespace hgraph::detail
         TSData                     data{};
         TSOutputHandle             source{};
         SourceNotifier             notifier;
+        std::vector<std::unique_ptr<LeafNotifier>> leaf_notifiers{};
+
+        /** Apply the reference leaf at ``path`` from its current source value. */
+        void refresh_leaf(const std::vector<std::size_t> &path, DateTime modified_time)
+        {
+            if (modified_time == MIN_DT || requested_schema == nullptr || !source.bound()) { return; }
+            const FromRefInteriorPlan *leaf = &plan;
+            auto target      = data.view();
+            auto source_view = source.view(modified_time);
+            for (const std::size_t index : path)
+            {
+                const auto &child_plan = leaf->children[index];
+                target      = endpoint_child_view(target, index);
+                source_view = output_child_view(source_view, *leaf->source_schema, child_plan.source_index);
+                leaf        = &child_plan;
+            }
+            apply_from_ref_interior(*leaf, target, source_view, modified_time);
+        }
 
         [[nodiscard]] TSOutputHandle handle(const TSOutput *output) noexcept
         {
@@ -2136,12 +2181,67 @@ namespace hgraph::detail
 
         void subscribe_source()
         {
-            if (source.bound()) { source.data_view().subscribe(&notifier); }
+            if (!source.bound()) { return; }
+            source.data_view().subscribe(&notifier);
+            subscribe_leaves();
+        }
+
+        /** Observe each reference leaf of a fixed source (see LeafNotifier). A
+            forwarding source can retarget its children, so it keeps the root
+            notification alone, as do reference and keyed roots, whose own
+            notification already follows the write. */
+        void subscribe_leaves()
+        {
+            if (plan.ops != &from_ref_interior_fixed_ops()) { return; }
+            const auto root = source.view(MIN_DT);
+            if (root.forwarding()) { return; }
+            std::vector<std::size_t> path;
+            collect_leaves(plan, root, path);
+        }
+
+        void collect_leaves(const FromRefInteriorPlan &node, const TSOutputView &node_source, std::vector<std::size_t> &path)
+        {
+            for (std::size_t index = 0; index < node.children.size(); ++index)
+            {
+                const auto &child_plan = node.children[index];
+                const bool  reference  = child_plan.ops == &from_ref_interior_reference_ops();
+                const bool  fixed      = child_plan.ops == &from_ref_interior_fixed_ops();
+                if (!reference && !fixed) { continue; }
+                auto child_source = output_child_view(node_source, *node.source_schema, child_plan.source_index);
+                path.push_back(index);
+                if (fixed) { collect_leaves(child_plan, child_source, path); }
+                else
+                {
+                    auto leaf        = std::make_unique<LeafNotifier>(*this, path);
+                    leaf->subscribed = child_source.handle();
+                    leaf->subscribed.data_view().subscribe(leaf.get());
+                    leaf_notifiers.push_back(std::move(leaf));
+                }
+                path.pop_back();
+            }
+        }
+
+        void unsubscribe_leaves(bool strict) noexcept
+        {
+            for (auto &leaf : leaf_notifiers)
+            {
+                if (!leaf->subscribed.bound()) { continue; }
+                static_cast<void>(fallback_on_exception(false, [&] {
+                    auto view = leaf->subscribed.data_view();
+                    if (strict || (view.valid() && view.tracking().observers.contains(leaf.get())))
+                    {
+                        view.unsubscribe(leaf.get());
+                    }
+                    return true;
+                }));
+            }
+            leaf_notifiers.clear();
         }
 
         void unsubscribe_source(bool strict = true) noexcept
         {
             if (proxy_backed() || !source.bound()) { return; }
+            unsubscribe_leaves(strict);
             static_cast<void>(fallback_on_exception(false, [&] {
                 auto view = source.data_view();
                 if (strict || (view.valid() && view.tracking().observers.contains(&notifier)))

@@ -1902,6 +1902,41 @@ namespace
         }
     };
 
+    /** route_by_index consumed as a whole list of values: the consumer's children
+        follow each child reference, so re-routing rebinds them. */
+    struct RouteByIndexWholeListGraph
+    {
+        static constexpr auto name = "route_by_index_whole_list_graph";
+
+        static Port<TSL<TS<Int>, 2>> compose(Wiring &w, Port<TS<Int>> index, Port<TS<Int>> ts)
+        {
+            return wire<stdlib::route_by_index, TSL<REF<TS<Int>>, 2>>(w, index, ts).as<TSL<TS<Int>, 2>>();
+        }
+    };
+
+    struct RouteByIndexElementOneGraph
+    {
+        static constexpr auto name = "route_by_index_element_one_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> index, Port<TS<Int>> ts)
+        {
+            auto routed = wire<stdlib::route_by_index, TSL<REF<TS<Int>>, 2>>(w, index, ts).as<TSL<REF<TS<Int>>, 2>>();
+            return tsl_element(routed, 1).as<TS<Int>>();
+        }
+    };
+
+    /** if_ consumed as a whole bundle of values: both fields re-route together. */
+    struct IfWholeBundleGraph
+    {
+        static constexpr auto name = "if_whole_bundle_graph";
+        using Values = UnNamedTSB<Field<"true", TS<Int>>, Field<"false", TS<Int>>>;
+
+        static Port<Values> compose(Wiring &w, Port<TS<Bool>> condition, Port<TS<Int>> ts)
+        {
+            return wire<stdlib::if_, IfIntRefBundle>(w, condition, ts).as<Values>();
+        }
+    };
+
     struct DynamicTslGetitemGraph
     {
         static constexpr auto name = "dynamic_tsl_getitem_graph";
@@ -4916,6 +4951,31 @@ TEST_CASE("std operators: control operators cover variadic booleans merge and se
     CHECK_OUTPUT(eval_node<RouteByIndexSlotTwoGraph>(values<Int>(0, 2, none, 1, 2),
                                                      values<Int>(10, 20, 30, 40, 50)),
                  values<Int>(none, 20, 30, none, 50));
+
+    // One routed element read on its own follows its reference the same way.
+    CHECK_OUTPUT(eval_node<RouteByIndexElementOneGraph>(values<Int>(0, none, 1, none, 0),
+                                                        values<Int>(5, 6, none, 7, none)),
+                 values<Int>(none, none, 6, 7, none));
+
+    // Re-routing rebinds the consumer's children: the newly routed child samples
+    // the target's current value, and later target ticks reach that child only
+    // (the Python reference publishes the same sequence).
+    CHECK_OUTPUT(eval_node<RouteByIndexWholeListGraph>(values<Int>(0, none, 1, none, 0),
+                                                       values<Int>(5, 6, none, 7, none)),
+                 values<Value>(list_delta<TS<Int>>({{0, 5}}),
+                               list_delta<TS<Int>>({{0, 6}}),
+                               list_delta<TS<Int>>({{1, 6}}),
+                               list_delta<TS<Int>>({{1, 7}}),
+                               list_delta<TS<Int>>({{0, 7}})));
+
+    // The same holds for a bundle of references (Python reference:
+    // [{true: 5}, {true: 6}, {false: 6}, {false: 7}, {true: 7}]).
+    using IfValues = IfWholeBundleGraph::Values;
+    CHECK_OUTPUT(eval_node<IfWholeBundleGraph>(values<Bool>(true, none, false, none, true),
+                                               values<Int>(5, 6, none, 7, none)),
+                 values<Value>(tsb_delta<IfValues>(Int{5}, none), tsb_delta<IfValues>(Int{6}, none),
+                               tsb_delta<IfValues>(none, Int{6}), tsb_delta<IfValues>(none, Int{7}),
+                               tsb_delta<IfValues>(Int{7}, none)));
 
     CHECK_OUTPUT(eval_node<stdlib::if_true>(values<Bool>(true, false, true)),
                  values<Bool>(true, none, true));
