@@ -1719,8 +1719,24 @@ namespace hgl::wiring
         Slot Compiler::wire_function(gir::CallableId id, Frame &frame, SourceRange range, bool preserve_sink) {
             const gir::Callable           &target = callable(id);
             std::vector<hgraph::WiringArg> arguments;
+            // A pack expands into one argument per port, as an operator call's
+            // pack does: positional entries after the parameters before them
+            // (passed positionally), keyword entries under their own names.
+            const bool positional_pack = std::ranges::any_of(target.parameters, [](const gir::Parameter &parameter) {
+                return parameter.pack == gir::ParameterPack::Positional;
+            });
+            bool after_positional_pack = false;
             for (const gir::Parameter &parameter : target.parameters) {
-                arguments.push_back(argument_of(frame.bindings.at(parameter.binding.value), parameter.name));
+                const Slot &slot = frame.bindings.at(parameter.binding.value);
+                if (parameter.pack != gir::ParameterPack::None) {
+                    const bool keyword = parameter.pack == gir::ParameterPack::Keyword;
+                    for (const auto &[pack_name, port] : slot.pack_ports) {
+                        arguments.push_back(time_series_arg(port, keyword ? pack_name : std::string{}));
+                    }
+                    after_positional_pack = after_positional_pack || !keyword;
+                    continue;
+                }
+                arguments.push_back(argument_of(slot, positional_pack && !after_positional_pack ? std::string{} : parameter.name));
             }
             return wire(target.identity, std::move(arguments), range, std::nullopt, nullptr, preserve_sink);
         }

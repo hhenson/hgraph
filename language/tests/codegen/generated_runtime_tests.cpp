@@ -3,6 +3,7 @@
 #include <sources.h>
 #include <temporal-arithmetic.h>
 #include <list-output-writes.h>
+#include <runtime-packs.h>
 #include <hgraph/runtime/logger.h>
 #include <hgraph/util/scope.h>
 #include <spdlog/sinks/ostream_sink.h>
@@ -1105,4 +1106,21 @@ TEST_CASE("generated output list writes reject an index outside the list", "[cod
     }
     // An unbounded list grows only through push; a write past its end raises.
     CHECK_THROWS_WITH((eval_node<lists::grow_then_write>(values<Int>(7))), ContainsSubstring("output list index is outside the list"));
+}
+
+TEST_CASE("generated calls reach a runtime function's parameter pack", "[codegen][runtime][pack]") {
+    namespace packs = checks::runtime_packs;
+    const auto registration = packs::register_operators();
+    // A named pack is generic, so only generated code (not direct wiring) can
+    // call it; the operator contract receives each entry under its own name.
+    CHECK_OUTPUT((eval_node<packs::named>(values<Int>(1, 2), values<Float>(2.5, none))), values<Int>(2, 2));
+    CHECK_OUTPUT((eval_node<packs::first_of_two>(values<Int>(1, none, 3), values<Int>(none, 2, 4))), values<Int>(1, 2, 3));
+    CHECK_OUTPUT((eval_node<packs::forward>(values<Int>(1, none), values<Int>(none, 2))), values<Int>(1, 2));
+    // A pack may be empty. Forwarding an empty pack wires the same node as
+    // calling with no entries, rather than an empty aggregate tail.
+    const auto direct_none = eval_node<packs::gate_direct_none>(values<Bool>(true, false));
+    CHECK_OUTPUT((eval_node<packs::gate_forward_none>(values<Bool>(true, false))), direct_none);
+    // A runtime function that injects global_state takes its named pack too.
+    CHECK_OUTPUT((eval_node<packs::tally>(values<Int>(1, 2), values<Float>(2.5, none))), values<Int>(2, 2));
+    CHECK_OUTPUT((eval_node<packs::tally_elements>(values<Int>(1, 2), values<Int>(3, 4))), values<Int>(2, 2));
 }

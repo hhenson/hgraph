@@ -1315,6 +1315,21 @@ is copied, no aggregate is materialized, and no registry lookup occurs during
 evaluation. The pointer is immutable and valid only for the evaluation-local
 native call.
 
+A direct call to a plain runtime function with a pack cannot pass the pack
+to the node itself: hgraph's direct `wire<Node>` takes no aggregate `VarIn` /
+`VarKwIn` selector. Generated code therefore wires the node through its
+registered operator contract (`operators::` for an export,
+`operator_contracts::` otherwise), spelling the arguments as an operator call
+does: the positional pack's ports in order and each named entry as
+`hgraph::arg<"name">(port)`. `hgl::ordinary::wire_contract` erases those
+arguments and spreads a forwarded positional pack into its entries, so an
+empty forwarded pack contributes no arguments; hgraph's `VarIn`-to-`TSL`
+conversion would reject it. A function that injects `global_state` is wired
+through `preflight_wire`, which erases its arguments the same way. Direct
+wiring expands the pack's ports into wiring arguments itself. A named pack is
+generic, which direct wiring does not support, and forwarding a named pack
+into a runtime function is not supported yet.
+
 ## Nominal operator bridge
 
 Source name resolution produces a canonical `OperatorId` before candidate
