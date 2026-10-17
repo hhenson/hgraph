@@ -3,6 +3,7 @@
 // registry.
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <cstdint>
 
@@ -360,6 +361,15 @@ namespace
         hgraph::Value stored{std::move(reference)};
         auto mutation = output.view(time).begin_mutation(time);
         REQUIRE(mutation.copy_value_from(stored.view()));
+    }
+
+    void set_list_child_reference(hgraph::TSOutput &output, std::size_t index,
+                                  hgraph::TimeSeriesReference reference, hgraph::DateTime time)
+    {
+        hgraph::Value stored{std::move(reference)};
+        auto data = output.data_view();
+        auto list = data.as_list();
+        REQUIRE(list.at(index).begin_mutation(time).copy_value_from(stored.view()));
     }
 
     void add_set_values(hgraph::TSOutput &output,
@@ -953,6 +963,42 @@ TEST_CASE("TimeSeriesReference: from-REF metrics include endpoint plan and schem
     // compiles a matching endpoint plan. Both independently own vector trees.
     CHECK(wide_non_data_live > scalar_non_data_live);
     CHECK(wide_non_data_reserved > scalar_non_data_reserved);
+}
+
+TEST_CASE("TimeSeriesReference: interior from-REF metrics include leaf observers")
+{
+    using namespace hgraph;
+    constexpr std::size_t child_count = 64;
+
+    auto       &registry   = TypeRegistry::instance();
+    const auto *int_meta   = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int     = registry.ts(int_meta);
+    const auto *ref_int    = registry.ref(ts_int);
+    const auto *ref_list   = registry.tsl(ref_int, child_count);
+    const auto *value_list = registry.tsl(ts_int, child_count);
+
+    TSOutput refs{*ref_list};
+    const auto [t1, t2] = sequential_times<2>();
+
+    // The adapter observes every reference leaf of the list. Releasing its
+    // subscriptions frees those observers and leaves the compiled plan, so
+    // the difference is the observers' storage.
+    auto handle = refs.view(t1).binding_for(*value_list);
+    const auto alternative_bytes = [&] {
+        const auto total = refs.dynamic_storage_metrics();
+        const auto own   = refs.data_view().dynamic_storage_metrics();
+        const auto data  = handle.data_view().dynamic_storage_metrics();
+        return std::pair{total.live_bytes - own.live_bytes - data.live_bytes,
+                         total.reserved_bytes - own.reserved_bytes - data.reserved_bytes};
+    };
+    const auto observed = alternative_bytes();
+
+    refs.release_alternative_subscriptions(t2);
+    const auto released = alternative_bytes();
+
+    const auto per_leaf = sizeof(void *) + sizeof(std::size_t);
+    CHECK(observed.first - released.first >= child_count * per_leaf);
+    CHECK(observed.second - released.second >= child_count * per_leaf);
 }
 
 TEST_CASE("TimeSeriesReference: interior from-REF metrics include compiled plan trees")
@@ -2177,6 +2223,65 @@ TEST_CASE("TimeSeriesReference: from-REF alternative expands non-peered fixed-li
     REQUIRE(modified_items.size() == 1);
     REQUIRE(modified_items[0].first == 0);
     REQUIRE(modified_items[0].second.value().checked_as<std::int32_t>() == 6);
+}
+
+TEST_CASE("TimeSeriesReference: interior from-REF applies every list child retargeted in one cycle")
+{
+    using namespace hgraph;
+    auto       &registry   = TypeRegistry::instance();
+    const auto *int_meta   = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int     = registry.ts(int_meta);
+    const auto *ref_int    = registry.ref(ts_int);
+    const auto *ref_list   = registry.tsl(ref_int, 2);
+    const auto *value_list = registry.tsl(ts_int, 2);
+
+    // The adapter observes the list of references directly, or through a
+    // forwarding endpoint bound to it, as a nested-graph boundary does.
+    const bool forwarded = GENERATE(false, true);
+    CAPTURE(forwarded);
+
+    TSOutput target{*ts_int};
+    TSOutput refs{*ref_list};
+    TSOutput forwarding{TSEndpointSchema::peered(ref_list)};
+    const auto [t1, t2, t3] = sequential_times<3>();
+
+    set_output_value(target, 5, t1);
+    set_list_child_reference(refs, 0, TimeSeriesReference{target.view(t1)}, t1);
+    set_list_child_reference(refs, 1, TimeSeriesReference::empty(), t1);
+    if (forwarded) { forwarding.view(t1).bind_forwarding_target(refs.view(t1)); }
+    TSOutput &source = forwarded ? forwarding : refs;
+
+    auto handle = source.view(t1).binding_for(*value_list);
+    {
+        auto view = handle.view(t1);
+        auto list = view.as_list();
+        REQUIRE(list[0].valid());
+        CHECK(list[0].value().checked_as<std::int32_t>() == 5);
+        CHECK_FALSE(list[1].valid());
+    }
+
+    // Both children retarget in one evaluation, child 0 written first.
+    set_list_child_reference(refs, 0, TimeSeriesReference::empty(), t2);
+    set_list_child_reference(refs, 1, TimeSeriesReference{target.view(t2)}, t2);
+    {
+        auto view = handle.view(t2);
+        auto list = view.as_list();
+        CHECK_FALSE(list[0].valid());
+        REQUIRE(list[1].valid());
+        CHECK(list[1].value().checked_as<std::int32_t>() == 5);
+        CHECK(list[1].modified());
+    }
+
+    // And back again, so both directions are covered.
+    set_list_child_reference(refs, 0, TimeSeriesReference{target.view(t3)}, t3);
+    set_list_child_reference(refs, 1, TimeSeriesReference::empty(), t3);
+    {
+        auto view = handle.view(t3);
+        auto list = view.as_list();
+        REQUIRE(list[0].valid());
+        CHECK(list[0].value().checked_as<std::int32_t>() == 5);
+        CHECK_FALSE(list[1].valid());
+    }
 }
 
 TEST_CASE("TimeSeriesReference: from-REF alternative splits peered bundle references into child links")
