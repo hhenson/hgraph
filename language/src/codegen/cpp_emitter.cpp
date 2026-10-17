@@ -4268,22 +4268,27 @@ namespace hgl::codegen
                 value.range = range;
                 return value;
             }
+            const bool packed = std::ranges::any_of(target.parameters, [](const gir::Parameter &parameter) {
+                return parameter.pack != gir::ParameterPack::None;
+            });
             if (target.kind == gir::CallableKind::RuntimeNode && runtime_info(id).global_state_binding.valid()) {
+                // Preflight dispatch erases its arguments, so a pack is spelled
+                // as for the operator contract below.
+                const auto &call_args = packed ? operator_args : args;
                 use("w");
                 value = make_port("hgl::ordinary::preflight_wire<" + callable_cpp_name(id) + ">(w" +
-                                  (args.empty() ? "" : ", " + join(args, ", ")) + ")", result, range);
-            } else if (target.kind == gir::CallableKind::RuntimeNode &&
-                       std::ranges::any_of(target.parameters, [](const gir::Parameter &parameter) {
-                           return parameter.pack != gir::ParameterPack::None;
-                       })) {
+                                  (call_args.empty() ? "" : ", " + join(call_args, ", ")) + ")", result, range);
+            } else if (target.kind == gir::CallableKind::RuntimeNode && packed) {
                 // A pack is an aggregate VarIn / VarKwIn selector, which the direct
                 // wire<Node> path does not accept; the node's registered operator
                 // contract dispatches the tail, as an `operator` + `impl fn` call does.
+                // wire_contract spreads a forwarded pack, which may be empty.
                 const std::string contract =
                     (target.visibility == gir::CallableVisibility::Export ? "operators::" : "operator_contracts::") +
                     callable_cpp_name(id);
                 use("w");
-                value = wire(contract, operator_args, range, result);
+                value = make_port("hgl::ordinary::wire_contract<" + contract + ">(w" +
+                                  (operator_args.empty() ? "" : ", " + join(operator_args, ", ")) + ")", result, range);
                 if (has_planned_result(target.result, target.range) && !symbolic(result)) {
                     value.code += ".as<" + schema(result, range) + ">()";
                 }
