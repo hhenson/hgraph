@@ -48,6 +48,28 @@ jobs:
           echo "CXX=/usr/bin/clang++" >> "$GITHUB_ENV"
           echo "MACOSX_DEPLOYMENT_TARGET=26.0" >> "$GITHUB_ENV"
           /usr/bin/clang++ --version
+      # The fetched curl (extensions/web) needs OpenSSL 3: curl 8.11.1 does
+      # not build against OpenSSL 4, and the curl releases that do require
+      # OpenSSL 3 or later, which the manylinux 2.28 image (1.1.1) lacks.
+      # Runner images from 2026-10 default Homebrew's OpenSSL to 4. Linking
+      # openssl@3 into the Homebrew prefix matters as well as the CMake root:
+      # dependencies such as librdkafka also reach OpenSSL headers through
+      # the prefix's include directory, and OpenSSL 4 headers against
+      # OpenSSL 3 libraries leave unresolved symbols (BIO_eof) at import.
+      - name: Pin OpenSSL 3 on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          brew list --versions openssl@3 >/dev/null || brew install openssl@3
+          if brew list --versions openssl@4 >/dev/null; then brew unlink openssl@4; fi
+          brew unlink openssl@3 >/dev/null
+          brew link --force --overwrite openssl@3
+          grep -Eq "OPENSSL_VERSION_MAJOR +3" "$(brew --prefix)/include/openssl/opensslv.h"
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+          "$(brew --prefix openssl@3)/bin/openssl" version
       - name: Configure MSVC toolchain for Ninja
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1

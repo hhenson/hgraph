@@ -179,13 +179,7 @@ jobs:
           -DCMAKE_PREFIX_PATH="$HGL_DEPENDENCY_PREFIX"
       - name: Build hgl and its suites
         run: >-
-          cmake --build build-language --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_BUILD_PARALLELISM || matrix.parallel }} --target
-          hgl hgl_syntax_tests hgl_semantics_tests hgl_ir_tests hgl_graph_ir_tests hgl_descriptor_tests hgl_descriptor_reader_tests
-          hgl_native_package_tests hgl_native_atomic_test_driver hgl_reference_test_driver hgl_ref_owner_test_driver
-          hgl_wiring_tests hgl_wiring_type_tests hgl_ordinary_read_allocations
-          hgl_operator_type_tests hgl_native_module_tests hgl_native_module_abi_c hgl_codegen_tests hgl_codegen_fixture
-          hgl_generated_tests hgl_stdlib_differential_tests hgl_negative_tests hgl_shared_fixture hgl_std_matrix_tests
-          hgl_contextual_binding_tests hgl_stdlib_test_driver hgl_spec_stdlib_conformance hgl_any_constant_tests
+          cmake --build build-language --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_BUILD_PARALLELISM || matrix.parallel }} --target hgl_language_suites
       - name: Run the language suites
         run: ctest --test-dir build-language -R hgraph_language --output-on-failure --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_TEST_PARALLELISM || matrix.parallel }}
       - name: Validate compiler conformance gate

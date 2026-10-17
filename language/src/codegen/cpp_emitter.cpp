@@ -800,6 +800,18 @@ namespace hgl::codegen
             /// Output children read through erased views; a nominal child (an enum, a
             /// native scalar, Any) has no typed conversion and is borrowed as an
             /// ordinary value instead.
+            /// A set member or map key the typed TSS/TSD selectors cannot convert: a
+            /// generic pattern has no C++ type, and an enum's generated struct is not
+            /// the registered storage type that checked_as compares against. Both go
+            /// through value views (hgl/generic_collections.h).
+            [[nodiscard]] static bool view_keyed(const HType &type) { return symbolic(type) || type.kind == HType::Kind::Enum; }
+
+            /// The value view of a key or member for the value-view paths: a generic
+            /// value already is one; an enum, typed or ordinary, is viewed as ordinary.
+            [[nodiscard]] std::string key_view(const Value &value) {
+                return value.type.kind == HType::Kind::Generic && !value.ordinary_value ? value.code : ordinary_view(value);
+            }
+
             [[nodiscard]] static bool nominal_output_child(const HType &type) {
                 return type.kind == HType::Kind::Native || type.kind == HType::Kind::Enum || type.is(hir::ScalarType::Any);
             }
@@ -5130,6 +5142,10 @@ namespace hgl::codegen
                         expected.kind == HType::Kind::Atomic && ordinary_aggregate(expected.children.front())) {
                         owning_map_value = true;
                         arguments.push_back(ordinary_retain(value));
+                    } else if (index == 1U && (output.type.kind == HType::Kind::Set || output.type.kind == HType::Kind::Map) &&
+                               expected.kind == HType::Kind::Enum) {
+                        // An enum member or key goes to the value-view mutations below.
+                        arguments.push_back(key_view(value));
                     } else { arguments.push_back(as_runtime(value, expected, value.range, "output mutation argument")); }
                 }
 
@@ -5138,7 +5154,7 @@ namespace hgl::codegen
                 result.kind  = Value::Kind::Void;
                 result.code  = "hgraph::" + name + "(" + join(arguments, ", ") + ")";
                 const bool generic_key = (output.type.kind == HType::Kind::Set || output.type.kind == HType::Kind::Map) &&
-                                         symbolic(output.type.children.front()) && name != "clear";
+                                         view_keyed(output.type.children.front()) && name != "clear";
                 if (generic_key) {
                     // The generic mutations stage the value (an owned atomic collection
                     // included) before they create the child, as the typed facade does.
@@ -5298,9 +5314,9 @@ namespace hgl::codegen
                     backend(range, "collection access requires a live structural collection input in this slice");
                 }
                 if (name == "contains") {
-                    if (!source.key_set_source.empty() && symbolic(source.type.children.front())) {
-                        // A generic key is already a value view of the key schema.
-                        return make_runtime(source.selector + ".contains(" + key.code + ")", scalar_type(hir::ScalarType::Bool),
+                    if (!source.key_set_source.empty() && view_keyed(source.type.children.front())) {
+                        // A generic or enum key is passed as a value view of the key schema.
+                        return make_runtime(source.selector + ".contains(" + key_view(key) + ")", scalar_type(hir::ScalarType::Bool),
                                             range);
                     }
                     if (!source.key_set_source.empty()) {
@@ -5310,10 +5326,10 @@ namespace hgl::codegen
                                             scalar_type(hir::ScalarType::Bool), range);
                     }
                     if ((source.type.kind == HType::Kind::Set || source.type.kind == HType::Kind::Map) &&
-                        symbolic(source.type.children.front())) {
+                        view_keyed(source.type.children.front())) {
                         uses_generic_collections_ = true;
                         return make_runtime(std::string{"hgl::generic::"} + (source.type.kind == HType::Kind::Set ? "set" : "map") +
-                                                "(" + source.selector + ").contains(" + key.code + ")",
+                                                "(" + source.selector + ").contains(" + key_view(key) + ")",
                                             scalar_type(hir::ScalarType::Bool), range);
                     }
                     return make_runtime(source.selector + ".contains(" + key.code + ")", scalar_type(hir::ScalarType::Bool), range);
@@ -5481,7 +5497,7 @@ namespace hgl::codegen
                     (runtime_pack && source.atomic_code == "positional") || source.atomic_code == "schema_positional";
                 result.code = positional_pack ? source.selector : source.selector + "." + method + "()";
                 if (!positional_pack && source.key_set_source.empty() && source.type.kind == HType::Kind::Set &&
-                    symbolic(source.type.children.front())) {
+                    view_keyed(source.type.children.front())) {
                     // The typed TSS selector converts members to a concrete C++ type;
                     // a generic member stays a value view.
                     uses_generic_collections_ = true;
@@ -6597,11 +6613,13 @@ namespace hgl::codegen
                                     const Value key   = eval_planned_expr(index->index, frame);
                                     const Value value = eval_planned_expr(node.value, frame);
                                     use("hgl_output");
-                                    if (symbolic(result.children[0])) {
-                                        // A generic key has no C++ type for the typed selector.
+                                    if (view_keyed(result.children[0])) {
+                                        // A generic or enum key has no C++ type the typed selector converts.
                                         uses_generic_collections_ = true;
                                         out.line("hgl::generic::upsert(hgl_output, " +
-                                                 as_runtime(key, result.children[0], key.range, "output key") + ", " +
+                                                 (result.children[0].kind == HType::Kind::Enum
+                                                      ? key_view(key)
+                                                      : as_runtime(key, result.children[0], key.range, "output key")) + ", " +
                                                  as_runtime(value, result.children[1], value.range, "output value") + ");");
                                         return;
                                     }
@@ -6940,6 +6958,11 @@ namespace hgl::codegen
                                                      : raw + ".value()";
                             } else if (list_index) {
                                 value.code = "static_cast<hgraph::Int>(" + raw + ")";
+                            } else if ((map_key || iterator.type.kind == HType::Kind::Set) && type.kind == HType::Kind::Enum) {
+                                // An enum key or member is borrowed as an ordinary value view.
+                                value.code           = raw;
+                                value.ordinary_value = true;
+                                value.borrowed_value = true;
                             } else if (map_key) {
                                 // A generic key has no concrete C++ type to convert to.
                                 value.code = symbolic(type) ? raw : raw + ".checked_as<" + value_type(type, statement.range) + ">()";
