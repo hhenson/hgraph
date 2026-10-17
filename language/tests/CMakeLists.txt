@@ -1,3 +1,13 @@
+# hgl_language_suites builds hgl and every target this directory defines, so
+# CI builds what `ctest -R hgraph_language` runs without keeping its own list.
+# The deferred call runs once the last target below has been defined.
+function(hgl_define_language_suites)
+    get_property(_suite_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+    add_custom_target(hgl_language_suites)
+    add_dependencies(hgl_language_suites hgl ${_suite_targets})
+endfunction()
+cmake_language(DEFER CALL hgl_define_language_suites)
+
 add_test(
     NAME hgraph_language_cli_help
     COMMAND $<TARGET_FILE:hgl> --help
