@@ -9,6 +9,7 @@
 #include <hgraph/types/time_series/ts_data/proxy.h>
 #include <hgraph/types/time_series/ts_input/detail.h>
 #include <hgraph/types/time_series/ts_input/target_link.h>
+#include <hgraph/types/time_series/ts_output/forwarding.h>
 #include <hgraph/types/time_series_reference.h>
 #include <hgraph/types/value/value.h>
 
@@ -2100,6 +2101,8 @@ namespace hgraph::detail
         TSOutputHandle             source{};
         SourceNotifier             notifier;
         std::vector<std::unique_ptr<LeafNotifier>> leaf_notifiers{};
+        /// The non-forwarding output whose reference leaves are observed.
+        TSOutputHandle             leaf_root{};
 
         /** Apply the reference leaf at ``path`` from its current source value. */
         void refresh_leaf(const std::vector<std::size_t> &path, DateTime modified_time)
@@ -2121,6 +2124,20 @@ namespace hgraph::detail
         [[nodiscard]] TSOutputHandle handle(const TSOutput *output) noexcept
         {
             return TSOutputHandle{output, data.view()};
+        }
+
+        /** Heap owned by the leaf observers: the vector, each notifier, and its path. */
+        [[nodiscard]] DynamicStorageMetrics leaf_storage_metrics() const noexcept
+        {
+            DynamicStorageMetrics result;
+            result.live_bytes     = leaf_notifiers.size() * sizeof(std::unique_ptr<LeafNotifier>);
+            result.reserved_bytes = leaf_notifiers.capacity() * sizeof(std::unique_ptr<LeafNotifier>);
+            for (const auto &leaf : leaf_notifiers)
+            {
+                result.live_bytes += sizeof(LeafNotifier) + leaf->path.size() * sizeof(std::size_t);
+                result.reserved_bytes += sizeof(LeafNotifier) + leaf->path.capacity() * sizeof(std::size_t);
+            }
+            return result;
         }
 
         [[nodiscard]] bool proxy_backed() const noexcept
@@ -2186,17 +2203,31 @@ namespace hgraph::detail
             subscribe_leaves();
         }
 
-        /** Observe each reference leaf of a fixed source (see LeafNotifier). A
-            forwarding source can retarget its children, so it keeps the root
-            notification alone, as do reference and keyed roots, whose own
-            notification already follows the write. */
+        /** Observe each reference leaf of a fixed source (see LeafNotifier).
+            Behind a forwarding source the leaves are those of its current
+            target, re-observed when the target changes (follow_leaf_root).
+            Reference and keyed roots keep the root notification alone: their
+            own notification already follows the write. */
         void subscribe_leaves()
         {
             if (plan.ops != &from_ref_interior_fixed_ops()) { return; }
-            const auto root = source.view(MIN_DT);
-            if (root.forwarding()) { return; }
+            const auto root = resolve_forwarding_source(source.view(MIN_DT));
+            leaf_root       = root.handle();
+            if (!root.bound() || root.forwarding()) { return; }
             std::vector<std::size_t> path;
             collect_leaves(plan, root, path);
+        }
+
+        /** Re-observe the leaves when a forwarding source now resolves to a
+            different output. Runs on the root notification, which a target
+            change raises, before the children are re-applied. */
+        void follow_leaf_root()
+        {
+            if (plan.ops != &from_ref_interior_fixed_ops()) { return; }
+            const auto root = source.view(MIN_DT);
+            if (!root.forwarding() || resolve_forwarding_source(root.borrowed_ref()).handle().same_as(leaf_root)) { return; }
+            unsubscribe_leaves(false);
+            subscribe_leaves();
         }
 
         void collect_leaves(const FromRefInteriorPlan &node, const TSOutputView &node_source, std::vector<std::size_t> &path)
@@ -2236,6 +2267,7 @@ namespace hgraph::detail
                 }));
             }
             leaf_notifiers.clear();
+            leaf_root.reset();
         }
 
         void unsubscribe_source(bool strict = true) noexcept
@@ -2255,6 +2287,7 @@ namespace hgraph::detail
         void refresh(DateTime modified_time)
         {
             if (modified_time == MIN_DT || requested_schema == nullptr || !source.bound()) { return; }
+            follow_leaf_root();
             apply_from_ref_interior(plan, data.view(), source.view(modified_time), modified_time);
         }
     };
@@ -2332,6 +2365,7 @@ namespace hgraph::detail
                 result.live_bytes += sizeof(InteriorFromRefAlternativeState);
                 result.reserved_bytes += sizeof(InteriorFromRefAlternativeState);
                 result += from_ref_interior_plan_dynamic_storage_metrics(state.plan);
+                result += state.leaf_storage_metrics();
                 const auto view = state.data.view();
                 result += view.dynamic_storage_metrics();
                 result += input_target_link_dynamic_storage_metrics(view);

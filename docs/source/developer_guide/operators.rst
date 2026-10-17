@@ -210,10 +210,10 @@ the parent output is marked modified, and notifies, only at the first child
 write of a cycle. The alternative therefore observes every reference leaf as
 well as the root: a leaf's notification follows its own write, so each
 retargeted child is sampled with its new reference in the cycle it changes
-(runtime spec TS-25, ``cases_references.md`` REF-PER-CHILD). Re-applying an
-unchanged reference is a no-op, so the root's earlier refresh is harmless.
-Forwarding sources, whose children can be retargeted, keep the root
-notification alone.
+(runtime spec TS-17). Re-applying an unchanged reference is a no-op, so the
+root's earlier refresh is harmless. Behind a forwarding source the observed
+leaves are those of its current target; the root notification, which a
+target change also raises, re-observes them when the target changes.
 
 **SIGNAL input compatibility.** In input position, ``SIGNAL`` follows the same
 rule as ordinary node / graph wiring: an ``In<..., SIGNAL>`` or ``Port<SIGNAL>``
