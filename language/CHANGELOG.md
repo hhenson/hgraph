@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A plain runtime function with a parameter pack can be called directly:
+  generated code wires the node through its operator contract and direct
+  wiring expands the pack's ports. A forwarded pack may be empty, and the
+  function may inject `global_state`. The call used to emit C++ that did not
+  compile ("wire<T>: a time-series input expects a Port argument"), and
+  direct wiring stopped with "a parameter pack must be expanded at its call
+  site"; only the `operator` + `impl fn` form worked.
 - Enum set members and map keys work in runtime bodies: iteration,
   `contains`, member comparison, set and map output mutations, and
   `out[key] = value`, including enum literals such as `Mode::busy` as

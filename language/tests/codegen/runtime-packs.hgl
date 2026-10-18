@@ -1,0 +1,81 @@
+module checks.runtime_packs
+
+# A plain runtime function with a parameter pack, called directly. The direct
+# node wiring takes no aggregate pack selector, so generated code wires the
+# node through its registered operator contract, spelling the pack as an
+# operator call does; direct wiring expands the pack's ports the same way.
+
+fn first_modified(values: ...i64) -> i64 {
+    inject out
+    when {
+        for index, value in items(values) {
+            if valid(value) && modified(value) {
+                out = value
+                return
+            }
+        }
+    }
+}
+
+fn gated(enabled: bool, values: ...i64) -> i64 {
+    when {
+        var total = 0
+        if enabled { for value in elements(values) { if valid(value) { total += value } } }
+        return total
+    }
+}
+
+fn named_count<...Fields>(values: ...{Fields}) -> i64 {
+    when {
+        var count = 0
+        for name in keys(values) { count += 1 }
+        return count
+    }
+}
+
+fn forwarded(values: ...i64) -> i64 => first_modified(values)
+fn gated_forward(enabled: bool, values: ...i64) -> i64 => gated(enabled, values)
+
+struct PackTally {
+    count: i64
+}
+
+fn tallied<...Fields>(values: ...{Fields}) -> i64 {
+    inject global_state
+    when {
+        var count = 0
+        for name in keys(values) { count += 1 }
+        set(global_state, "runtime-packs.tally", PackTally(count: count))
+        let tally: PackTally = get(global_state, "runtime-packs.tally")
+        return tally.count
+    }
+}
+
+fn tallied_elements(values: ...i64) -> i64 {
+    inject global_state
+    when {
+        var count = 0
+        for value in elements(values) { count += 1 }
+        set(global_state, "runtime-packs.elements", PackTally(count: count))
+        let tally: PackTally = get(global_state, "runtime-packs.elements")
+        return tally.count
+    }
+}
+
+export fn first_of_two(a: i64, b: i64) -> i64 => first_modified(a, b)
+export fn first_of_three(a: i64, b: i64, c: i64) -> i64 => first_modified(a, b, c)
+export fn gate(enabled: bool, a: i64, b: i64) -> i64 => gated(enabled, a, b)
+export fn forward(a: i64, b: i64) -> i64 => forwarded(a, b)
+export fn named(qty: i64, price: f64) -> i64 => named_count(price: price, qty: qty)
+export fn gate_direct_none(enabled: bool) -> i64 => gated(enabled)
+export fn gate_forward_none(enabled: bool) -> i64 => gated_forward(enabled)
+export fn tally(qty: i64, price: f64) -> i64 => tallied(price: price, qty: qty)
+export fn tally_elements(a: i64, b: i64) -> i64 => tallied_elements(a, b)
+
+test positional_packs_reach_the_node {
+    assert eval(first_of_two, a: [1, _, 3], b: [_, 2, 4]) == [1, 2, 3]
+    assert eval(first_of_three, a: [_, _, 3], b: [_, 2, _], c: [9, 8, _]) == [9, 2, 3]
+    assert eval(gate, enabled: [true, false], a: [1, 2], b: [10, 20]) == [11, 0]
+    assert eval(forward, a: [1, _], b: [_, 2]) == [1, 2]
+    assert eval(tally_elements, a: [1, 2], b: [3, 4]) == [2, 2]
+}
