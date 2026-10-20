@@ -54,20 +54,9 @@ reject 4.6.x). The installed ``hgraphConfig.cmake`` carries the same floor.
 third-party dependencies such as simdjson build with their own flags and are
 not expected to be warning-clean under ours.
 
-The installed ``hgl::native_package`` shared library finds private shared
-dependencies beside itself using ``$ORIGIN`` (``@loader_path`` on macOS).
-It preserves an explicitly supplied ``CMAKE_INSTALL_RPATH`` before that entry,
-but never appends dependency discovery or build-cache directories automatically.
-Packagers must place shared simdjson beside the library or provide a runtime
-search path appropriate to their distribution. The installed-consumer test
-checks the library's actual runtime paths, stages shared simdjson beside it,
-then moves the SDK and runs a consumer linked only to ``hgl::native_package``.
-It also verifies that dependency resolution uses the relocated simdjson copy.
-
-Windows build-tree language executables stage their linked runtime DLLs beside
-the executable. Post-build staging holds one process-scoped lock per destination
-directory, so parallel targets sharing that directory cannot copy the same DLL
-concurrently. A staging or lock failure still fails the build.
+Language compiler and native-module packaging are maintained in the separate
+`hgraph_lang project <https://github.com/hhenson/hgraph_lang>`_, which consumes
+this SDK through its installed public CMake package.
 
 Translation-Unit Budget
 -----------------------
@@ -425,21 +414,6 @@ in :doc:`release_readiness`. ``test_package/`` holds the consumer exercised by
 ``ArrowCompute``/``ArrowAcero`` packages behind target-existence checks
 because Conan's Arrow defines all three target namespaces from the single
 ``Arrow`` config.
-
-The ``language`` option (default off) adds the ``hgl`` toolchain to the
-package (RFC 0032): the recipe exports ``language/``, configures with
-``HGRAPH_BUILD_LANGUAGE=ON``, fetches the REPL's isocline source in
-``source()`` so the configure needs no network, and publishes ``bin`` and
-``lib/cmake/hgl``. Because ``hgl`` formats every emitted translation unit,
-the language-enabled package declares clang-format through Conan's system
-package-manager integration. Conan checks that requirement by default; on a
-clean machine, opt into installation with
-``-c tools.system.package_manager:mode=install`` (and configure Conan's
-``tools.system.package_manager:sudo`` setting when the host package manager
-requires elevation). ``test_package`` then also runs ``hgl --version``::
-
-   conan create . --build=missing -o "hgraph/*:language=True" \
-       -s "arrow/*:compiler.cppstd=gnu20" -s "&:compiler.cppstd=gnu23"
 
 First-party extension distributions
 -----------------------------------

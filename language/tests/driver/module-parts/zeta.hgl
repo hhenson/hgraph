@@ -1,5 +1,0 @@
-module checks.parts part zeta
-
-use hgraph.std::{null_sink}
-
-fn identity(value: i64) -> i64 => value

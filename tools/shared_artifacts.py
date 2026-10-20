@@ -6,7 +6,7 @@ from pathlib import Path, PurePosixPath
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGES = ('hgraph_spec', 'hgraph_std', 'hgraph_spec_audit')
+PACKAGES = ('hgraph_spec', 'hgraph_spec_audit')
 LEGACY_ROOTS = ('docs/source/runtime_spec/', 'docs/source/specification/',
                 'language/docs/', 'language/examples/', 'language/stdlib/', 'language/tests/')
 

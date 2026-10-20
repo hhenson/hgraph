@@ -1,9 +1,0 @@
-module pkg.new.hgl_state
-
-use checks.native_dependency as native
-
-export fn class(value: f64) -> f64 {
-    when modified(value) && valid(value) {
-        return native::blend(value, 3)
-    }
-}

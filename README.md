@@ -86,7 +86,11 @@ against a real runtime by `sphinx-build -b doctest`, which needs an importable
 - [`plugins/hgraph-development/`](plugins/hgraph-development/) — installable
   hgraph development skills for downstream Codex and Claude projects.
 
-## Shared language sources
+## Shared specifications
 
-Run `python3 tools/shared_artifacts.py` before compiler, documentation or
-contract-test work. See [shared source setup](language/docs/developer-guide/shared-sources.md).
+Run `python3 tools/shared_artifacts.py` before documentation or contract-test
+work to initialize the pinned specification and audit repositories.
+
+The HGL compiler and language tooling live in the separate public
+[hgraph_lang](https://github.com/hhenson/hgraph_lang) project, which consumes
+the installed hgraph SDK.
