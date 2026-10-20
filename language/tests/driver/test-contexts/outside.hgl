@@ -1,3 +1,0 @@
-module checks.outside
-
-use checks.test_contexts::{fixture_node}

@@ -5,48 +5,23 @@ shared hgraph libraries, public headers, debugger support, and the
 project's own ``hgraphConfig.cmake`` (consumers use ``find_package(hgraph)``
 against that config — Conan does not generate a competing one). The Python
 bridge is out of scope here; wheels remain the Python distribution channel.
-The ``language`` option adds the ``hgl`` toolchain and its
-``HglLanguage.cmake`` (RFC 0032).
 
 Local development flow::
 
     conan create . --build=missing
-    conan create . --build=missing -o "hgraph/*:language=True"
 
 Consumers add ``hgraph/<version>`` to their requires; the C++ API is
 source-provisional (see docs/source/developer_guide/release_readiness.rst),
 so native consumers pin the exact version and rebuild per release.
 """
 
-import os
 import re
 import subprocess
 
 from conan import ConanFile
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
-from conan.tools.files import get
-from conan.tools.system.package_manager import (
-    Apk,
-    Apt,
-    Brew,
-    Chocolatey,
-    Dnf,
-    PacMan,
-    Pkg,
-    Yum,
-    Zypper,
-)
 
 MINIMUM_RELEASE_VERSION = (0, 8, 0)
-
-# The language-only FetchContent dependencies are staged in source() so the
-# CMake configure stays offline. Keep these pins in step with
-# language/CMakeLists.txt and the Homebrew formula.
-LEXY_URL = "https://github.com/foonathan/lexy/archive/refs/tags/v2025.05.0.tar.gz"
-LEXY_SHA256 = "ae867846b890b7564d633cf28d39dfc4938fe7c54515126f720c1762de5eab30"
-ISOCLINE_URL = "https://github.com/daanx/isocline/archive/refs/tags/v1.1.0.tar.gz"
-ISOCLINE_SHA256 = "1e5f0efa2b719c3e1d292f501e5329e141a039deefc801099f8bbb9a50255531"
-
 
 class HgraphConan(ConanFile):
     name = "hgraph"
@@ -61,21 +36,12 @@ class HgraphConan(ConanFile):
     topics = ("reactive", "graph", "time-series", "frp")
 
     settings = "os", "arch", "compiler", "build_type"
-    options = {"language": [True, False]}
-    default_options = {"language": False}
-
     exports_sources = (
         "CMakeLists.txt",
         "cmake/*",
         "include/*",
         "src/*",
         "tools/debugger/*",
-        "language/CMakeLists.txt",
-        "language/cmake/*",
-        "language/src/*",
-        "language/include/*",
-        "language/stdlib/*",
-        "language/generated/*",
     )
 
     def set_version(self):
@@ -120,28 +86,6 @@ class HgraphConan(ConanFile):
         self.requires("arrow/25.0.0",
                       transitive_headers=True, transitive_libs=True)
 
-    def system_requirements(self):
-        if not self.options.language:
-            return
-
-        # hgl formats every emitted C++ translation unit. Declare the tool as
-        # a system requirement so it is checked (or installed when Conan's
-        # package-manager mode is ``install``) both while creating this package
-        # and when a consumer installs the language-enabled binary package.
-        packages = (
-            (Apt, "clang-format"),
-            (Dnf, "clang-tools-extra"),
-            (Yum, "clang-tools-extra"),
-            (Apk, "clang-extra-tools"),
-            (PacMan, "clang"),
-            (Zypper, "clang-tools"),
-            (Pkg, "llvm"),
-            (Brew, "clang-format"),
-            (Chocolatey, "llvm"),
-        )
-        for manager, package in packages:
-            manager(self).install([package], update=True, host_package=False)
-
     def configure(self):
         # The SDK links Arrow's shared targets and needs compute + acero.
         self.options["arrow"].shared = True
@@ -158,12 +102,6 @@ class HgraphConan(ConanFile):
 
     def layout(self):
         cmake_layout(self)
-
-    def source(self):
-        get(self, LEXY_URL, sha256=LEXY_SHA256, strip_root=True,
-            destination="lexy")
-        get(self, ISOCLINE_URL, sha256=ISOCLINE_SHA256, strip_root=True,
-            destination="isocline")
 
     def generate(self):
         deps = CMakeDeps(self)
@@ -182,12 +120,6 @@ class HgraphConan(ConanFile):
         # SDK always uses date/tz rather than probing the standard library.
         tc.cache_variables["HGRAPH_TIME_ZONE_BACKEND"] = "date"
         tc.cache_variables["HGRAPH_ENABLE_COMPILER_CACHE"] = False
-        tc.cache_variables["HGRAPH_BUILD_LANGUAGE"] = bool(self.options.language)
-        if self.options.language:
-            tc.cache_variables["FETCHCONTENT_SOURCE_DIR_LEXY"] = os.path.join(
-                self.source_folder, "lexy")
-            tc.cache_variables["FETCHCONTENT_SOURCE_DIR_ISOCLINE"] = os.path.join(
-                self.source_folder, "isocline")
         tc.generate()
 
     def build(self):
@@ -206,9 +138,3 @@ class HgraphConan(ConanFile):
         # a Conan-generated one.
         self.cpp_info.set_property("cmake_find_mode", "none")
         self.cpp_info.builddirs = ["lib/cmake/hgraph"]
-        if self.options.language:
-            # ``bin/hgl`` for build-time use and ``HglLanguage.cmake`` for
-            # ``hgl_add_module()``; consumers include it relative to
-            # ``hgraph_DIR`` as the user guide describes.
-            self.cpp_info.bindirs = ["bin"]
-            self.cpp_info.builddirs.append("lib/cmake/hgl")

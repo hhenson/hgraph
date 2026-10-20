@@ -1,3 +1,0 @@
-module checks.parts
-
-fn missing_part(value: i64) -> i64 => value

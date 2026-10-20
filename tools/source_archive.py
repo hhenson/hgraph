@@ -91,7 +91,7 @@ def main() -> None:
     argparse.ArgumentParser(description=__doc__).parse_args()
     subprocess.run([sys.executable, str(ROOT / 'tools/shared_artifacts.py'), '--check'], check=True)
     # Fixed package paths and prefixes are not CLI or manifest inputs.
-    packages = ('', 'external/hgraph_spec', 'external/hgraph_std',
+    packages = ('', 'external/hgraph_spec',
                 'external/hgraph_spec_audit', 'external/hgraph_spec_audit/spec',
                 'external/hgraph_spec_audit/stdlib')
     archives = []

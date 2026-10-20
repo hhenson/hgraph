@@ -1,4 +1,0 @@
-module checks.imported_contracts
-
-operator adjust<T>(value: T, const amount: T) -> T
-operator relay<T>(value: T) -> T
