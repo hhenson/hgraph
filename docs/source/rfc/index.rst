@@ -76,3 +76,4 @@ RFC catalogue
    rfc_0046_nominal_held_bundle_schemas
    rfc_0047_reduce_partial_sum_cells
    rfc_0048_nested_child_graph_reuse
+   rfc_0049_wiring_dependency_inspection

@@ -132,6 +132,21 @@ struct PyCallShape {
   return shape;
 }
 
+bool py_wiring_input_is_active(const NodeBuilder &builder, std::span<const std::size_t> path) {
+  if (path.size() < 2 || path[0] != 0) {
+    throw std::invalid_argument("Python input activity requires a packed input child path");
+  }
+  const auto config = builder.scalars().view().as_bundle()["config"].checked_as<Str>();
+  std::size_t index = 0;
+  for (char marker : parse_py_call_shape(config).layout) {
+    if (std::string_view{"tuaCTUAP"}.find(marker) == std::string_view::npos) { continue; }
+    if (index++ == path[1]) {
+      return std::string_view{"tuaC"}.find(marker) != std::string_view::npos;
+    }
+  }
+  throw std::out_of_range("Python input activity path is out of range");
+}
+
 /** Python adapter state consists only of call leases and caches when the
  * actual user signatures do not request runtime services or semantic local
  * state. Beside RECORDABLE_STATE, STATE is a reconstructible cache. Validate
@@ -896,6 +911,9 @@ void py_call_lifecycle(const PyNodeRef &fn, bool enabled,
 }
 
 struct py_compute_node {
+  static WiringInputActivityOps wiring_input_activity() noexcept {
+    return {&py_wiring_input_is_active};
+  }
   static constexpr auto name = "__py_compute";
   static constexpr std::string_view implementation_label =
       "hgraph.python.compute";
@@ -995,6 +1013,9 @@ struct py_compute_node {
 };
 
 struct py_fast_compute_node {
+  static WiringInputActivityOps wiring_input_activity() noexcept {
+    return {&py_wiring_input_is_active};
+  }
   static constexpr auto name = "__py_compute";
   static constexpr std::string_view implementation_label =
       "hgraph.python.compute.fast";
@@ -1145,6 +1166,9 @@ struct py_fast_compute_node {
 };
 
 struct py_compute_recordable_node {
+  static WiringInputActivityOps wiring_input_activity() noexcept {
+    return {&py_wiring_input_is_active};
+  }
   static constexpr auto name = "__py_compute_recordable";
   static constexpr std::string_view implementation_label =
       "hgraph.python.compute_recordable";
@@ -1299,6 +1323,9 @@ struct py_compute_recordable_node {
 };
 
 struct py_sink_node {
+  static WiringInputActivityOps wiring_input_activity() noexcept {
+    return {&py_wiring_input_is_active};
+  }
   static constexpr auto name = "__py_sink";
   static constexpr std::string_view implementation_label = "hgraph.python.sink";
   static constexpr bool uses_python_values = true;

@@ -9,6 +9,7 @@
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/wiring_inspection.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/record_replay.h>
 #include <hgraph/types/time_series/ts_delta.h>
@@ -512,8 +513,12 @@ int main(int argc, char **argv)
     static_assert(std::is_trivially_copyable_v<TypeRecord>);
     static_assert(std::is_standard_layout_v<AnyPtr>);
     static_assert(std::is_trivially_copyable_v<AnyPtr>);
-    // ABI 7 extends node images with owner-specific endpoint images.
-    static_assert(NODE_OPS_ABI_VERSION == 9);
+    // ABI 10 adds declarative wiring input activity inspection.
+    static_assert(NODE_OPS_ABI_VERSION == 10);
+    const auto null_source = WiringPortRef::null_source(schema_descriptor<TS<Int>>::ts_meta());
+    if (!inspect_wiring_dependencies(null_source, {}).empty()) {
+        throw std::logic_error("wiring inspection found dependencies for a null source");
+    }
     static_assert(std::is_standard_layout_v<ChildGraphInspectionOps>);
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
     static_assert(GRAPH_OPS_ABI_VERSION == 10);
