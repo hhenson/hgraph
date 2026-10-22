@@ -1,5 +1,5 @@
 RFC 0049: Wiring dependency inspection
-=====================================
+==========================================
 
 Status: Proposed
 
