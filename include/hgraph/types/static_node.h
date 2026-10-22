@@ -3543,6 +3543,10 @@ namespace hgraph
                 if (!fields.empty()) { descriptor.storage_plan = &node_storage_plan_for(descriptor.schema, fields); }
             }
             descriptor.callbacks = static_node_callbacks<TImplementation>();
+            if constexpr (requires { TImplementation::wiring_input_activity(); })
+            {
+                descriptor.ops.wiring_input_activity = TImplementation::wiring_input_activity();
+            }
             if constexpr (requires { TImplementation::checkpoint_ops(); })
             {
                 descriptor.ops.checkpoint_ops = &TImplementation::checkpoint_ops();

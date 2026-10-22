@@ -30,6 +30,25 @@
 
 namespace hgraph
 {
+    namespace wiring_input_activity_detail
+    {
+        bool schema_activity(const NodeBuilder &builder, std::span<const std::size_t> path)
+        {
+            if (path.empty()) { throw std::invalid_argument("Input activity requires an input path"); }
+            const auto *schema = builder.type().schema();
+            const auto &active = schema->active_inputs;
+            const auto &structural = schema->structural_inputs;
+            return !active || std::find(active->begin(), active->end(), path.front()) != active->end() ||
+                std::find(structural.begin(), structural.end(), path.front()) != structural.end();
+        }
+    }
+
+    bool NodeBuilder::wiring_input_is_active(std::span<const std::size_t> path) const
+    {
+        if (!type_) { throw std::logic_error("NodeBuilder has no type"); }
+        return type_.ops_ref().wiring_input_activity.is_active(*this, path);
+    }
+
     namespace child_graph_inspection_detail
     {
         void visit_none(const void *, const NodeBuilder &, void *, ChildGraphVisitor) {}
@@ -1364,6 +1383,10 @@ namespace hgraph
                 {
                     ops.recordable_state_view_impl = &recordable_state_view_impl;
                 }
+                if (ops.wiring_input_activity.is_active == nullptr)
+                {
+                    ops.wiring_input_activity.is_active = &wiring_input_activity_detail::schema_activity;
+                }
                 if (ops.child_graph_inspection.visit_impl == nullptr)
                 {
                     ops.child_graph_inspection.visit_impl = &child_graph_inspection_detail::visit_none;
@@ -2282,8 +2305,10 @@ namespace hgraph
         // layout, never from the origin plan.
         const std::vector<NodeStorageField> extra_fields = relayed_extra_fields(origin.plan);
         const auto &plan = node_storage_plan_for(schema, extra_fields);
+        NodeOps capture_ops{};
+        capture_ops.wiring_input_activity = node_ops.wiring_input_activity;
         const auto type = node_runtime_registry().make_type(
-            std::move(schema), origin.callbacks, plan, NodeOps{},
+            std::move(schema), origin.callbacks, plan, capture_ops,
             type_.record()->implementation_name(), origin.runtime_type_id);
 
         NodeBuilder result{type, input_endpoint_};

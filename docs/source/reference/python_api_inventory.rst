@@ -18,7 +18,7 @@ public operator they implement rather than listed as top-level operators.
    * - Surface
      - Names
    * - ``hgraph.__all__``
-     - 217
+     - 220
    * - Public operator groups
      - 189
    * - Public submodules
@@ -136,6 +136,7 @@ Top-level wildcard exports
    * - ``WINDOW_SIZE``
    * - ``WINDOW_SIZE_MIN``
    * - ``WindowSize``
+   * - ``WiringDependency``
    * - ``WiringError``
    * - ``WiringGraphContext``
    * - ``WiringNodeClass``
@@ -193,6 +194,7 @@ Top-level wildcard exports
    * - ``has_frame_metadata``
    * - ``impl_input``
    * - ``impl_output``
+   * - ``inspect_wiring_dependencies``
    * - ``is_feature_enabled``
    * - ``lift``
    * - ``lower``
@@ -244,6 +246,7 @@ Top-level wildcard exports
    * - ``ts_schema``
    * - ``utc_now``
    * - ``wire``
+   * - ``wiring_extension_state``
    * - ``with_frame_metadata``
    * - ``with_signature``
    * - ``without_frame_metadata``

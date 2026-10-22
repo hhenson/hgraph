@@ -9,6 +9,7 @@
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/runtime/child_graph_inspection.h>
+#include <hgraph/runtime/wiring_input_activity.h>
 #include <hgraph/runtime/evaluation_clock.h>
 #include <hgraph/runtime/global_state.h>
 #include <hgraph/runtime/node_error.h>
@@ -244,6 +245,7 @@ namespace hgraph
 
         /** Cold-path build-time inspection of immediate compiled child graphs. */
         ChildGraphInspectionOps child_graph_inspection{};
+        WiringInputActivityOps wiring_input_activity{};
 
         const void *extended_view_type_id{nullptr};
         const void *extended_view_context{nullptr};
@@ -582,6 +584,7 @@ namespace hgraph
          * need the complete nested plan forest.
          */
         void visit_child_graphs(void *visitor_context, ChildGraphVisitor visitor) const;
+        [[nodiscard]] bool wiring_input_is_active(std::span<const std::size_t> path) const;
         /**
          * Construct this node directly into caller-owned storage matching
          * ``type().checked_plan()``. The caller owns destruction through the

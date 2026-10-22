@@ -40,8 +40,8 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(std::is_trivially_copyable_v<ValueTypeRef>);
     static_assert(sizeof(NodeTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<NodeTypeRef>);
-    // ABI 9 extends node checkpoint images with independent scheduler data.
-    static_assert(NODE_OPS_ABI_VERSION == 9);
+    // ABI 10 adds declarative wiring input activity inspection.
+    static_assert(NODE_OPS_ABI_VERSION == 10);
     static_assert(std::is_standard_layout_v<ChildGraphInspectionOps>);
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
     static_assert(sizeof(GraphTypeRef) == sizeof(void *));

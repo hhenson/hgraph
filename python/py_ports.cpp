@@ -6,6 +6,7 @@
  */
 #include "py_bindings.h"
 #include "py_wiring.h"
+#include <hgraph/types/wiring_inspection.h>
 
 #include <algorithm>
 
@@ -56,6 +57,15 @@ WiringPortRef observed_value_port(Wiring &w, const WiringPortRef &port) {
 } // namespace
 
 void bind_ports(nb::module_ &m) {
+  m.def("inspect_wiring_dependencies", [](const PyPort &output, nb::tuple sources) {
+    std::vector<WiringPortRef> boundaries;
+    for (nb::handle source : sources) { boundaries.push_back(nb::cast<PyPort>(source).ref); }
+    nb::list result;
+    for (const auto dependency : inspect_wiring_dependencies(output.ref, boundaries)) {
+      result.append(nb::make_tuple(dependency.source_index, dependency.passive));
+    }
+    return nb::tuple(result);
+  });
   nb::class_<PyPort>(m, "Port")
       .def_prop_ro("ts_type",
                    [](const PyPort &self) { return PyTsType{self.ref.schema}; })
