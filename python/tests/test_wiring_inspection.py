@@ -102,3 +102,14 @@ def test_python_usage_passivity_and_all_passive_policy():
         assert inspect_wiring_dependencies(dormant(a), (a,)) == ((0, True),)
         return result
     assert eval_node(g, [1], [2]) == [3]
+
+
+def test_error_capture_preserves_packed_input_activity():
+    from hgraph import exception_time_series
+    @graph
+    def g(a: TS[int], b: TS[int]) -> TS[int]:
+        result = sample(a, b)
+        exception_time_series(result)
+        assert inspect_wiring_dependencies(result, (a, b)) == ((0, False), (1, True))
+        return result
+    assert eval_node(g, [1], [2]) == [2]

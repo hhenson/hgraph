@@ -2305,8 +2305,10 @@ namespace hgraph
         // layout, never from the origin plan.
         const std::vector<NodeStorageField> extra_fields = relayed_extra_fields(origin.plan);
         const auto &plan = node_storage_plan_for(schema, extra_fields);
+        NodeOps capture_ops{};
+        capture_ops.wiring_input_activity = node_ops.wiring_input_activity;
         const auto type = node_runtime_registry().make_type(
-            std::move(schema), origin.callbacks, plan, NodeOps{},
+            std::move(schema), origin.callbacks, plan, capture_ops,
             type_.record()->implementation_name(), origin.runtime_type_id);
 
         NodeBuilder result{type, input_endpoint_};

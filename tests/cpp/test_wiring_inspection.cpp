@@ -99,6 +99,9 @@ TEST_CASE("Wiring inspection uses packed input activity and structural boundarie
     std::array sources{a.erased(), b.erased()};
     REQUIRE(inspect_wiring_dependencies(output.erased(), sources) ==
             std::vector<WiringDependency>{{0, false}, {1, true}});
+    (void)exception_time_series(output);
+    REQUIRE(inspect_wiring_dependencies(output.erased(), sources) ==
+            std::vector<WiringDependency>{{0, false}, {1, true}});
     auto membership = wire<Membership>(w, packed);
     REQUIRE(inspect_wiring_dependencies(membership.erased(), sources) ==
             std::vector<WiringDependency>{{0, false}, {1, false}});
