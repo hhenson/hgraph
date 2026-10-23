@@ -1,19 +1,14 @@
 """The released HTTP, REST, and WebSocket adaptor surface.
 
-The server transport is the native one: ``http_server_handler``,
-``websocket_server_handler``, their adaptors, and the released request/response
-values are re-exported from :mod:`hgraph_web.compat`, which reproduces the
-released semantics — defects included — on hgraph-web (RFC 0024).  The
-``hgraph[web]`` extra installs both Tornado and hgraph-web.
+HTTP and WebSocket servers and clients delegate to :mod:`hgraph_web.compat`
+and :mod:`hgraph_web.compat_client`; REST lowers onto those same native
+transports. The ``hgraph[web]`` extra installs hgraph-web.
 
 Every name is exported lazily (PEP 562): consumers of the Tornado plumbing
 alone — :mod:`hgraph.adaptors.perspective` and the inspector import
-``._tornado_web`` directly — must keep working without hgraph-web installed,
-and the pointed ``ModuleNotFoundError`` for a missing hgraph-web should fire
-when a server name is USED, not when this package is imported.
-
-The client adaptors and the REST tier are still Tornado-backed.  New code
-should use :mod:`hgraph_web` directly.
+``._tornado_web`` directly — keep working without hgraph-web installed. A
+missing hgraph-web raises a pointed ``ModuleNotFoundError`` when its API is
+used. New code should use :mod:`hgraph_web` directly.
 """
 
 _EXPORTS = {

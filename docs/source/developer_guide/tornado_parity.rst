@@ -29,7 +29,7 @@ Upstream test mapping
        ``test_http_client_concurrent_requests_match_upstream_recorded_flow``
 
 The local module additionally covers all four methods and request fields,
-direct client registration, authentication challenge loading, pending and
+direct client registration, native authentication option lowering, pending and
 cancelled requests, teardown, overlapping-route precedence and invalid
 handler signatures.
 
@@ -91,7 +91,7 @@ are test infrastructure, not supported runtime behaviour.
 C++-first correspondence
 ------------------------
 
-The transport layer adapts Tornado events to native adaptor clients:
+The compatibility layer adapts legacy values and graph shapes to the native web services:
 
 - ordinary server streams use the public C++ adaptor contract exercised by
   ``tests/cpp/test_adaptor_wiring.cpp`` (paths, duplex routing,
@@ -103,9 +103,12 @@ The transport layer adapts Tornado events to native adaptor clients:
 - Python handlers compile to native graph/node callables.  Borrowed wrappers
   alias the owning ``Wiring`` and must not select or mutate graph/run
   configuration;
-- Python managers own only Tornado sockets, futures and queues.  Queue senders
-  are copied through the graph's ``GlobalState`` seed/result lifecycle and
-  removed by native node stop hooks.
+- ``hgraph_web.compat_client`` maps legacy HTTP calls and typed WebSocket
+  requests onto libcurl services. The C++ transport owns sockets, authentication,
+  queues and worker lifetime. Native loopback tests exercise NTLM challenge
+  dispatch and graph shutdown; the legacy client tests exercise the same path
+  through Python authoring. Independent WebSocket callers use distinct native
+  connection identities. No compatibility client starts a Tornado loop.
 
 No upstream Python graph executor, service registry or time-series runtime is
 used.  Differences in manager methods and implementation-token classes are

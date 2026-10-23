@@ -636,7 +636,8 @@ namespace hgraph::testing
             static_assert(!std::is_void_v<std::remove_cvref_t<typename sig::output_type>>,
                           "eval_node<G>: the graph must return an output port");
 
-            Wiring w;
+            Wiring w{WiringKind::TopLevel,
+                     WiringOptions{.is_realtime = options.mode == GraphExecutorMode::RealTime}};
             auto   all          = std::forward_as_tuple(std::forward<Args>(args)...);
             auto   default_args = call_args_detail::default_args_for<GraphT>();
             call_args_detail::validate_call_args<params>("eval_node<G>", all, default_args);

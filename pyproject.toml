@@ -70,10 +70,8 @@ parity = [
     "hypothesis>=6",
 ]
 web = [
-    # The released hgraph.adaptors.tornado server surface is implemented by
-    # hgraph_web.compat; the client tier is still Tornado-backed.
+    # Released HTTP, REST and WebSocket APIs delegate to native hgraph-web.
     "hgraph-web>=0.8.0",
-    "tornado>=6.5",
 ]
 sql = [
     "connectorx>=0.4.5",

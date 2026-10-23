@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Move released HTTP/REST and typed WebSocket clients onto native libcurl
+  services. Retain legacy signatures and error values, support native
+  NTLM/Negotiate authentication, and distinguish independent WebSocket
+  connections by an optional key identity. The `hgraph[web]` extra no longer
+  installs Tornado; Perspective/inspector integrations retain their dependency.
+
 - Retain the private request, response, WebSocket, delivery, and event
   transport envelopes as immutable `Shared<T>` allocations across the
   push-source and graph-buffering path. Public web service schemas remain

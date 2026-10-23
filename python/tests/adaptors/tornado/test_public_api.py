@@ -177,3 +177,23 @@ def test_handler_signatures_exclude_all_runtime_injectables():
 
     names = [p.name for p in _handler_parameters(inspect.signature(probe))]
     assert names == ["plain"]
+
+
+def test_released_web_api_imports_without_tornado():
+    import subprocess
+    import sys
+
+    program = '''
+import importlib.abc
+import sys
+class NoTornado(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "tornado" or fullname.startswith("tornado."):
+            raise AssertionError(f"legacy web API imported {fullname}")
+sys.meta_path.insert(0, NoTornado())
+import hgraph.adaptors.tornado as api
+for name in api.__all__:
+    getattr(api, name)
+assert not any(name == "tornado" or name.startswith("tornado.") for name in sys.modules)
+'''
+    subprocess.run([sys.executable, "-c", program], check=True)

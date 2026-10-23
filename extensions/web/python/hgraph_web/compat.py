@@ -89,9 +89,9 @@ Not reproduced (import these from the released package if you need them):
 * ``rest_handler`` and the ``Rest*`` request/response values are not defined
   here; the released ``hgraph.adaptors.tornado._rest_handler`` keeps them and
   now lowers them onto this module's ``http_server_handler``.
-* The HTTP and WebSocket *client* adaptors (``http_client_adaptor``,
-  ``websocket_client_adaptor``, ``Credentials``) — use
-  :func:`hgraph_web.web_http_request` and :func:`hgraph_web.web_ws_connect`.
+* The HTTP and WebSocket client adaptors and ``Credentials`` live in
+  :mod:`hgraph_web.compat_client`, which lowers their released graph shapes
+  onto the native libcurl services.
 * ``BaseHandler.set_auth_callback`` / ``set_auth_callback_async``: there is no
   authentication hook, and ``auth`` is always the anonymous pair.
 * ``HttpResponse.write``, which took a tornado stream.

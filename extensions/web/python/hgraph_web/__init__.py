@@ -10,7 +10,7 @@ fails while it is being wired rather than when a socket is bound.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from hgraph import (
@@ -213,6 +213,10 @@ class HttpClientOptions(CompoundScalar, namespace=_NAMESPACE):
     follow_redirects: bool = True
     max_redirects: int = 5
     http_version: WebHttpVersionPolicy = WebHttpVersionPolicy.AUTO
+    # Challenge-based Negotiate/NTLM; empty credentials use the OS identity.
+    integrated_auth: bool = False
+    username: str = field(default="", repr=False)
+    password: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:
         _require_non_negative(self.connect_timeout_ms, "connect timeout")
@@ -265,6 +269,8 @@ class WsClientKey(CompoundScalar, namespace=_NAMESPACE):
     url: str
     headers: tuple[WebHeader, ...] = ()
     subprotocols: tuple[str, ...] = ()
+    # Distinguishes independent connections to the same endpoint.
+    identity: str = ""
 
     def __post_init__(self) -> None:
         if not self.url:

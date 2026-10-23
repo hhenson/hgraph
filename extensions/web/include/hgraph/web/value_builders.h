@@ -235,7 +235,8 @@ namespace hgraph::web
     [[nodiscard]] HGRAPH_WEB_EXPORT Value make_client_options(Int  connect_timeout_ms = 10'000,
                                                               Int  request_timeout_ms = 30'000,
                                                               Bool follow_redirects = true, Int max_redirects = 5,
-                                                              WebHttpVersionPolicy http_version = WebHttpVersionPolicy::Auto);
+                                                              WebHttpVersionPolicy http_version = WebHttpVersionPolicy::Auto,
+                                                              Bool integrated_auth = false, Str username = {}, Str password = {});
 
     [[nodiscard]] HGRAPH_WEB_EXPORT Value make_transport_error(Int error_code, Str message, Bool retriable = false);
 
@@ -246,7 +247,7 @@ namespace hgraph::web
     [[nodiscard]] HGRAPH_WEB_EXPORT Value make_close_frame(Int close_code = 1000, Str close_reason = {});
 
     [[nodiscard]] HGRAPH_WEB_EXPORT Value make_ws_client_key(Str url, std::vector<WebHeaderInput> headers = {},
-                                                             std::vector<Str> subprotocols = {});
+                                                             std::vector<Str> subprotocols = {}, Str identity = {});
 
     [[nodiscard]] HGRAPH_WEB_EXPORT Value make_delivery_report(Int request_id, Int sequence, WebDeliveryStatus status,
                                                                Int error_code = 0, Bool retriable = false, Bool fatal = false,

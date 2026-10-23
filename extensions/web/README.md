@@ -29,8 +29,9 @@ platform.
 
 The core `hgraph` wheel owns a guarded compatibility shim at
 `hgraph.adaptors.web` which delegates to this extension when it is installed.
-The released `hgraph.adaptors.tornado` package is unchanged; whether it is
-later re-pointed or deprecated is a separate migration decision. The extension
+The released `hgraph.adaptors.tornado` HTTP/REST/WebSocket APIs delegate to
+`hgraph_web.compat` and `hgraph_web.compat_client`, including the libcurl
+client transport. The `hgraph[web]` extra needs no Tornado dependency. The extension
 wheel installs only `hgraph_web`; it never contributes files to the core
 `hgraph` package.
 

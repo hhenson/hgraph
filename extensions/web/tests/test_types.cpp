@@ -141,6 +141,18 @@ void test_client_config_validation() {
       "the response reservation must fit the ingress byte limit");
 }
 
+void test_client_auth_and_connection_identity() {
+  const Value options = make_client_options(1500, 2250, true, 5,
+      WebHttpVersionPolicy::Auto, true, "user", "password");
+  require(options.view().as_bundle().at("integrated_auth").checked_as<Bool>(),
+          "integrated authentication is opt-in per call");
+  require(bundle_string(options, "username") == "user", "native auth username round-trips");
+  require(bundle_string(options, "password") == "password", "native auth password round-trips");
+  const Value first = make_ws_client_key("ws://localhost/live", {}, {}, "first");
+  const Value second = make_ws_client_key("ws://localhost/live", {}, {}, "second");
+  require(!first.equals(second), "connection identities distinguish the same endpoint");
+}
+
 void test_service_descriptor_names_are_distinct() {
   require(HttpServeService::name != HttpRespondService::name &&
               WsServeService::name != WsSendService::name &&
@@ -159,6 +171,7 @@ int main() {
     test_server_config_defaults_and_validation();
     test_tls_server_config_validation();
     test_client_config_validation();
+    test_client_auth_and_connection_identity();
     test_service_descriptor_names_are_distinct();
   } catch (const std::exception &error) {
     std::cerr << "hgraph_web_tests failed: " << error.what() << "\n";

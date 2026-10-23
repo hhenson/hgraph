@@ -145,21 +145,32 @@ if(NOT HGRAPH_WEB_CURL_TARGET)
     set(CURL_USE_SCHANNEL OFF CACHE BOOL "" FORCE)
     set(CURL_USE_SECTRANSP OFF CACHE BOOL "" FORCE)
     set(USE_NGHTTP2 ON CACHE BOOL "" FORCE)
-    # The transport needs no auxiliary curl features; keeping them off keeps
-    # the wheel dependency-free beyond OpenSSL.
+    # Integrated authentication uses native GSSAPI where available and SSPI
+    # on Windows; curl reports unavailable mechanisms on other builds.
+    if(WIN32)
+        set(CURL_WINDOWS_SSPI ON CACHE BOOL "" FORCE)
+        set(CURL_USE_GSSAPI OFF CACHE BOOL "" FORCE)
+    else()
+        set(CURL_USE_GSSAPI ON CACHE BOOL "" FORCE)
+    endif()
+    # Keep unrelated auxiliary features out of the transport.
     set(CURL_USE_LIBPSL OFF CACHE BOOL "" FORCE)
     set(CURL_USE_LIBSSH2 OFF CACHE BOOL "" FORCE)
     set(CURL_BROTLI OFF CACHE BOOL "" FORCE)
     set(CURL_ZSTD OFF CACHE BOOL "" FORCE)
     set(USE_LIBIDN2 OFF CACHE BOOL "" FORCE)
-    set(CURL_USE_GSSAPI OFF CACHE BOOL "" FORCE)
     set(CURL_DISABLE_LDAP ON CACHE BOOL "" FORCE)
     FetchContent_Declare(curl
         GIT_REPOSITORY https://github.com/curl/curl.git
         GIT_TAG curl-8_11_1
         GIT_SHALLOW TRUE
     )
+    set(_hgraph_web_saved_module_path "${CMAKE_MODULE_PATH}")
+    if(APPLE)
+        list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/apple")
+    endif()
     FetchContent_MakeAvailable(curl)
+    set(CMAKE_MODULE_PATH "${_hgraph_web_saved_module_path}")
     if(APPLE AND CMAKE_C_COMPILER_ID STREQUAL "AppleClang" AND
        TARGET libcurl_static)
         # curl 8.11.1 passes an intentionally zero-length transfer buffer that

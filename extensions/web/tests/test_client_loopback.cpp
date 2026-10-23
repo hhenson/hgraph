@@ -7,8 +7,10 @@
 
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/operators/registration.h>
+#include <hgraph/lib/std/operators/stream.h>
 #include <hgraph/lib/std/std_nodes.h>
 #include <hgraph/lib/testing/runtime_support.h>
+#include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/util/scope.h>
 
@@ -17,6 +19,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <set>
 #include <utility>
 
 namespace {
@@ -37,6 +40,8 @@ inline std::atomic<bool> http_response_seen{false};
 inline std::atomic<bool> http_failure_seen{false};
 inline std::atomic<bool> ws_welcome_seen{false};
 inline std::atomic<bool> server_saw_client_ping{false};
+inline bool auth_token_seen{};
+inline std::set<Int> welcomed_connections{};
 inline Value observed_response{};
 inline Value observed_failure{};
 
@@ -47,7 +52,7 @@ void release_test_state() {
 
 void maybe_stop(NodeView &node) {
   if ((http_response_seen.load() || http_failure_seen.load()) &&
-      ws_welcome_seen.load() && server_saw_client_ping.load()) {
+      ws_welcome_seen.load() && server_saw_client_ping.load() && welcomed_connections.size() == 2) {
     node.graph().executor().request_stop();
   }
 }
@@ -121,12 +126,41 @@ struct CallResultCapture {
   }
 };
 
-struct WsClientPing {
-  static constexpr auto name = "web_client_loopback_ws_ping";
+struct WsOpenCapture {
+  static void eval(NodeView node, In<"output", WsClientOutput, InputValidity::Unchecked> output) {
+    auto event = output.template field<"event">();
+    if (event.valid() && event.modified()) {
+      auto value = event.base().value().as_bundle();
+      if (value.at("state").checked_as<WsConnectionState>() == WsConnectionState::Open) {
+        welcomed_connections.insert(value.at("connection_id").checked_as<Int>());
+        maybe_stop(node);
+      }
+    }
+  }
+};
 
-  static void eval(In<"output", WsClientOutput, InputValidity::Unchecked>
-                       output,
-                   Out<TS<WsFrame>> out) {
+struct WsConnected {
+  static void eval(In<"output", WsClientOutput, InputValidity::Unchecked> output, Out<TS<Bool>> out) {
+    auto event = output.template field<"event">();
+    if (event.valid() && event.modified()) {
+      out.set(event.base().value().as_bundle().at("state").checked_as<WsConnectionState>()
+              == WsConnectionState::Open);
+    }
+  }
+};
+
+struct IndependentWsKey {
+  static void eval(In<"key", TS<WsClientKey>> key, Out<TS<WsClientKey>> out) {
+    const Value value = make_ws_client_key(
+        key.base().value().as_bundle().at("url").checked_as<Str>(), {}, {}, "independent");
+    out.apply(value.view());
+  }
+};
+
+struct WsWelcomeCapture {
+  static constexpr auto name = "web_client_loopback_ws_welcome";
+
+  static void eval(NodeView node, In<"output", WsClientOutput, InputValidity::Unchecked> output) {
     auto frame = output.template field<"frame">();
     if (!frame.valid() || !frame.modified()) {
       return;
@@ -135,8 +169,7 @@ struct WsClientPing {
     if (fields.at("kind").checked_as<WsFrameKind>() == WsFrameKind::Text &&
         fields.at("text").checked_as<Str>() == Str{"welcome"}) {
       ws_welcome_seen.store(true);
-      const Value ping = make_text_frame("ping-from-client");
-      out.apply(ping.view());
+      maybe_stop(node);
     }
   }
 };
@@ -163,8 +196,24 @@ struct EchoResponse {
                    Out<TS<HttpResponse>> out) {
     auto request = routed.template field<"request">();
     if (request.valid() && request.modified()) {
-      const Value response =
-          make_response(Int{200}, {}, Bytes{"hello client"});
+      bool authenticated = false;
+      bool negotiate = false;
+      const auto inbound = request.base().value().as_bundle().at("request").as_bundle();
+      for (const auto item : inbound.at("headers").as_list()) {
+        const auto header = item.as_bundle();
+        const auto header_name = header.at("name").checked_as<Str>();
+        if (header_name == "Authorization" || header_name == "authorization") {
+          const auto token = header.at("value").checked_as<Str>();
+          negotiate = token.starts_with("NTLM TlRMTVNTUAAB");
+          authenticated = token.starts_with("NTLM TlRMTVNTUAAD");
+        }
+      }
+      auth_token_seen = auth_token_seen || authenticated;
+      const Value response = authenticated
+          ? make_response(Int{200}, {}, Bytes{"hello client"})
+          : make_response(Int{401}, {{"WWW-Authenticate", negotiate
+                ? "NTLM TlRMTVNTUAACAAAAAAAAADAAAAAFgooAMTIzNDU2NzgAAAAAAAAAAAQABAAwAAAAAAAAAA=="
+                : "NTLM"}}, Bytes{"challenge"});
       out.apply(response.view());
     }
   }
@@ -225,7 +274,7 @@ struct ServerPingCapture {
 struct ClientLoopbackGraph {
   static constexpr auto name = "web_client_loopback_test_graph";
 
-  static void compose(Wiring &w) {
+  static Port<HttpCallResult> compose(Wiring &w) {
     const auto server_path = service::path("web-loopback-server");
     const auto client_path = service::path("web-loopback-client");
     register_server(w, server_path,
@@ -257,17 +306,36 @@ struct ClientLoopbackGraph {
         ws_send(w, server_path, ws_send_request(w, connection_id, welcome)));
     static_cast<void>(wire<ServerPingCapture>(w, ws_output));
 
-    // Client: one HTTP call and one WS session, triggered by the bound port.
+    // Client: one authenticated HTTP call and two independent WS sessions.
     auto client_request = wire<HttpCallTrigger>(w, stats).as<TS<HttpClientRequest>>();
     auto result =
-        http_request(w, client_path, http_client_call(w, client_request));
+        http_request(w, client_path, http_client_call(w, client_request,
+            wire<stdlib::const_, TS<HttpClientOptions>>(w, make_client_options(
+                10'000, 30'000, true, 5, WebHttpVersionPolicy::Auto, true, "user", "password"))));
     static_cast<void>(wire<CallResultCapture>(w, result));
 
     auto ws_key = wire<WsKeyTrigger>(w, stats).as<TS<WsClientKey>>();
     auto ws_client_output = ws_connect(w, client_path, ws_key);
-    auto ping = wire<WsClientPing>(w, ws_client_output).as<TS<WsFrame>>();
+    static_cast<void>(wire<WsOpenCapture>(w, ws_client_output));
+    auto independent_key = wire<IndependentWsKey>(w, ws_key).as<TS<WsClientKey>>();
+    static_cast<void>(wire<WsOpenCapture>(w, ws_connect(w, client_path, independent_key)));
+    static_cast<void>(wire<WsWelcomeCapture>(w, ws_client_output));
+    // The frame arrives before connection: native gate queues it until Open;
+    // sampling the key on frames avoids replay on key changes.
+    auto early = wire<stdlib::const_, TS<WsFrame>>(w, make_text_frame("ping-from-client"));
+    auto ready = wire<WsConnected>(w, ws_client_output).as<TS<Bool>>();
+    auto ping = wire<stdlib::gate>(w, ready, early).as<TS<WsFrame>>();
+    auto send_key = wire<stdlib::sample>(w, ping, ws_key).as<TS<WsClientKey>>();
     static_cast<void>(
-        ws_client_send(w, client_path, ws_client_send_request(w, ws_key, ping)));
+        ws_client_send(w, client_path, ws_client_send_request(w, send_key, ping)));
+    return result;
+  }
+};
+
+struct ClientLoopbackEvalGraph {
+  static constexpr auto name = ClientLoopbackGraph::name;
+  static Port<HttpCallResult> compose(Wiring &w, Port<TS<Bool>>) {
+    return ClientLoopbackGraph::compose(w);
   }
 };
 } // namespace
@@ -277,6 +345,8 @@ void run_loopback_once() {
     http_triggered.store(false);
     ws_triggered.store(false);
     http_response_seen.store(false);
+    auth_token_seen = false;
+    welcomed_connections.clear();
     http_failure_seen.store(false);
     ws_welcome_seen.store(false);
     server_saw_client_ping.store(false);
@@ -284,19 +354,11 @@ void run_loopback_once() {
     observed_failure = Value{};
 
     const DateTime start = wall_now();
-    GraphExecutorBuilder executor_builder;
-    executor_builder
-        .graph_builder(build_graph<ClientLoopbackGraph>(
-            WiringOptions{.is_realtime = true}))
-        .mode(GraphExecutorMode::RealTime)
-        .start_time(start)
-        .end_time(start + TimeDelta{20'000'000});
-    auto executor = executor_builder.make_executor();
-    auto view = executor.view();
-    {
-      AsyncGraphExecutorRun runner{view};
-      runner.join();
-    }
+    static_cast<void>(eval_node_with_options<ClientLoopbackEvalGraph>(
+        EvalNodeRunOptions{.start_time = start,
+                           .end_time = start + TimeDelta{20'000'000},
+                           .mode = GraphExecutorMode::RealTime},
+        std::vector<std::optional<Bool>>{true}));
 
     require(http_response_seen.load(),
             std::string{"the client call did not complete"} +
@@ -306,6 +368,7 @@ void run_loopback_once() {
                                               .at("message")
                                               .checked_as<Str>()}
                      : ""));
+    require(auth_token_seen, "libcurl did not answer the native NTLM challenge");
     require(!http_failure_seen.load(),
             "the client call took the transport-failure arm");
     const auto response = observed_response.view().as_bundle();
@@ -313,6 +376,7 @@ void run_loopback_once() {
             "the loopback response status was not 200");
     require(response.at("body").checked_as<Bytes>().data == "hello client",
             "the loopback response body did not round-trip");
+    require(welcomed_connections.size() == 2, "identities did not create independent WS connections");
     require(ws_welcome_seen.load(),
             "the WS client did not receive the welcome frame");
     require(server_saw_client_ping.load(),
