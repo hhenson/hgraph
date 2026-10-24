@@ -379,7 +379,8 @@ namespace hgraph::web
 
     using HttpClientOptions =
         Bundle<"hgraph.web::HttpClientOptions", Field<"connect_timeout_ms", Int>, Field<"request_timeout_ms", Int>,
-               Field<"follow_redirects", Bool>, Field<"max_redirects", Int>, Field<"http_version", WebHttpVersionPolicy>>;
+               Field<"follow_redirects", Bool>, Field<"max_redirects", Int>, Field<"http_version", WebHttpVersionPolicy>, Field<"integrated_auth", Bool>,
+               Field<"username", Str>, Field<"password", Str>>;
 
     using WsFrame = Bundle<"hgraph.web::WsFrame", Field<"kind", WsFrameKind>, Field<"text", Str>, Field<"data", Bytes>,
                            Field<"close_code", Int>, Field<"close_reason", Str>>;
@@ -390,7 +391,7 @@ namespace hgraph::web
                            Field<"request", HttpServerRequest>, Field<"close_code", Int>, Field<"close_reason", Str>>;
 
     using WsClientKey = Bundle<"hgraph.web::WsClientKey", Field<"url", Str>, Field<"headers", HomogeneousTuple<WebHeader>>,
-                               Field<"subprotocols", HomogeneousTuple<Str>>>;
+                               Field<"subprotocols", HomogeneousTuple<Str>>, Field<"identity", Str>>;
 
     using WebDeliveryReport =
         Bundle<"hgraph.web::WebDeliveryReport", Field<"request_id", Int>, Field<"sequence", Int>,

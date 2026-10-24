@@ -1,13 +1,12 @@
-import asyncio
 from datetime import datetime, timedelta, timezone
 import http.client
+import base64
+import struct
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import random
 import socket
-import sys
 from threading import Thread
 import time
-from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -28,7 +27,6 @@ from hgraph.adaptors.tornado import (
     http_server_adaptor_impl,
     register_http_server_adaptor,
 )
-from hgraph.adaptors.tornado.http_client_adaptor import _handle_auth
 
 
 @hg.compute_node
@@ -77,61 +75,42 @@ def test_http_request_closed_union_tsd_round_trips_through_eval_node(elide):
     ]
 
 
-def test_http_client_ntlm_challenge_uses_explicit_credentials(monkeypatch):
-    class Context:
-        def __init__(self):
-            self.tokens = []
+def test_http_client_credentials_and_timeouts_lower_to_native_options():
+    from hgraph_web.compat_client import _http_call
 
-        def step(self, *, in_token):
-            self.tokens.append(in_token)
-            return b"client-token"
-
-    context = Context()
-    provider_calls = []
-    provider = SimpleNamespace(
-        ContextReq=SimpleNamespace(sequence_detect=1, mutual_auth=2),
-        exceptions=SimpleNamespace(SpnegoError=RuntimeError),
-        client=lambda **kwargs: provider_calls.append(kwargs) or context,
+    request = HttpGetRequest(
+        "http://localhost/resource?existing=1", query={"item": "a b"},
+        auth=Credentials("user", "password"),
+        connect_timeout=1.5, request_timeout=2.25,
     )
-    monkeypatch.setitem(sys.modules, "spnego", provider)
+    [result] = hg.eval_node(_http_call, [request])
+    assert result["request"].url == "http://localhost/resource?existing=1&item=a+b"
+    options = result["options"]
+    assert options.integrated_auth is True
+    assert options.username == "user"
+    assert options.password == "password"
+    assert options.connect_timeout_ms == 1500
+    assert options.request_timeout_ms == 2250
+    assert "password" not in repr(options)
+    assert str(request.auth) == "credentials"
 
-    wire_request = SimpleNamespace(
-        url="http://localhost/resource",
-        headers={},
-    )
-    challenge = SimpleNamespace(
-        code=401,
-        headers={"www-authenticate": "NTLM"},
-        request=wire_request,
-    )
-    accepted = SimpleNamespace(
-        code=200,
-        headers={},
-        request=wire_request,
-    )
 
-    class Client:
-        async def fetch(self, request, *, raise_error):
-            assert request is wire_request
-            assert raise_error is False
-            return accepted
+@pytest.mark.parametrize("auth", [None, Credentials("", "")])
+def test_http_client_platform_credentials_require_explicit_opt_in(auth):
+    from hgraph_web.compat_client import _http_call
 
-    response = asyncio.run(
-        _handle_auth(
-            challenge,
-            HttpGetRequest(
-                "http://localhost/resource",
-                auth=Credentials("user", "password"),
-            ),
-            Client(),
-        )
-    )
+    [result] = hg.eval_node(_http_call, [HttpGetRequest("http://localhost/", auth=auth)])
+    assert result["options"].integrated_auth is (auth is not None)
 
-    assert response is accepted
-    assert provider_calls[0]["username"] == "user"
-    assert provider_calls[0]["password"] == "password"
-    assert context.tokens == [b""]
-    assert wire_request.headers["Authorization"] == "NTLM Y2xpZW50LXRva2Vu"
+
+@pytest.mark.parametrize("timeout, expected_ms", [(0, 0), (0.0005, 1), (0.0011, 2)])
+def test_http_client_positive_timeouts_round_up(timeout, expected_ms):
+    from hgraph_web.compat_client import _http_call
+
+    [result] = hg.eval_node(_http_call, [HttpGetRequest(
+        "http://localhost/", connect_timeout=timeout, request_timeout=timeout)])
+    assert result["options"].connect_timeout_ms == expected_ms
+    assert result["options"].request_timeout_ms == expected_ms
 
 
 @pytest.fixture
@@ -139,10 +118,36 @@ def http_endpoint():
     received = []
 
     class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
         def _handle(self):
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(length).decode() if length else ""
             parsed = urlparse(self.path)
+            if parsed.path == "/ntlm":
+                token = self.headers.get("Authorization", "")
+                received.append({"authorization": token})
+                if not token:
+                    challenge = "NTLM"
+                else:
+                    message = base64.b64decode(token.removeprefix("NTLM "))
+                    if message[8:12] == b"\x03\0\0\0":
+                        length, _, offset = struct.unpack_from("<HHI", message, 36)
+                        username = message[offset:offset + length].decode("utf-16-le")
+                        response = username.encode()
+                        self.send_response(200)
+                        self.send_header("Content-Length", str(len(response)))
+                        self.end_headers()
+                        self.wfile.write(response)
+                        return
+                    challenge = "NTLM TlRMTVNTUAACAAAAAAAAADAAAAAFgooAMTIzNDU2NzgAAAAAAAAAAAQABAAwAAAAAAAAAA=="
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", challenge)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if parsed.path == "/slow":
+                time.sleep(0.2)
             received.append(
                 {
                     "method": self.command,
@@ -152,14 +157,17 @@ def http_endpoint():
                     "header": self.headers.get("X-HGraph-Test"),
                 }
             )
-            status = 201 if self.command == "POST" else 200
+            status = 418 if parsed.path == "/status" else 201 if self.command == "POST" else 200
             response = f"{self.command}:{parsed.path}:{body}".encode()
             self.send_response(status)
             self.send_header("Content-Type", "text/plain")
             self.send_header("X-HGraph-Method", self.command)
             self.send_header("Content-Length", str(len(response)))
             self.end_headers()
-            self.wfile.write(response)
+            try:
+                self.wfile.write(response)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
         do_GET = _handle
         do_POST = _handle
@@ -877,3 +885,131 @@ def test_http_server_handler_preserves_keyed_auxiliary_outputs(free_tcp_port):
     assert client_results == [(202, f"handled:{route}".encode())]
     assert captured_audits == ["HttpGetRequest"]
     assert f"http_server_adaptor://{free_tcp_port}/{route}/queue" not in state
+
+
+def _eval_client_request(request, *, use_curl=False):
+    @hg.compute_node
+    def stop(response: hg.TS[HttpResponse], _engine: hg.EvaluationEngineApi = None) -> hg.TS[HttpResponse]:
+        _engine.request_engine_stop()
+        return response.value
+
+    @hg.graph
+    def client(request: hg.TS[HttpRequest]) -> hg.TS[HttpResponse]:
+        hg.register_adaptor("native-client", http_client_adaptor_impl, use_curl=use_curl)
+        return stop(http_client_adaptor(request, path="native-client"))
+
+    start = datetime.now(timezone.utc).replace(tzinfo=None)
+    return hg.eval_node(
+        client, [request], __run_mode__=hg.EvaluationMode.REAL_TIME,
+        __start_time__=start, __end_time__=start + timedelta(seconds=3),
+        __elide__=True,
+    )
+
+
+@pytest.mark.parametrize("use_curl", [False, True])
+def test_legacy_client_backend_flag_uses_native_transport(http_endpoint, use_curl):
+    url, _ = http_endpoint
+    [response] = _eval_client_request(HttpGetRequest(f"{url}/read"), use_curl=use_curl)
+    assert response.status_code == 200
+    assert response.body == b"GET:/read:"
+
+
+def test_legacy_client_reports_connection_failure_and_invalid_request(free_tcp_port):
+    [failed] = _eval_client_request(HttpGetRequest(f"http://127.0.0.1:{free_tcp_port}/missing"))
+    assert failed.status_code == 400
+    assert failed.body
+    [invalid] = _eval_client_request(HttpGetRequest(""))
+    assert invalid.status_code == 400
+    assert invalid.body
+
+
+def test_legacy_client_authenticates_with_native_ntlm(http_endpoint):
+    url, _ = http_endpoint
+    [response] = _eval_client_request(HttpGetRequest(
+        f"{url}/ntlm", auth=Credentials("native-user", "password")))
+    assert response.status_code == 200
+    assert response.body == b"native-user"
+
+
+def test_legacy_client_without_auth_does_not_answer_ntlm_challenge(http_endpoint):
+    url, received = http_endpoint
+    [response] = _eval_client_request(HttpGetRequest(f"{url}/ntlm", auth=None))
+    assert response.status_code == 401
+    assert received == [{"authorization": ""}]
+
+
+class CustomGetRequest(HttpGetRequest):
+    pass
+
+
+class CustomPostRequest(HttpPostRequest):
+    pass
+
+
+class CustomPutRequest(HttpPutRequest):
+    pass
+
+
+class CustomDeleteRequest(HttpDeleteRequest):
+    pass
+
+
+@pytest.mark.parametrize("request_type, method, status", [
+    (CustomGetRequest, "GET", 200),
+    (CustomPostRequest, "POST", 201),
+    (CustomPutRequest, "PUT", 200),
+    (CustomDeleteRequest, "DELETE", 200),
+])
+def test_legacy_client_accepts_request_subclasses(http_endpoint, request_type, method, status):
+    url, received = http_endpoint
+    [response] = _eval_client_request(request_type(f"{url}/subclass"))
+    assert response.status_code == status
+    assert received[0]["method"] == method
+
+
+def test_legacy_client_submillisecond_request_timeout_is_not_disabled(http_endpoint):
+    url, _ = http_endpoint
+    [response] = _eval_client_request(HttpGetRequest(f"{url}/slow", request_timeout=0.0005))
+    assert response.status_code == 400
+    assert response.body
+
+
+def test_legacy_client_preserves_http_error_and_timeout_response_shapes(http_endpoint):
+    url, _ = http_endpoint
+    [response] = _eval_client_request(HttpGetRequest(f"{url}/status"))
+    assert response.status_code == 418
+    assert response.body == b"GET:/status:"
+    [timeout] = _eval_client_request(HttpGetRequest(f"{url}/slow", request_timeout=0.05))
+    assert timeout.status_code == 400
+    assert timeout.body
+
+
+def test_legacy_http_client_handles_successive_requests_on_one_caller(http_endpoint):
+    url, _ = http_endpoint
+    observed = []
+    sender_ref = {}
+
+    @hg.push_queue(hg.TS[HttpRequest])
+    def requests(sender):
+        sender_ref["sender"] = sender
+        sender(HttpGetRequest(f"{url}/first"))
+
+    @hg.sink_node
+    def capture(response: hg.TS[HttpResponse], _engine: hg.EvaluationEngineApi = None) -> None:
+        observed.append(response.value)
+        if len(observed) == 1:
+            sender_ref["sender"](HttpGetRequest(f"{url}/second"))
+        else:
+            _engine.request_engine_stop()
+
+    @hg.graph
+    def application() -> hg.TS[HttpResponse]:
+        hg.register_adaptor("successive", http_client_adaptor_impl)
+        response = http_client_adaptor(requests(), path="successive")
+        capture(response)
+        return response
+
+    start = datetime.now(timezone.utc).replace(tzinfo=None)
+    hg.eval_node(application, __run_mode__=hg.EvaluationMode.REAL_TIME,
+                 __start_time__=start, __end_time__=start + timedelta(seconds=3), __elide__=True)
+    assert [response.body for response in observed] == [b"GET:/first:", b"GET:/second:"]

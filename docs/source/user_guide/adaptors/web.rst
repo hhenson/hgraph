@@ -480,11 +480,33 @@ family, ``failure_policy``, ``stats_interval_ms``, ``tls``.
 Relationship to ``hgraph.adaptors.tornado``
 -------------------------------------------
 
-The released tornado *server* surface (``http_server_handler``,
+The released tornado surface (``http_server_handler``,
 ``websocket_server_handler``, their adaptors, and ``@rest_handler`` above
 them) is now **implemented by this extension**: ``hgraph_web.compat``
 reproduces the released semantics on the native transports, and the
-``hgraph[web]`` extra installs ``hgraph-web`` alongside Tornado so those
-import paths keep working unchanged.  The tornado-backed HTTP/WebSocket
-*clients* remain in core.  New code should use ``hgraph_web`` directly —
-everything above this section.
+``hgraph[web]`` extra installs ``hgraph-web`` so those import paths keep
+working unchanged. HTTP and WebSocket clients delegate through
+``hgraph_web.compat_client`` to the native libcurl services; REST clients use
+the same HTTP path. ``use_curl`` remains an accepted compatibility argument,
+and both values use libcurl. ``max_clients`` sets the native connection limits.
+Tornado is needed only for the separately supported Perspective/inspector
+integration, not HTTP, REST or WebSocket transport. New code should use
+``hgraph_web`` directly.
+
+``HttpClientOptions(integrated_auth=True, username=..., password=...)`` enables
+challenge-based NTLM/Negotiate authentication. Empty credentials select the
+platform identity. The compatibility client enables this only when the caller
+passes ``Credentials``; ``Credentials("", "")`` explicitly selects the platform
+identity, while ``auth=None`` leaves integrated authentication disabled.
+Kerberos requires a libcurl
+build with GSSAPI or Windows SSPI and a configured platform credential cache.
+The fetched curl build enables GSSAPI when available and SSPI on Windows.
+Basic authentication is never selected by this option. Transport failures
+retain the legacy ``HttpResponse(status_code=400, ...)`` shape; HTTP error
+responses retain their actual status and body.
+
+``WsClientKey.identity`` distinguishes independent connections to the same URL
+and headers. Its default empty string preserves connection sharing for native
+callers; the compatibility layer assigns an identity per caller and reconnect
+generation, so legacy clients stay independent. Removing a mapped client
+unsubscribes its native connection and graph teardown stops the native task.

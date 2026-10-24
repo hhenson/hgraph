@@ -1,4 +1,5 @@
 #include <hgraph/web/types.h>
+#include <hgraph/web/value_builders.h>
 
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/operators/registration.h>
@@ -10,9 +11,9 @@ namespace
     using namespace hgraph;
     using namespace hgraph::web;
 
-    struct InstalledOutputSink
+    struct ConsumeOptions
     {
-        static void eval(In<"value", TS<Str>>) {}
+        static void eval(In<"options", TS<HttpClientOptions>>) {}
     };
 
     struct InstalledConsumerGraph
@@ -21,12 +22,10 @@ namespace
 
         static void compose(Wiring &w)
         {
-            // The serve, respond, connect, and call wiring surface lands with
-            // the service implementation (RFC 0024). Until then the installed
-            // package is exercised by registering the web schemas against a
-            // graph built from the same SDK.
-            wire<InstalledOutputSink>(w,
-                wire<stdlib::const_, TS<Str>>(w, Str{"installed-consumer"}));
+            auto options = wire<stdlib::const_, TS<HttpClientOptions>>(
+                w, make_client_options(1500, 2250, true, 5,
+                    WebHttpVersionPolicy::Auto, true, "user", "password"));
+            wire<ConsumeOptions>(w, options);
         }
     };
 }  // namespace
@@ -35,6 +34,8 @@ int main()
 {
     stdlib::register_standard_operators();
     register_web_types();
+    const Value key = make_ws_client_key("ws://localhost/live", {}, {}, "independent");
+    if (key.view().as_bundle().at("identity").checked_as<Str>() != "independent") { return 1; }
     auto graph = build_graph<InstalledConsumerGraph>();
     return graph.node_count() == 0 ? 1 : 0;
 }

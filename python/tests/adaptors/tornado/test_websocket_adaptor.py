@@ -416,3 +416,115 @@ def test_websocket_client_service_adaptor_infers_message_specialization(
 
     assert received == list(payloads)
     assert not any(key.startswith("websocket_client_adaptor://") for key in state.keys())
+
+
+def test_websocket_clients_to_the_same_url_have_independent_connections(free_tcp_port):
+    route = f"/independent-{free_tcp_port}"
+    request_type = hg.TSB[WebSocketClientRequest[str]]
+    response_type = hg.TSB[WebSocketResponse[str]]
+    observed = []
+
+    @websocket_server_handler(url=route)
+    @hg.compute_node
+    def welcome(request: hg.TSD[int, hg.TSB[WebSocketServerRequest[str]]]) -> hg.TSD[int, response_type]:
+        return {
+            key: {"connect_response": True, "message": str(key)}
+            for key, value in request.modified_items()
+            if value.connect_request.modified
+        }
+
+    @hg.sink_node
+    def capture(message: hg.TS[str], _engine: hg.EvaluationEngineApi = None) -> None:
+        observed.append(message.value)
+        if len(observed) == 2:
+            _engine.request_engine_stop()
+
+    @hg.graph
+    def application(trigger: hg.TS[WebSocketConnectRequest]) -> hg.TS[str]:
+        register_websocket_server_adaptor(free_tcp_port)
+        hg.register_adaptor(None, websocket_client_adaptor_impl)
+        # Distinct call sites retain their own service-adaptor client ids.
+        first = websocket_client_adaptor(hg.combine[request_type](connect_request=trigger))
+        second = websocket_client_adaptor(hg.combine[request_type](connect_request=trigger))
+        capture(first.message)
+        capture(second.message)
+        return first.message
+
+    start = datetime.now(timezone.utc).replace(tzinfo=None)
+    hg.eval_node(application, [WebSocketConnectRequest(f"ws://127.0.0.1:{free_tcp_port}{route}")],
+                 __run_mode__=hg.EvaluationMode.REAL_TIME,
+                 __start_time__=start, __end_time__=start + timedelta(seconds=3), __elide__=True)
+    assert len(observed) == 2
+    assert len(set(observed)) == 2
+
+
+def test_websocket_client_queues_early_messages_without_resending_on_reconnect(free_tcp_port):
+    route = f"/reconnect-{free_tcp_port}"
+    url = f"ws://127.0.0.1:{free_tcp_port}{route}"
+    request_type = hg.TSB[WebSocketClientRequest[str]]
+    response_type = hg.TSB[WebSocketResponse[str]]
+    received = []
+    observed = []
+    sender_ref = {}
+
+    @websocket_server_handler(url=route)
+    @hg.compute_node
+    def echo(request: hg.TSB[WebSocketServerRequest[str]]) -> response_type:
+        response = {}
+        if request.connect_request.modified:
+            response.update(connect_response=True, message="welcome")
+        if request.messages.modified:
+            received.extend(request.messages.value)
+            response["message"] = request.messages.value[-1]
+        return response or None
+
+    @hg.push_queue(request_type)
+    def requests(sender):
+        sender_ref["sender"] = sender
+        sender({"message": "early-one"})
+        sender({"message": "early-two"})
+        sender({"connect_request": WebSocketConnectRequest(url)})
+
+    @hg.sink_node
+    def capture(message: hg.TS[str]) -> None:
+        observed.append(message.value)
+        if message.value == "early-two" and observed.count("early-two") == 1:
+            sender_ref["sender"]({"connect_request": WebSocketConnectRequest(url)})
+        elif message.value == "welcome" and observed.count("welcome") == 2:
+            sender_ref["sender"]({"connect_request": WebSocketConnectRequest(url), "message": "after-reconnect"})
+
+    @hg.graph
+    def application() -> hg.TS[str]:
+        register_websocket_server_adaptor(free_tcp_port)
+        hg.register_adaptor(None, websocket_client_adaptor_impl)
+        response = websocket_client_adaptor(requests())
+        capture(response.message)
+        return response.message
+
+    start = datetime.now(timezone.utc).replace(tzinfo=None)
+    hg.eval_node(application, __run_mode__=hg.EvaluationMode.REAL_TIME,
+                 __start_time__=start, __end_time__=start + timedelta(seconds=2), __elide__=True)
+    assert received == ["early-one", "early-two", "after-reconnect"]
+    assert observed.count("welcome") == 3
+
+
+@pytest.mark.parametrize("url", ["", "ws://127.0.0.1:1/unavailable"])
+def test_websocket_client_reports_failed_connections(url):
+    request_type = hg.TSB[WebSocketClientRequest[str]]
+
+    @hg.compute_node
+    def stop(connected: hg.TS[bool], _engine: hg.EvaluationEngineApi = None) -> hg.TS[bool]:
+        _engine.request_engine_stop()
+        return connected.value
+
+    @hg.graph
+    def application(connect: hg.TS[WebSocketConnectRequest]) -> hg.TS[bool]:
+        hg.register_adaptor(None, websocket_client_adaptor_impl)
+        response = websocket_client_adaptor(hg.combine[request_type](connect_request=connect))
+        return stop(response.connect_response)
+
+    start = datetime.now(timezone.utc).replace(tzinfo=None)
+    assert hg.eval_node(application, [WebSocketConnectRequest(url)],
+                        __run_mode__=hg.EvaluationMode.REAL_TIME,
+                        __start_time__=start, __end_time__=start + timedelta(seconds=3),
+                        __elide__=True) == [False]

@@ -7,8 +7,7 @@ migration").  The names are re-exported so released import paths keep working
 unchanged; the Tornado-based server implementation they used to name is gone.
 
 ``STR_OR_BYTES`` is re-exported for
-:mod:`hgraph.adaptors.tornado.websocket_client_adaptor`, which still owns the
-client tier and shares the message-type variable.
+:mod:`hgraph.adaptors.tornado.websocket_client_adaptor`, which shares the native compatibility message-type variable.
 """
 
 try:

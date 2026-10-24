@@ -506,7 +506,6 @@ test = [
 ]
 web = [
     { name = "hgraph-web" },
-    { name = "tornado" },
 ]
 
 [package.metadata]
@@ -564,7 +563,6 @@ requires-dist = [
     { name = "sqlalchemy", marker = "extra == 'test'", specifier = ">=2.0" },
     { name = "tornado", marker = "extra == 'perspective'", specifier = ">=6.5" },
     { name = "tornado", marker = "extra == 'test'", specifier = ">=6.5" },
-    { name = "tornado", marker = "extra == 'web'", specifier = ">=6.5" },
     { name = "trove-classifiers", marker = "extra == 'dev'" },
     { name = "trove-classifiers", marker = "extra == 'test'" },
 ]
