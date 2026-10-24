@@ -7,6 +7,9 @@
   NTLM/Negotiate authentication, and distinguish independent WebSocket
   connections by an optional key identity. The `hgraph[web]` extra no longer
   installs Tornado; Perspective/inspector integrations retain their dependency.
+  Integrated authentication requires explicit `Credentials` (empty strings opt
+  into the platform identity); `auth=None` never opts in. Preserve request
+  subclasses and round positive timeout values up to whole milliseconds.
 
 - Retain the private request, response, WebSocket, delivery, and event
   transport envelopes as immutable `Shared<T>` allocations across the

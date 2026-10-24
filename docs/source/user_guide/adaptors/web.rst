@@ -495,8 +495,10 @@ integration, not HTTP, REST or WebSocket transport. New code should use
 
 ``HttpClientOptions(integrated_auth=True, username=..., password=...)`` enables
 challenge-based NTLM/Negotiate authentication. Empty credentials select the
-platform identity; the compatibility client enables this automatically and
-lowers ``Credentials`` to the native options. Kerberos requires a libcurl
+platform identity. The compatibility client enables this only when the caller
+passes ``Credentials``; ``Credentials("", "")`` explicitly selects the platform
+identity, while ``auth=None`` leaves integrated authentication disabled.
+Kerberos requires a libcurl
 build with GSSAPI or Windows SSPI and a configured platform credential cache.
 The fetched curl build enables GSSAPI when available and SSPI on Windows.
 Basic authentication is never selected by this option. Transport failures

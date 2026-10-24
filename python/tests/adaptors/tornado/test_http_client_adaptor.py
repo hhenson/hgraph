@@ -95,6 +95,24 @@ def test_http_client_credentials_and_timeouts_lower_to_native_options():
     assert str(request.auth) == "credentials"
 
 
+@pytest.mark.parametrize("auth", [None, Credentials("", "")])
+def test_http_client_platform_credentials_require_explicit_opt_in(auth):
+    from hgraph_web.compat_client import _http_call
+
+    [result] = hg.eval_node(_http_call, [HttpGetRequest("http://localhost/", auth=auth)])
+    assert result["options"].integrated_auth is (auth is not None)
+
+
+@pytest.mark.parametrize("timeout, expected_ms", [(0, 0), (0.0005, 1), (0.0011, 2)])
+def test_http_client_positive_timeouts_round_up(timeout, expected_ms):
+    from hgraph_web.compat_client import _http_call
+
+    [result] = hg.eval_node(_http_call, [HttpGetRequest(
+        "http://localhost/", connect_timeout=timeout, request_timeout=timeout)])
+    assert result["options"].connect_timeout_ms == expected_ms
+    assert result["options"].request_timeout_ms == expected_ms
+
+
 @pytest.fixture
 def http_endpoint():
     received = []
@@ -108,6 +126,7 @@ def http_endpoint():
             parsed = urlparse(self.path)
             if parsed.path == "/ntlm":
                 token = self.headers.get("Authorization", "")
+                received.append({"authorization": token})
                 if not token:
                     challenge = "NTLM"
                 else:
@@ -910,6 +929,49 @@ def test_legacy_client_authenticates_with_native_ntlm(http_endpoint):
         f"{url}/ntlm", auth=Credentials("native-user", "password")))
     assert response.status_code == 200
     assert response.body == b"native-user"
+
+
+def test_legacy_client_without_auth_does_not_answer_ntlm_challenge(http_endpoint):
+    url, received = http_endpoint
+    [response] = _eval_client_request(HttpGetRequest(f"{url}/ntlm", auth=None))
+    assert response.status_code == 401
+    assert received == [{"authorization": ""}]
+
+
+class CustomGetRequest(HttpGetRequest):
+    pass
+
+
+class CustomPostRequest(HttpPostRequest):
+    pass
+
+
+class CustomPutRequest(HttpPutRequest):
+    pass
+
+
+class CustomDeleteRequest(HttpDeleteRequest):
+    pass
+
+
+@pytest.mark.parametrize("request_type, method, status", [
+    (CustomGetRequest, "GET", 200),
+    (CustomPostRequest, "POST", 201),
+    (CustomPutRequest, "PUT", 200),
+    (CustomDeleteRequest, "DELETE", 200),
+])
+def test_legacy_client_accepts_request_subclasses(http_endpoint, request_type, method, status):
+    url, received = http_endpoint
+    [response] = _eval_client_request(request_type(f"{url}/subclass"))
+    assert response.status_code == status
+    assert received[0]["method"] == method
+
+
+def test_legacy_client_submillisecond_request_timeout_is_not_disabled(http_endpoint):
+    url, _ = http_endpoint
+    [response] = _eval_client_request(HttpGetRequest(f"{url}/slow", request_timeout=0.0005))
+    assert response.status_code == 400
+    assert response.body
 
 
 def test_legacy_client_preserves_http_error_and_timeout_response_shapes(http_endpoint):

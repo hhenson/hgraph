@@ -5,6 +5,7 @@ authentication, timeouts, cancellation and thread lifetime belong to libcurl's
 native graph-scoped client implementation.
 """
 
+from math import ceil
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from hgraph import (
@@ -59,12 +60,16 @@ class _HttpCall(TimeSeriesSchema):
 def _http_call(request: TS[HttpRequest]) -> TSB[_HttpCall]:
     value = request.value
     try:
-        method = {
-            HttpGetRequest: HttpMethod.GET,
-            HttpPostRequest: HttpMethod.POST,
-            HttpPutRequest: HttpMethod.PUT,
-            HttpDeleteRequest: HttpMethod.DELETE,
-        }[type(value)]
+        for request_type, method in (
+            (HttpGetRequest, HttpMethod.GET),
+            (HttpPostRequest, HttpMethod.POST),
+            (HttpPutRequest, HttpMethod.PUT),
+            (HttpDeleteRequest, HttpMethod.DELETE),
+        ):
+            if isinstance(value, request_type):
+                break
+        else:
+            raise ValueError(f"unsupported HTTP request: {type(value).__name__}")
         url = urlsplit(value.url)
         query = urlencode(value.query)
         if query:
@@ -78,9 +83,9 @@ def _http_call(request: TS[HttpRequest]) -> TSB[_HttpCall]:
                 body=body.encode() if isinstance(body, str) else body,
             ),
             "options": HttpClientOptions(
-                connect_timeout_ms=int(value.connect_timeout * 1000),
-                request_timeout_ms=int(value.request_timeout * 1000),
-                integrated_auth=True,
+                connect_timeout_ms=ceil(value.connect_timeout * 1000),
+                request_timeout_ms=ceil(value.request_timeout * 1000),
+                integrated_auth=credentials is not None,
                 username=credentials.username if credentials else "",
                 password=credentials.password if credentials else "",
             ),

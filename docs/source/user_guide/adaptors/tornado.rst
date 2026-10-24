@@ -83,9 +83,12 @@ notes in :doc:`web` for the released semantics and deliberate differences.
 values of ``use_curl`` select native libcurl; ``max_clients`` sets connection
 limits and the response reservation budget. Native transport limits still
 apply, and admission failures are returned as legacy status-400 responses.
-Per-request timeouts are preserved. ``Credentials`` lowers to native
-NTLM/Negotiate options; Kerberos needs platform GSSAPI/SSPI support and a
-configured credential cache. Each legacy WebSocket caller has an independent
+Positive timeouts round up to the next millisecond; zero is passed through
+unchanged. ``auth=None`` disables integrated authentication.
+Passing ``Credentials(username, password)`` explicitly enables native
+NTLM/Negotiate authentication; ``Credentials("", "")`` opts into the platform
+identity. Kerberos needs platform GSSAPI/SSPI support and a configured
+credential cache. Each legacy WebSocket caller has an independent
 connection, including when several callers use the same URL.
 
 The separate Perspective/inspector integrations still use Tornado through
