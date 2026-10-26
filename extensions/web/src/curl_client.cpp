@@ -745,6 +745,9 @@ struct HttpSubmission {
   bool follow_redirects{};
   Int max_redirects{};
   WebHttpVersionPolicy http_version{WebHttpVersionPolicy::Auto};
+  bool integrated_auth{};
+  Str username{};
+  Str password{};
   std::size_t reserved_bytes{};
 };
 
@@ -1144,6 +1147,9 @@ private:
           int_or(option_fields, "max_redirects", result.max_redirects);
       result.http_version =
           enum_or(option_fields, "http_version", result.http_version);
+      result.integrated_auth = bool_or(option_fields, "integrated_auth", false);
+      result.username = text_or(option_fields, "username");
+      result.password = text_or(option_fields, "password");
     }
     return result;
   }
@@ -1508,6 +1514,27 @@ private:
     if (!config_.proxy.empty()) {
       static_cast<void>(
           curl_easy_setopt(easy, CURLOPT_PROXY, config_.proxy.c_str()));
+    }
+    if (submission.integrated_auth) {
+      // Restrict negotiation to integrated schemes: never fall back to Basic.
+      // libcurl owns the challenge exchange on the same connection, including
+      // connection-bound NTLM and the platform's Kerberos/SSPI context.
+      CURLcode auth_result = curl_easy_setopt(
+          easy, CURLOPT_HTTPAUTH, static_cast<long>(CURLAUTH_NEGOTIATE | CURLAUTH_NTLM));
+      if (auth_result == CURLE_OK) {
+        auth_result = curl_easy_setopt(easy, CURLOPT_USERNAME, submission.username.c_str());
+      }
+      if (auth_result == CURLE_OK) {
+        auth_result = curl_easy_setopt(easy, CURLOPT_PASSWORD, submission.password.c_str());
+      }
+      if (auth_result != CURLE_OK) {
+        fail_call(submission.client_id, submission.reserved_bytes,
+                  static_cast<Int>(auth_result), Str{curl_easy_strerror(auth_result)}, false);
+        return;
+      }
+      // Authentication rounds may carry a session cookie. The empty filename
+      // enables the easy handle's in-memory cookie engine, scoped to this call.
+      static_cast<void>(curl_easy_setopt(easy, CURLOPT_COOKIEFILE, ""));
     }
     apply_tls(easy, config_.tls);
     static_cast<void>(curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION,

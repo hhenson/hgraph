@@ -845,7 +845,7 @@ namespace hgraph::web
     }
 
     Value make_client_options(Int connect_timeout_ms, Int request_timeout_ms, Bool follow_redirects, Int max_redirects,
-                              WebHttpVersionPolicy http_version) {
+                              WebHttpVersionPolicy http_version, Bool integrated_auth, Str username, Str password) {
         register_web_types();
         require_non_negative(connect_timeout_ms, "connect timeout");
         require_non_negative(request_timeout_ms, "request timeout");
@@ -856,6 +856,9 @@ namespace hgraph::web
             {"follow_redirects", atomic(follow_redirects)},
             {"max_redirects", atomic(max_redirects)},
             {"http_version", atomic(http_version)},
+            {"integrated_auth", atomic(integrated_auth)},
+            {"username", atomic(std::move(username))},
+            {"password", atomic(std::move(password))},
         });
     }
 
@@ -896,13 +899,14 @@ namespace hgraph::web
         });
     }
 
-    Value make_ws_client_key(Str url, std::vector<WebHeaderInput> headers, std::vector<Str> subprotocols) {
+    Value make_ws_client_key(Str url, std::vector<WebHeaderInput> headers, std::vector<Str> subprotocols, Str identity) {
         register_web_types();
         if (url.empty()) { throw std::invalid_argument("WebSocket client keys require a URL"); }
         return bundle<WsClientKey>({
             {"url", atomic(std::move(url))},
             {"headers", make_headers(std::move(headers))},
             {"subprotocols", strings(std::move(subprotocols))},
+            {"identity", atomic(std::move(identity))},
         });
     }
 

@@ -1,7 +1,9 @@
 Tornado HTTP, REST and WebSocket adaptors
 ==========================================
 
-Install the ``web`` extra to use the Tornado transports.  Application code
+Install the ``web`` extra to use these compatibility APIs over native
+``hgraph-web`` transports. Tornado is not required for HTTP, REST or WebSocket
+clients and servers. Application code
 normally imports from the curated package and registers one transport entry
 point in its top-level graph:
 
@@ -69,9 +71,25 @@ particular, ``HttpAdaptorManager``, ``HttpHandler``,
 Runtime ownership
 -----------------
 
-Python owns Tornado sockets, futures and event-loop tasks.  Adaptor/service
-registration, keyed request/reply multiplexing, feedback, deltas, scheduling
-and graph execution use the native runtime.  Per-run queue senders live in
-``GlobalState`` and are removed during graph stop.  Route declaration order is
-preserved when Tornado installs overlapping patterns, and server state is
-partitioned by port and WebSocket message type.
+The C++ web extension owns sockets, queues and worker threads: Asio/Beast
+serves requests and libcurl handles outbound HTTP and WebSocket connections.
+Python adapts legacy request/response values and graph shapes to those native
+services. Registration, keyed multiplexing, feedback, deltas, scheduling and
+graph execution use the native runtime, with resources stopped by graph
+teardown. Native routing prefers more specific patterns; see the compatibility
+notes in :doc:`web` for the released semantics and deliberate differences.
+
+``http_client_adaptor_impl`` retains ``use_curl`` and ``max_clients``. Both
+values of ``use_curl`` select native libcurl; ``max_clients`` sets connection
+limits and the response reservation budget. Native transport limits still
+apply, and admission failures are returned as legacy status-400 responses.
+Positive timeouts round up to the next millisecond; zero is passed through
+unchanged. ``auth=None`` disables integrated authentication.
+Passing ``Credentials(username, password)`` explicitly enables native
+NTLM/Negotiate authentication; ``Credentials("", "")`` opts into the platform
+identity. Kerberos needs platform GSSAPI/SSPI support and a configured
+credential cache. Each legacy WebSocket caller has an independent
+connection, including when several callers use the same URL.
+
+The separate Perspective/inspector integrations still use Tornado through
+``_tornado_web`` and declare their own dependency.
