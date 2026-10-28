@@ -892,3 +892,105 @@ def test_simulation_rejects_asynchronous_or_nondeterministic_subscriptions(
             start_time=datetime(2026, 8, 7, 14, 0),
             end_time=datetime(2026, 8, 7, 14, 0, 1),
         )
+
+
+@pytest.mark.parametrize("clock", ["ARRIVAL", "RECORD_TIMESTAMP"])
+@pytest.mark.parametrize("assignment", ["INDEPENDENT", "GROUP"])
+def test_disconnect_preserves_initial_recovery_and_live_position(clock, assignment):
+    cluster = MockCluster(1)
+    cluster.create_topic("reconnect")
+    if assignment == "INDEPENDENT":
+        cluster.seed_record("reconnect", b"history")
+    live = threading.Event()
+    retrying = threading.Event()
+    reconnected = threading.Event()
+    states, records, recovery, generations, errors = [], [], [], [], []
+
+    @hg.sink_node
+    def capture_state(state: hg.TS[kafka.KafkaSubscriptionState]):
+        states.append(state.value)
+        if state.value == kafka.KafkaSubscriptionState.LIVE:
+            if live.is_set():
+                reconnected.set()
+            live.set()
+        elif state.value == kafka.KafkaSubscriptionState.RETRYING:
+            retrying.set()
+
+    @hg.sink_node
+    def capture_recovery(recovered: hg.TS[bool]):
+        recovery.append(recovered.value)
+
+    @hg.sink_node
+    def capture_record(
+        record: hg.TS[kafka.KafkaRecord],
+        cursor: hg.TS[kafka.KafkaCursor],
+        _api: hg.EvaluationEngineApi = None,
+    ):
+        records.append(record.value.value)
+        generations.append(cursor.value.assignment_generation)
+        if records[-1] == b"after":
+            _api.request_engine_stop()
+
+    @hg.graph
+    def app():
+        kafka.register_kafka_service(
+            kafka.KafkaServiceConfig(
+                connection=kafka.KafkaConnectionConfig(
+                    (cluster.bootstrap_servers(),), "reconnect"
+                ),
+                consumer_defaults=kafka.KafkaConsumerDefaults(options=(
+                    kafka.KafkaOption("session.timeout.ms", "1000"),
+                    kafka.KafkaOption("heartbeat.interval.ms", "100"),
+                )),
+            ),
+            path="reconnect",
+        )
+        key = kafka.KafkaSubscriptionKey(
+            topics=("reconnect",),
+            group_id="reconnect",
+            assignment_mode=getattr(kafka.KafkaAssignmentMode, assignment),
+            start_position=(kafka.KafkaStartPosition.committed()
+                            if assignment == "GROUP"
+                            else kafka.KafkaStartPosition.earliest()),
+            commit_mode=kafka.KafkaCommitMode.NONE,
+            recovery_clock=getattr(kafka.KafkaRecoveryClock, clock),
+        )
+        subscription = kafka.kafka_subscribe(
+            hg.const(key, tp=hg.TS[kafka.KafkaSubscriptionKey]), path="reconnect"
+        )
+        capture_state(subscription["state"])
+        capture_recovery(kafka_compat._is_recovered(subscription["state"]))
+        capture_record(subscription["record"], subscription["cursor"])
+
+    def disconnect():
+        try:
+            assert live.wait(5), "initial recovery did not complete"
+            cluster.stop_brokers()
+            retried = retrying.wait(5)
+            cluster.start_brokers()
+            assert retried, "disconnect did not trigger a retry"
+            assert reconnected.wait(5), "subscription did not reconnect"
+            cluster.seed_record("reconnect", b"after")
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            cluster.start_brokers()
+
+    broker = threading.Thread(target=disconnect)
+    broker.start()
+    try:
+        hg.run_graph(
+            app,
+            run_mode=hg.EvaluationMode.REAL_TIME,
+            end_time=hg.utc_now() + timedelta(seconds=20),
+        )
+    finally:
+        broker.join()
+    assert not errors
+    assert records == ([b"after"] if assignment == "GROUP" else [b"history", b"after"])
+    assert recovery == [False, True]
+    assert len(set(generations)) == 1
+    if assignment == "GROUP":
+        assert generations[0] > 1
+    first_live = states.index(kafka.KafkaSubscriptionState.LIVE)
+    assert kafka.KafkaSubscriptionState.RECOVERING not in states[first_live:]

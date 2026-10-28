@@ -3,8 +3,11 @@
 #include <hgraph/kafka/testing/mock_cluster.h>
 #include <hgraph/kafka/value_builders.h>
 
+#include <hgraph/lib/std/operators/arithmetic.h>
+#include <hgraph/lib/std/operators/comparison.h>
 #include <hgraph/lib/std/operators/container.h>
 #include <hgraph/lib/std/operators/conversion.h>
+#include <hgraph/lib/std/operators/logical.h>
 #include <hgraph/lib/std/operators/registration.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/runtime_support.h>
@@ -47,6 +50,41 @@ void require(bool condition, std::string message) {
   if (!condition) {
     throw std::runtime_error(std::move(message));
   }
+}
+
+struct RecoveredMarkerGraph {
+  static constexpr auto name = "kafka_recovered_marker_test_graph";
+
+  static Port<TS<Bool>> compose(Wiring &w,
+                                Port<TS<KafkaSubscriptionState>> state) {
+    auto live = wire<stdlib::eq_>(w, state, KafkaSubscriptionState::Live);
+    auto complete =
+        wire<stdlib::eq_>(w, state, KafkaSubscriptionState::BoundedComplete);
+    return wire<stdlib::max_>(w, wire<stdlib::or_>(w, live, complete))
+        .as<TS<Bool>>();
+  }
+};
+
+void test_recovered_marker_latches_initial_completion() {
+  using S = KafkaSubscriptionState;
+  for (const auto complete : {S::Live, S::BoundedComplete}) {
+    const std::vector<std::optional<S>> states{
+        S::Starting, S::Retrying, S::Recovering, complete, std::nullopt,
+        S::Retrying, S::Recovering, S::Live, S::Failed, S::Stopped};
+    const auto output = eval_node<RecoveredMarkerGraph>(states);
+    std::vector<Bool> ticks;
+    for (const auto &value : output) {
+      if (value) {
+        ticks.push_back(*value);
+      }
+    }
+    require(ticks == std::vector<Bool>{false, true},
+            "initial recovery marker reset after completion");
+  }
+  const auto fresh = eval_node<RecoveredMarkerGraph>(
+      std::vector<std::optional<S>>{S::Starting, S::Retrying, S::Failed});
+  require(fresh.front() == false,
+          "a fresh subscription inherited completed recovery");
 }
 
 void test_transport_sender_handles_graph_teardown() {
@@ -572,6 +610,9 @@ inline GenerationLatch subscription_generations{};
 inline CountLatch stale_commit_events{};
 inline CountLatch graph_lifetime_live{};
 inline CountLatch record_time_recovery_started{};
+inline CountLatch reconnect_live{};
+inline CountLatch reconnect_retrying{};
+inline std::vector<Int> reconnect_generations{};
 inline EvaluationGate burst_subscription_gate{};
 
 inline Value service_config{};
@@ -932,6 +973,130 @@ struct RecordTimeRecoveryLiveGraph {
         wire<RecordTimeRecoveryLiveCapture>(w, subscribe(w, path, key)));
   }
 };
+
+struct ReconnectSubscriptionCapture {
+  static constexpr auto name = "kafka_reconnect_subscription_capture";
+
+  static void eval(NodeView node,
+                   In<"subscription", KafkaSubscriptionOutput,
+                      InputValidity::Unchecked> subscription) {
+    auto state = subscription.template field<"state">();
+    if (state.valid() && state.modified()) {
+      bounded_states.push_back(state.value());
+      if (state.value() == KafkaSubscriptionState::Live) {
+        reconnect_live.publish();
+      } else if (state.value() == KafkaSubscriptionState::Retrying) {
+        reconnect_retrying.publish();
+      }
+    }
+    auto record = subscription.template field<"record">();
+    if (record.valid() && record.modified()) {
+      const auto fields = record.base().value().concrete().as_bundle();
+      bounded_payloads.push_back(fields.at("value").checked_as<Bytes>().data);
+      auto cursor = subscription.template field<"cursor">();
+      reconnect_generations.push_back(
+          cursor.base().value().concrete().as_bundle()
+              .at("assignment_generation").checked_as<Int>());
+      if (bounded_payloads.back() == "after") {
+        node.graph().executor().request_stop();
+      }
+    }
+  }
+};
+
+struct ReconnectSubscriptionGraph {
+  static constexpr auto name = "kafka_reconnect_subscription_test_graph";
+
+  static Port<TS<KafkaSubscriptionKey>>
+  compose(Wiring &w, Port<TS<KafkaSubscriptionKey>> key) {
+    const auto path = service::path("reconnect-subscription");
+    register_service(w, path, production_config.clone());
+    auto subscription = subscribe(w, path, key);
+    static_cast<void>(wire<ReconnectSubscriptionCapture>(w, subscription));
+    // The sink captures the sparse real-time trace. Record only the input key
+    // through eval_node so its dense result need not span a broker outage.
+    return key;
+  }
+};
+
+void test_disconnect_preserves_completed_recovery() {
+  for (const auto &[clock, group] : std::array{
+           std::pair{KafkaRecoveryClock::Arrival, false},
+           std::pair{KafkaRecoveryClock::RecordTimestamp, false},
+           std::pair{KafkaRecoveryClock::Arrival, true},
+           std::pair{KafkaRecoveryClock::RecordTimestamp, true}}) {
+    MockCluster cluster{1};
+    cluster.create_topic(Str{"reconnect"});
+    if (!group) {
+      cluster.seed_record(Str{"reconnect"}, Bytes{"history"});
+    }
+    production_config = hgraph::kafka::service_config()
+                            .bootstrap_servers({cluster.bootstrap_servers()})
+                            .client_id(Str{"reconnect"})
+                            .consumer_option(Str{"session.timeout.ms"}, Str{"1000"})
+                            .consumer_option(Str{"heartbeat.interval.ms"}, Str{"100"})
+                            .build();
+    auto builder = hgraph::kafka::subscription_key();
+    if (group) {
+      builder.topics({Str{"reconnect"}});
+    } else {
+      builder.partitions({{Str{"reconnect"}, Int{0}}});
+    }
+    auto key = builder
+                   .group_id(Str{"reconnect"})
+                   .start(make_start_position(group ? KafkaStartPositionKind::Committed
+                                                   : KafkaStartPositionKind::Earliest))
+                   .commit_mode(KafkaCommitMode::None)
+                   .recovery_clock(clock)
+                   .build();
+    reconnect_live.reset();
+    reconnect_retrying.reset();
+    bounded_states.clear();
+    bounded_payloads.clear();
+    reconnect_generations.clear();
+    std::exception_ptr broker_error;
+    std::jthread broker([&] {
+      try {
+        require(reconnect_live.await(1), "subscription did not finish recovery");
+        cluster.stop_brokers();
+        const bool retried = reconnect_retrying.await(1);
+        cluster.start_brokers();
+        require(retried, "disconnect did not trigger a retry");
+        require(reconnect_live.await(2), "subscription did not reconnect");
+        cluster.seed_record(Str{"reconnect"}, Bytes{"after"});
+      } catch (...) {
+        cluster.start_brokers();
+        broker_error = std::current_exception();
+      }
+    });
+    const auto start = wall_now();
+    static_cast<void>(eval_node_with_options<ReconnectSubscriptionGraph>(
+        {.start_time = start, .end_time = start + TimeDelta{15'000'000},
+         .mode = GraphExecutorMode::RealTime},
+        std::vector<std::optional<Value>>{std::move(key)}));
+    broker.join();
+    if (broker_error) {
+      std::rethrow_exception(broker_error);
+    }
+    require(bounded_payloads == (group ? std::vector<Str>{"after"}
+                                       : std::vector<Str>{"history", "after"}),
+            "reconnect replayed history or lost the live tail");
+    const auto first_live = std::ranges::find(bounded_states,
+                                             KafkaSubscriptionState::Live);
+    require(first_live != bounded_states.end() &&
+                std::find(first_live, bounded_states.end(),
+                          KafkaSubscriptionState::Recovering) == bounded_states.end(),
+            "reconnect restarted completed initial recovery");
+    if (group) {
+      require(reconnect_generations.size() == 1 && reconnect_generations[0] > 1,
+              "group disconnect did not exercise a new assignment");
+    } else {
+      require(reconnect_generations.size() == 2 &&
+                  reconnect_generations[0] == reconnect_generations[1],
+              "connection loss replaced the still-owned manual assignment");
+    }
+  }
+}
 
 struct BoundedSubscriptionCapture {
   static constexpr auto name = "kafka_bounded_subscription_capture";
@@ -3131,6 +3296,8 @@ int main() {
     test_reported_event_logs_complete_reason();
     const auto release_state = hgraph::make_scope_exit(release_test_state);
     initialize_values();
+    test_recovered_marker_latches_initial_completion();
+    test_disconnect_preserves_completed_recovery();
     test_mixed_burst_stops_at_first_output_collision();
     test_subscription_lifecycle_preserves_transport_order();
     test_runtime_specific_wiring_shapes();
