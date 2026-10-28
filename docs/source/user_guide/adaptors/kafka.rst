@@ -316,6 +316,17 @@ the same end-offset snapshot, emits the history below it, then continues using
 the same consumer session.  This avoids a gap between replay and live input.
 The state stream progresses through values such as ``STARTING``,
 ``RECOVERING``, ``LIVE``, ``BOUNDED_COMPLETE``, ``RETRYING``, and ``FAILED``.
+The legacy ``recovered`` argument records completion of initial recovery:
+it changes from false to true once and stays true during subsequent retries,
+failures, and shutdown. A new subscription starts with a fresh marker.
+After initial recovery, a manually assigned consumer retains its assignment
+and fetch positions across a broker disconnect; reconnecting does not reapply
+the configured starting position or replay the initial history.
+Group reassignment also preserves completed initial recovery: after
+``RETRYING`` the state returns to ``LIVE`` (or remains ``BOUNDED_COMPLETE``),
+without entering ``RECOVERING`` again. Group assignment generations and
+configured offset-resolution rules still apply; any redelivery follows those
+rules and is processed as live input.
 Kafka preserves order within a partition; it does not define a total order
 across partitions.  ``PARTITION`` preserves the natural partition delivery;
 ``TIMESTAMP_TOPIC_PARTITION_OFFSET`` is the explicit deterministic merge used

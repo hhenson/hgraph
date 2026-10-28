@@ -20,6 +20,8 @@ from hgraph import (
     compute_node,
     drop_dups,
     graph,
+    max_,
+    or_,
 )
 from hgraph._types import _TsExpr
 from hgraph._wiring import _unwrap
@@ -343,11 +345,14 @@ def _message_to_record(message: TS[KafkaMessage]) -> TS[KafkaProduceRecord]:
     )
 
 
-@compute_node
+@graph
 def _is_recovered(state: TS[KafkaSubscriptionState]) -> TS[bool]:
-    return state.value in (
-        KafkaSubscriptionState.LIVE,
-        KafkaSubscriptionState.BOUNDED_COMPLETE,
+    # Initial recovery is a one-way hand-off, independent of connectivity.
+    return max_(
+        or_(
+            state == KafkaSubscriptionState.LIVE,
+            state == KafkaSubscriptionState.BOUNDED_COMPLETE,
+        )
     )
 
 

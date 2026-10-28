@@ -256,3 +256,20 @@ def test_a_content_type_header_and_field_do_not_both_publish() -> None:
         "trace": b"7",
         "content-type": b"application/json",
     }
+
+
+@pytest.mark.parametrize("completed", ["LIVE", "BOUNDED_COMPLETE"])
+def test_recovered_marker_survives_disconnect_after_initial_recovery(completed):
+    from hgraph.test import eval_node
+    from hgraph_kafka import KafkaSubscriptionState as S
+    from hgraph_kafka.compat import _is_recovered
+
+    states = [
+        S.STARTING, S.RETRYING, S.RECOVERING, getattr(S, completed), None,
+        S.RETRYING, S.RECOVERING, S.LIVE, S.FAILED, S.STOPPED,
+    ]
+    result = eval_node(_is_recovered, states)
+    assert [value for value in result if value is not None] == [False, True]
+    # A new subscription must still complete its own initial recovery.
+    fresh = eval_node(_is_recovered, [S.STARTING, S.RETRYING, S.FAILED])
+    assert [value for value in fresh if value is not None] == [False]

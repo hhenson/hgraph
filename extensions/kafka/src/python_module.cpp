@@ -172,6 +172,8 @@ NB_MODULE(_hgraph_kafka, module) {
            nb::arg("error"), nb::arg("count") = 1)
       .def("fail_next_fetch", &testing::MockCluster::fail_next_fetch,
            nb::arg("error"), nb::arg("count") = 1)
+      .def("stop_brokers", &testing::MockCluster::stop_brokers)
+      .def("start_brokers", &testing::MockCluster::start_brokers)
       .def(
           "seed_record",
           [](testing::MockCluster &cluster, Str topic, nb::handle value,

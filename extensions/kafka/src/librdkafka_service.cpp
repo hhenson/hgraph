@@ -636,6 +636,7 @@ private:
   std::deque<Value> commits_{};
   Int assignment_generation_{};
   bool recovering_{};
+  bool initial_recovery_complete_{};
   bool live_{};
   bool reconnecting_{};
   std::chrono::steady_clock::time_point reconnect_probe_after_{};
@@ -1654,6 +1655,17 @@ void ConsumerSession::poll_manual_reconnect(rd_kafka_t *consumer) {
   }
   rd_kafka_metadata_destroy(metadata);
 
+  if (initial_recovery_complete_) {
+    // A connection loss does not revoke a manual assignment. Let librdkafka
+    // resume its existing fetch positions instead of reapplying the startup
+    // offsets and replaying history (or skipping the disconnected live tail).
+    reconnecting_ = false;
+    live_ = !bounded_complete_;
+    emit_state(bounded_complete_ ? KafkaSubscriptionState::BoundedComplete
+                                : KafkaSubscriptionState::Live);
+    return;
+  }
+
   rd_kafka_topic_partition_list_t *partitions{};
   if (rd_kafka_assignment(consumer, &partitions) !=
           RD_KAFKA_RESP_ERR_NO_ERROR ||
@@ -1692,7 +1704,6 @@ void ConsumerSession::configure_assignment(
     recovery_paused_ = false;
     bounded_after_recovery_ = false;
     last_recovery_evaluation_time_.reset();
-    bounded_complete_ = false;
     for (int index = 0; index < partitions->cnt; ++index) {
       const auto &partition = partitions->elems[index];
       assigned_.emplace_back(partition.topic, partition.partition);
@@ -1721,9 +1732,16 @@ void ConsumerSession::configure_assignment(
     if (assign_error != RD_KAFKA_RESP_ERR_NO_ERROR) {
       throw std::runtime_error(rd_kafka_err2str(assign_error));
     }
-    recovering_ = true;
-    live_ = false;
-    emit_state(KafkaSubscriptionState::Recovering);
+    // Reassignment changes partition ownership, not the completed initial
+    // recovery phase. Subsequent records use the live arrival clock.
+    recovering_ = !initial_recovery_complete_;
+    live_ = initial_recovery_complete_ && !bounded_complete_;
+    emit_state(bounded_complete_ ? KafkaSubscriptionState::BoundedComplete
+               : recovering_ ? KafkaSubscriptionState::Recovering
+                             : KafkaSubscriptionState::Live);
+    if (bounded_complete_) {
+      return;
+    }
     const auto starts_reached = [&](const std::vector<PositionBoundary> &ends) {
       return !ends.empty() &&
              std::all_of(ends.begin(), ends.end(), [&](const auto &end) {
@@ -1734,12 +1752,12 @@ void ConsumerSession::configure_assignment(
              });
     };
     if (starts_reached(stop_ends_)) {
-      if (buffers_recovery()) {
+      if (recovering_ && buffers_recovery()) {
         prepare_recovery_flush(consumer, true);
       } else {
         complete_bounded();
       }
-    } else if (starts_reached(recovery_ends_)) {
+    } else if (recovering_ && starts_reached(recovery_ends_)) {
       if (buffers_recovery()) {
         prepare_recovery_flush(consumer, false);
       } else {
@@ -2042,7 +2060,7 @@ void ConsumerSession::complete_bounded() {
 }
 
 void ConsumerSession::consume(rd_kafka_message_t *message) {
-  if (!record_is_before_boundaries(message, stop_ends_) ||
+  if (bounded_complete_ || !record_is_before_boundaries(message, stop_ends_) ||
       (recovering_ && !record_is_before_boundaries(message, recovery_ends_))) {
     return;
   }
@@ -2412,6 +2430,10 @@ void ConsumerSession::check_positions(rd_kafka_t *consumer) {
 
 void ConsumerSession::emit_state(KafkaSubscriptionState state,
                                  std::optional<DateTime> evaluation_time) {
+  if (state == KafkaSubscriptionState::Live ||
+      state == KafkaSubscriptionState::BoundedComplete) {
+    initial_recovery_complete_ = true;
+  }
   owner_.emit_subscription_state(key_.clone(), state, evaluation_time);
 }
 
