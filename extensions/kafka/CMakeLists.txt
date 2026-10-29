@@ -59,6 +59,12 @@ if(NOT TARGET RdKafka::rdkafka AND NOT TARGET rdkafka)
         set(OPENSSL_USE_STATIC_LIBS TRUE)
     endif()
 
+    # librdkafka otherwise silently disables TLS when OpenSSL development
+    # files are absent. SSL is part of the extension's connection contract,
+    # including when an old dependency cache contains WITH_SSL=OFF.
+    find_package(OpenSSL REQUIRED)
+    set(WITH_SSL ON CACHE BOOL "Build librdkafka with SSL support" FORCE)
+
     # On macOS, prefer the static codec library as well so the resulting wheel
     # does not retain an absolute Homebrew dylib path. System libraries remain
     # normal platform dependencies.

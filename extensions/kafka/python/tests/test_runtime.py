@@ -73,7 +73,8 @@ def test_python_authoring_uses_native_record_time_simulation() -> None:
         kafka.register_kafka_service(
             kafka.KafkaServiceConfig(
                 connection=kafka.KafkaConnectionConfig(
-                    (cluster.bootstrap_servers(),), "python-simulation"
+                    (cluster.bootstrap_servers(),), "python-simulation",
+                    options=(kafka.KafkaOption("builtin.features", "ssl"),),
                 ),
                 consumer_defaults=kafka.KafkaConsumerDefaults(
                     ingress_record_limit=3,
@@ -613,7 +614,8 @@ def test_python_delivery_failures_are_typed(
     def app():
         config = kafka.KafkaServiceConfig(
             kafka.KafkaConnectionConfig(
-                (cluster.bootstrap_servers(),), "python-delivery-failure"
+                (cluster.bootstrap_servers(),), "python-delivery-failure",
+                options=(kafka.KafkaOption("builtin.features", "ssl"),),
             ),
             producer=kafka.KafkaProducerOptions(
                 idempotent=False,

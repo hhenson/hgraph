@@ -412,6 +412,47 @@ guarantee.  In particular, the extension does not claim exactly-once
 consume/process/produce semantics: that requires a coordinated checkpoint and
 transaction protocol.
 
+SSL connections
+~~~~~~~~~~~~~~~
+
+The bundled Kafka client includes OpenSSL support. Set ``security.protocol``
+to ``SSL`` for TLS, or ``SASL_SSL`` when the broker also requires SASL
+authentication. Connection options apply to both producers and consumers:
+
+.. code-block:: python
+
+   connection = kafka.KafkaConnectionConfig(
+       bootstrap_servers=("broker.example.com:9093",),
+       options=(
+           kafka.KafkaOption("security.protocol", "SSL"),
+           kafka.KafkaOption("ssl.ca.location", "/etc/kafka/ca.pem"),
+           # Include these two options when the broker requires mutual TLS:
+           kafka.KafkaOption("ssl.certificate.location", "/etc/kafka/client.pem"),
+           kafka.KafkaOption("ssl.key.location", "/etc/kafka/client.key"),
+       ),
+   )
+   config = kafka.KafkaServiceConfig(connection=connection)
+
+Native C++ uses the same option names through the service builder:
+
+.. code-block:: cpp
+
+   auto config = service_config()
+       .bootstrap_servers({Str{"broker.example.com:9093"}})
+       .common_option(Str{"security.protocol"}, Str{"SSL"})
+       .common_option(Str{"ssl.ca.location"}, Str{"/etc/kafka/ca.pem"})
+       .common_option(Str{"ssl.certificate.location"}, Str{"/etc/kafka/client.pem"})
+       .common_option(Str{"ssl.key.location"}, Str{"/etc/kafka/client.key"})
+       .build();
+
+Certificate and hostname verification remain enabled by default. For a broker
+using a private CA, provide its PEM trust bundle with ``ssl.ca.location`` or
+its PEM contents with ``ssl.ca.pem``. Public CA discovery depends on the
+platform's installed trust store; a wheel does not include a CA bundle.
+For an encrypted client key, supply ``ssl.key.password`` from deployment
+secrets. With ``SASL_SSL``, also supply the broker's ``sasl.mechanism``,
+``sasl.username``, and ``sasl.password`` as appropriate.
+
 Native C++ wiring
 -----------------
 

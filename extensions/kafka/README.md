@@ -118,6 +118,13 @@ changing their semantics.
 
 ## Build and test
 
+SSL and SASL_SSL connections use librdkafka options in the connection config;
+see the user guide's SSL examples for CA certificates and mutual TLS.
+Building the bundled client requires OpenSSL development headers and libraries
+(`libssl-dev` on Debian/Ubuntu, `openssl-devel` on RHEL/manylinux). TLS is always
+enabled; configuration fails if OpenSSL is missing. A system RdKafka package
+must include SSL support as well.
+
 This is a first-party extension in the hgraph monorepo. It remains a separate
 CMake package and Python distribution: the top-level core package does not
 link librdkafka or install these modules.

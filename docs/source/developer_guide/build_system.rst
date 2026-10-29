@@ -442,6 +442,15 @@ core configure neither resolves nor links librdkafka.  A standalone native
 consumer instead configures ``extensions/kafka`` against the installed
 ``hgraph`` CMake package and links ``hgraph::kafka``.
 
+The fetched Kafka client requires OpenSSL development headers and libraries
+and always builds with ``WITH_SSL=ON``. Configuration fails if OpenSSL is
+unavailable instead of producing a client without TLS. For example, install
+``libssl-dev`` on Debian/Ubuntu or ``openssl-devel`` on the manylinux build
+image before building. A system-provided RdKafka package must also include
+SSL support; ``hgraph_kafka_ssl_tests`` checks the linked client's features.
+Wheel builds link OpenSSL statically on macOS and Windows; Linux wheel repair
+bundles the shared OpenSSL libraries.
+
 The C++-first analytics package follows the same boundary without an external
 client library. ``HGRAPH_BUILD_ANALYTICS_EXTENSION=ON`` includes it in a
 repository build; standalone consumers find ``hgraph-analytics`` and link
