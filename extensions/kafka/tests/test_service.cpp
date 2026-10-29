@@ -2157,8 +2157,11 @@ void test_concurrent_engines_are_independent() {
 void test_librdkafka_publish_path() {
   MockCluster cluster;
   cluster.create_topic(Str{"native-out"}, 3);
-  production_config = make_service_config({cluster.bootstrap_servers()},
-                                          Str{"native-publisher"});
+  production_config = hgraph::kafka::service_config()
+                          .bootstrap_servers({cluster.bootstrap_servers()})
+                          .client_id(Str{"native-publisher"})
+                          .common_option(Str{"builtin.features"}, Str{"ssl"})
+                          .build();
   production_delivery = Value{};
   production_delivery_count = 0;
 
@@ -2240,8 +2243,11 @@ void test_librdkafka_subscription_path() {
       Str{"native-in"}, std::nullopt, Bytes{""},
       {{Str{"duplicate"}, Bytes{"one"}}, {Str{"duplicate"}, std::nullopt}}, 0);
 
-  production_config = make_service_config({cluster.bootstrap_servers()},
-                                          Str{"native-subscriber"});
+  production_config = hgraph::kafka::service_config()
+                          .bootstrap_servers({cluster.bootstrap_servers()})
+                          .client_id(Str{"native-subscriber"})
+                          .common_option(Str{"builtin.features"}, Str{"ssl"})
+                          .build();
   subscription_key = make_subscription_key(
       {Str{"native-in"}}, Str{"native-subscription-group"}, Str{"earliest"},
       Str{"snapshot"}, KafkaCommitMode::Explicit, Str{"native-subscription"});

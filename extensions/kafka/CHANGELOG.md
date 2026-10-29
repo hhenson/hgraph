@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Require OpenSSL when building the bundled Kafka client and always enable
+  SSL, including in Linux wheels. Test the linked client's SSL capability
+  through native configuration and C++/Python service paths.
+
 - Retain consumed records as one immutable `Shared<KafkaRecord>` allocation
   through the cross-thread transport pipeline and public subscription edge;
   consumers borrow the concrete record view without graph-publication copies.

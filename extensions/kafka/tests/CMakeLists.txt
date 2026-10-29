@@ -18,6 +18,11 @@ if(COMMAND hgraph_configure_test_runtime_paths)
     hgraph_configure_test_runtime_paths(hgraph_kafka_tests)
 endif()
 
+# Check the linked client, including a system-provided RdKafka package.
+add_executable(hgraph_kafka_ssl_tests test_ssl.cpp)
+target_link_libraries(hgraph_kafka_ssl_tests PRIVATE ${HGRAPH_KAFKA_RDKAFKA_TARGET})
+add_test(NAME hgraph_kafka_ssl_tests COMMAND hgraph_kafka_ssl_tests)
+
 add_executable(hgraph_kafka_transport_perf
     transport_perf.cpp
 )
