@@ -15,3 +15,10 @@ endif()
 
 enable_testing()
 add_test(NAME hgraph.install_consumer COMMAND hgraph_install_consumer)
+
+add_executable(hgraph_arrow_abi_check ../cpp/arrow_abi_check.cpp)
+target_link_libraries(hgraph_arrow_abi_check PRIVATE hgraph::core)
+if(COMMAND hgraph_link_python_embedding)
+    hgraph_link_python_embedding(hgraph_arrow_abi_check)
+endif()
+add_test(NAME hgraph.install_consumer.arrow_abi COMMAND hgraph_arrow_abi_check)

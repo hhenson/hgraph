@@ -1,3 +1,8 @@
+add_executable(hgraph_arrow_abi_check arrow_abi_check.cpp)
+target_link_libraries(hgraph_arrow_abi_check PRIVATE hgraph::core)
+add_test(NAME hgraph.arrow_abi COMMAND hgraph_arrow_abi_check)
+hgraph_configure_test_runtime_paths(hgraph.arrow_abi)
+
 add_executable(hgraph_smoke_test
     smoke_test.cpp
 )
