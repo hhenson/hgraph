@@ -966,14 +966,17 @@ def test_disconnect_preserves_initial_recovery_and_live_position(clock, assignme
 
     def disconnect():
         try:
-            assert live.wait(5), "initial recovery did not complete"
+            if not live.wait(5):
+                raise TimeoutError("initial recovery did not complete")
             cluster.stop_brokers()
             retried = retrying.wait(5)
             cluster.start_brokers()
-            assert retried, "disconnect did not trigger a retry"
-            assert reconnected.wait(5), "subscription did not reconnect"
+            if not retried:
+                raise TimeoutError("disconnect did not trigger a retry")
+            if not reconnected.wait(5):
+                raise TimeoutError("subscription did not reconnect")
             cluster.seed_record("reconnect", b"after")
-        except BaseException as error:
+        except Exception as error:
             errors.append(error)
         finally:
             cluster.start_brokers()
@@ -988,7 +991,8 @@ def test_disconnect_preserves_initial_recovery_and_live_position(clock, assignme
         )
     finally:
         broker.join()
-    assert not errors
+    if errors:
+        raise errors[0]
     assert records == ([b"after"] if assignment == "GROUP" else [b"history", b"after"])
     assert recovery == [False, True]
     assert len(set(generations)) == 1
