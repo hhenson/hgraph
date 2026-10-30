@@ -173,6 +173,25 @@ jobs:
         run: |
           echo "/opt/python/cp312-cp312/bin" >> "$GITHUB_PATH"
           dnf install -y openssl-devel
+      - name: Build private static OpenSSL for web
+        if: inputs.package == 'web'
+        shell: bash
+        env:
+          BUILD_WORKERS: ${{ inputs.parallel }}
+        run: |
+          dnf install -y perl-IPC-Cmd perl-Time-Piece
+          curl --fail --location --proto '=https' --proto-redir '=https' \
+            --retry 3 --output /tmp/openssl.tar.gz \
+            https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz
+          echo '603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a  /tmp/openssl.tar.gz' | sha256sum --check
+          tar -xzf /tmp/openssl.tar.gz -C /tmp
+          cd /tmp/openssl-3.5.9
+          perl Configure no-shared no-module no-tests -fPIC \
+            --prefix=/tmp/hgraph-web-openssl --libdir=lib
+          make -j"$BUILD_WORKERS"
+          make install_sw
+          echo 'OPENSSL_ROOT_DIR=/tmp/hgraph-web-openssl' >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=/tmp/hgraph-web-openssl/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
       - name: Install wheel build tools
         run: >-
           /opt/python/cp312-cp312/bin/python -m pip install --upgrade

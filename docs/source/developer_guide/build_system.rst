@@ -486,6 +486,12 @@ repository build; standalone consumers find ``hgraph-analytics`` and link
 and CMake package as well as the stable-ABI Python registration module, so the
 same distribution is usable by C++ and Python authoring environments.
 
+Linux web wheels require position-independent static OpenSSL archives. The
+manylinux job builds a checksum-pinned OpenSSL 3.5 LTS release for this purpose.
+The web module hides these archive symbols so loading Parquet or another TLS
+user first cannot substitute a different crypto implementation. Standalone
+native web builds continue to use the selected system OpenSSL package.
+
 The web and persistence packages have the same shape.
 ``HGRAPH_BUILD_WEB_EXTENSION=ON`` and ``HGRAPH_BUILD_PERSISTENCE_EXTENSION=ON``
 include them in a repository build; standalone consumers find ``hgraph-web`` or

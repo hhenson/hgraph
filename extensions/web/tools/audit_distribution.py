@@ -13,11 +13,12 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-WHEEL_REQUIRED = ("hgraph_web/__init__.py",)
+WHEEL_REQUIRED = ("hgraph_web/__init__.py", "hgraph_web/licenses/OpenSSL.txt")
 SDIST_REQUIRED = (
     "CMakeLists.txt",
     "cmake/hgraph-webConfig.cmake.in",
     "include/hgraph/web/service.h",
+    "licenses/OpenSSL.txt",
     "python/hgraph_web/__init__.py",
     "src/value_builders.cpp",
     "tools/audit_distribution.py",
