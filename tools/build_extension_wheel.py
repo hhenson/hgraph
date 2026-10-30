@@ -60,7 +60,12 @@ def build_extension(package: str, *, manylinux: bool) -> None:
     except KeyError:
         raise ValueError("unsupported extension package") from None
     sdk = Path(metadata.distribution("hgraph").locate_file("")).resolve()
-    if not (sdk / "lib/cmake/hgraph/hgraphConfig.cmake").is_file():
+    # GNUInstallDirs uses lib64 in the manylinux image. Both layouts are
+    # supported by the core wheel's distribution audit.
+    if not any((sdk / config).is_file() for config in (
+        "lib/cmake/hgraph/hgraphConfig.cmake",
+        "lib64/cmake/hgraph/hgraphConfig.cmake",
+    )):
         raise FileNotFoundError("the matching core wheel must install its SDK")
     env = dict(os.environ)
     prefixes = [str(sdk), env.get("CMAKE_PREFIX_PATH", "")]

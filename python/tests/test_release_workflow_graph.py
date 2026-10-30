@@ -112,9 +112,11 @@ def test_untrusted_package_selection_never_reaches_a_build_command(monkeypatch, 
         BUILDER.build_extension(package, manylinux=True)
 
 
-def test_extension_tests_use_the_repaired_artifact_and_matching_sdk(monkeypatch, tmp_path):
+@pytest.mark.parametrize("library_dir", ["lib", "lib64"])
+def test_extension_tests_use_the_repaired_artifact_and_matching_sdk(
+        monkeypatch, tmp_path, library_dir):
     sdk = tmp_path / "sdk"
-    config = sdk / "lib/cmake/hgraph/hgraphConfig.cmake"
+    config = sdk / library_dir / "cmake/hgraph/hgraphConfig.cmake"
     config.parent.mkdir(parents=True)
     config.touch()
     monkeypatch.setattr(BUILDER, "ROOT", tmp_path)
