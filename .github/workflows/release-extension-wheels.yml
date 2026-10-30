@@ -1,0 +1,65 @@
+name: Build and test extension wheels
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        required: true
+        type: string
+      parallel:
+        required: true
+        type: string
+      cmake_args:
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  kafka:
+    name: kafka
+    uses: ./.github/workflows/build-extension-wheel.yml
+    with:
+      package: kafka
+      os: ${{ inputs.os }}
+      parallel: ${{ inputs.parallel }}
+      cmake_args: ${{ inputs.cmake_args }}
+
+  analytics:
+    name: analytics
+    uses: ./.github/workflows/build-extension-wheel.yml
+    with:
+      package: analytics
+      os: ${{ inputs.os }}
+      parallel: ${{ inputs.parallel }}
+      cmake_args: ${{ inputs.cmake_args }}
+
+  web:
+    name: web
+    uses: ./.github/workflows/build-extension-wheel.yml
+    with:
+      package: web
+      os: ${{ inputs.os }}
+      parallel: ${{ inputs.parallel }}
+      cmake_args: ${{ inputs.cmake_args }}
+
+  persistence:
+    name: persistence
+    uses: ./.github/workflows/build-extension-wheel.yml
+    with:
+      package: persistence
+      os: ${{ inputs.os }}
+      parallel: ${{ inputs.parallel }}
+      cmake_args: ${{ inputs.cmake_args }}
+
+  fabric:
+    name: fabric
+    needs: persistence
+    uses: ./.github/workflows/build-extension-wheel.yml
+    with:
+      package: fabric
+      os: ${{ inputs.os }}
+      parallel: ${{ inputs.parallel }}
+      cmake_args: ${{ inputs.cmake_args }}

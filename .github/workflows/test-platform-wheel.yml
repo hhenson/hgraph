@@ -8,6 +8,11 @@ on:
         required: true
         type: string
 
+      suite:
+        description: core for early feedback, combined for the final integration gate.
+        type: string
+        default: combined
+
 permissions:
   actions: read
   contents: read
@@ -17,6 +22,8 @@ env:
 
 jobs:
   test:
+    env:
+      HGRAPH_TEST_SUITE: ${{ inputs.suite }}
     name: Test ${{ inputs.os }} / Python ${{ matrix.python-version }}
     runs-on: ${{ inputs.os }}
     strategy:
@@ -53,22 +60,27 @@ jobs:
           name: distribution-wheel-${{ inputs.os }}
           path: dist
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        if: inputs.suite != 'core'
         with:
           name: kafka-distribution-wheel-${{ inputs.os }}
           path: kafka-dist
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        if: inputs.suite != 'core'
         with:
           name: analytics-distribution-wheel-${{ inputs.os }}
           path: analytics-dist
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        if: inputs.suite != 'core'
         with:
           name: persistence-distribution-wheel-${{ inputs.os }}
           path: persistence-dist
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        if: inputs.suite != 'core'
         with:
           name: fabric-distribution-wheel-${{ inputs.os }}
           path: fabric-dist
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        if: inputs.suite != 'core'
         with:
           name: web-distribution-wheel-${{ inputs.os }}
           path: web-dist
@@ -78,6 +90,7 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import os
           import subprocess
           import sys
 
@@ -89,41 +102,43 @@ jobs:
           subprocess.check_call([
               "uv", "pip", "install", "--python", str(venv_python), str(wheels[0]),
           ])
-          kafka_wheels = list(Path("kafka-dist").glob("*.whl"))
-          assert len(kafka_wheels) == 1, kafka_wheels
-          subprocess.check_call([
-              "uv", "pip", "install", "--python", str(venv_python),
-              "--no-deps", str(kafka_wheels[0]),
-          ])
-          analytics_wheels = list(Path("analytics-dist").glob("*.whl"))
-          assert len(analytics_wheels) == 1, analytics_wheels
-          subprocess.check_call([
-              "uv", "pip", "install", "--python", str(venv_python),
-              "--no-deps", str(analytics_wheels[0]),
-          ])
-          persistence_wheels = list(Path("persistence-dist").glob("*.whl"))
-          assert len(persistence_wheels) == 1, persistence_wheels
-          subprocess.check_call([
-              "uv", "pip", "install", "--python", str(venv_python),
-              "--no-deps", str(persistence_wheels[0]),
-          ])
-          fabric_wheels = list(Path("fabric-dist").glob("*.whl"))
-          assert len(fabric_wheels) == 1, fabric_wheels
-          subprocess.check_call([
-              "uv", "pip", "install", "--python", str(venv_python),
-              "--no-deps", str(fabric_wheels[0]),
-          ])
-          web_wheels = list(Path("web-dist").glob("*.whl"))
-          assert len(web_wheels) == 1, web_wheels
-          subprocess.check_call([
-              "uv", "pip", "install", "--python", str(venv_python),
-              "--no-deps", str(web_wheels[0]),
-          ])
+          if os.environ["HGRAPH_TEST_SUITE"] != "core":
+              kafka_wheels = list(Path("kafka-dist").glob("*.whl"))
+              assert len(kafka_wheels) == 1, kafka_wheels
+              subprocess.check_call([
+                  "uv", "pip", "install", "--python", str(venv_python),
+                  "--no-deps", str(kafka_wheels[0]),
+              ])
+              analytics_wheels = list(Path("analytics-dist").glob("*.whl"))
+              assert len(analytics_wheels) == 1, analytics_wheels
+              subprocess.check_call([
+                  "uv", "pip", "install", "--python", str(venv_python),
+                  "--no-deps", str(analytics_wheels[0]),
+              ])
+              persistence_wheels = list(Path("persistence-dist").glob("*.whl"))
+              assert len(persistence_wheels) == 1, persistence_wheels
+              subprocess.check_call([
+                  "uv", "pip", "install", "--python", str(venv_python),
+                  "--no-deps", str(persistence_wheels[0]),
+              ])
+              fabric_wheels = list(Path("fabric-dist").glob("*.whl"))
+              assert len(fabric_wheels) == 1, fabric_wheels
+              subprocess.check_call([
+                  "uv", "pip", "install", "--python", str(venv_python),
+                  "--no-deps", str(fabric_wheels[0]),
+              ])
+              web_wheels = list(Path("web-dist").glob("*.whl"))
+              assert len(web_wheels) == 1, web_wheels
+              subprocess.check_call([
+                  "uv", "pip", "install", "--python", str(venv_python),
+                  "--no-deps", str(web_wheels[0]),
+              ])
       - name: Confirm installed distribution
         run: uv run --no-sync --no-build python -c "import importlib.metadata as m; import _hgraph; print(m.version('hgraph'), _hgraph.__file__)"
       - name: Run Python compatibility suite
         run: uv run --no-sync --no-build python -m pytest python/tests -q -m "not wip"
       - name: Run extension suites together
+        if: inputs.suite != 'core'
         run: >-
           uv run --no-sync --no-build python -m pytest
           extensions/persistence/python/tests
@@ -139,5 +154,5 @@ jobs:
         if: matrix.python-version == '3.12'
         run: uv run --no-sync --no-build python tests/install_consumer/check.py
       - name: Build and run installed Fabric SDK consumer
-        if: matrix.python-version == '3.12'
+        if: matrix.python-version == '3.12' && inputs.suite != 'core'
         run: uv run --no-sync --no-build python extensions/fabric/test_package/check.py

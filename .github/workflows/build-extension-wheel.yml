@@ -1,0 +1,230 @@
+name: Build one extension wheel and run its tests
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        required: true
+        type: string
+      os:
+        required: true
+        type: string
+      parallel:
+        required: true
+        type: string
+      cmake_args:
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  GCC_VERSION: "14"
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  host:
+    if: inputs.os != 'ubuntu-latest'
+    runs-on: ${{ inputs.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Enable shared compiler cache
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+        with:
+          version: v0.15.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Initialize pinned shared sources
+        run: python tools/shared_artifacts.py
+      - name: Configure current Clang on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          echo "CC=/usr/bin/clang" >> "$GITHUB_ENV"
+          echo "CXX=/usr/bin/clang++" >> "$GITHUB_ENV"
+          echo "MACOSX_DEPLOYMENT_TARGET=26.0" >> "$GITHUB_ENV"
+          /usr/bin/clang++ --version
+      # The fetched curl (extensions/web) needs OpenSSL 3: curl 8.11.1 does
+      # not build against OpenSSL 4, and the curl releases that do require
+      # OpenSSL 3 or later, which the manylinux 2.28 image (1.1.1) lacks.
+      # Runner images from 2026-10 default Homebrew's OpenSSL to 4. Linking
+      # openssl@3 into the Homebrew prefix matters as well as the CMake root:
+      # dependencies such as librdkafka also reach OpenSSL headers through
+      # the prefix's include directory, and OpenSSL 4 headers against
+      # OpenSSL 3 libraries leave unresolved symbols (BIO_eof) at import.
+      - name: Pin OpenSSL 3 on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          brew list --versions openssl@3 >/dev/null || brew install openssl@3
+          if brew list --versions openssl@4 >/dev/null; then brew unlink openssl@4; fi
+          brew unlink openssl@3 >/dev/null
+          brew link --force --overwrite openssl@3
+          grep -Eq "OPENSSL_VERSION_MAJOR +3" "$(brew --prefix)/include/openssl/opensslv.h"
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+          "$(brew --prefix openssl@3)/bin/openssl" version
+      - name: Configure MSVC toolchain for Ninja
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+      - name: Install Ninja
+        if: runner.os == 'Windows'
+        run: >-
+          python -m pip install --only-binary=:all: "ninja==1.13.0"
+      - name: Install wheel build tools
+        run: >-
+          python -m pip install --upgrade --only-binary=:all:
+          "build==1.5.0" "abi3audit==0.0.26"
+          "scikit-build-core==1.0.3" "nanobind==2.13.0"
+          "pyarrow==26.0.0"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: distribution-wheel-${{ inputs.os }}
+          path: dist
+      - name: Install matching core SDK and test dependencies
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+          wheels = list(Path("dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          subprocess.check_call([
+              sys.executable, "-m", "pip", "install", f"{wheels[0]}[test]",
+          ])
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        if: inputs.package == 'fabric'
+        with:
+          name: persistence-distribution-wheel-${{ inputs.os }}
+          path: persistence-dist
+      - name: Install matching persistence SDK
+        if: inputs.package == 'fabric'
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+          wheels = list(Path("persistence-dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          subprocess.check_call([
+              sys.executable, "-m", "pip", "install", "--no-deps", str(wheels[0]),
+          ])
+      - name: Build, audit, and test selected extension
+        shell: python
+        env:
+          HGRAPH_EXTENSION_PACKAGE: ${{ inputs.package }}
+          CMAKE_GENERATOR: Ninja
+          CMAKE_ARGS: ${{ inputs.cmake_args }}
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ inputs.parallel }}
+        run: |
+          import os
+          import subprocess
+          import sys
+          command = [sys.executable, "tools/build_extension_wheel.py",
+                     "--package", os.environ["HGRAPH_EXTENSION_PACKAGE"]]
+          if os.environ.get("HGRAPH_MANYLINUX") == "1":
+              command.append("--manylinux")
+          subprocess.check_call(command)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ inputs.package }}-distribution-wheel-${{ inputs.os }}
+          path: ${{ inputs.package }}-dist/*.whl
+          if-no-files-found: error
+
+  linux:
+    if: inputs.os == 'ubuntu-latest'
+    runs-on: ubuntu-24.04
+    container:
+      image: quay.io/pypa/manylinux_2_28_x86_64:latest
+    env:
+      HGRAPH_MANYLINUX: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Initialize pinned shared sources
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 tools/shared_artifacts.py
+      - name: Enable shared compiler cache
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+        with:
+          version: v0.15.0
+      - name: Verify official build toolchain
+        shell: bash
+        run: |
+          g++ --version
+          test "$(g++ -dumpfullversion -dumpversion | cut -d. -f1)" -eq "$GCC_VERSION"
+          echo "CC=$(command -v gcc)" >> "$GITHUB_ENV"
+          echo "CXX=$(command -v g++)" >> "$GITHUB_ENV"
+          /opt/python/cp312-cp312/bin/python --version
+      - name: Select CPython 3.12 and install TLS headers
+        run: |
+          echo "/opt/python/cp312-cp312/bin" >> "$GITHUB_PATH"
+          dnf install -y openssl-devel
+      - name: Install wheel build tools
+        run: >-
+          /opt/python/cp312-cp312/bin/python -m pip install --upgrade
+          --only-binary=:all: "build==1.5.0" "abi3audit==0.0.26"
+          "auditwheel==6.7.0" "scikit-build-core==1.0.3"
+          "nanobind==2.13.0" "ninja==1.13.0" "pyarrow==26.0.0"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: distribution-wheel-${{ inputs.os }}
+          path: dist
+      - name: Install matching core SDK and test dependencies
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+          wheels = list(Path("dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          subprocess.check_call([
+              sys.executable, "-m", "pip", "install", f"{wheels[0]}[test]",
+          ])
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        if: inputs.package == 'fabric'
+        with:
+          name: persistence-distribution-wheel-${{ inputs.os }}
+          path: persistence-dist
+      - name: Install matching persistence SDK
+        if: inputs.package == 'fabric'
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+          wheels = list(Path("persistence-dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          subprocess.check_call([
+              sys.executable, "-m", "pip", "install", "--no-deps", str(wheels[0]),
+          ])
+      - name: Build, audit, and test selected extension
+        shell: python
+        env:
+          HGRAPH_EXTENSION_PACKAGE: ${{ inputs.package }}
+          CMAKE_GENERATOR: Ninja
+          CMAKE_ARGS: ${{ inputs.cmake_args }}
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ inputs.parallel }}
+        run: |
+          import os
+          import subprocess
+          import sys
+          command = [sys.executable, "tools/build_extension_wheel.py",
+                     "--package", os.environ["HGRAPH_EXTENSION_PACKAGE"]]
+          if os.environ.get("HGRAPH_MANYLINUX") == "1":
+              command.append("--manylinux")
+          subprocess.check_call(command)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ inputs.package }}-distribution-wheel-${{ inputs.os }}
+          path: ${{ inputs.package }}-dist/*.whl
+          if-no-files-found: error

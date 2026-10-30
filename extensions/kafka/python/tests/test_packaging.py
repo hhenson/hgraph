@@ -114,6 +114,8 @@ def test_ci_builds_and_tests_separate_kafka_artifacts():
             (
                 REPOSITORY_ROOT / ".github/workflows/test-platform-wheel.yml"
             ).read_text(),
+            (REPOSITORY_ROOT / ".github/workflows/build-extension-wheel.yml").read_text(),
+            (REPOSITORY_ROOT / "tools/build_extension_wheel.py").read_text(),
         )
     )
     native_workflow = (

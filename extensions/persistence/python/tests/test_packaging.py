@@ -103,6 +103,8 @@ def test_ci_builds_and_tests_separate_persistence_artifacts():
             (
                 REPOSITORY_ROOT / ".github/workflows/test-platform-wheel.yml"
             ).read_text(),
+            (REPOSITORY_ROOT / ".github/workflows/build-extension-wheel.yml").read_text(),
+            (REPOSITORY_ROOT / "tools/build_extension_wheel.py").read_text(),
         )
     )
     native_workflow = (
@@ -128,7 +130,7 @@ def test_ci_builds_and_tests_separate_persistence_artifacts():
     assert "Build and test installed persistence consumer" in native_workflow
     assert "hgraph-persistence-v_" not in release_workflow
     assert "pattern: persistence-distribution-*" in wheel_workflows
-    assert "--exclude libhgraph_persistence.so" in release_workflow
+    assert "libhgraph_persistence.so" in wheel_workflows
     assert release_workflow.count(
         'python tools/restamp_distribution.py dist "$RELEASE_TAG"'
     ) == 6

@@ -153,6 +153,19 @@ Windows x86_64, and Apple Silicon macOS, then installs each platform wheel under
 CPython 3.12, 3.13, and 3.14. A bare tag matching ``x.x.x`` publishes the tested
 core, Kafka, analytics, web, and persistence wheels and source distributions
 through PyPI trusted publishing.
+
+Each platform publishes its core wheel first. Core compatibility tests start
+immediately under Python 3.12, 3.13, and 3.14, while independent Kafka,
+analytics, web, and persistence jobs build against that exact core SDK in
+parallel. Each extension job audits its wheel and runs its own suite before
+uploading the artifact. Fabric starts after persistence provides its SDK.
+Build concurrency stays within each runner's existing compiler-memory budget;
+parallel extensions use separate jobs and runners.
+
+After the platform's extension jobs finish, the combined compatibility gate
+still installs all six wheels and runs the core and extension suites in one
+interpreter for each supported Python version. This catches shared-registry,
+duplicate-test-name, and cross-extension lifecycle problems before publishing.
 Standalone C++ validation runs independently in
 ``.github/workflows/native-cpp.yml``. It covers native Linux and macOS builds,
 plus a fully optimized Linux shared-library build with IPO, the complete native
