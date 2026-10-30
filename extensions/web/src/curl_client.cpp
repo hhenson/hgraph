@@ -5,6 +5,7 @@
 #include <hgraph/web/service.h>
 #include <hgraph/web/value_builders.h>
 
+#include "detail/ca_bundle.h"
 #include "detail/service_transport.h"
 
 #include <hgraph/runtime/node_scheduler.h>
@@ -899,6 +900,9 @@ public:
     started_ = true;
     bindings_.resolve_all();
     try {
+      if (config_.tls.ca_path.empty() && config_.tls.ca_pem.empty()) {
+        config_.tls.ca_path = default_ca_bundle();
+      }
       ensure_curl_initialized();
       multi_ = curl_multi_init();
       if (multi_ == nullptr) {
