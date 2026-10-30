@@ -33,6 +33,21 @@ Arrow is the native table, series, and numerical-reduction substrate. The
 runtime links Arrow, Arrow Compute, and Arrow Acero; wheel builds resolve those
 libraries from PyArrow, while standalone C++ builds use their CMake packages.
 
+Starting with hgraph 0.8.39, Python wheels require PyArrow 26
+(``pyarrow>=26,<27``). Core and all extension wheels are built against the same
+Arrow 26 C++ ABI; widening the Python dependency range to include Arrow 25
+would not make those native libraries compatible. Upgrade the installed
+extension packages alongside core. Extension builds require the hgraph 0.8.39
+SDK or newer, and the wheel's installed CMake package rejects an interpreter
+whose PyArrow ABI differs from the producer's.
+
+Standalone native builds can still use the separately pinned Conan Arrow
+dependency. All libraries linked into one process must use one Arrow ABI.
+Arrow 26 supplies S3 in a separate ``arrow_s3`` library. Persistence resolves
+that library and Parquet beside its selected Arrow runtime; Linux wheel repair
+leaves those libraries to the PyArrow dependency. A static Arrow 26 SDK must
+provide its matching ``ArrowS3::arrow_s3_static`` target when S3 is enabled.
+
 Boost.Math supplies the correlation kernel used by ``hgraph-analytics``. The
 extension uses an installed ``boost_math`` package at version 1.90 or newer
 when available, otherwise it fetches the pinned standalone Boost.Math release.
@@ -489,7 +504,7 @@ version is new for all five packages, restamps their distributions, and
 publishes each package. Independent extension tags are intentionally not part
 of this release workflow.
 
-The Kafka PEP 517 build requirements include ``hgraph>=0.8.0`` because its standalone
+The Kafka PEP 517 build requirements include ``hgraph>=0.8.39`` because its standalone
 CMake configure consumes the installed core SDK.  In-repository CI installs
 the core wheel built from the same commit and builds Kafka without a second
 isolated environment; published Kafka source distributions provision the

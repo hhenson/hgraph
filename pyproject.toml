@@ -2,7 +2,7 @@
 requires = [
     "scikit-build-core>=0.12",
     "nanobind==2.13.0",
-    "pyarrow>=25,<26",
+    "pyarrow>=26,<27",
 ]
 build-backend = "scikit_build_core.build"
 
@@ -41,7 +41,7 @@ classifiers = [
 dependencies = [
     "frozendict>=2.4",
     "numpy>=2.0",
-    "pyarrow>=25,<26",
+    "pyarrow>=26,<27",
     "polars>=1.32",
     "pyyaml>=6",
 ]
@@ -71,7 +71,7 @@ parity = [
 ]
 web = [
     # Released HTTP, REST and WebSocket APIs delegate to native hgraph-web.
-    "hgraph-web>=0.8.0",
+    "hgraph-web>=0.8.39",
 ]
 sql = [
     "connectorx>=0.4.5",
@@ -96,7 +96,7 @@ perspective = [
 dataframe = [
     # Durable record/replay — DataFrameStorage and the frame store — is
     # served by the hgraph-persistence extension (RFC 0025).
-    "hgraph-persistence>=0.8.0",
+    "hgraph-persistence>=0.8.39",
     "polars>=1.32",
 ]
 docs = [

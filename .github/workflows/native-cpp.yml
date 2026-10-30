@@ -107,7 +107,7 @@ jobs:
       - name: Install native build dependencies
         run: >-
           python -m pip install --upgrade --only-binary=:all:
-          "cmake==4.4.2" "ninja==1.13.0" "pyarrow==25.0.0"
+          "cmake==4.4.2" "ninja==1.13.0" "pyarrow==26.0.0"
       - name: Expose Arrow runtime libraries
         shell: python
         run: |
@@ -206,7 +206,7 @@ jobs:
       - name: Install native build dependencies
         run: >-
           python -m pip install --upgrade --only-binary=:all:
-          "cmake==4.4.2" "ninja==1.13.0" "pyarrow==25.0.0"
+          "cmake==4.4.2" "ninja==1.13.0" "pyarrow==26.0.0"
       - name: Expose Arrow runtime libraries
         shell: python
         run: |
@@ -285,7 +285,7 @@ jobs:
         # surface of the dense scalar-list export the standalone test checks.
         run: >-
           python -m pip install --upgrade --only-binary=:all:
-          "cmake==4.4.2" "ninja==1.13.0" "pyarrow==25.0.0"
+          "cmake==4.4.2" "ninja==1.13.0" "pyarrow==26.0.0"
           "nanobind==2.13.0" "numpy==2.5.2"
       - name: Expose Arrow runtime libraries
         shell: python

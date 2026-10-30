@@ -5,7 +5,7 @@ from pathlib import Path
 
 EXTENSION_ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY_ROOT = EXTENSION_ROOT.parents[1]
-CORE_SDK_REQUIREMENT = "hgraph>=0.8.0"
+CORE_SDK_REQUIREMENT = "hgraph>=0.8.39"
 
 AUDIT_SPEC = importlib.util.spec_from_file_location(
     "hgraph_persistence_audit_distribution",
@@ -28,7 +28,7 @@ def test_persistence_is_a_separate_workspace_distribution():
     assert root["tool"]["uv"]["sources"]["hgraph"] == {"workspace": True}
     # hgraph[dataframe] installs the durable record/replay implementation
     # (RFC 0025 checkpoint 5).
-    assert "hgraph-persistence>=0.8.0" in root["project"]["optional-dependencies"]["dataframe"]
+    assert "hgraph-persistence>=0.8.39" in root["project"]["optional-dependencies"]["dataframe"]
     assert root["tool"]["uv"]["sources"]["hgraph-persistence"] == {"workspace": True}
     assert project["project"]["name"] == "hgraph-persistence"
     assert "uv" not in project.get("tool", {})
@@ -136,7 +136,7 @@ def test_ci_builds_and_tests_separate_persistence_artifacts():
         '"scikit-build-core==1.0.3"',
         '"nanobind==2.13.0"',
         '"ninja==1.13.0"',
-        '"pyarrow==25.0.0"',
+        '"pyarrow==26.0.0"',
     ):
         assert dependency in wheel_workflows
     assert "publish-persistence" in release_workflow

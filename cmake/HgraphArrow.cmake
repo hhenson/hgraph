@@ -3,7 +3,7 @@ include_guard(GLOBAL)
 # may use its bundled libraries; the resulting native targets do not link the
 # Python runtime unless Python support is independently enabled.
 set(HGRAPH_PYARROW_LIBRARY_DIR "" CACHE PATH "Directory containing pyarrow's bundled Arrow libraries")
-set(HGRAPH_PYARROW_ABI_MAJOR "25" CACHE STRING "Required pyarrow/Arrow ABI major for pyarrow-backed builds")
+set(HGRAPH_PYARROW_ABI_MAJOR "26" CACHE STRING "Required pyarrow/Arrow ABI major for pyarrow-backed builds")
 if(HGRAPH_USE_PYARROW_ARROW)
     if(DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
         set(Python_EXECUTABLE "${Python3_EXECUTABLE}")

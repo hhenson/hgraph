@@ -2,8 +2,8 @@
 requires = [
     "scikit-build-core>=0.11",
     "nanobind==2.13.0",
-    "pyarrow>=25,<26",
-    "hgraph>=0.8.0",
+    "pyarrow>=26,<27",
+    "hgraph>=0.8.39",
 ]
 build-backend = "scikit_build_core.build"
 
@@ -14,7 +14,7 @@ description = "Durable record/replay and frame storage for hgraph"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.12"
-dependencies = ["hgraph>=0.8.0"]
+dependencies = ["hgraph>=0.8.39"]
 
 [project.urls]
 Homepage = "https://github.com/hhenson/hgraph"

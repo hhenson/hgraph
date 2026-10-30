@@ -15,8 +15,8 @@ function(hgraph_analytics_find_arrow)
         endif()
         set(_hgraph_analytics_pyarrow_probe [=[
 import pathlib, pyarrow, sys
-if int(pyarrow.__version__.split(".", 1)[0]) != 25:
-    raise SystemExit(f"hgraph-analytics requires PyArrow 25, found {pyarrow.__version__}")
+if int(pyarrow.__version__.split(".", 1)[0]) != 26:
+    raise SystemExit(f"hgraph-analytics requires PyArrow 26, found {pyarrow.__version__}")
 root = pathlib.Path(pyarrow.__file__).resolve().parent
 def pick(pattern):
     matches = sorted(root.glob(pattern))
