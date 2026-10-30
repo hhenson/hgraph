@@ -180,7 +180,8 @@ jobs:
           BUILD_WORKERS: ${{ inputs.parallel }}
         run: |
           dnf install -y perl-IPC-Cmd perl-Time-Piece
-          curl --fail --location --retry 3 --output /tmp/openssl.tar.gz \
+          curl --fail --location --proto '=https' --proto-redir '=https' \
+            --retry 3 --output /tmp/openssl.tar.gz \
             https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz
           echo '603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a  /tmp/openssl.tar.gz' | sha256sum --check
           tar -xzf /tmp/openssl.tar.gz -C /tmp
