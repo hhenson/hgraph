@@ -10,7 +10,7 @@ from packaging.version import Version
 from trove_classifiers import classifiers as valid_classifiers
 
 ROOT = Path(__file__).resolve().parents[2]
-PYARROW_REQUIREMENT = "pyarrow>=25,<26"
+PYARROW_REQUIREMENT = "pyarrow>=26,<27"
 NANOBIND_REQUIREMENT = "nanobind==2.13.0"
 SUPPORTED_PYTHON_MINIMUM = ">=3.12"
 STABLE_ABI_TAG = "cp312"
@@ -45,8 +45,22 @@ def test_pyarrow_build_and_runtime_requirements_share_the_supported_abi():
     conan = (ROOT / "conanfile.py").read_text()
     arrow_discovery = (ROOT / "cmake/HgraphArrow.cmake").read_text()
     assert 'include("${PROJECT_SOURCE_DIR}/cmake/HgraphArrow.cmake")' in cmake
-    assert 'set(HGRAPH_PYARROW_ABI_MAJOR "25"' in arrow_discovery
+    assert 'set(HGRAPH_PYARROW_ABI_MAJOR "26"' in arrow_discovery
     assert re.search(r'self\.requires\("arrow/25\.0\.0"[,)]', conan) is not None
+
+
+def test_extension_builds_share_the_core_arrow_abi_and_sdk_floor():
+    for path in sorted((ROOT / "extensions").glob("*/pyproject.toml")):
+        project = tomllib.loads(path.read_text())
+        assert PYARROW_REQUIREMENT in project["build-system"]["requires"], path
+        for requirements in (
+            project["build-system"]["requires"],
+            project["project"]["dependencies"],
+        ):
+            core = next(Requirement(item) for item in requirements
+                        if Requirement(item).name == "hgraph")
+            assert "0.8.39" in core.specifier, path
+            assert "0.8.38" not in core.specifier, path
 
 
 def test_conan_sdk_propagates_public_native_dependency_usage_requirements():
@@ -296,9 +310,9 @@ def test_release_workflow_targets_supported_platforms():
     assert "quay.io/pypa/manylinux_2_28_x86_64:latest" in workflow
     assert "Build manylinux 2.28 / GCC 14 wheel" in workflow
     assert "--plat manylinux_2_28_x86_64" in workflow
-    assert "--exclude libarrow.so.2500" in workflow
-    assert "--exclude libarrow_compute.so.2500" in workflow
-    assert "--exclude libarrow_acero.so.2500" in workflow
+    assert "--exclude libarrow.so.2600" in workflow
+    assert "--exclude libarrow_compute.so.2600" in workflow
+    assert "--exclude libarrow_acero.so.2600" in workflow
     assert "--exclude libhgraph_runtime.so" in workflow
     assert "--exclude libhgraph_wiring.so" in workflow
     assert "--exclude libhgraph_stdlib.so" in workflow
@@ -350,7 +364,7 @@ def test_platform_wheel_builds_use_stable_cacheable_paths():
     for dependency in (
         '"scikit-build-core==1.0.3"',
         '"nanobind==2.13.0"',
-        '"pyarrow==25.0.0"',
+        '"pyarrow==26.0.0"',
     ):
         assert platform_workflow.index(dependency) < platform_workflow.index(
             "Build stable ABI wheel"
@@ -477,6 +491,7 @@ def test_release_workflow_locates_installed_sdk_from_distribution():
 
 def main():
     test_pyarrow_build_and_runtime_requirements_share_the_supported_abi()
+    test_extension_builds_share_the_core_arrow_abi_and_sdk_floor()
     test_windows_wheel_installs_all_linked_pyarrow_runtimes()
     test_supported_python_versions_are_declared()
     test_pypi_classifiers_are_valid()

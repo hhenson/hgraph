@@ -37,6 +37,7 @@ function(hgraph_persistence_arrow_sibling_parquet arrow_target out_var)
         "${_hgraph_persistence_arrow_lib}" DIRECTORY)
     file(GLOB _hgraph_persistence_parquet_runtime LIST_DIRECTORIES false
         "${_hgraph_persistence_arrow_dir}/libparquet.*${CMAKE_SHARED_LIBRARY_SUFFIX}"
+        "${_hgraph_persistence_arrow_dir}/libparquet${CMAKE_SHARED_LIBRARY_SUFFIX}*"
         "${_hgraph_persistence_arrow_dir}/parquet.dll")
     if(NOT _hgraph_persistence_parquet_runtime)
         return()
@@ -93,6 +94,62 @@ function(hgraph_persistence_arrow_has_s3 arrow_target out_var)
     endif()
     foreach(_hgraph_persistence_dir IN LISTS _hgraph_persistence_arrow_includes)
         if(EXISTS "${_hgraph_persistence_dir}/arrow/filesystem/s3fs.h")
+            # Arrow 26 moved the S3 implementation out of libarrow. Resolve
+            # its sibling from this Arrow installation, never a system copy
+            # beside a PyArrow runtime. Older native SDKs keep S3 in libarrow.
+            file(STRINGS "${_hgraph_persistence_dir}/arrow/util/config.h"
+                _hgraph_persistence_arrow_major_line
+                REGEX "^#define ARROW_VERSION_MAJOR[ \t]+[0-9]+")
+            string(REGEX MATCH "[0-9]+$" _hgraph_persistence_arrow_major
+                "${_hgraph_persistence_arrow_major_line}")
+            if(_hgraph_persistence_arrow_major GREATER_EQUAL 26 AND
+               NOT TARGET ArrowS3::arrow_s3_shared AND
+               NOT TARGET ArrowS3::arrow_s3_static)
+                file(STRINGS "${_hgraph_persistence_dir}/arrow/util/config.h"
+                    _hgraph_persistence_arrow_s3_enabled
+                    REGEX "^#define ARROW_S3([ \t]|$)")
+                if(NOT _hgraph_persistence_arrow_s3_enabled)
+                    return()
+                endif()
+                set(_hgraph_persistence_arrow_lib "")
+                foreach(_hgraph_persistence_property
+                        IMPORTED_LOCATION IMPORTED_LOCATION_RELEASE
+                        IMPORTED_LOCATION_RELWITHDEBINFO IMPORTED_LOCATION_DEBUG
+                        IMPORTED_IMPLIB IMPORTED_IMPLIB_RELEASE)
+                    get_target_property(_hgraph_persistence_value
+                        ${arrow_target} ${_hgraph_persistence_property})
+                    if(_hgraph_persistence_value)
+                        set(_hgraph_persistence_arrow_lib "${_hgraph_persistence_value}")
+                        break()
+                    endif()
+                endforeach()
+                get_filename_component(_hgraph_persistence_arrow_dir
+                    "${_hgraph_persistence_arrow_lib}" DIRECTORY)
+                file(GLOB _hgraph_persistence_s3_runtime LIST_DIRECTORIES false
+                    "${_hgraph_persistence_arrow_dir}/libarrow_s3.*${CMAKE_SHARED_LIBRARY_SUFFIX}"
+                    "${_hgraph_persistence_arrow_dir}/libarrow_s3${CMAKE_SHARED_LIBRARY_SUFFIX}*"
+                    "${_hgraph_persistence_arrow_dir}/arrow_s3.dll")
+                if(NOT _hgraph_persistence_s3_runtime)
+                    message(FATAL_ERROR
+                        "Arrow ${_hgraph_persistence_arrow_major} enables S3 but "
+                        "its sibling arrow_s3 library is missing; provide the "
+                        "matching ArrowS3 CMake target for a static SDK")
+                endif()
+                list(GET _hgraph_persistence_s3_runtime 0 _hgraph_persistence_s3_lib)
+                add_library(ArrowS3::arrow_s3_shared SHARED IMPORTED GLOBAL)
+                set_target_properties(ArrowS3::arrow_s3_shared PROPERTIES
+                    IMPORTED_LOCATION "${_hgraph_persistence_s3_lib}"
+                    INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_persistence_arrow_includes}"
+                    INTERFACE_LINK_LIBRARIES "${arrow_target}")
+                if(WIN32)
+                    find_library(_hgraph_persistence_s3_implib
+                        NAMES arrow_s3 libarrow_s3
+                        PATHS "${_hgraph_persistence_arrow_dir}" NO_DEFAULT_PATH
+                        NO_CACHE REQUIRED)
+                    set_target_properties(ArrowS3::arrow_s3_shared PROPERTIES
+                        IMPORTED_IMPLIB "${_hgraph_persistence_s3_implib}")
+                endif()
+            endif()
             set(${out_var} ON PARENT_SCOPE)
             return()
         endif()
@@ -141,8 +198,8 @@ function(hgraph_persistence_find_arrow)
         endif()
         set(_hgraph_persistence_pyarrow_probe [=[
 import pathlib, pyarrow, sys
-if int(pyarrow.__version__.split(".", 1)[0]) != 25:
-    raise SystemExit(f"hgraph-persistence requires PyArrow 25, found {pyarrow.__version__}")
+if int(pyarrow.__version__.split(".", 1)[0]) != 26:
+    raise SystemExit(f"hgraph-persistence requires PyArrow 26, found {pyarrow.__version__}")
 root = pathlib.Path(pyarrow.__file__).resolve().parent
 def pick(pattern):
     matches = sorted(root.glob(pattern))
@@ -228,7 +285,10 @@ for line in (include.as_posix(), arrow_link if isinstance(arrow_link, str) else 
             set(HGRAPH_PERSISTENCE_WITH_PARQUET OFF PARENT_SCOPE)
         endif()
         if(_hgraph_persistence_s3 STREQUAL "1")
-            set(HGRAPH_PERSISTENCE_WITH_S3 ON PARENT_SCOPE)
+            hgraph_persistence_arrow_has_s3(Arrow::arrow_shared
+                _hgraph_persistence_s3_found)
+            set(HGRAPH_PERSISTENCE_WITH_S3
+                "${_hgraph_persistence_s3_found}" PARENT_SCOPE)
         else()
             set(HGRAPH_PERSISTENCE_WITH_S3 OFF PARENT_SCOPE)
         endif()

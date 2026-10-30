@@ -213,7 +213,7 @@ acceptance preset, recreate that repository-local environment because
 .. code-block:: bash
 
    uv venv --python 3.14 .venv
-   uv pip install --python .venv/bin/python "pyarrow>=25,<26"
+   uv pip install --python .venv/bin/python "pyarrow>=26,<27"
 
 This bootstrap is required even when a separate disposable environment is
 created below for Python bridge or sanitizer testing.
@@ -245,7 +245,7 @@ containing the binding and test dependencies:
    python3 -m venv "$VENV"
    source "$VENV/bin/activate"
    python -m pip install --upgrade pip cmake ninja nanobind \
-       "pyarrow>=25,<26" "numpy>=2" "pytest>=8" "frozendict>=2.4" \
+       "pyarrow>=26,<27" "numpy>=2" "pytest>=8" "frozendict>=2.4" \
        "polars[rtcompat]>=1.32"
 
 The ``rtcompat`` extra matters on virtualized x86_64 hosts that do not expose

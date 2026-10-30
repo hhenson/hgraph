@@ -963,14 +963,15 @@ if(HGRAPH_BUILD_SHARED AND HGRAPH_USE_PYARROW_ARROW)
         # calls Arrow directly, so GNU ld cannot rely on the hgraph DSOs'
         # private DT_NEEDED entries to satisfy those symbols.
         "execute_process(\n"
-        "  COMMAND \"\${Python_EXECUTABLE}\" -c \"import pathlib, pyarrow; p = pathlib.Path(pyarrow.__file__).resolve().parent; print(p.as_posix()); print((p / 'include').as_posix())\"\n"
+        "  COMMAND \"\${Python_EXECUTABLE}\" -c \"import pathlib, pyarrow; expected = ${HGRAPH_PYARROW_ABI_MAJOR}; actual = int(pyarrow.__version__.split('.', 1)[0]); assert actual == expected, f'hgraph SDK requires PyArrow ABI major {expected}, found {actual}'; p = pathlib.Path(pyarrow.__file__).resolve().parent; print(p.as_posix()); print((p / 'include').as_posix())\"\n"
         "  OUTPUT_VARIABLE _hgraph_pyarrow_info\n"
+        "  ERROR_VARIABLE _hgraph_pyarrow_info_error\n"
         "  OUTPUT_STRIP_TRAILING_WHITESPACE\n"
         "  RESULT_VARIABLE _hgraph_pyarrow_info_result\n"
         ")\n"
         "if(NOT _hgraph_pyarrow_info_result EQUAL 0)\n"
         "  set(hgraph_FOUND FALSE)\n"
-        "  set(hgraph_NOT_FOUND_MESSAGE \"hgraph's shared SDK requires pyarrow\")\n"
+        "  set(hgraph_NOT_FOUND_MESSAGE \"hgraph's shared SDK requires PyArrow ABI major ${HGRAPH_PYARROW_ABI_MAJOR}: \${_hgraph_pyarrow_info_error}\")\n"
         "  return()\n"
         "endif()\n"
         "string(REPLACE \"\\n\" \";\" _hgraph_pyarrow_info \"\${_hgraph_pyarrow_info}\")\n"

@@ -186,6 +186,11 @@ if(HGRAPH_PERSISTENCE_WITH_PARQUET)
     endif()
 endif()
 if(HGRAPH_PERSISTENCE_WITH_S3)
+    if(TARGET ArrowS3::arrow_s3_shared)
+        target_link_libraries(hgraph_persistence PRIVATE ArrowS3::arrow_s3_shared)
+    elseif(TARGET ArrowS3::arrow_s3_static)
+        target_link_libraries(hgraph_persistence PRIVATE ArrowS3::arrow_s3_static)
+    endif()
     target_compile_definitions(hgraph_persistence PRIVATE
         HGRAPH_PERSISTENCE_WITH_S3=1
         HGRAPH_PERSISTENCE_WITH_CURL=1
