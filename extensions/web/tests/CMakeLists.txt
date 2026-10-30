@@ -19,6 +19,11 @@ add_executable(hgraph_web_loopback_tests
 add_executable(hgraph_web_client_loopback_tests
     test_client_loopback.cpp
 )
+add_executable(hgraph_web_client_tls_tests
+    test_client_tls.cpp
+)
+target_include_directories(hgraph_web_client_tls_tests
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 add_executable(hgraph_web_h2_loopback_tests
     test_h2_loopback.cpp
 )
@@ -91,7 +96,7 @@ if(HGRAPH_WEB_LIBRARY_TYPE STREQUAL "SHARED_LIBRARY")
         PRIVATE $<LINK_ONLY:${HGRAPH_WEB_NGHTTP2_TARGET}>)
 endif()
 
-foreach(target hgraph_web_tests hgraph_web_service_tests hgraph_web_route_table_tests hgraph_web_transport_tests hgraph_web_h2_engine_tests hgraph_web_loopback_tests hgraph_web_client_loopback_tests hgraph_web_h2_loopback_tests)
+foreach(target hgraph_web_tests hgraph_web_service_tests hgraph_web_route_table_tests hgraph_web_transport_tests hgraph_web_h2_engine_tests hgraph_web_loopback_tests hgraph_web_client_loopback_tests hgraph_web_client_tls_tests hgraph_web_h2_loopback_tests)
     target_compile_features(${target} PRIVATE cxx_std_23)
     target_link_libraries(${target} PRIVATE hgraph::web)
 

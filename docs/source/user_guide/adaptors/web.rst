@@ -350,6 +350,16 @@ TLS version defaults to 1.2.  :class:`TlsClientConfig` mirrors it for the
 client (custom CA, client certificate, ``sni``, ``verify_peer`` /
 ``verify_host``, ALPN).
 
+For HTTPS and secure WebSocket clients, an explicit ``ca_path`` or ``ca_pem``
+takes precedence. Otherwise, at client startup, the transport uses a nonempty
+``SSL_CERT_FILE`` environment variable, then the first readable CA bundle at
+``/etc/ssl/certs/ca-certificates.crt`` (Debian/Ubuntu),
+``/etc/pki/tls/certs/ca-bundle.crt`` (RHEL), or ``/etc/ssl/cert.pem`` (macOS),
+in that order. If none is available, libcurl retains its defaults. An invalid
+nonempty ``SSL_CERT_FILE`` is reported as a TLS error rather than silently
+replaced by a system bundle. Certificate and hostname verification stay enabled
+by default.
+
 Endpoints and codecs
 --------------------
 

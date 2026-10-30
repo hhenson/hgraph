@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 
@@ -18,6 +19,75 @@ except ImportError as error:  # pragma: no cover - exercised without the wheel
     )
 
 from . import _loopback_harness as harness
+
+
+@pytest.mark.parametrize(
+    "trust,valid_environment,expect_success",
+    [
+        ("environment", True, True),
+        ("environment", False, False),
+        ("path", False, True),
+        ("pem", False, True),
+    ],
+)
+def test_verified_tls_ca_selection(
+    monkeypatch, trust, valid_environment, expect_success
+):
+    fixtures = Path(__file__).resolve().parents[2] / "tests" / "fixtures"
+    cert = fixtures / "localhost-cert.pem"
+    monkeypatch.setenv(
+        "SSL_CERT_FILE", str(cert if valid_environment else fixtures / "missing.pem")
+    )
+    observed, requested, failures = [], [], []
+    tls = None
+    if trust == "path":
+        tls = web.TlsClientConfig(ca_path=str(cert))
+    elif trust == "pem":
+        tls = web.TlsClientConfig(ca_pem=cert.read_text())
+    request = harness.port_triggered_request(
+        requested,
+        lambda port: web.HttpClientRequest(
+            web.HttpMethod.GET, f"https://127.0.0.1:{port}/cert"
+        ),
+    )
+    capture, capture_failure = harness.result_captures(observed, failures)
+
+    @hg.graph
+    def app():
+        web.register_web_server(
+            web.WebServerConfig(
+                port=0,
+                stats_interval_ms=10,
+                tls=web.TlsServerConfig(
+                    cert_path=str(cert), key_path=str(fixtures / "localhost-key.pem")
+                ),
+                static_files=(web.WebStaticFile("/cert", str(cert)),),
+            ),
+            path="site",
+        )
+        web.register_web_client(web.WebClientConfig(tls=tls), path="api")
+        result = web.web_http_request(
+            request(web.web_server_stats(path="site")), path="api"
+        )
+        capture(result["response"])
+        capture_failure(result["failure"])
+
+    start = hg.utc_now()
+    hg.eval_node(
+        app,
+        __run_mode__=hg.EvaluationMode.REAL_TIME,
+        __start_time__=start,
+        __end_time__=start + timedelta(seconds=5),
+        __elide__=True,
+    )
+    assert len(requested) == 1
+    if expect_success:
+        assert failures == []
+        assert len(observed) == 1 and observed[0].status == 200
+    else:
+        assert observed == []
+        assert len(failures) == 1
+        assert failures[0].error_code == 77  # CURLE_SSL_CACERT_BADFILE
 
 
 def _header(response, name):
