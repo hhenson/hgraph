@@ -449,6 +449,12 @@ endif()
 # C++ builds (`brew install apache-arrow` / `apt install libarrow-dev`);
 include("${PROJECT_SOURCE_DIR}/cmake/HgraphArrow.cmake")
 
+# Dependency prefixes can also contain a different Arrow installation. Keep
+# the selected Arrow headers ahead of transitive fmt/spdlog include roots so
+# scalar vtables and other public types match the libraries we link.
+target_include_directories(hgraph_options SYSTEM BEFORE INTERFACE
+    "$<BUILD_INTERFACE:$<TARGET_PROPERTY:Arrow::arrow_shared,INTERFACE_INCLUDE_DIRECTORIES>>")
+
 function(hgraph_configure_test_runtime_paths test_name)
     if(NOT WIN32 OR NOT HGRAPH_PYARROW_RUNTIME_DIRS)
         return()
@@ -825,6 +831,11 @@ file(WRITE "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
     "${_hgraph_config_dependencies}"
     "include(\"\${CMAKE_CURRENT_LIST_DIR}/hgraphTargets.cmake\")\n"
 )
+if(NOT HGRAPH_BUILD_SHARED OR NOT HGRAPH_BUILD_PYTHON_BINDINGS)
+    file(APPEND "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
+        "target_include_directories(hgraph::options SYSTEM BEFORE INTERFACE \"$<TARGET_PROPERTY:Arrow::arrow_shared,INTERFACE_INCLUDE_DIRECTORIES>\")\n"
+    )
+endif()
 if(NOT HGRAPH_BUILD_SHARED)
     file(APPEND "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
         # FetchContent dependencies are build-interface-only because their
@@ -1025,6 +1036,7 @@ if(HGRAPH_BUILD_SHARED AND HGRAPH_USE_PYARROW_ARROW)
         "endif()\n"
         "if(TARGET hgraph::options)\n"
         "  target_link_libraries(hgraph::options INTERFACE hgraph::pyarrow_arrow hgraph::pyarrow_compute hgraph::pyarrow_acero)\n"
+        "  target_include_directories(hgraph::options SYSTEM BEFORE INTERFACE \"\${_hgraph_arrow_include}\")\n"
         "endif()\n"
     )
 endif()
