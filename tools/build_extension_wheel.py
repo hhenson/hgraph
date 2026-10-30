@@ -91,7 +91,7 @@ def build_extension(package: str, *, manylinux: bool) -> None:
         str(wheel),
     ])
     subprocess.check_call([
-        sys.executable, "-m", "pip", "install", "--no-deps", str(wheel),
+        sys.executable, "-m", "pip", "install", "--no-deps", "--force-reinstall", str(wheel),
     ])
     subprocess.check_call([
         sys.executable, "-m", "pytest",

@@ -139,6 +139,7 @@ def test_extension_tests_use_the_repaired_artifact_and_matching_sdk(monkeypatch,
     commands = [command for command, _ in calls]
     install = next(command for command in commands if command[1:4] == ["-m", "pip", "install"])
     assert "--no-deps" in install
+    assert "--force-reinstall" in install
     assert Path(install[-1]).parent == tmp_path / "kafka-dist"
     assert "manylinux_2_28_x86_64" in install[-1]
     assert commands[-1][1:3] == ["-m", "pytest"]
