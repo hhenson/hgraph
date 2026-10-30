@@ -51,10 +51,11 @@ endif()
 # Everything fetched is built static and stays PRIVATE to this extension.
 
 # A Python extension statically embeds its TLS stack. Keep OpenSSL inside the
-# extension on wheel platforms where a package-local dynamic dependency would
-# otherwise require loader-path repair. In particular, Python 3.8+ does not
-# search the Windows process PATH for dependent DLLs.
-if(HGRAPH_WEB_BUILD_PYTHON AND (APPLE OR WIN32))
+# extension. On ELF, another extension can load Parquet's unversioned crypto
+# exports before a repaired shared OpenSSL, mixing incompatible BIO methods.
+# Static archives with hidden symbols keep the complete TLS stack private.
+# Python 3.8+ also does not search PATH for dependent Windows DLLs.
+if(HGRAPH_WEB_BUILD_PYTHON)
     set(OPENSSL_USE_STATIC_LIBS TRUE)
 endif()
 find_package(OpenSSL REQUIRED)
@@ -295,6 +296,14 @@ set_target_properties(hgraph_web PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
+if(HGRAPH_WEB_BUILD_PYTHON AND UNIX AND NOT APPLE)
+    # Apply at the shared library link and propagate through a static web
+    # target to its Python module. Do not export build-only archive options
+    # as part of the installed C++ SDK's interface.
+    target_link_options(hgraph_web PUBLIC
+        "$<BUILD_INTERFACE:LINKER:--exclude-libs,libssl.a:libcrypto.a>")
+endif()
+
 if(MSVC)
     # The transport implementation includes Windows headers.  Keep their
     # min/max macros from rewriting standard-library calls in this target.
@@ -370,6 +379,8 @@ if(HGRAPH_WEB_BUILD_PYTHON)
         LIBRARY DESTINATION hgraph_web
         RUNTIME DESTINATION hgraph_web
     )
+    install(FILES licenses/OpenSSL.txt
+        DESTINATION hgraph_web/licenses COMPONENT Python)
 endif()
 
 install(TARGETS hgraph_web

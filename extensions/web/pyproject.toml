@@ -39,6 +39,7 @@ sdist.include = [
     "LICENSE",
     "cmake/**",
     "include/**",
+    "licenses/**",
     "python/**",
     "src/**",
     "tests/**",

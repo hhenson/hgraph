@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import timedelta
 from pathlib import Path
+import importlib.util
+import subprocess
+import sys
 
 import pytest
 
@@ -19,6 +22,29 @@ except ImportError as error:  # pragma: no cover - exercised without the wheel
     )
 
 from . import _loopback_harness as harness
+
+
+@pytest.mark.parametrize("persistence_first", [True, False])
+def test_verified_tls_after_other_native_crypto_libraries(persistence_first):
+    if importlib.util.find_spec("hgraph_persistence") is None:
+        pytest.skip("the import-order regression requires the persistence wheel")
+    imports = ["hgraph_persistence", "hgraph_web"]
+    if not persistence_first:
+        imports.reverse()
+    result = subprocess.run(
+        [sys.executable, "-c", """
+import importlib
+import sys
+import pytest
+for name in sys.argv[1:3]:
+    importlib.import_module(name)
+raise SystemExit(pytest.main([
+    sys.argv[3], '-q', '-k', 'test_verified_tls_ca_selection',
+]))
+""", *imports, str(Path(__file__).resolve())],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize(
