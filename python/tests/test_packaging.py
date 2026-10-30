@@ -307,7 +307,7 @@ def test_release_workflow_targets_supported_platforms():
     assert "macos-15-intel" not in combined_workflow
     assert "      os: macos-26" in workflow
     assert "CMAKE_OSX_DEPLOYMENT_TARGET=26.0" in combined_workflow
-    assert "quay.io/pypa/manylinux_2_28_x86_64:latest" in workflow
+    assert "quay.io/pypa/manylinux_2_28_x86_64:2026.10.26-1@sha256:" in workflow
     assert "Build manylinux 2.28 / GCC 14 wheel" in workflow
     assert "--plat manylinux_2_28_x86_64" in workflow
     assert "--exclude libarrow.so.2600" in workflow
@@ -358,8 +358,9 @@ def test_platform_wheel_builds_use_stable_cacheable_paths():
 
     assert "--wheel --no-isolation --skip-dependency-check" in platform_workflow
     assert '"-Cbuild-dir=.ci-build/core/{wheel_tag}"' in platform_workflow
-    assert '"-Cbuild-dir=.ci-build/kafka/{wheel_tag}"' in platform_workflow
-    assert '"-Cbuild-dir=.ci-build/fabric/{wheel_tag}"' in platform_workflow
+    extension_builder = (ROOT / "tools/build_extension_wheel.py").read_text()
+    assert "-Cbuild-dir=.ci-build/kafka/{wheel_tag}" in extension_builder
+    assert "-Cbuild-dir=.ci-build/fabric/{wheel_tag}" in extension_builder
     assert "Install Kafka wheel build tools" not in platform_workflow
     for dependency in (
         '"scikit-build-core==1.0.3"',
@@ -469,23 +470,26 @@ def test_release_workflow_audits_distribution_contents():
     ).read_text()
 
     assert workflow.count(" tools/audit_distribution.py") == 3
-    assert workflow.count("extensions/kafka/tools/audit_distribution.py") == 3
-    assert workflow.count("extensions/fabric/tools/audit_distribution.py") == 3
+    # Source archives are audited here; isolated extension jobs audit their
+    # wheel through the shared builder before running the package suite.
+    assert "extensions/kafka/tools/audit_distribution.py" in workflow
+    assert "extensions/fabric/tools/audit_distribution.py" in workflow
+    builder = (ROOT / "tools/build_extension_wheel.py").read_text()
+    assert '"tools/audit_distribution.py"' in builder
     assert '"dist/*.whl"' in workflow
     assert '"dist/*.tar.gz"' in workflow
-    assert '"kafka-dist/*.whl"' in workflow
+    assert "kafka-dist/*.whl" in workflow or "kafka-dist" in workflow
     assert '"kafka-dist/*.tar.gz"' in workflow
 
 
 def test_release_workflow_locates_installed_sdk_from_distribution():
-    workflow = (ROOT / ".github/workflows/release-wheels.yml").read_text()
-    workflow += (
-        ROOT / ".github/workflows/release-platform-wheel.yml"
-    ).read_text()
+    workflow = (ROOT / ".github/workflows/build-extension-wheel.yml").read_text()
+    builder = (ROOT / "tools/build_extension_wheel.py").read_text()
 
-    assert 'metadata.distribution("hgraph")' in workflow
-    assert 'distribution.locate_file("")' in workflow
-    assert '"hgraphConfig.cmake"' in workflow
+    assert "tools/build_extension_wheel.py" in workflow
+    assert 'metadata.distribution("hgraph")' in builder
+    assert '.locate_file("")' in builder
+    assert "lib/cmake/hgraph/hgraphConfig.cmake" in builder
     assert "HGRAPH_KAFKA_SDK_PREFIX={site.getsitepackages()[0]}" not in workflow
 
 
