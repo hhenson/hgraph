@@ -307,7 +307,7 @@ def test_release_workflow_targets_supported_platforms():
     assert "macos-15-intel" not in combined_workflow
     assert "      os: macos-26" in workflow
     assert "CMAKE_OSX_DEPLOYMENT_TARGET=26.0" in combined_workflow
-    assert "quay.io/pypa/manylinux_2_28_x86_64:latest" in workflow
+    assert "quay.io/pypa/manylinux_2_28_x86_64:2026.10.26-1@sha256:" in workflow
     assert "Build manylinux 2.28 / GCC 14 wheel" in workflow
     assert "--plat manylinux_2_28_x86_64" in workflow
     assert "--exclude libarrow.so.2600" in workflow
@@ -359,7 +359,8 @@ def test_platform_wheel_builds_use_stable_cacheable_paths():
     assert "--wheel --no-isolation --skip-dependency-check" in platform_workflow
     assert '"-Cbuild-dir=.ci-build/core/{wheel_tag}"' in platform_workflow
     extension_builder = (ROOT / "tools/build_extension_wheel.py").read_text()
-    assert ".ci-build/{package}/{{wheel_tag}}" in extension_builder
+    assert "-Cbuild-dir=.ci-build/kafka/{wheel_tag}" in extension_builder
+    assert "-Cbuild-dir=.ci-build/fabric/{wheel_tag}" in extension_builder
     assert "Install Kafka wheel build tools" not in platform_workflow
     for dependency in (
         '"scikit-build-core==1.0.3"',

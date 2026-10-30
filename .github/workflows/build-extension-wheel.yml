@@ -16,9 +16,7 @@ on:
         required: true
         type: string
 
-permissions:
-  actions: read
-  contents: read
+permissions: {}
 
 env:
   GCC_VERSION: "14"
@@ -26,6 +24,9 @@ env:
 
 jobs:
   host:
+    permissions:
+      actions: read
+      contents: read
     if: inputs.os != 'ubuntu-latest'
     runs-on: ${{ inputs.os }}
     steps:
@@ -139,10 +140,13 @@ jobs:
           if-no-files-found: error
 
   linux:
+    permissions:
+      actions: read
+      contents: read
     if: inputs.os == 'ubuntu-latest'
     runs-on: ubuntu-24.04
     container:
-      image: quay.io/pypa/manylinux_2_28_x86_64:latest
+      image: quay.io/pypa/manylinux_2_28_x86_64:2026.10.26-1@sha256:e0adf18521ad35192df733a6c62d35df7801957d24e0470238aacecfab2188a3
     env:
       HGRAPH_MANYLINUX: "1"
     steps:

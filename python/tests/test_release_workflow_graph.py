@@ -2,6 +2,7 @@
 
 import importlib.util
 from pathlib import Path
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -60,6 +61,20 @@ def test_each_extension_is_tested_before_its_artifact_is_uploaded():
         assert "if" not in steps[upload]  # Failed tests must not publish a wheel.
 
 
+def test_extension_read_permissions_are_granted_to_each_job():
+    builder = workflow("build-extension-wheel.yml")
+    assert builder["permissions"] == {}
+    for job in builder["jobs"].values():
+        assert job["permissions"] == {"actions": "read", "contents": "read"}
+
+
+def test_core_and_extensions_use_one_immutable_manylinux_image():
+    core = workflow("release-wheels.yml")["jobs"]["build-linux-wheel"]["container"]["image"]
+    extension = workflow("build-extension-wheel.yml")["jobs"]["linux"]["container"]["image"]
+    assert core == extension
+    assert re.fullmatch(r"quay\.io/pypa/manylinux_2_28_x86_64:[\d.-]+@sha256:[a-f0-9]{64}", core)
+
+
 @pytest.mark.parametrize("package", BUILDER.PACKAGES)
 def test_repair_keeps_arrow_and_sdk_libraries_with_their_owners(package):
     excluded = BUILDER.manylinux_excludes(package, 26)
@@ -86,6 +101,17 @@ def test_extension_build_rejects_a_core_wheel_without_its_sdk(monkeypatch, tmp_p
         BUILDER.build_extension("kafka", manylinux=True)
 
 
+@pytest.mark.parametrize("package", ["--help", "../web", "kafka -Cbad=value", "web/../../"])
+def test_untrusted_package_selection_never_reaches_a_build_command(monkeypatch, package):
+    def unexpected(*args, **kwargs):
+        pytest.fail("invalid selection reached SDK discovery or a command")
+
+    monkeypatch.setattr(BUILDER.metadata, "distribution", unexpected)
+    monkeypatch.setattr(BUILDER.subprocess, "check_call", unexpected)
+    with pytest.raises(ValueError, match="unsupported extension package"):
+        BUILDER.build_extension(package, manylinux=True)
+
+
 def test_extension_tests_use_the_repaired_artifact_and_matching_sdk(monkeypatch, tmp_path):
     sdk = tmp_path / "sdk"
     config = sdk / "lib/cmake/hgraph/hgraphConfig.cmake"
@@ -108,6 +134,7 @@ def test_extension_tests_use_the_repaired_artifact_and_matching_sdk(monkeypatch,
 
     monkeypatch.setattr(BUILDER.subprocess, "check_call", run)
     BUILDER.build_extension("kafka", manylinux=True)
+    assert "-Cbuild-dir=.ci-build/kafka/{wheel_tag}" in calls[0][0]
     assert calls[0][1]["env"]["CMAKE_PREFIX_PATH"].startswith(str(sdk))
     commands = [command for command, _ in calls]
     install = next(command for command in commands if command[1:4] == ["-m", "pip", "install"])

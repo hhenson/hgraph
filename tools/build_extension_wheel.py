@@ -14,7 +14,14 @@ from packaging.utils import parse_wheel_filename
 import pyarrow
 
 
-PACKAGES = ("kafka", "analytics", "web", "persistence", "fabric")
+BUILD_PLANS = {
+    "kafka": ("kafka", "-Cbuild-dir=.ci-build/kafka/{wheel_tag}"),
+    "analytics": ("analytics", "-Cbuild-dir=.ci-build/analytics/{wheel_tag}"),
+    "web": ("web", "-Cbuild-dir=.ci-build/web/{wheel_tag}"),
+    "persistence": ("persistence", "-Cbuild-dir=.ci-build/persistence/{wheel_tag}"),
+    "fabric": ("fabric", "-Cbuild-dir=.ci-build/fabric/{wheel_tag}"),
+}
+PACKAGES = tuple(BUILD_PLANS)
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -46,6 +53,12 @@ def verify_wheel(wheel: Path, package: str, manylinux: bool) -> None:
 
 
 def build_extension(package: str, *, manylinux: bool) -> None:
+    # Use only command data from the fixed table, including for direct Python
+    # callers that bypass argparse's choices validation.
+    try:
+        package, build_directory = BUILD_PLANS[package]
+    except KeyError:
+        raise ValueError("unsupported extension package") from None
     sdk = Path(metadata.distribution("hgraph").locate_file("")).resolve()
     if not (sdk / "lib/cmake/hgraph/hgraphConfig.cmake").is_file():
         raise FileNotFoundError("the matching core wheel must install its SDK")
@@ -56,7 +69,7 @@ def build_extension(package: str, *, manylinux: bool) -> None:
     output = ROOT / f"{package}-dist-raw" if manylinux else dist
     subprocess.check_call([
         sys.executable, "-m", "build", "--wheel", "--no-isolation",
-        "--skip-dependency-check", f"-Cbuild-dir=.ci-build/{package}/{{wheel_tag}}",
+        "--skip-dependency-check", build_directory,
         "--outdir", str(output), str(ROOT / "extensions" / package),
     ], cwd=ROOT, env=env)
     if manylinux:
