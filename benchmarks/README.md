@@ -51,6 +51,8 @@ records the full macOS/Linux matrix, reproduction results, and observed regressi
 The [cost analysis](results/sparse-shared-map-20261116/cost-analysis.md) varies
 collection size independently, isolates the notification and map changes, and
 records the empty-removal scan fix and the updated full matrix.
+The [Linux generator investigation](results/sparse-shared-map-20261116/generator-analysis.md)
+uses library swaps and controlled relinks to isolate the remaining code-placement sensitivity.
 
 Dynamic TSL is a C++-first feature with no valid 0.5 comparison. Its
 diagnostic workload is therefore restricted to 0.8.19 and current source and

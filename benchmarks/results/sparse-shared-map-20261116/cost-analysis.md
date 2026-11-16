@@ -158,7 +158,7 @@ Reran all remaining initial slowdowns above 5% with seven samples and ten times 
 | `python_global_state_boundary` | macos | 0.985× |
 | `service_request_reply_py` | macos | 0.999× |
 
-The collection regressions are resolved. A separate Linux `python_generator_boundary` difference remains approximately **6% slower** (about 0.012 µs per cycle); it contains no collection, and its cause has not been isolated in this investigation. The other repeated differences are approximately neutral or faster. This remaining result is retained explicitly rather than calling the entire change performance-neutral.
+The collection regressions are resolved. A separate Linux `python_generator_boundary` difference remains approximately **6% slower** (about 0.012 µs per cycle); it contains no collection. The subsequent [generator investigation](generator-analysis.md) isolates runtime code placement as the predominant contributor: a diagnostic relink of the same compiled inputs reduces the gap to about 0–1%, confirmed on another CPU and with process ASLR disabled. The shipping build retains its normal layout and the measured difference. The other repeated differences are approximately neutral or faster. This remaining result is retained explicitly rather than calling the entire change performance-neutral.
 
 ## Validation
 
