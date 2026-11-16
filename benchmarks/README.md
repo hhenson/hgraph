@@ -39,6 +39,15 @@ large retained TSD capacity, capacity growth, clear/repopulate, multi-input
 membership, explicit key sets, reducer implementation shapes, and multi-path
 services.
 
+Sparse shared-input coverage includes ``tsd_shared_lookup_py`` and
+``tsd_shared_unselected_py``: a dictionary passed whole into ``map_`` changes
+one element per cycle, with either one selected consumer or none. Vary
+``--size-scale`` independently of ``--cycle-scale`` to expose notification or
+scheduling work proportional to unrelated mapped keys. The standalone
+``repro_map_pass_through.py`` reports initialization-inclusive and steady-state
+timings separately; ``--source-size`` holds the source size fixed while map
+cardinality changes.
+
 Dynamic TSL is a C++-first feature with no valid 0.5 comparison. Its
 diagnostic workload is therefore restricted to 0.8.19 and current source and
 appears in a separate, explicitly non-comparative report section. Low-level native timings,

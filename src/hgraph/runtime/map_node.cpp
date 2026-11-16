@@ -161,9 +161,9 @@ namespace hgraph
             ChangedKeySlots membership_changed_slots{};
             ChangedKeySlots repoint_modified_slots{};
 
-            // Candidate slots are sparse for ordinary multiplexed value ticks.
-            // Full scans remain the conservative path for broadcast/repoint and
-            // independently scheduled child graphs.
+            // A dense membership bitmap deduplicates a sparse list. Only
+            // touched slots are cleared or visited on ordinary value ticks.
+            // Source repoints still require all child bindings to be refreshed.
             SlotBitmap              evaluation_candidates{};
             std::vector<std::size_t> evaluation_slots{};
             std::size_t              resume_position_plus_one{0};
@@ -181,7 +181,19 @@ namespace hgraph
             // inner nodes notified) collapse. Drained by the next map
             // evaluation; future deadlines keep using the heap.
             SlotBitmap due_now_slots{};
-            bool       any_due_now{false};
+            std::vector<std::size_t> due_now_entries{};
+
+            void clear_evaluation_slots() noexcept
+            {
+                for (const auto slot : evaluation_slots) { evaluation_candidates.reset(slot); }
+                evaluation_slots.clear();
+            }
+
+            void clear_due_now_entries() noexcept
+            {
+                for (const auto slot : due_now_entries) { due_now_slots.reset(slot); }
+                due_now_entries.clear();
+            }
 
             void push_child_schedule(MapChildSchedule schedule)
             {
@@ -196,13 +208,16 @@ namespace hgraph
                 {
                     due_now_slots.resize(std::max(slot + 1, entries.slot_capacity()));
                 }
-                due_now_slots.set(slot);
-                any_due_now = true;
+                if (!due_now_slots.test(slot))
+                {
+                    due_now_entries.push_back(slot);
+                    due_now_slots.set(slot);
+                }
             }
 
             void clear_due_now(std::size_t slot) noexcept
             {
-                if (any_due_now && slot < due_now_slots.size()) { due_now_slots.reset(slot); }
+                due_now_slots.reset(slot);
             }
 
             void push_observed_child_schedule(DateTime when, bool due_now,
@@ -869,39 +884,38 @@ namespace hgraph
         void add_map_evaluation_slot(MapNodeStorage &storage, std::size_t slot)
         {
             if (slot == TS_DATA_NO_CHILD_ID || storage.entry_at(slot) == nullptr) { return; }
+            if (storage.evaluation_candidates.test(slot)) { return; }
+            storage.evaluation_slots.push_back(slot);
             storage.evaluation_candidates.set(slot);
         }
 
         /** Move the current-cycle push set into the evaluation candidates. */
         void drain_due_now_slots(MapNodeStorage &storage)
         {
-            if (!storage.any_due_now) { return; }
-            for (std::size_t word_index = 0; word_index < storage.due_now_slots.word_count(); ++word_index)
+            for (const auto slot : storage.due_now_entries)
             {
-                std::uint64_t word = storage.due_now_slots.words[word_index];
-                while (word != 0)
-                {
-                    const auto bit = static_cast<std::size_t>(std::countr_zero(word));
-                    add_map_evaluation_slot(storage, word_index * SlotBitmap::bits_per_word + bit);
-                    word &= word - 1;
-                }
+                if (storage.due_now_slots.test(slot)) { add_map_evaluation_slot(storage, slot); }
             }
-            storage.due_now_slots.reset();
-            storage.any_due_now = false;
+            storage.clear_due_now_entries();
         }
 
         void materialize_map_evaluation_slots(MapNodeStorage &storage)
         {
-            storage.evaluation_slots.clear();
-            for (std::size_t word_index = 0;
-                 word_index < storage.evaluation_candidates.word_count(); ++word_index)
+            // Preserve the slot order used before sparse candidate collection.
+            // Dense ticks retain linear bitmap enumeration; sparse ticks never
+            // scan words belonging only to unrelated keys.
+            if (storage.evaluation_slots.size() <= storage.evaluation_candidates.word_count())
             {
-                std::uint64_t word = storage.evaluation_candidates.words[word_index];
+                std::sort(storage.evaluation_slots.begin(), storage.evaluation_slots.end());
+                return;
+            }
+            storage.evaluation_slots.clear();
+            for (std::size_t index = 0; index < storage.evaluation_candidates.word_count(); ++index)
+            {
+                auto word = storage.evaluation_candidates.words[index];
                 while (word != 0)
                 {
-                    const auto bit = static_cast<std::size_t>(std::countr_zero(word));
-                    storage.evaluation_slots.push_back(
-                        word_index * SlotBitmap::bits_per_word + bit);
+                    storage.evaluation_slots.push_back(index * SlotBitmap::bits_per_word + std::countr_zero(word));
                     word &= word - 1;
                 }
             }
@@ -920,14 +934,12 @@ namespace hgraph
                                           MapNodeStorage &storage, DateTime evaluation_time,
                                           bool was_primed)
         {
-            storage.evaluation_slots.clear();
+            storage.clear_evaluation_slots();
             storage.evaluation_candidates.resize(storage.entries.slot_capacity());
-            storage.evaluation_candidates.reset();
             storage.resume_position_plus_one = 0;
 
             auto root_input = view.input(evaluation_time);
             auto keys_input = root_input.indexed_child_at(*context.spec.keys_input_index);
-            bool input_event = keys_input.modified();
             bool full_scan = storage.refresh_all_bindings || !was_primed;
 
             for (const auto &arg : context.access.args)
@@ -936,8 +948,6 @@ namespace hgraph
                 auto input = root_input.indexed_child_at(arg.source.outer_index);
                 if (input.modified())
                 {
-                    input_event = true;
-                    full_scan = true;
                     if (arg.refreshes_projected_children)
                     {
                         // A structured forwarding boundary can keep its root
@@ -945,6 +955,7 @@ namespace hgraph
                         // field endpoints. Existing children must follow those
                         // new leaf routes before they evaluate.
                         storage.refresh_all_bindings = true;
+                        full_scan = true;
                     }
                 }
             }
@@ -977,7 +988,6 @@ namespace hgraph
                     const bool shares_key_slots =
                         dict.key_set().base().storage_ref().data() == keys_storage;
 
-                    input_event = true;
                     for (std::size_t source_slot = dict.next_modified_slot();
                          source_slot != TS_DATA_NO_CHILD_ID;
                          source_slot = dict.next_modified_slot(source_slot))
@@ -1029,14 +1039,11 @@ namespace hgraph
                 add_map_evaluation_slot(storage, schedule.slot);
             }
 
-            // With no outer input event the parent was woken by a nested
-            // child's own dependency (e.g. a mesh resume); its identity is
-            // not encoded in the graph schedule table, so retain the
-            // conservative scan.
-            if (!input_event) { full_scan = true; }
+            // Every existing child reports its out-of-band schedule with its
+            // slot identity. Broadcast ticks and independent child timers use
+            // that same path; they do not require polling idle children.
             if (full_scan)
             {
-                storage.evaluation_slots.clear();
                 collect_all_map_evaluation_slots(storage);
             }
             materialize_map_evaluation_slots(storage);
@@ -1158,7 +1165,7 @@ namespace hgraph
                 }
             }
             storage.resume_position_plus_one = 0;
-            storage.evaluation_slots.clear();
+            storage.clear_evaluation_slots();
             storage.refresh_all_bindings = false;
             storage.selective_repoint_bindings = false;
             storage.membership_changed_keys.clear();
@@ -1172,8 +1179,7 @@ namespace hgraph
             // deadline propagated by the child. The same applies to the
             // due-now bit set: bits raised during this evaluation name
             // children that already ran (or were created) this cycle.
-            storage.due_now_slots.reset();
-            storage.any_due_now = false;
+            storage.clear_due_now_entries();
             while (!storage.child_schedule_queue.empty() &&
                    storage.child_schedule_queue.front().when <= evaluation_time)
             {
@@ -1225,11 +1231,10 @@ namespace hgraph
             storage.repoint_modified_keys.clear();
             storage.membership_changed_slots.clear();
             storage.repoint_modified_slots.clear();
-            storage.evaluation_slots.clear();
+            storage.clear_evaluation_slots();
             storage.resume_position_plus_one = 0;
             storage.child_schedule_queue.clear();
-            storage.due_now_slots.reset();
-            storage.any_due_now = false;
+            storage.clear_due_now_entries();
             failures.rethrow_if_any();
         }
 
@@ -1488,8 +1493,7 @@ namespace hgraph
                 if (auto *entry = storage.entries.entry_at(slot); entry != nullptr && entry->graph.has_value())
                     entry->graph.view().start(time);
             storage.child_schedule_queue.clear();
-            storage.due_now_slots.reset();
-            storage.any_due_now = false;
+            storage.clear_due_now_entries();
             for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
             {
                 auto *entry = storage.entries.entry_at(slot);
