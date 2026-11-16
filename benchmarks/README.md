@@ -46,7 +46,8 @@ one element per cycle, with either one selected consumer or none. Vary
 scheduling work proportional to unrelated mapped keys. The standalone
 ``repro_map_pass_through.py`` reports initialization-inclusive and steady-state
 timings separately; ``--source-size`` holds the source size fixed while map
-cardinality changes.
+cardinality changes. The [shared-map comparison](results/sparse-shared-map-20261116/README.md)
+records the full macOS/Linux matrix, reproduction results, and observed regressions.
 
 Dynamic TSL is a C++-first feature with no valid 0.5 comparison. Its
 diagnostic workload is therefore restricted to 0.8.19 and current source and
