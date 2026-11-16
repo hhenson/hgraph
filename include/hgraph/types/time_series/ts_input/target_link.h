@@ -94,6 +94,8 @@ namespace hgraph::detail
         [[nodiscard]] TSInputTargetActiveNode &ensure_active_root();
         void clear_active_observed() noexcept;
         void unsubscribe_active_tree() noexcept;
+        [[nodiscard]] TSOutputHandle tracking_source() const;
+        void refresh_tracking_subscription();
 
         TSInputTargetLinkStorage *owner{nullptr};
         TSOutputHandle target{};
@@ -101,6 +103,9 @@ namespace hgraph::detail
             can retarget without this link rebinding (a REF output, or an
             output itself reached through a target link). RFC 0036. */
         bool target_is_reference{false};
+        // A structural-only reader of a stable collection needs membership
+        // and lifetime notifications, not every value tick in the collection.
+        bool tracks_structure{false};
         /** Bind-time scalar forwarding route, borrowed under ``target``'s
             existing endpoint lifetime protocol. Null for physical producers,
             REF values and structural targets. */

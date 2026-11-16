@@ -1054,6 +1054,28 @@ def tsd_sparse_reduce_std(cycle_scale: float, size_scale: float):
     return _tsd_sparse_variant(cycle_scale, size_scale, "reduce")
 
 
+def _tsd_shared_lookup(cycle_scale: float, size_scale: float, unselected: bool):
+    cycles = max(2, int(20_000 * cycle_scale))
+    keys = max(16, int(2_000 * size_scale))
+
+    @graph
+    def g():
+        mapped_keys = _tsd_sparse_pulse(1, keys, 1)
+        shared = _tsd_sparse_pulse(cycles, keys, 1, offset=keys if unselected else 0)
+        null_sink(map_(lambda key, x, s: _mapped_py(hg.default(s[key], 0)),
+                       mapped_keys, hg.pass_through(shared)))
+
+    return g, cycles
+
+
+def tsd_shared_lookup_py(cycle_scale: float, size_scale: float):
+    return _tsd_shared_lookup(cycle_scale, size_scale, False)
+
+
+def tsd_shared_unselected_py(cycle_scale: float, size_scale: float):
+    return _tsd_shared_lookup(cycle_scale, size_scale, True)
+
+
 def _tsd_churn_variant(cycle_scale: float, size_scale: float, stage: str):
     cycles = int(2_000 * cycle_scale)
     live = max(8, int(200 * size_scale))
@@ -1898,6 +1920,12 @@ SCENARIOS = {
         "TSD - sparse", "Large retained capacity with two updates per cycle",
         tsd_sparse_large_capacity_std, suite="diagnostic",
         independent_size=True),
+    "tsd_shared_lookup_py": _scenario(
+        "TSD - sparse", "Shared pass-through dictionary with one selected element update",
+        tsd_shared_lookup_py, suite="diagnostic", independent_size=True),
+    "tsd_shared_unselected_py": _scenario(
+        "TSD - sparse", "Shared pass-through dictionary with no selected element updates",
+        tsd_shared_unselected_py, suite="diagnostic", independent_size=True),
 
     "tsd_churn_std": _scenario(
         "TSD - key lifecycle", "Map and reduce with key replacement",

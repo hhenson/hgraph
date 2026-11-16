@@ -1,0 +1,898 @@
+{
+  "baseline_commit": "7e45748c966e8cf6c3cb2fbf57adfbc259302040",
+  "candidate_commit": "64c84e118d037d75cac2af2146d255fc5d63209b",
+  "platform": {
+    "os": "Linux",
+    "architecture": "x86_64",
+    "cpu": "AMD Ryzen Threadripper 9980X",
+    "python": "3.14.4",
+    "python_compiler": "GCC 15.2.0"
+  },
+  "units": {
+    "runtime_swaps": "seconds",
+    "original_benchmark": "seconds",
+    "holdout": "seconds",
+    "warmup_diagnostic": "ns/cycle"
+  },
+  "runtime_swaps": [
+    {
+      "variant": "baseline",
+      "samples": [
+        0.392649,
+        0.394668,
+        0.393811,
+        0.392804,
+        0.395122,
+        0.394749,
+        0.392964,
+        0.395872,
+        0.400095,
+        0.400531,
+        0.399817,
+        0.392622,
+        0.393411,
+        0.394271,
+        0.392993
+      ],
+      "median": 0.394271
+    },
+    {
+      "variant": "baseline_with_candidate_runtime",
+      "samples": [
+        0.407562,
+        0.403808,
+        0.403925,
+        0.403306,
+        0.40452,
+        0.40301,
+        0.403105,
+        0.403605,
+        0.407488,
+        0.412033,
+        0.413091,
+        0.403602,
+        0.4025,
+        0.401735,
+        0.401281
+      ],
+      "median": 0.403605
+    },
+    {
+      "variant": "candidate",
+      "samples": [
+        0.402752,
+        0.403565,
+        0.401317,
+        0.405798,
+        0.404126,
+        0.403116,
+        0.404359,
+        0.405305,
+        0.412673,
+        0.40981,
+        0.411075,
+        0.410322,
+        0.404579,
+        0.407464,
+        0.402675
+      ],
+      "median": 0.404579
+    },
+    {
+      "variant": "candidate_with_baseline_runtime",
+      "samples": [
+        0.39665,
+        0.401414,
+        0.395897,
+        0.394082,
+        0.395479,
+        0.392951,
+        0.39415,
+        0.392774,
+        0.39566,
+        0.401844,
+        0.402326,
+        0.403682,
+        0.394664,
+        0.394726,
+        0.393137
+      ],
+      "median": 0.395479
+    }
+  ],
+  "original_benchmark": [
+    {
+      "cycles": 20000,
+      "variant": "baseline",
+      "samples": [
+        0.004551,
+        0.004544,
+        0.004553,
+        0.004497,
+        0.004574,
+        0.005204,
+        0.005169,
+        0.004574,
+        0.004525
+      ],
+      "median": 0.004553
+    },
+    {
+      "cycles": 20000,
+      "variant": "candidate",
+      "samples": [
+        0.004788,
+        0.004837,
+        0.004791,
+        0.004786,
+        0.004822,
+        0.004791,
+        0.004814,
+        0.005506,
+        0.00478
+      ],
+      "median": 0.004791
+    },
+    {
+      "cycles": 20000,
+      "variant": "pad1024",
+      "samples": [
+        0.004682,
+        0.005447,
+        0.004821,
+        0.004683,
+        0.004717,
+        0.004699,
+        0.004673,
+        0.005328,
+        0.00465
+      ],
+      "median": 0.004699
+    },
+    {
+      "cycles": 20000,
+      "variant": "pad192",
+      "samples": [
+        0.004796,
+        0.005535,
+        0.004793,
+        0.004803,
+        0.004749,
+        0.004806,
+        0.004794,
+        0.004764,
+        0.004792
+      ],
+      "median": 0.004794
+    },
+    {
+      "cycles": 20000,
+      "variant": "pad256",
+      "samples": [
+        0.005385,
+        0.005411,
+        0.004727,
+        0.005272,
+        0.004706,
+        0.004709,
+        0.004715,
+        0.004703,
+        0.004693
+      ],
+      "median": 0.004715
+    },
+    {
+      "cycles": 20000,
+      "variant": "pad384",
+      "samples": [
+        0.004566,
+        0.004564,
+        0.004637,
+        0.004608,
+        0.004563,
+        0.004595,
+        0.00519,
+        0.004579,
+        0.005343
+      ],
+      "median": 0.004595
+    },
+    {
+      "cycles": 20000,
+      "variant": "pad512",
+      "samples": [
+        0.004609,
+        0.0046,
+        0.004627,
+        0.004601,
+        0.004667,
+        0.004653,
+        0.004593,
+        0.004654,
+        0.004694
+      ],
+      "median": 0.004627
+    },
+    {
+      "cycles": 200000,
+      "variant": "baseline",
+      "samples": [
+        0.038572,
+        0.038376,
+        0.042928,
+        0.038338,
+        0.038637,
+        0.038594,
+        0.038638,
+        0.038935,
+        0.039067
+      ],
+      "median": 0.038637
+    },
+    {
+      "cycles": 200000,
+      "variant": "candidate",
+      "samples": [
+        0.042116,
+        0.040972,
+        0.041152,
+        0.041218,
+        0.041116,
+        0.04118,
+        0.041176,
+        0.041913,
+        0.041199
+      ],
+      "median": 0.04118
+    },
+    {
+      "cycles": 200000,
+      "variant": "pad1024",
+      "samples": [
+        0.04617,
+        0.040226,
+        0.039949,
+        0.040211,
+        0.039702,
+        0.039853,
+        0.039734,
+        0.040238,
+        0.039903
+      ],
+      "median": 0.039949
+    },
+    {
+      "cycles": 200000,
+      "variant": "pad192",
+      "samples": [
+        0.040784,
+        0.041064,
+        0.046057,
+        0.041566,
+        0.041123,
+        0.040882,
+        0.041051,
+        0.041006,
+        0.041021
+      ],
+      "median": 0.041051
+    },
+    {
+      "cycles": 200000,
+      "variant": "pad256",
+      "samples": [
+        0.040098,
+        0.040191,
+        0.040488,
+        0.040296,
+        0.040228,
+        0.040213,
+        0.04024,
+        0.040352,
+        0.04026
+      ],
+      "median": 0.04024
+    },
+    {
+      "cycles": 200000,
+      "variant": "pad384",
+      "samples": [
+        0.039258,
+        0.039,
+        0.038878,
+        0.038924,
+        0.038956,
+        0.039413,
+        0.03904,
+        0.039071,
+        0.039032
+      ],
+      "median": 0.039032
+    },
+    {
+      "cycles": 200000,
+      "variant": "pad512",
+      "samples": [
+        0.039439,
+        0.0393,
+        0.039284,
+        0.039131,
+        0.039651,
+        0.039287,
+        0.03924,
+        0.039432,
+        0.039317
+      ],
+      "median": 0.0393
+    },
+    {
+      "cycles": 2000000,
+      "variant": "baseline",
+      "samples": [
+        0.375557,
+        0.377581,
+        0.377465,
+        0.37775,
+        0.377812,
+        0.378579,
+        0.461263,
+        0.380312,
+        0.386588
+      ],
+      "median": 0.377812
+    },
+    {
+      "cycles": 2000000,
+      "variant": "candidate",
+      "samples": [
+        0.404357,
+        0.404256,
+        0.404055,
+        0.404025,
+        0.402454,
+        0.404027,
+        0.404611,
+        0.411085,
+        0.410653
+      ],
+      "median": 0.404256
+    },
+    {
+      "cycles": 2000000,
+      "variant": "pad1024",
+      "samples": [
+        0.396701,
+        0.393125,
+        0.388264,
+        0.397828,
+        0.395007,
+        0.62347,
+        0.394777,
+        0.407379,
+        0.404617
+      ],
+      "median": 0.396701
+    },
+    {
+      "cycles": 2000000,
+      "variant": "pad192",
+      "samples": [
+        0.401021,
+        0.402578,
+        0.403026,
+        0.401981,
+        0.402623,
+        0.402121,
+        0.655597,
+        0.411181,
+        0.410533
+      ],
+      "median": 0.402623
+    },
+    {
+      "cycles": 2000000,
+      "variant": "pad256",
+      "samples": [
+        0.39353,
+        0.394622,
+        0.395052,
+        0.392614,
+        0.393437,
+        0.393772,
+        0.395814,
+        0.40248,
+        0.401335
+      ],
+      "median": 0.394622
+    },
+    {
+      "cycles": 2000000,
+      "variant": "pad384",
+      "samples": [
+        0.382485,
+        0.381744,
+        0.381793,
+        0.379998,
+        0.381483,
+        0.382998,
+        0.382811,
+        0.391426,
+        0.388627
+      ],
+      "median": 0.382485
+    },
+    {
+      "cycles": 2000000,
+      "variant": "pad512",
+      "samples": [
+        0.385651,
+        0.386163,
+        0.388194,
+        0.385283,
+        0.384616,
+        0.47764,
+        0.384809,
+        0.390195,
+        0.390798
+      ],
+      "median": 0.386163
+    }
+  ],
+  "holdout": [
+    {
+      "placement": "first_cpu_no_aslr",
+      "variant": "baseline",
+      "samples": [
+        0.377445,
+        0.377683,
+        0.378706,
+        0.378286,
+        0.379755,
+        0.378929,
+        0.379117,
+        0.377863,
+        0.37846,
+        0.377195,
+        0.37718
+      ],
+      "median": 0.378286
+    },
+    {
+      "placement": "first_cpu_no_aslr",
+      "variant": "candidate",
+      "samples": [
+        0.403043,
+        0.403391,
+        0.404562,
+        0.40327,
+        0.405401,
+        0.402594,
+        0.404642,
+        0.403629,
+        0.403641,
+        0.403345,
+        0.405513
+      ],
+      "median": 0.403629
+    },
+    {
+      "placement": "first_cpu_no_aslr",
+      "variant": "pad384",
+      "samples": [
+        0.382568,
+        0.382315,
+        0.394533,
+        0.383445,
+        0.3831,
+        0.38224,
+        0.383217,
+        0.383876,
+        0.382186,
+        0.381765,
+        0.382842
+      ],
+      "median": 0.382842
+    },
+    {
+      "placement": "second_cpu_default_aslr",
+      "variant": "baseline",
+      "samples": [
+        0.387288,
+        0.411422,
+        0.382446,
+        0.379713,
+        0.387519,
+        0.384487,
+        0.380537,
+        0.382346,
+        0.378057,
+        0.378211,
+        0.379369
+      ],
+      "median": 0.382346
+    },
+    {
+      "placement": "second_cpu_default_aslr",
+      "variant": "candidate",
+      "samples": [
+        0.411415,
+        0.40999,
+        0.403793,
+        0.404459,
+        0.402671,
+        0.403132,
+        0.410083,
+        0.405152,
+        0.402425,
+        0.4025,
+        0.39984
+      ],
+      "median": 0.403793
+    },
+    {
+      "placement": "second_cpu_default_aslr",
+      "variant": "pad384",
+      "samples": [
+        0.398739,
+        0.380861,
+        0.380406,
+        0.382657,
+        0.383117,
+        0.386536,
+        0.389764,
+        0.378388,
+        0.38177,
+        0.379793,
+        0.382786
+      ],
+      "median": 0.382657
+    }
+  ],
+  "warmup_diagnostic": [
+    {
+      "variant": "baseline",
+      "samples": [
+        213.1848635,
+        213.0449425,
+        214.7204465,
+        218.3913475,
+        213.8679395,
+        212.7050195,
+        211.320019,
+        214.1302055,
+        212.1233065
+      ],
+      "median": 213.1848635
+    },
+    {
+      "variant": "candidate",
+      "samples": [
+        226.8541555,
+        226.4287835,
+        229.3817205,
+        230.0770655,
+        232.2039005,
+        223.297913,
+        222.264959,
+        223.700135,
+        223.670295
+      ],
+      "median": 226.4287835
+    },
+    {
+      "variant": "pad0",
+      "samples": [
+        222.718904,
+        223.084065,
+        229.229436,
+        227.0521595,
+        226.5634465,
+        222.7998915,
+        229.681418,
+        222.9102075,
+        229.5518525
+      ],
+      "median": 226.5634465
+    },
+    {
+      "variant": "pad128",
+      "samples": [
+        225.049166,
+        369.0097705,
+        230.5846565,
+        231.9152045,
+        225.576272,
+        227.031068,
+        225.6748955,
+        223.8735065,
+        226.208336
+      ],
+      "median": 226.208336
+    },
+    {
+      "variant": "pad16",
+      "samples": [
+        227.1818205,
+        369.793188,
+        231.424639,
+        235.0875875,
+        226.6700175,
+        229.423919,
+        232.795378,
+        226.947787,
+        226.356865
+      ],
+      "median": 229.423919
+    },
+    {
+      "variant": "pad256",
+      "samples": [
+        214.4155265,
+        216.6350965,
+        217.660539,
+        216.815118,
+        214.5024425,
+        221.2302525,
+        214.830132,
+        215.5528875,
+        216.8706415
+      ],
+      "median": 216.6350965
+    },
+    {
+      "variant": "pad32",
+      "samples": [
+        277.6514575,
+        367.3835105,
+        306.445929,
+        231.743225,
+        225.875659,
+        233.294261,
+        226.192457,
+        227.1951705,
+        226.348848
+      ],
+      "median": 231.743225
+    },
+    {
+      "variant": "pad4096",
+      "samples": [
+        221.8413945,
+        365.139694,
+        227.28453,
+        233.31333,
+        226.2638145,
+        223.7208615,
+        223.102563,
+        221.746747,
+        225.016397
+      ],
+      "median": 225.016397
+    },
+    {
+      "variant": "pad64",
+      "samples": [
+        226.1994825,
+        365.94214,
+        229.5133295,
+        234.381382,
+        228.926188,
+        239.966462,
+        226.262042,
+        225.678401,
+        225.637419
+      ],
+      "median": 228.926188
+    }
+  ],
+  "counts": {
+    "baseline": {
+      "cycles": 2000,
+      "graph_evaluations": 2000,
+      "node_evaluations": {
+        "g._int_pulse": 2000,
+        "g.null_sink": 2000
+      },
+      "nodes_started": {
+        "g._int_pulse": 1,
+        "g.null_sink": 1
+      }
+    },
+    "candidate": {
+      "cycles": 2000,
+      "graph_evaluations": 2000,
+      "node_evaluations": {
+        "g._int_pulse": 2000,
+        "g.null_sink": 2000
+      },
+      "nodes_started": {
+        "g._int_pulse": 1,
+        "g.null_sink": 1
+      }
+    }
+  },
+  "relink_symbol_checks": {
+    "16": {
+      "symbol_count": 13695,
+      "size_mismatches": [],
+      "address_shifts": [
+        64
+      ]
+    },
+    "32": {
+      "symbol_count": 13695,
+      "size_mismatches": [],
+      "address_shifts": [
+        64
+      ]
+    },
+    "64": {
+      "symbol_count": 13695,
+      "size_mismatches": [],
+      "address_shifts": [
+        64
+      ]
+    },
+    "128": {
+      "symbol_count": 13695,
+      "size_mismatches": [],
+      "address_shifts": [
+        128
+      ]
+    },
+    "192": {
+      "symbol_count": 13695,
+      "size_mismatches": [],
+      "address_shifts": [
+        192
+      ]
+    },
+    "256": {
+      "symbol_count": 13695,
+      "size_mismatches": [],
+      "address_shifts": [
+        256
+      ]
+    },
+    "384": {
+      "symbol_count": 13695,
+      "size_mismatches": [],
+      "address_shifts": [
+        384
+      ]
+    },
+    "512": {
+      "symbol_count": 13695,
+      "size_mismatches": [],
+      "address_shifts": [
+        512
+      ]
+    },
+    "1024": {
+      "symbol_count": 13695,
+      "size_mismatches": [],
+      "address_shifts": [
+        1024
+      ]
+    },
+    "4096": {
+      "symbol_count": 13695,
+      "size_mismatches": [],
+      "address_shifts": [
+        4096
+      ]
+    }
+  },
+  "selected_baseline_to_candidate_symbol_shifts": [
+    {
+      "function": "hgraph::TSDataTracking::record_modified(std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000l> > >)",
+      "address_shift": 1984,
+      "baseline_size": 104,
+      "candidate_size": 104
+    },
+    {
+      "function": "hgraph::TSDataTracking::record_modified(std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000l> > >) [clone .cold]",
+      "address_shift": 102,
+      "baseline_size": 73,
+      "candidate_size": 73
+    },
+    {
+      "function": "hgraph::TSDataTracking::record_modified(std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000l> > >) [clone .localalias] [clone .lto_priv.0]",
+      "address_shift": 1984,
+      "baseline_size": 104,
+      "candidate_size": 104
+    },
+    {
+      "function": "hgraph::detail::TSInputTargetLinkState::notify(std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000l> > >)",
+      "address_shift": 2496,
+      "baseline_size": 209,
+      "candidate_size": 209
+    },
+    {
+      "function": "hgraph::detail::TSInputTargetLinkState::notify(std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000l> > >) [clone .localalias] [clone .lto_priv.0]",
+      "address_shift": 2496,
+      "baseline_size": 209,
+      "candidate_size": 209
+    },
+    {
+      "function": "hgraph::TSInputView::valid() const",
+      "address_shift": 1984,
+      "baseline_size": 135,
+      "candidate_size": 135
+    },
+    {
+      "function": "hgraph::TSInputView::valid() const [clone .localalias] [clone .lto_priv.0]",
+      "address_shift": 1984,
+      "baseline_size": 135,
+      "candidate_size": 135
+    },
+    {
+      "function": "hgraph::NodeView::prepared_output() const",
+      "address_shift": 1920,
+      "baseline_size": 76,
+      "candidate_size": 76
+    },
+    {
+      "function": "hgraph::GraphView::evaluate(std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000l> > >) const",
+      "address_shift": 64,
+      "baseline_size": 142,
+      "candidate_size": 142
+    },
+    {
+      "function": "hgraph::GraphView::evaluate(std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000l> > >) const [clone .cold]",
+      "address_shift": 0,
+      "baseline_size": 101,
+      "candidate_size": 101
+    },
+    {
+      "function": "hgraph::GraphView::evaluate(std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<long, std::ratio<1l, 1000000l> > >) const [clone .localalias] [clone .lto_priv.0]",
+      "address_shift": 64,
+      "baseline_size": 142,
+      "candidate_size": 142
+    }
+  ],
+  "selected_profile_samples": {
+    "baseline": {
+      "samples": 4989,
+      "self_samples": {
+        "mutex_lock": 383,
+        "mutex_unlock": 343,
+        "generator_advance": 378,
+        "python_phase_runner": 233
+      }
+    },
+    "candidate": {
+      "samples": 4989,
+      "self_samples": {
+        "mutex_lock": 417,
+        "mutex_unlock": 286,
+        "generator_advance": 389,
+        "python_phase_runner": 186
+      }
+    }
+  },
+  "text_sections": {
+    "_hgraph.abi3.so": {
+      "same": true,
+      "bytes": 2318228,
+      "sha256": "806225d2671e3d5289c41b1bb7fef1bc1951e45659ef6ba6fd0a17f09a4854bd"
+    },
+    "libhgraph_wiring.so": {
+      "same": true,
+      "bytes": 820875,
+      "sha256": "472dcba27bdd3159b992ed943259637b0c43bb0ff05de3c2e3155a0c7a072251"
+    },
+    "libhgraph_stdlib.so": {
+      "same": true,
+      "bytes": 22654487,
+      "sha256": "f9ed7c11150519d9294d2c966693b1eb4c23502beb15b9dab366509084f4d125"
+    },
+    "libhgraph_runtime.so": {
+      "same": false,
+      "baseline_bytes": 4341661,
+      "candidate_bytes": 4344989,
+      "baseline_sha256": "56040f0229dac46e893c8a4cdf8ba724d0a7bea791a45b9036936d83c53ac9dc",
+      "candidate_and_unpadded_relink_sha256": "12fc5219e713040c887c78ab0f77fd0a82f34bae414172b8dd00c0b926ff3a65"
+    }
+  }
+}

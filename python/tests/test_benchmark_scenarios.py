@@ -20,6 +20,25 @@ def _published(values):
     return [value for value in values if value is not None]
 
 
+def test_shared_lookup_benchmarks_keep_consumers_and_sparse_updates():
+    for scenario, expected_reads in (
+        (bench.tsd_shared_lookup_py, 16 + 19),
+        (bench.tsd_shared_unselected_py, 16),
+    ):
+        reads = []
+
+        @compute_node
+        def observe(value: TS[int]) -> TS[int]:
+            reads.append(value.value)
+            return value.value
+
+        with patch.object(bench, "_mapped_py", observe):
+            app, cycles = scenario(0.001, 0.001)
+            hg.run_graph(app, start_time=hg.MIN_ST, end_time=hg.MIN_ST + (cycles + 2) * hg.MIN_TD)
+        assert cycles == 20
+        assert len(reads) == expected_reads
+
+
 def test_service_pulse_leaves_a_cycle_for_next_cycle_forwarding():
     @graph
     def app(trigger: TS[bool]) -> TS[int]:

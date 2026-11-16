@@ -2026,7 +2026,7 @@ TEST_CASE("TSInput structural activation survives an unbound target link")
     // a dedicated scheduling subscription rather than taking the value-root
     // coalescing path.
     REQUIRE(set_output.data_view().observer_count() == 2);
-    REQUIRE(dict_output.data_view().observer_count() == 1);
+    REQUIRE(dict_output.data_view().observer_count() == 0);
 
     Value key{std::int32_t{7}};
     Value value{std::int32_t{42}};
@@ -2048,6 +2048,90 @@ TEST_CASE("TSInput structural activation survives an unbound target link")
 
     active_set.make_passive();
     active_dict.make_passive();
+}
+
+TEST_CASE("TSInput structural readers do not subscribe to unrelated dictionary values", "[input][sparse]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *scalar = registry.ts(registry.register_scalar<Int>("int"));
+    const auto *dict = registry.tsd(registry.register_scalar<Int>("int"), scalar);
+    TSOutput output{*dict};
+    RecordingNotifiable notifier;
+    std::vector<TSInput> inputs;
+    for (int i = 0; i < 128; ++i)
+    {
+        inputs.emplace_back(TSInputBuilderFactory::checked_builder_for(*dict, TSEndpointSchema::peered(dict)));
+        auto input = inputs.back().view(&notifier, MIN_ST);
+        input.bind_output(output.view(MIN_ST));
+        input.make_structural_active();
+    }
+    // This is the notification complexity contract, independent of timing:
+    // adding structural readers adds no observers to the value-tick surface.
+    CHECK(output.data_view().observer_count() == 0);
+    const auto update = [&](DateTime time, Int value) {
+        auto output_view = output.view(time);
+        auto mutation = output_view.as_dict().begin_mutation(time);
+        auto child = mutation.at(Value{Int{1}}.view());
+        auto child_mutation = child.begin_mutation(time);
+        CHECK(child_mutation.copy_value_from(Value{value}.view()));
+    };
+    update(MIN_ST, 10);
+    CHECK(notifier.notified.size() == inputs.size());
+    notifier.notified.clear();
+    update(MIN_ST + MIN_TD, 11);
+    CHECK(notifier.notified.empty());
+    for (auto &input : inputs)
+    {
+        auto view = input.view(&notifier, MIN_ST + MIN_TD);
+        CHECK(view.modified());
+        CHECK(view.last_modified_time() == MIN_ST + MIN_TD);
+        const auto value = view.as_dict().at(Value{Int{1}}.view()).value();
+        CHECK(value.as<Int>() == 11);
+    }
+    inputs.front().view(&notifier, MIN_ST + MIN_TD).make_active();
+    CHECK(output.data_view().observer_count() == 1);
+    update(MIN_ST + 2 * MIN_TD, 12);
+    CHECK(notifier.notified == std::vector<DateTime>{MIN_ST + 2 * MIN_TD});
+    inputs.front().view(&notifier, MIN_ST + 2 * MIN_TD).make_structural_active();
+    CHECK(output.data_view().observer_count() == 0);
+
+    // Membership observation must also preserve the source lifetime contract.
+    {
+        TSOutput transient{*dict};
+        inputs.front().view(&notifier, MIN_ST + 3 * MIN_TD).bind_output(transient.view(MIN_ST + 3 * MIN_TD));
+        CHECK(inputs.front().view(&notifier, MIN_ST + 3 * MIN_TD).bound());
+    }
+    CHECK_FALSE(inputs.front().view(&notifier, MIN_ST + 3 * MIN_TD).bound());
+}
+
+TEST_CASE("TSInput structural children preserve assembled parent modification", "[input][sparse]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<Int>("int");
+    const auto *dict = registry.tsd(integer, registry.ts(integer));
+    const auto *bundle = registry.tsb("StructuralReaderParent", {{"dict", dict}});
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*bundle,
+        TSEndpointSchema::non_peered(bundle, {TSEndpointSchema::peered(dict)}))};
+    TSOutput output{*dict};
+    RecordingNotifiable notifier;
+    auto child = input.view(&notifier, MIN_ST).indexed_child_at(0);
+    child.bind_output(output.view(MIN_ST));
+    child.make_structural_active();
+    CHECK(output.data_view().observer_count() == 1);
+    for (int cycle = 0; cycle < 2; ++cycle)
+    {
+        const auto time = MIN_ST + cycle * MIN_TD;
+        auto out = output.view(time);
+        auto mutation = out.as_dict().begin_mutation(time);
+        auto value = mutation.at(Value{Int{1}}.view());
+        auto value_mutation = value.begin_mutation(time);
+        REQUIRE(value_mutation.copy_value_from(Value{Int{10 + cycle}}.view()));
+        CHECK(input.view(&notifier, time).modified());
+        CHECK(input.view(&notifier, time).last_modified_time() == time);
+    }
+    CHECK(notifier.notified == std::vector<DateTime>{MIN_ST});
 }
 
 TEST_CASE("TSInput activity checkpoints preserve packed static paths and quiet structural subscriptions", "[checkpoint][input]")

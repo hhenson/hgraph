@@ -862,10 +862,12 @@ namespace hgraph
                     structural = true;
                 }
             }
-            else
+            else if (first_removed_slot != TS_DATA_NO_CHILD_ID)
             {
                 // Sampled forwarding transitions retain their own removed-key
                 // value surface rather than keys in the current source slots.
+                // Skip the empty filtered range; its iterator otherwise tests
+                // every retained slot on an ordinary value-only update.
                 for (const ValueView &removed_key : dict.removed_keys())
                 {
                     const auto found = storage.key_to_leaf.find(removed_key);

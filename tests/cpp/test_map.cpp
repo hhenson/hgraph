@@ -2395,6 +2395,26 @@ namespace
         }
     };
 
+    struct SharedLookupCounterG
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Str>> lookup,
+                                     Port<TSD<Str, TS<Int>>> shared)
+        {
+            auto selected = wire<stdlib::getitem_>(w, shared, lookup);
+            return wire<CounterNode>(w, selected);
+        }
+    };
+
+    struct MapSharedLookupCounterG
+    {
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Str>>> lookups,
+                                               Port<TSD<Str, TS<Int>>> shared)
+        {
+            return wire<stdlib::map_>(w, fn<SharedLookupCounterG>(), lookups,
+                                      stdlib::pass_through(shared)).as<TSD<Str, TS<Int>>>();
+        }
+    };
+
     struct ElemPlusGenericDictSizeG
     {
         static constexpr auto name = "elem_plus_generic_dict_size_g";
@@ -3211,6 +3231,26 @@ TEST_CASE("map_: pass_through binds a TSD whole to every child")
                      values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}})),
                      values<Value>(dict_delta<Str, TS<Int>>({{"p"s, 10}, {"q"s, 20}, {"r"s, 30}})))),
                  values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 4}, {"b"s, 5}})));
+}
+
+TEST_CASE("map_: shared dictionary lookups schedule only selected consumers", "[map][sparse]")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT((eval_node<MapSharedLookupCounterG>(
+        values<Value>(dict_delta<Str, TS<Str>>({{"a"s, "x"s}, {"b"s, "y"s}, {"c"s, "x"s}}),
+                      none, none, dict_delta<Str, TS<Str>>({{"a"s, "y"s}}),
+                      dict_delta<Str, TS<Str>>({}, {"c"s}), none,
+                      dict_delta<Str, TS<Str>>({{"c"s, "x"s}})),
+        values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 1}, {"y"s, 2}, {"z"s, 3}}),
+                      dict_delta<Str, TS<Int>>({{"x"s, 4}}),
+                      dict_delta<Str, TS<Int>>({{"z"s, 5}}), none, none,
+                      dict_delta<Str, TS<Int>>({{"x"s, 6}}), none))),
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 1}, {"c"s, 1}}),
+                      dict_delta<Str, TS<Int>>({{"a"s, 2}, {"c"s, 2}}), none,
+                      dict_delta<Str, TS<Int>>({{"a"s, 3}}),
+                      dict_delta<Str, TS<Int>>({}, {"c"s}), none,
+                      dict_delta<Str, TS<Int>>({{"c"s, 1}})));
 }
 
 TEST_CASE("map_: a broadcast TSD update reaches every existing child")

@@ -680,7 +680,37 @@ deadline and the child's due-ness are re-checked. Current-cycle entries
 observed after the initial queue drain are discarded before the parent is
 re-armed, so they cannot hide a later deadline.
 
-``map_`` orders its sparse candidates by stable slot. ``mesh_`` rematerializes
+``map_`` keeps a sparse list alongside each candidate/due-now bitmap and
+clears only the touched bits. It orders sparse candidates by stable slot;
+dense updates use bitmap enumeration instead of sorting. Ordinary broadcast
+ticks and independent child schedules use the child-schedule observer, so
+the parent does not poll unrelated children. For ``k`` affected children and
+``n`` retained slots, candidate ordering costs at most ``O(k log k)`` for
+sparse updates or ``O(n / word_bits + k)`` for dense updates. A single due
+child takes constant candidate-selection work. The membership bitmaps and
+retained worklists use ``O(n)`` storage.
+
+A structural-only dictionary argument observes the dictionary's key set,
+rather than its value-tick surface, when the source endpoint is stable. This
+retains membership and source-lifetime notifications without notifying every
+lookup input for an unrelated element update. Value and delta reads still
+follow the shared source. Actual assembled collection parents retain eager
+child-change tracking; the node's synthetic argument bundle does not require
+that aggregate tracking. Movable forwarding targets retain their existing
+tracking route. Whole-value consumers remain subscribed to all value ticks.
+``benchmarks/repro_map_pass_through.py`` separates whole-run costs from
+steady-state update costs; the diagnostic performance suite also includes
+selected and unselected shared-dictionary updates.
+
+Map and reduce first query the sparse removed-slot iterator when reconciling
+dictionary membership. If it reports no removals, they must not begin the
+filtered ``removed_keys()`` range: an empty range can still test every retained
+slot before reaching its end. The range fallback is only for an actual sampled
+forwarding removal whose previous-source slot is not a removed current-source
+slot. This distinction preserves reference transitions without adding a
+full-capacity scan to ordinary value-only updates.
+
+``mesh_`` rematerializes
 and sorts only its candidate slots by dependency rank on each settle pass;
 newly created dependencies and same-cycle sibling notifications join that
 worklist before the next pass. A source repoint or structured boundary
