@@ -776,10 +776,12 @@ namespace hgraph
                             value_impl::graph_local_value(dict.removed_key_at_slot(slot)));
                     }
                 }
-                else
+                else if (first_removed_slot != TS_DATA_NO_CHILD_ID)
                 {
                     // A sampled forwarding transition owns its removed-key
                     // surface independently of the current source slots.
+                    // No removed slot means the range is empty: beginning its
+                    // filtered iterator would still scan every retained slot.
                     for (const ValueView &removed_key : dict.removed_keys())
                     {
                         storage.membership_changed_keys.push_back(

@@ -702,6 +702,14 @@ tracking route. Whole-value consumers remain subscribed to all value ticks.
 steady-state update costs; the diagnostic performance suite also includes
 selected and unselected shared-dictionary updates.
 
+Map and reduce first query the sparse removed-slot iterator when reconciling
+dictionary membership. If it reports no removals, they must not begin the
+filtered ``removed_keys()`` range: an empty range can still test every retained
+slot before reaching its end. The range fallback is only for an actual sampled
+forwarding removal whose previous-source slot is not a removed current-source
+slot. This distinction preserves reference transitions without adding a
+full-capacity scan to ordinary value-only updates.
+
 ``mesh_`` rematerializes
 and sorts only its candidate slots by dependency rank on each settle pass;
 newly created dependencies and same-cycle sibling notifications join that
