@@ -1,5 +1,11 @@
 # Sparse shared-map performance comparison
 
+**Follow-up:** the collection regressions below were traced to an existing
+empty removed-key scan and resolved in the updated PR. See the
+[cost analysis and new complete matrix](cost-analysis.md) for the size sweep,
+isolated-change experiments, profile, fix and validation. This page preserves
+the initial measurements.
+
 The shared element lookup fix removes the observed linear notification and map-selection cost. It is **not performance-neutral**: longer confirmation runs show macOS regressions of 13–27% in several existing collection workloads. These are measured candidate/baseline differences; their specific code-generation or runtime cause has not been isolated.
 
 Baseline: `7e45748c966e8cf6c3cb2fbf57adfbc259302040` (current main when tested). Candidate code: `9b0a668e5fc6ec62c3f18518a6ec530866c6f4b3`, [PR #1796](https://github.com/hhenson/hgraph/pull/1796). The linked runtime contract is [specification PR #130](https://github.com/hhenson/hgraph_spec/pull/130).

@@ -48,6 +48,9 @@ scheduling work proportional to unrelated mapped keys. The standalone
 timings separately; ``--source-size`` holds the source size fixed while map
 cardinality changes. The [shared-map comparison](results/sparse-shared-map-20261116/README.md)
 records the full macOS/Linux matrix, reproduction results, and observed regressions.
+The [cost analysis](results/sparse-shared-map-20261116/cost-analysis.md) varies
+collection size independently, isolates the notification and map changes, and
+records the empty-removal scan fix and the updated full matrix.
 
 Dynamic TSL is a C++-first feature with no valid 0.5 comparison. Its
 diagnostic workload is therefore restricted to 0.8.19 and current source and
