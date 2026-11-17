@@ -4,6 +4,7 @@
 #include <hgraph/types/value/container_ops.h>
 #include <hgraph/types/value/value_range.h>
 #include <hgraph/types/value/value_view.h>
+#include <hgraph/util/scope.h>
 
 #include <cstddef>
 #include <iterator>
@@ -1139,8 +1140,19 @@ namespace hgraph
             {
                 throw std::logic_error("MutableOptionalView::emplace requires a payload; use reset()");
             }
-            void *element = ops_->mutable_element_at(ops_->context, mutable_data(), 0);
-            ValueView{payload_binding(), element}.begin_mutation().copy_from(payload);
+            // A whole-value assignment, as ``BundleBuilder::set`` makes: it
+            // serves a payload whose own view opens no mutation, an
+            // immutable set or map, and one realized with another plan.
+            const bool  held = has_value();
+            const auto  destination = payload_binding();
+            void       *element = ops_->mutable_element_at(ops_->context, mutable_data(), 0);
+            // The slot is marked engaged to be written. A payload that is
+            // refused leaves the value holding what it held.
+            auto restore = ::hgraph::make_scope_exit([&]() noexcept {
+                if (!held) { ops_->clear_element(ops_->context, mutable_data(), 0); }
+            });
+            destination.ops_ref().copy_assign_from(destination, element, payload.binding(), payload.data());
+            restore.release();
         }
 
         /** Hold nothing. */

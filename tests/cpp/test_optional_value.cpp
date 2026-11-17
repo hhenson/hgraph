@@ -21,6 +21,7 @@
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/types/value/visitor.h>
 
+#include <array>
 #include <compare>
 #include <stdexcept>
 #include <string>
@@ -431,4 +432,77 @@ TEST_CASE("Optional: a payload with no default constructor is refused by name")
     CHECK_THROWS_WITH(ValuePlanFactory::instance().type_for(schema),
                       Catch::Matchers::ContainsSubstring("Optional[tests.optional.NoDefault]") &&
                           Catch::Matchers::ContainsSubstring("default-constructible"));
+}
+
+TEST_CASE("Optional: a payload is assigned whole, whatever its own view allows")
+{
+    // An immutable set opens no mutation of its own. It is assigned as a
+    // whole value, into an Optional that held nothing and into one that held
+    // another, and survives the binary form.
+    auto       &registry = TypeRegistry::instance();
+    const auto *set_schema = registry.set(scalar_descriptor<Int>::value_meta());
+    const auto *schema = registry.optional(set_schema);
+
+    SetBuilder first{ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta())};
+    first.insert(Int{1});
+    first.insert(Int{2});
+    const Value one_two = first.build();
+    SetBuilder second{ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta())};
+    second.insert(Int{9});
+    const Value nine = second.build();
+
+    Value value{ValuePlanFactory::instance().type_for(schema)};
+    value.view().as_optional().begin_mutation().emplace(one_two.view());
+    REQUIRE(value.view().as_optional().has_value());
+    CHECK(value.view().as_optional().value().as_set().size() == 2);
+    value.view().as_optional().begin_mutation().emplace(nine.view());
+    CHECK(value.view().as_optional().value().as_set().size() == 1);
+
+    const Value read = from_binary_string(schema, to_binary_string(value.view()));
+    CHECK(read.view().equals(value.view()));
+
+    // A payload of another type is refused, and what was held stays held.
+    Value plain = unset();
+    CHECK_THROWS_AS(plain.view().as_optional().begin_mutation().emplace(Value{Str{"no"}}.view()),
+                    std::invalid_argument);
+    CHECK_FALSE(plain.view().as_optional().has_value());
+    Value kept = held(5);
+    CHECK_THROWS_AS(kept.view().as_optional().begin_mutation().emplace(Value{Str{"no"}}.view()),
+                    std::invalid_argument);
+    CHECK(kept.view().as_optional().value().checked_as<Int>() == 5);
+}
+
+TEST_CASE("Optional: two realizations of one schema compare as one")
+{
+    // The same schema, realized with its canonical binding and with one
+    // made from its payload's binding.
+    const auto *schema = scalar_descriptor<std::optional<Int>>::value_meta();
+    auto       &factory = ValuePlanFactory::instance();
+    const auto  canonical = factory.type_for(schema);
+    const std::array<ValueTypeRef, 1> payload{factory.type_for(scalar_descriptor<Int>::value_meta())};
+    const auto  realized = factory.realized_composite_type_for(schema, payload);
+    REQUIRE(realized);
+    // Two bindings, so the comparison is the one made across realizations.
+    REQUIRE(realized != canonical);
+
+    const auto holding = [](ValueTypeRef binding, std::optional<Int> payload) {
+        Value value{binding};
+        if (payload.has_value()) { value.view().as_optional().begin_mutation().emplace(Value{*payload}.view()); }
+        return value;
+    };
+    const Value none_a = holding(canonical, std::nullopt);
+    const Value none_b = holding(realized, std::nullopt);
+    const Value five_a = holding(canonical, 5);
+    const Value five_b = holding(realized, 5);
+    const Value seven_b = holding(realized, 7);
+
+    CHECK(none_a.view().equals(none_b.view()));
+    CHECK(five_a.view().equals(five_b.view()));
+    CHECK_FALSE(five_a.view().equals(seven_b.view()));
+    CHECK_FALSE(none_a.view().equals(five_b.view()));
+    CHECK(none_a.view().compare(none_b.view()) == std::partial_ordering::equivalent);
+    CHECK(none_a.view().compare(five_b.view()) == std::partial_ordering::less);
+    CHECK(five_a.view().compare(none_b.view()) == std::partial_ordering::greater);
+    CHECK(five_a.view().compare(seven_b.view()) == std::partial_ordering::less);
+    CHECK(five_a.view().compare(five_b.view()) == std::partial_ordering::equivalent);
 }
