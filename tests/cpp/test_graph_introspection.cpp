@@ -18,7 +18,12 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <exception>
+#include <optional>
+#include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -44,6 +49,59 @@ namespace
             wire<stdlib::dense_record_impl>(w, wire<ThrowOnNegative>(w, x), Str{"out"});
         }
     };
+
+    /** A failure that carries more than its text. */
+    struct CodedFailure final : std::runtime_error
+    {
+        explicit CodedFailure(int code_) : std::runtime_error("coded failure"), code(code_) {}
+        int code;
+    };
+
+    struct ThrowCoded
+    {
+        static constexpr auto name = "introspection_coded_thrower";
+        static void           eval(In<"x", TS<Int>> x, Out<TS<Int>> out)
+        {
+            if (x.value() < 0) { throw CodedFailure{7}; }
+            out.set(x.value());
+        }
+    };
+
+    struct ThrowCodedOnStart
+    {
+        static constexpr auto name = "introspection_coded_starter";
+        static void           start() { throw CodedFailure{11}; }
+        static void           eval(In<"x", TS<Int>> x, Out<TS<Int>> out) { out.set(x.value()); }
+    };
+
+    /** The ``CodedFailure`` beneath ``failure``, at any depth of nesting. */
+    [[nodiscard]] std::optional<int> nested_code(const std::exception &failure)
+    {
+        std::optional<int> code;
+        find_nested_exception<CodedFailure>(failure,
+                                            [&](const CodedFailure &coded) noexcept { code = coded.code; });
+        return code;
+    }
+
+    /** What ``run`` threw: its text, and the ``CodedFailure`` beneath it. */
+    struct Thrown
+    {
+        std::string        what;
+        std::optional<int> code;
+    };
+
+    template <typename Run> [[nodiscard]] std::optional<Thrown> thrown_by(Run &&run)
+    {
+        try
+        {
+            std::forward<Run>(run)();
+        }
+        catch (const std::exception &failure)
+        {
+            return Thrown{failure.what(), nested_code(failure)};
+        }
+        return std::nullopt;
+    }
 }  // namespace
 
 TEST_CASE("diagnostics: an exception escaping the root graph names the throwing node")
@@ -55,6 +113,35 @@ TEST_CASE("diagnostics: an exception escaping the root graph names the throwing 
     CHECK_THROWS_WITH(run_graph(std::move(gb), MIN_ST, MAX_ET),
                       ContainsSubstring("node[") && ContainsSubstring("introspection_thrower") &&
                           ContainsSubstring("boom"));
+}
+
+TEST_CASE("diagnostics: the annotated failure nests the node's own exception")
+{
+    using Catch::Matchers::ContainsSubstring;
+    const auto thrown = thrown_by([] {
+        static_cast<void>(testing::eval_node<ThrowCoded>(std::vector<std::optional<Int>>{Int{5}, Int{-3}}));
+    });
+    REQUIRE(thrown.has_value());
+    CHECK_THAT(thrown->what, ContainsSubstring("node[") && ContainsSubstring("introspection_coded_thrower") &&
+                                 ContainsSubstring("coded failure"));
+    // The root annotation adds the node's identity to the text and keeps the
+    // failure it annotates beneath it, so a caller can still reach what the
+    // node threw. The Python bridge finds a callback's exception the same way.
+    CHECK(thrown->code == 7);
+}
+
+TEST_CASE("diagnostics: a lifecycle failure nests the node's own exception")
+{
+    using Catch::Matchers::ContainsSubstring;
+    const auto thrown = thrown_by([] {
+        static_cast<void>(testing::eval_node<ThrowCodedOnStart>(std::vector<std::optional<Int>>{Int{5}}));
+    });
+    REQUIRE(thrown.has_value());
+    CHECK_THAT(thrown->what,
+               ContainsSubstring("introspection_coded_starter") && ContainsSubstring("start failed"));
+    // A start or a stop failure is made canonical on its way out, and the
+    // canonical failure keeps the one it was made from.
+    CHECK(thrown->code == 11);
 }
 
 TEST_CASE("diagnostics: GraphView::dump lists every node with its schedule state")

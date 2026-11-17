@@ -74,7 +74,14 @@ namespace hgraph::python_bridge
             return run_;
         }
 
+        /** The failure the run ended with, for the Python exception's cause. */
+        [[nodiscard]] const std::exception_ptr &failure() const noexcept
+        {
+            return failure_;
+        }
+
       private:
+        std::exception_ptr failure_;
         std::shared_ptr<PyRun> run_;
     };
 

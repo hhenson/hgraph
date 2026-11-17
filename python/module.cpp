@@ -9,6 +9,7 @@
 #include "module_internal.h"
 #include <hgraph/python/retained_value.h>
 #include "py_bindings.h"
+#include "py_exception.h"
 #include "py_wiring.h"
 
 #include <hgraph/lib/std/std_operators.h>
@@ -103,6 +104,27 @@ NB_MODULE(_hgraph, m)
         catch (const RetainedGraphRunError &error)
         {
             translate_retained_graph_run_error(error);
+        }
+    });
+    // Registered last, so tried first: a failure that began as a Python
+    // exception in a user callback reaches the caller as a ``RuntimeError``
+    // raised from it. Any other failure is left to the translators above
+    // and to nanobind's own.
+    nb::register_exception_translator([](const std::exception_ptr &p, void *) {
+        nb::object cause = python_cause(p);
+        if (!cause.is_valid()) { std::rethrow_exception(p); }
+        try
+        {
+            std::rethrow_exception(p);
+        }
+        catch (const RetainedGraphRunError &)
+        {
+            throw;
+        }
+        catch (const std::exception &error)
+        {
+            nb::object instance = make_runtime_error(error.what(), std::move(cause));
+            if (instance.is_valid()) { PyErr_SetObject(PyExc_RuntimeError, instance.ptr()); }
         }
     });
     m.def("_set_requirements_error", [](nb::object cls) { requirements_error_slot() = std::move(cls); });

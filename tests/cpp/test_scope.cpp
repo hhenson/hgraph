@@ -2,6 +2,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <exception>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -73,6 +75,88 @@ TEST_CASE("typed annotate_on_exception leaves other exception types unchanged")
             [&](const std::out_of_range &) { annotated = true; }),
         std::runtime_error);
     REQUIRE_FALSE(annotated);
+}
+
+namespace
+{
+    struct CodedError : std::runtime_error
+    {
+        explicit CodedError(int code_) : std::runtime_error("coded"), code(code_) {}
+        int code;
+    };
+
+    /** A nested_exception made outside any handler: it holds nothing. */
+    struct HollowNestedError : std::runtime_error, std::nested_exception
+    {
+        HollowNestedError() : std::runtime_error("hollow") {}
+    };
+
+    [[nodiscard]] std::optional<int> code_beneath(const std::exception &failure)
+    {
+        std::optional<int> code;
+        const bool         found = hgraph::find_nested_exception<CodedError>(
+            failure, [&](const CodedError &coded) noexcept { code = coded.code; });
+        REQUIRE(found == code.has_value());
+        return code;
+    }
+}  // namespace
+
+TEST_CASE("find_nested_exception finds the failure itself and one nested beneath it")
+{
+    CHECK(code_beneath(CodedError{3}) == 3);
+
+    std::optional<int> code;
+    try
+    {
+        try
+        {
+            try
+            {
+                throw CodedError{5};
+            }
+            catch (const std::exception &)
+            {
+                std::throw_with_nested(std::runtime_error("canonical"));
+            }
+        }
+        catch (const std::exception &)
+        {
+            std::throw_with_nested(std::runtime_error("annotated"));
+        }
+    }
+    catch (const std::exception &annotated)
+    {
+        code = code_beneath(annotated);
+    }
+    CHECK(code == 5);
+}
+
+TEST_CASE("find_nested_exception ends without a match where there is nothing to follow")
+{
+    CHECK_FALSE(code_beneath(std::runtime_error("plain")).has_value());
+
+    // std::rethrow_if_nested would terminate here.
+    REQUIRE(HollowNestedError{}.nested_ptr() == nullptr);
+    CHECK_FALSE(code_beneath(HollowNestedError{}).has_value());
+
+    bool reached = false;
+    try
+    {
+        try
+        {
+            throw 42;
+        }
+        catch (...)
+        {
+            std::throw_with_nested(std::runtime_error("over a failure that is no std::exception"));
+        }
+    }
+    catch (const std::exception &outer)
+    {
+        reached = true;
+        CHECK_FALSE(code_beneath(outer).has_value());
+    }
+    CHECK(reached);
 }
 
 TEST_CASE("scope_exit propagates cleanup exceptions by default")

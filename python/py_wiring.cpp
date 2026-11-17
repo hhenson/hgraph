@@ -6,6 +6,7 @@
  */
 #include "py_wiring.h"
 #include "py_bindings.h"
+#include "py_exception.h"
 
 #include <hgraph/runtime/registry_snapshot.h>
 
@@ -299,7 +300,7 @@ namespace
             }
             catch (const nb::python_error &error)
             {
-                throw std::runtime_error(error.what());
+                throw PythonCallbackError(error);
             }
         }
 
@@ -782,6 +783,7 @@ namespace hgraph::python_bridge
     RetainedGraphRunError::RetainedGraphRunError(
         std::exception_ptr error, std::shared_ptr<PyRun> run)
         : std::runtime_error(retained_error_message(error)),
+          failure_(std::move(error)),
           run_(std::move(run))
     {
     }
@@ -798,26 +800,21 @@ namespace hgraph::python_bridge
             return;
         }
 
-        PyObject *message = PyUnicode_FromString(error.what());
-        PyObject *instance = message != nullptr
-                                 ? PyObject_CallFunctionObjArgs(
-                                       PyExc_RuntimeError, message, nullptr)
-                                 : nullptr;
-        Py_XDECREF(message);
-        if (instance == nullptr)
+        // A failure that began as a Python exception keeps it as the cause.
+        nb::object instance =
+            make_runtime_error(error.what(), python_cause(error.failure()));
+        if (!instance.is_valid())
         {
             Py_DECREF(capsule);
             return;
         }
-        if (PyObject_SetAttrString(instance, "_hgraph_failed_run", capsule) != 0)
+        if (PyObject_SetAttrString(instance.ptr(), "_hgraph_failed_run", capsule) != 0)
         {
             Py_DECREF(capsule);
-            Py_DECREF(instance);
             return;
         }
         Py_DECREF(capsule);
-        PyErr_SetObject(PyExc_RuntimeError, instance);
-        Py_DECREF(instance);
+        PyErr_SetObject(PyExc_RuntimeError, instance.ptr());
     }
 
     std::shared_ptr<spdlog::logger> make_python_run_logger(

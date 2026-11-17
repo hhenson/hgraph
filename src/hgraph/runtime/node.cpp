@@ -1063,8 +1063,10 @@ namespace hgraph
 
             if (callbacks(context).start) {
                 try { callbacks(context).start(view, evaluation_time); }
-                catch (const std::exception &failure) { throw ExecutionFailure{canonicalize_failure(view, evaluation_time, "start", failure),
-                    execution_failure_phase(failure) == FailurePhase::Stop ? FailurePhase::Stop : FailurePhase::Start}; }
+                // The canonical failure keeps the one it is made from
+                // beneath it, as the root annotation does (graph.cpp).
+                catch (const std::exception &failure) { std::throw_with_nested(ExecutionFailure{canonicalize_failure(view, evaluation_time, "start", failure),
+                    execution_failure_phase(failure) == FailurePhase::Stop ? FailurePhase::Stop : FailurePhase::Start}); }
             }
             state.started = true;
             rollback.release();
@@ -1091,8 +1093,8 @@ namespace hgraph
             auto deactivate = UnwindCleanupGuard([&] { deactivate_input_slots(view, evaluation_time); });
             if (callbacks(context).stop) {
                 try { callbacks(context).stop(view, evaluation_time); }
-                catch (const std::exception &failure) { throw ExecutionFailure{canonicalize_failure(view, evaluation_time, "stop", failure),
-                    execution_failure_phase(failure) == FailurePhase::Start ? FailurePhase::Start : FailurePhase::Stop}; }
+                catch (const std::exception &failure) { std::throw_with_nested(ExecutionFailure{canonicalize_failure(view, evaluation_time, "stop", failure),
+                    execution_failure_phase(failure) == FailurePhase::Start ? FailurePhase::Start : FailurePhase::Stop}); }
             }
             deactivate.complete();
         }
