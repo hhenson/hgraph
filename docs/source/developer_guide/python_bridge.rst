@@ -125,7 +125,8 @@ Module                        Contents
                               ``lift``, ``@generator``, ``push_queue``.
                               Every node kind derives its native layout string
                               (``s`` scalar, ``Q``/``R`` state, injectable
-                              markers, ``i`` stop-hook input) through the one
+                              markers, ``i`` stop-hook input, ``o`` the
+                              stop hook's view of the output) through the one
                               ``_lifecycle_layout`` walk; the eval builder adds
                               the time-series codes on top. Six per-kind copies of
                               that walk existed until 2026-09-05; the

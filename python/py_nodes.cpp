@@ -718,12 +718,24 @@ void py_assemble_lifecycle_args(std::string_view layout,
                                 const PyTsLease &lease, const NodeView &node,
                                 nb::list &call_args,
                                 const TSInputView *inputs = nullptr,
-                                std::size_t scalar_offset = 0) {
+                                std::size_t scalar_offset = 0,
+                                const TSOutputView *output = nullptr) {
   std::size_t scalar_index = scalar_offset;
   auto scalar_list =
       scalars.valid() ? std::optional{scalars.as_list()} : std::nullopt;
   for (const char kind : layout) {
     switch (kind) {
+    case 'o': {
+      // ``stop`` reads what the node last published. The view has no
+      // mutators: a node publishes from eval alone.
+      if (output == nullptr) {
+        throw std::logic_error(
+            "python lifecycle callback: _output requires a compute node's stop");
+      }
+      call_args.append(nb::cast(
+          PyReadOnlyOutput{PyOutput{output->handle(), now, scheduler, lease}}));
+      break;
+    }
     case 'i': {
       if (inputs == nullptr || !scalar_list.has_value()) {
         throw std::logic_error(
@@ -888,7 +900,8 @@ void py_call_lifecycle(const PyNodeRef &fn, bool enabled,
                        State<PyStateRef> &state, NodeScheduler scheduler,
                        GlobalStateView global_state, EngineControlView engine,
                        const NodeView &node,
-                       const TSInputView *inputs = nullptr) {
+                       const TSInputView *inputs = nullptr,
+                       const TSOutputView *output = nullptr) {
   if (!enabled) {
     return;
   }
@@ -903,7 +916,7 @@ void py_call_lifecycle(const PyNodeRef &fn, bool enabled,
     py_assemble_lifecycle_args(config, scalars, &state, nullptr,
                                engine.evaluation_clock().evaluation_time(),
                                scheduler, runtime_state, engine, lease, node,
-                               call_args, inputs);
+                               call_args, inputs, 0, output);
     (void)py_call_with_contexts(fn.record->fn, call_args, context_values);
     invalid.release();
     lease.invalidate();
@@ -995,16 +1008,18 @@ struct py_compute_node {
        Scalar<"stop_enabled", Bool> enabled, Scalar<"stop_config", Str> config,
        Scalar<"stop_scalars", ScalarVar<"XSV">> scalars,
        State<PyStateRef> state, NodeScheduler scheduler,
-       GlobalStateView global_state, EngineControlView engine, NodeView node) {
+       GlobalStateView global_state, EngineControlView engine, NodeView node,
+       Out<TsVar<"O">> out) {
     auto cleanup = UnwindCleanupGuard([&] {
       py_clear_input_activity(
           parse_py_call_shape(eval_config.value()).layout, args.base());
       py_release_state(state);
     });
     const auto input_view = args.base().borrowed_ref();
+    const auto &out_view = static_cast<const TSOutputView &>(out);
     py_call_lifecycle(fn.value(), enabled.value(), config.value(),
                       scalars.value(), state, scheduler, global_state, engine,
-                      node, &input_view);
+                      node, &input_view, &out_view);
     cleanup.release();
     py_clear_input_activity(parse_py_call_shape(eval_config.value()).layout,
                             args.base());
@@ -1289,7 +1304,8 @@ struct py_compute_recordable_node {
        Scalar<"stop_config", Str> config,
        Scalar<"stop_scalars", ScalarVar<"XSV">> scalars,
        State<PyStateRef> cache, RecordableState<TsVar<"RS">> state, NodeScheduler scheduler,
-       GlobalStateView global_state, EngineControlView engine, NodeView node) {
+       GlobalStateView global_state, EngineControlView engine, NodeView node,
+       Out<TsVar<"O">> out) {
     auto cleanup = UnwindCleanupGuard([&] {
       py_clear_input_activity(
           parse_py_call_shape(eval_config.value()).layout, args.base());
@@ -1299,6 +1315,7 @@ struct py_compute_recordable_node {
       cleanup.complete();
       return;
     }
+    const auto &out_view = static_cast<const TSOutputView &>(out);
     translate_python_error([&] {
       nb::list call_args;
       auto lease = py_ts_lease_for_node(cache);
@@ -1312,7 +1329,7 @@ struct py_compute_recordable_node {
           config.value(), scalars.value(),
           &cache, &state_view,
           state.evaluation_time(), scheduler, runtime_state, engine, lease,
-          node, call_args, &args.base());
+          node, call_args, &args.base(), 0, &out_view);
       (void)py_call_with_contexts(fn.value().record->fn, call_args,
                                   std::nullopt);
       invalid.release();

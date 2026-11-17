@@ -341,6 +341,25 @@ namespace
         }
     };
 
+    struct LifecycleOutputReader
+    {
+        static constexpr auto name = "lifecycle_output_reader";
+        inline static Int     stopped_value{-1};
+        inline static bool    stopped_valid{false};
+        using signature_args = std::tuple<In<"data", TS<Int>>, Out<TS<Int>>>;
+
+        static void eval(In<"data", TS<Int>> data, Out<TS<Int>> out) { out.set(data.value() * 10); }
+
+        // The output is a selector like any other: ``stop`` reads what the
+        // node last published.
+        static void stop(Out<TS<Int>> out)
+        {
+            const auto &view = static_cast<const TSOutputView &>(out);
+            stopped_valid    = view.valid();
+            stopped_value    = stopped_valid ? view.value().checked_as<Int>() : Int{-1};
+        }
+    };
+
     struct LifecycleGatedInput
     {
         static constexpr auto name = "lifecycle_gated_input";
@@ -706,6 +725,26 @@ TEST_CASE("static node: explicit signature keeps lifecycle-only selectors out of
                      arg<"value">(Int{7}), arg<"lifecycle">(Int{5})),
                  {Int{12}});
     CHECK(LifecycleConfiguredSource::stopped_value == Int{10});
+}
+
+TEST_CASE("static node: stop reads the output the node last published")
+{
+    using namespace hgraph;
+
+    LifecycleOutputReader::stopped_value = -1;
+    LifecycleOutputReader::stopped_valid = false;
+    CHECK_OUTPUT(testing::eval_node<LifecycleOutputReader>(
+                     std::vector<std::optional<Int>>{Int{1}, Int{2}}),
+                 {Int{10}, Int{20}});
+    CHECK(LifecycleOutputReader::stopped_valid);
+    CHECK(LifecycleOutputReader::stopped_value == Int{20});
+
+    // A node that never published stops with an output that is not valid.
+    LifecycleOutputReader::stopped_valid = true;
+    CHECK_OUTPUT(testing::eval_node<LifecycleOutputReader>(
+                     std::vector<std::optional<Int>>{std::nullopt}),
+                 {std::nullopt});
+    CHECK_FALSE(LifecycleOutputReader::stopped_valid);
 }
 
 TEST_CASE("static node: a lifecycle-only input still gates evaluation")

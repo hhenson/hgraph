@@ -155,6 +155,119 @@ def test_lifecycle_time_series_in_start_still_rejected():
             pass
 
 
+def test_lifecycle_stop_reads_the_nodes_output():
+    # ``stop`` is given the node's own output to read: what it last published.
+    seen = []
+
+    @hg.compute_node
+    def node(value: TS[int]) -> TS[int]:
+        return value.value * 10
+
+    @node.stop
+    def node_stop(_output):
+        seen.append((_output.valid, _output.value, _output.last_modified_time))
+
+    assert _run(node) == [10, 20]
+    assert seen == [(True, 20, hg.MIN_ST + hg.MIN_TD)]
+
+
+def test_lifecycle_stop_output_takes_any_spelling_and_sits_beside_an_input():
+    # ``_output`` is known by its name, as in eval: annotated or bare, and
+    # whether or not eval takes it too.
+    seen = []
+
+    @hg.compute_node
+    def node(value: TS[int], _output: hg.TS_OUT[int] = None) -> TS[int]:
+        prior = _output.value if _output.valid else 0
+        return prior + value.value
+
+    @node.stop
+    def node_stop(value: TS[int], _output: hg.TS_OUT[int] = None):
+        seen.append((value.value, _output.value))
+
+    assert _run(node) == [1, 3]
+    assert seen == [(2, 3)]
+
+
+def test_lifecycle_stop_sees_an_output_that_never_published():
+    seen = []
+
+    @hg.compute_node
+    def node(value: TS[int]) -> TS[int]:
+        return None
+
+    @node.stop
+    def node_stop(_output):
+        seen.append(_output.valid)
+
+    assert _run(node) is None
+    assert seen == [False]
+
+
+def test_lifecycle_stop_output_is_read_only():
+    # A node publishes from eval alone: the view ``stop`` has cannot write.
+    refused = []
+
+    @hg.compute_node
+    def node(value: TS[int]) -> TS[int]:
+        return value.value
+
+    @node.stop
+    def node_stop(_output):
+        try:
+            _output.value = 99
+        except AttributeError as error:
+            refused.append(type(error).__name__)
+        refused.append(hasattr(_output, "invalidate"))
+
+    assert _run(node) == [1, 2]
+    assert refused == ["AttributeError", False]
+
+
+def test_lifecycle_stop_reads_the_output_of_a_recordable_node():
+    class Durable(hg.TimeSeriesSchema):
+        total: TS[int]
+
+    seen = []
+
+    @hg.compute_node
+    def node(value: TS[int],
+             state: hg.RECORDABLE_STATE[Durable] = None) -> TS[int]:
+        total = (state.total.value if state.total.valid else 0) + value.value
+        state.total.value = total
+        return total
+
+    @node.stop
+    def node_stop(_output, state: hg.RECORDABLE_STATE[Durable] = None):
+        seen.append((_output.value, state.total.value))
+
+    assert _run(node) == [1, 3]
+    assert seen == [(3, 3)]
+
+
+def test_lifecycle_output_in_start_still_rejected():
+    # The output has published nothing when a node starts.
+    @hg.compute_node
+    def node(value: TS[int]) -> TS[int]:
+        return value.value
+
+    with pytest.raises(TypeError, match="wiring-time scalars and injectables"):
+        @node.start
+        def node_start(_output):
+            pass
+
+
+def test_lifecycle_output_in_a_sinks_stop_rejected():
+    @hg.sink_node
+    def node(value: TS[int]):
+        pass
+
+    with pytest.raises(TypeError, match="the node has no output"):
+        @node.stop
+        def node_stop(_output):
+            pass
+
+
 def test_generator_stop_matches_by_name():
     seen = []
 
