@@ -2378,7 +2378,7 @@ namespace hgraph::stdlib
                 child, {branch_ports.data(), branch_ports.size()});
             if (const auto *declared = branch.output_schema(); declared != nullptr)
             {
-                if (!graph_wiring_detail::input_accepts_output_schema(
+                if (!graph_wiring_detail::input_binds_output_schema(
                         declared, branch_output.schema))
                 {
                     throw std::invalid_argument(

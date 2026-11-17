@@ -297,3 +297,31 @@ def test_a_sampled_dictionary_keeps_an_unset_child_as_null():
     # And the other way: the dictionary switched to holds the unset child.
     result = eval_node(app, [True, None, False], [7, None, None], [0, None, None])
     assert "Null" in result[2] and "None" not in result[2]
+
+
+def test_a_plain_series_binds_to_an_optional_input():
+    @compute_node
+    def seen(value: TS[Optional[int]]) -> TS[str]:
+        delta = value.delta_value
+        return f"{value.valid} {value.value!r} {'Null' if delta is Null else repr(delta)}"
+
+    @graph
+    def app(value: TS[int]) -> TS[str]:
+        return seen(value)
+
+    # Each tick of the plain series is one whose value holds it.
+    assert eval_node(app, [5, None, 0]) == ["True 5 5", None, "True 0 0"]
+
+
+def test_an_optional_series_does_not_bind_to_a_plain_input():
+    @compute_node
+    def plain(value: TS[int]) -> TS[int]:
+        return value.value
+
+    @graph
+    def app(command: TS[int]) -> TS[int]:
+        return plain(cleared(command))
+
+    # An Optional may be unset, and a plain input has no value for that.
+    with pytest.raises(hg.IncorrectTypeBinding):
+        eval_node(app, [1])

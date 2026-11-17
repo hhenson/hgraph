@@ -346,7 +346,7 @@ namespace hgraph
                                 ref = std::get<I>(arg_tuple).erased();
                                 if constexpr (graph_wiring_detail::is_erased_port<A>::value)
                                 {
-                                    if (!graph_wiring_detail::input_accepts_output_schema(expected, ref.schema))
+                                    if (!graph_wiring_detail::input_binds_output_schema(expected, ref.schema))
                                     {
                                         throw std::logic_error(
                                             "sub-graph call: erased input port schema does not match the "

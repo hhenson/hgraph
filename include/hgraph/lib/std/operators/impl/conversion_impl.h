@@ -442,6 +442,44 @@ namespace hgraph::stdlib
         }
     };
 
+    /** RFC 0050: a ``TS[T]`` as a ``TS[Optional[T]]``. Each tick is
+        published as a value that holds it; the output is never unset. This
+        is the adaptation binding adds where a ``TS[T]`` source meets a
+        ``TS[Optional[T]]`` input. */
+    struct convert_to_optional_impl
+    {
+        static constexpr auto name = "convert_to_optional";
+
+        static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
+        {
+            const auto *out = output_schema(resolution);
+            const auto *input = time_series_schema_at(context, 0);
+            const auto *in = ts_value_schema_at(context, 0);
+            return out != nullptr && out->kind == TSTypeKind::TS &&
+                   input != nullptr && input->kind == TSTypeKind::TS &&
+                   in != nullptr && out->value_schema != nullptr &&
+                   out->value_schema->is_optional() && !in->is_optional() &&
+                   out->value_schema->element_type == in;
+        }
+
+        static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"__out__">> out)
+        {
+            const auto &erased = static_cast<const TSOutputView &>(out);
+            auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
+            // In place where the output's storage is the value's own, as
+            // ``Out<TS<std::optional<T>>>::set`` writes.
+            if (auto destination = mutation.mutable_value(); destination.valid())
+            {
+                destination.as_mutable_optional().emplace(ts.base().value());
+                mutation.mark_modified();
+                return;
+            }
+            Value held{mutation.value().binding()};
+            held.view().as_optional().begin_mutation().emplace(ts.base().value());
+            static_cast<void>(mutation.move_value_from(std::move(held)));
+        }
+    };
+
     /** Lift a keyed stream whose values use a concrete nominal schema into
         the corresponding keyed stream of a registered base schema. */
     struct convert_tsd_nominal_upcast_impl

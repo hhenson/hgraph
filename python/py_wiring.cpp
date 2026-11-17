@@ -645,7 +645,7 @@ namespace
             context, child, {boundary.data(), boundary.size()});
         if (out.schema != nullptr && record.output_schema != nullptr)
         {
-            if (!graph_wiring_detail::input_accepts_output_schema(
+            if (!graph_wiring_detail::input_binds_output_schema(
                     record.output_schema, out.schema))
             {
                 throw std::invalid_argument(

@@ -340,6 +340,9 @@ A consumer reads ``None`` as the ``value`` of such a tick, with ``valid`` true, 
 where ``None`` already means "not modified". Returning ``Null`` from an output that is not an ``Optional`` is a
 ``TypeError``. Only the type directly under ``TS[...]`` is read this way: an ``Optional`` field of a
 ``CompoundScalar`` is still a field that may be unset.
+
+A ``TS[T]`` may be wired to a ``TS[Optional[T]]`` input; the node then sees each tick as a value that holds it.
+A ``TS[Optional[T]]`` is not accepted where a ``TS[T]`` is declared.
 The output WILL NOT ignore setting a value if it is the same as the current value. There are many valid reasons to reset
 a value. If your nodes contract states that only changes to values will be propagated, then you will need to ensure
 you only tick when the value is different. The easiest way to do this is to use the ``_output`` injectable.

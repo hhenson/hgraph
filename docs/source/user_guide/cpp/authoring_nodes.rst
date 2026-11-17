@@ -245,6 +245,10 @@ payload that is a C++ scalar. ``view()`` is an ``OptionalView``, for any payload
 In a test, ``none`` is still no tick, and a tick is an ``Optional`` value, holding
 its payload or nothing: ``eval_node`` tells the three apart.
 
+A ``TS<T>`` source may be wired to a ``TS<std::optional<T>>`` input: binding adds a
+conversion, and the node sees each tick as a value that holds it. The reverse is
+a wiring error, since an ``Optional`` may hold nothing and a ``T`` may not.
+
 No arithmetic or container operator applies to an ``Optional``: it is no tuple and no
 number. A table does not record one yet, and refuses it where the table is wired.
 

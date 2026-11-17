@@ -22,6 +22,7 @@ namespace hgraph::stdlib
         register_overload<convert, convert_to_any_impl>();
         register_overload<convert, convert_from_any_impl>();
         register_overload<convert, convert_bundle_upcast_impl>();
+        register_overload<convert, convert_to_optional_impl>();
         register_overload<convert, convert_tsd_nominal_upcast_impl>();
         register_overload<convert, convert_opaque_downcast_impl>();
         register_overload<convert, convert_bundle_downcast_impl>();

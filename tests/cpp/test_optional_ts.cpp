@@ -127,6 +127,19 @@ namespace
         }
     };
 
+    // A plain series wired where an Optional one is declared.
+    struct IntIntoOptionalGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "int_into_optional_graph";
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value) { return wire<PayloadOrMinusOne>(w, value); }
+    };
+
+    struct IntSeenAsOptionalGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "int_seen_as_optional_graph";
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value) { return wire<Seen>(w, value); }
+    };
+
     struct OptionalLenGraph
     {
         [[maybe_unused]] static constexpr auto name = "optional_len_graph";
@@ -209,4 +222,33 @@ TEST_CASE("TS<std::optional<T>>: the JSON tree holds its payload's node, or the 
 
     const Value nothing = stdlib::json_tree::to_node(null_int().view());
     CHECK_FALSE(stdlib::json_tree::unbox(nothing.view()).valid());
+}
+
+TEST_CASE("TS<std::optional<T>>: a TS<T> source binds to an Optional input, each tick held")
+{
+    stdlib::register_standard_operators();
+
+    // Binding adds the adaptation: the node sees a value that holds each
+    // tick, and never one that is unset.
+    CHECK_OUTPUT(testing::eval_node<IntIntoOptionalGraph>({5, none, 0, 7}), {5, none, 0, 7});
+    // Valid, modified, and holding a payload.
+    CHECK_OUTPUT(testing::eval_node<IntSeenAsOptionalGraph>({5, none, 7}), {111, none, 111});
+
+    // The rule both ways: a T is taken for an Optional[T] where the source
+    // is then adapted, an Optional[T] is not taken for a T, and only its
+    // own payload is.
+    const auto *plain = schema_descriptor<TS<Int>>::ts_meta();
+    const auto *optional = schema_descriptor<TS<std::optional<Int>>>::ts_meta();
+    const auto *other = schema_descriptor<TS<Str>>::ts_meta();
+    CHECK(graph_wiring_detail::input_binds_output_schema(optional, plain));
+    CHECK_FALSE(graph_wiring_detail::input_binds_output_schema(plain, optional));
+    CHECK_FALSE(graph_wiring_detail::input_binds_output_schema(optional, other));
+    CHECK(graph_wiring_detail::input_binds_output_schema(optional, optional));
+
+    // A T does not bind as it is where an Optional[T] is asked for: it is
+    // stored as a T. Whatever binds, casts or compares without adapting
+    // its source asks this, and refuses.
+    CHECK_FALSE(graph_wiring_detail::input_accepts_output_schema(optional, plain));
+    CHECK_FALSE(graph_wiring_detail::input_accepts_output_schema(plain, optional));
+    CHECK(graph_wiring_detail::input_accepts_output_schema(optional, optional));
 }

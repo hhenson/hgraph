@@ -109,7 +109,32 @@ def binding_matches(annotation, port_tp, scope, pattern=None):
             stack.extend(candidate.__subclasses__())
             if TS[candidate].handle == port_tp:
                 return True   # subtype binding (auto-cast)
+    if _binds_as_optional(annotation, port_tp):
+        return True
     return False
+
+
+def _binds_as_optional(annotation, port_tp):
+    """RFC 0050: is ``port_tp`` a ``TS[T]`` where ``TS[Optional[T]]`` is declared?
+
+    Such a port binds, and each of its ticks is read as a value that holds
+    it: where the input is bound, ``adapt_source_for_input`` wires the
+    conversion. The reverse does not bind, since an ``Optional`` may be unset
+    and a ``T`` may not. ``T`` is the payload's own type: this is asked after
+    every other widening has said no, and widens no further.
+    """
+    if not isinstance(annotation, _TsExpr) or port_tp is None:
+        return False
+    handle = annotation.handle
+    plain = port_tp.dereference
+    if not handle.is_ts or not plain.is_ts:
+        return False
+    try:
+        # Refused for a payload that is ``any`` or already an ``Optional``.
+        widened = _hgraph.optional_vt(_hgraph.ts_value_vt(plain))
+    except Exception:
+        return False
+    return widened == _hgraph.ts_value_vt(handle)
 
 
 def _signature_registry_generation(signature):

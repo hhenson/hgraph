@@ -1,7 +1,7 @@
 RFC 0050: Nullable scalar time series
 =====================================
 
-:Status: Proposed
+:Status: Accepted (value type, Python bridge and binding adaptation complete)
 :Created: 2026-11-17
 :Target: Value types, the Python bridge and HGL publications
 
@@ -122,6 +122,28 @@ A ``TS[T]`` source bound to a ``TS[Optional[T]]`` input is accepted: binding
 adds the adaptation that publishes each tick as a held payload. The reverse
 is a wiring error.
 
+The adaptation is the ``convert`` overload ``convert_to_optional``, wired by
+``adapt_source_for_input`` as a nominal upcast is. ``T`` is the payload's own
+type: a subtype of it is not adapted.
+
+A ``T`` and an ``Optional[T]`` are stored differently, so such a source
+never binds as it is. Two questions are therefore kept apart:
+
+* ``input_accepts_output_schema`` is whether a source binds as it is. It
+  says no here. Whatever binds, casts or compares without adapting its
+  source asks it: a port cast, ``TSL.from_ts``, a service's endpoint, a
+  mapped child, a type variable's second binding.
+* ``input_binds_output_schema`` adds the adaptation
+  (``binding_adapts_to_optional``). Only a site that goes on to
+  ``adapt_source_for_input`` asks it: the inputs and context inputs of a
+  node, an operator's selected overload, a sub-graph call and ``lift``, and
+  the declared output of a wired function, a dispatch branch and a Python
+  graph function.
+
+In Python, ``binding_matches`` has the same widening as its last case. A
+Python node needs no conversion node: its input reads through the source's
+own schema, and so reads each tick as the payload it is.
+
 Only the scalar directly under ``TS[...]`` changes. An ``Optional[X]`` field
 of a ``CompoundScalar`` stays a field of ``X`` that may be unset, and an
 ``Optional`` inside a scalar container keeps its present reading.
@@ -197,16 +219,20 @@ Alternatives considered
 * A new spelling, ``TS[Nullable[T]]``, leaving ``Optional`` dropped. Issue
   #1797 chose ``Optional``: it is what a reader expects it to mean.
 
-Unresolved questions
---------------------
+Resolved questions
+------------------
 
-1. Binding ``TS[T]`` to a ``TS[Optional[T]]`` input: the adaptation above, or
-   a wiring error that asks for an explicit conversion. Proposed: the
-   adaptation.
-2. The payload: any value type but ``any`` and ``Optional``, or leaf scalars
-   only to begin with. Proposed: any value type.
-3. Table recording of an ``Optional`` leaf: in this RFC's implementation, or
-   the later change above. Proposed: later.
+The three questions this RFC left open were built as it proposed.
+
+1. Binding ``TS[T]`` to a ``TS[Optional[T]]`` input is the adaptation above,
+   and not a wiring error.
+2. The payload is any value type but ``any`` and ``Optional``.
+3. Table recording of an ``Optional`` leaf is a later change: ``to_table``
+   refuses one where the table is wired, by name.
+
+Left for later changes: table recording through the presence column of
+RFC 0019; ``TS[Optional[T]]`` over a type variable in Python; and a payload
+that is a subtype of the declared one at the binding adaptation.
 
 Acceptance criteria and test plan
 ---------------------------------

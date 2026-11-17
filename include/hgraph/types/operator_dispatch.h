@@ -1465,7 +1465,7 @@ namespace hgraph
                 // A schema-less time-series argument is the None default: an
                 // unwired (null-source) input at the resolved schema.
                 if (arg.port.schema == nullptr) { return WiringPortRef::null_source(expected); }
-                if (!graph_wiring_detail::input_accepts_output_schema(expected, arg.port.schema))
+                if (!graph_wiring_detail::input_binds_output_schema(expected, arg.port.schema))
                 {
                     throw std::logic_error("operator selected overload input schema does not match");
                 }
@@ -1497,7 +1497,7 @@ namespace hgraph
                                 const auto *expected = ts_resolver<schema>::resolve(map);
                                 WiringPortRef ref = graph_wiring_detail::resolve_context_source(
                                     w, P::field_name.sv());
-                                if (!graph_wiring_detail::input_accepts_output_schema(expected, ref.schema))
+                                if (!graph_wiring_detail::input_binds_output_schema(expected, ref.schema))
                                 {
                                     throw std::logic_error(
                                         "operator context '" + std::string{P::field_name.sv()} +
