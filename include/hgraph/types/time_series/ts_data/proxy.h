@@ -161,6 +161,7 @@ namespace hgraph
         void mark_modified(DateTime modified_time);
         void mark_structure_modified(DateTime modified_time);
         [[nodiscard]] bool has_constructed_children() const noexcept;
+        [[nodiscard]] std::size_t next_updated_child(std::size_t previous) const noexcept;
 
         TSRoleTypeRef              self_type_{};
         TSRoleTypeRef              element_type_{};
@@ -171,6 +172,10 @@ namespace hgraph
         ValueSlotStore                values_{};
         std::vector<DateTime>         built_times_{};
         DateTime                      updated_window_{MIN_DT};   // lazy delta-window roll
+        // The bitmap has no set bit in [updated_search_begin_, updated_search_next_).
+        // Child records maintain this interval; window/structural changes discard it.
+        mutable std::size_t            updated_search_begin_{TS_DATA_NO_CHILD_ID};
+        mutable std::size_t            updated_search_next_{TS_DATA_NO_CHILD_ID};
         TSDProxyChildRefresh          child_refresh_{TSDProxyChildRefresh::StructureOnly};
         bool                          subscribed_{false};
         bool                          source_suspended_{false};

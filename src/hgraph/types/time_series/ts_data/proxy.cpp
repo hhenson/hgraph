@@ -1478,6 +1478,7 @@ namespace hgraph
         }
 
         const bool was_suspended = source_suspended_;
+        updated_search_begin_ = TS_DATA_NO_CHILD_ID;
         child_refresh_ = child_refresh;
         source_suspended_ = false;
         suspended_published_.clear();
@@ -1573,6 +1574,7 @@ namespace hgraph
         if (slot < built_times_.size()) { built_times_[slot] = MIN_DT; }
         slot_observers_.notify_erase(slot);
         values_.destroy_at(slot);
+        updated_search_begin_ = TS_DATA_NO_CHILD_ID;
     }
 
     void TSDProxy::on_slots_cleared()
@@ -1585,6 +1587,7 @@ namespace hgraph
         built_times_.assign(built_times_.size(), MIN_DT);
         slot_observers_.notify_clear();
         values_.destroy_all();
+        updated_search_begin_ = TS_DATA_NO_CHILD_ID;
     }
 
     void TSDProxy::on_source_modified(DateTime modified_time)
@@ -1707,6 +1710,17 @@ namespace hgraph
         return values_.slot_updated(slot) && updated_window_ == tracking_.last_modified_time;
     }
 
+    std::size_t TSDProxy::next_updated_child(std::size_t previous) const noexcept
+    {
+        const auto first = previous == TS_DATA_NO_CHILD_ID ? 0 : previous + 1;
+        if (first < updated_search_begin_ || first > updated_search_next_)
+        {
+            updated_search_begin_ = first;
+            updated_search_next_ = next_updated_slot(values_.updated, previous);
+        }
+        return updated_search_next_;
+    }
+
     std::size_t TSDProxy::next_modified_child(std::size_t previous) const
     {
         if (!source_available()) { return TS_DATA_NO_CHILD_ID; }
@@ -1717,7 +1731,7 @@ namespace hgraph
             // reconcile those slots lazily. Referenced values also tick without
             // a reference write, so include this proxy's own updated slots.
             const auto updated_slot = updated_window_ == tracking_.last_modified_time
-                                          ? next_updated_slot(values_.updated, previous) : TS_DATA_NO_CHILD_ID;
+                                          ? next_updated_child(previous) : TS_DATA_NO_CHILD_ID;
             auto source_slot = TS_DATA_NO_CHILD_ID;
             if (child_refresh_ == TSDProxyChildRefresh::OnChildTick &&
                 dict.last_modified_time() >= tracking_.last_modified_time)
@@ -1737,6 +1751,11 @@ namespace hgraph
             }
             const auto slot = std::min(source_slot, updated_slot);
             if (slot == TS_DATA_NO_CHILD_ID) { return slot; }
+            // Lazy reconciliation can mark this candidate updated. It is
+            // already consumed: retain the known-empty interval after it
+            // instead of making the next call search that interval again.
+            if (updated_window_ == tracking_.last_modified_time)
+                updated_search_begin_ = slot + 1;
             if (dict.slot_live(slot) && has_child(slot))
             {
                 if (child_updated(slot)) { return slot; }
@@ -1844,11 +1863,13 @@ namespace hgraph
         suspended_published_.clear();
         source_suspended_ = false;
         updated_window_ = MIN_DT;
+        updated_search_begin_ = TS_DATA_NO_CHILD_ID;
         structure_pending_ = false;
     }
 
     void TSDProxy::sync_from_source(DateTime modified_time, bool force_modified)
     {
+        updated_search_begin_ = TS_DATA_NO_CHILD_ID;
         if (!element_type_ || !source_storage_.valid() || value_ops_ == nullptr)
         {
             return;
@@ -1896,6 +1917,7 @@ namespace hgraph
                 if (slot < built_times_.size()) { built_times_[slot] = MIN_DT; }
                 slot_observers_.notify_erase(slot);
                 values_.destroy_at(slot);
+                updated_search_begin_ = TS_DATA_NO_CHILD_ID;
                 changed = true;
                 structure_changed = true;
             }
@@ -1916,6 +1938,7 @@ namespace hgraph
         if (values_.has_slot(slot)) { return; }
 
         values_.construct_at(slot);
+        updated_search_begin_ = TS_DATA_NO_CHILD_ID;
         auto target = TSDataView{element_type_, values_.value_memory(slot)};
         target.mutable_tracking().parent = TSParentLink{self_type_, this, slot};
         detail::attach_owned_ts_data_parents(target.borrowed_ref());
@@ -2077,10 +2100,16 @@ namespace hgraph
         if (modified_time != MIN_DT && modified_time > updated_window_)
         {
             values_.updated.reset();
+            updated_search_begin_ = TS_DATA_NO_CHILD_ID;
             updated_window_ = modified_time;
         }
         auto dict = source_dict();
-        if (dict.slot_live(slot)) { values_.mark_updated(slot); }
+        if (dict.slot_live(slot))
+        {
+            values_.mark_updated(slot);
+            if (slot >= updated_search_begin_ && slot < updated_search_next_)
+                updated_search_next_ = slot;
+        }
     }
 
     void TSDProxy::subscribe_slot_observer(SlotObserver *observer)

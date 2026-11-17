@@ -842,6 +842,52 @@ TEST_CASE("TSDProxy sparse value ticks do not check unrelated child identities")
         REQUIRE(counts.builds == 0);
         REQUIRE(counts.matches == 0);
     }
+    SECTION("new child records shorten a cached search gap and survive rewinding")
+    {
+        auto &storage = *static_cast<TSDProxy *>(const_cast<void *>(proxy_view.data()));
+        auto dict = proxy_view.as_dict();
+        auto write_child = [&](std::int32_t key_value, DateTime time) {
+            Value child_key{key_value};
+            const auto child_slot = source_view.as_dict().find_slot(child_key.view());
+            auto child = TSDataView{TSRoleTypeRef{element_type.as_role()}, storage.owned_child_memory(child_slot)};
+            Value child_value{key_value + 1000};
+            REQUIRE(child.begin_mutation(time).copy_value_from(child_value.view()));
+            return child_slot;
+        };
+        const auto far_slot = write_child(key_count - 1, t2);
+        Value second_key{key_count / 2 + 1};
+        Value second_value{901};
+        const auto second_slot = source_view.as_dict().find_slot(second_key.view());
+        REQUIRE(source_view.as_dict().at(second_key.view()).begin_mutation(t2).copy_value_from(second_value.view()));
+        REQUIRE(dict.next_modified_slot(slot) == second_slot);
+        const auto middle_slot = write_child(key_count / 2 + 2, t2);
+        REQUIRE(slot < middle_slot);
+        REQUIRE(middle_slot < far_slot);
+        REQUIRE(dict.next_modified_slot(second_slot) == middle_slot);
+        REQUIRE(dict.next_modified_slot(middle_slot) == far_slot);
+        REQUIRE(dict.next_modified_slot(far_slot) == TS_DATA_NO_CHILD_ID);
+        REQUIRE(dict.next_modified_slot() == slot);
+        REQUIRE(dict.next_modified_slot(slot) == second_slot);
+        REQUIRE(dict.next_modified_slot(second_slot) == middle_slot);
+
+        const auto first_slot = write_child(0, t2 + TimeDelta{1});
+        REQUIRE(dict.next_modified_slot() == first_slot);
+        REQUIRE(dict.next_modified_slot(first_slot) == TS_DATA_NO_CHILD_ID);
+    }
+    SECTION("a child record after an exhausted search is visible in the same cycle")
+    {
+        auto dict = proxy_view.as_dict();
+        REQUIRE(dict.next_modified_slot(slot) == TS_DATA_NO_CHILD_ID);
+        Value child_key{key_count - 1};
+        const auto child_slot = source_view.as_dict().find_slot(child_key.view());
+        REQUIRE(slot < child_slot);
+        auto &storage = *static_cast<TSDProxy *>(const_cast<void *>(proxy_view.data()));
+        auto child = TSDataView{TSRoleTypeRef{element_type.as_role()}, storage.owned_child_memory(child_slot)};
+        Value child_value{999};
+        REQUIRE(child.begin_mutation(t2).copy_value_from(child_value.view()));
+        REQUIRE(dict.next_modified_slot(slot) == child_slot);
+        REQUIRE(dict.next_modified_slot(child_slot) == TS_DATA_NO_CHILD_ID);
+    }
 }
 
 TEST_CASE("TSDProxy stale child records join the current updated window")
