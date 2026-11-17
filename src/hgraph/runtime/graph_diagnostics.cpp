@@ -152,8 +152,7 @@ namespace hgraph
             }
 
             const bool bundle = meta->value_kind() == ValueTypeKind::Bundle;
-            const bool tuple = meta->value_kind() == ValueTypeKind::Tuple &&
-                               meta->field_count != 0;
+            const bool tuple = meta->is_positional_tuple() && meta->field_count != 0;
             if (!bundle && !tuple)
             {
                 const bool released_arrow_type =

@@ -54,7 +54,7 @@ composite_validity(const CompositeIndexedContext *state,
                    const void *memory) noexcept {
   if (state->validity_word_count == 0) {
     return nullptr;
-  } // dense Tuple, or empty Bundle
+  } // a composite with no field
   return static_cast<const BundleValidityWord *>(
       MemoryUtils::advance(memory, state->validity_offset));
 }
@@ -368,6 +368,14 @@ composite_indexed_element_binding(const void *context, const void *,
   // value) and always returns the real storage.
   composite_mark_field(state, memory, index, true);
   return static_cast<std::byte *>(memory) + state->offsets[index];
+}
+
+/// Marks the field UNSET. Its storage stays alive and keeps what it
+/// held, which nothing reads until a writer marks the field live again.
+void composite_indexed_clear_element(const void *context, void *memory,
+                                     std::size_t index) {
+  const auto *state = static_cast<const CompositeIndexedContext *>(context);
+  composite_mark_field(state, memory, index, false);
 }
 
 [[nodiscard]] ValueView composite_indexed_mutable_range_projector(
@@ -1706,6 +1714,7 @@ struct CompositeIndexedOpsEntry {
     };
     // Elements take their REPR in the user-facing spelling, so a string
     ops.mutable_element_at = &composite_indexed_mutable_element_at;
+    ops.clear_element = &composite_indexed_clear_element;
     ops.accepts_source_impl = &composite_accepts_source;
     ops.copy_assign_from_impl = &composite_copy_assign_from;
     ops.move_assign_from_impl = &composite_move_assign_from;

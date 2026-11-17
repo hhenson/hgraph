@@ -997,9 +997,9 @@ namespace hgraph
      * Where one composite binding keeps its fields and their validity bits,
      * resolved once.
      *
-     * A composite's plan lists a component per field, and a Bundle adds one
-     * more holding the field-validity words (core_concepts.rst); a Tuple is
-     * dense and has none. ``BundleBuilder`` uses this to mark a field live,
+     * A composite's plan lists a component per field, and a Bundle or a
+     * Tuple adds one more holding the field-validity words
+     * (core_concepts.rst). ``BundleBuilder`` uses this to mark a field live,
      * and a bulk reader or writer that touches many rows of one composite
      * uses it to reach a field without a call per access. Only composite
      * (assembly) storage has one: a wrapper such as ``Shared<Bundle>`` keeps
@@ -1142,8 +1142,8 @@ namespace hgraph
         }
         [[nodiscard]] ValueTypeRef field_binding(std::string_view name) const { return field_binding(index_of(name)); }
 
-        /** Bundle field validity (core_concepts.rst): set() marks the field
-            live; Tuple composites are dense (no validity component). */
+        /** Field validity (core_concepts.rst): set() marks the field live,
+            of a Bundle and of a Tuple alike. */
         void mark_field(std::size_t index)
         {
             const auto layout = CompositeFieldLayout::of(binding_);

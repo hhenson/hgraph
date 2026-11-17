@@ -48,6 +48,8 @@ namespace hgraph
     class MutableMapView;
     class AnyView;
     class MutableAnyView;
+    class OptionalView;
+    class MutableOptionalView;
     class Value;
 
     /**
@@ -194,6 +196,10 @@ namespace hgraph
         }
         [[nodiscard]] bool is_queue() const noexcept { return valid() && schema()->try_value_kind() == ValueTypeKind::Queue; }
         [[nodiscard]] bool is_any()   const noexcept { return valid() && schema()->try_value_kind() == ValueTypeKind::Any; }
+        /** True for a value of ``Optional[T]`` (RFC 0050), held or unset. It
+            is a one-element Tuple that carries the Optional flag, so
+            ``is_tuple()`` is true of it too. */
+        [[nodiscard]] bool is_optional() const noexcept { return valid() && schema()->is_optional(); }
         [[nodiscard]] bool is_indexed() const noexcept
         {
             const auto *type = schema();
@@ -337,6 +343,10 @@ namespace hgraph
         [[nodiscard]] std::optional<AnyView> try_as_any() const;
         [[nodiscard]] MutableAnyView as_mutable_any() const;
         [[nodiscard]] std::optional<MutableAnyView> try_as_mutable_any() const;
+        [[nodiscard]] OptionalView as_optional() const;
+        [[nodiscard]] std::optional<OptionalView> try_as_optional() const;
+        [[nodiscard]] MutableOptionalView as_mutable_optional() const;
+        [[nodiscard]] std::optional<MutableOptionalView> try_as_mutable_optional() const;
         [[nodiscard]] MutableTupleView as_mutable_tuple() const;
         [[nodiscard]] std::optional<MutableTupleView> try_as_mutable_tuple() const;
         [[nodiscard]] MutableBundleView as_mutable_bundle() const;

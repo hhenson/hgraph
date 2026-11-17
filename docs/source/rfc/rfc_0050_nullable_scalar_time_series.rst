@@ -48,9 +48,20 @@ In C++ a signature spells it ``Optional<T>``, beside ``Owned<T>`` and
 ``FixedTuple<...>`` in ``static_schema.h``:
 ``In<"x", TS<Optional<Int>>>`` and ``Out<TS<Optional<Int>>>``. A node reads
 it through an optional view of the value, which says whether a payload is
-held and gives it, and writes a held payload or the unset state. The exact
-view and builder names follow the existing ``as_bundle`` and ``as_list``
-family and are fixed by the implementation's first commit.
+held and gives it, and writes a held payload or the unset state:
+
+* ``ValueView::as_optional()`` gives an ``OptionalView`` with ``has_value()``
+  and ``value()``; its ``begin_mutation()`` gives a ``MutableOptionalView``
+  with ``set(payload)`` and ``reset()``.
+* ``In<"x", TS<Optional<T>>>::value()`` is that view, and ``payload()`` a
+  ``std::optional<T>`` for a payload that is a C++ scalar.
+* ``Out<TS<Optional<T>>>`` has ``set(payload)``, ``set_null()`` and the
+  erased ``apply(value)``.
+
+``Optional[T]`` is a Tuple by kind and no tuple to its users:
+``ValueTypeMetaData::is_positional_tuple()`` is false of it, and
+tuple-shaped matching, binding, conversion and container operators ask that
+and not the kind.
 
 In Python, ``TS[Optional[T]]`` and ``TS[T | None]`` are the time series of
 ``Optional[T]``. A sentinel ``Null`` stands beside ``REMOVE`` in

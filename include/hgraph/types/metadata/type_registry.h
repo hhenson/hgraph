@@ -330,6 +330,18 @@ namespace hgraph
         /** A NULLABLE variadic tuple (element holes allowed via the sul-style
             bitset) - the "nullable tuple" trait for the value factory. */
         const ValueTypeMetaData *nullable_tuple(const ValueTypeMetaData *element_type);
+        /**
+         * ``Optional[T]`` (RFC 0050): a value that holds one ``payload`` or is
+         * unset. It is a one-element Tuple carrying ``ValueTypeFlags::Optional``,
+         * so its storage is the payload followed by the field-validity word
+         * every fixed tuple has, and the tuple's plan, ops and binary form are
+         * its own. The unset state compares equal to itself and orders before
+         * a held payload.
+         *
+         * ``payload`` is any value type other than ``any``, which already
+         * holds nil, and another ``Optional``; either is rejected.
+         */
+        const ValueTypeMetaData *optional(const ValueTypeMetaData *payload);
         /** A Series parameterised by its element scalar (Series[T]); shares
             the base ``series`` storage plan + ops, distinct meta carrying
             ``element_type`` so operators can resolve the element type. A null
@@ -798,6 +810,7 @@ namespace hgraph
         InternTable<const ValueTypeMetaData *, ValueTypeMetaData> set_cache_;
         InternTable<const ValueTypeMetaData *, ValueTypeMetaData> mutable_list_cache_;
         InternTable<const ValueTypeMetaData *, ValueTypeMetaData> nullable_tuple_cache_;
+        InternTable<const ValueTypeMetaData *, ValueTypeMetaData> optional_cache_;
         InternTable<const ValueTypeMetaData *, ValueTypeMetaData> series_cache_;
         InternTable<MapKey, ValueTypeMetaData, MapKeyHash> frame_cache_;
         /** The un-typed ``frame`` scalar, cached for LOCK-FREE reads.

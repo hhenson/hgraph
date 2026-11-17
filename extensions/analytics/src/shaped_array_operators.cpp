@@ -448,7 +448,7 @@ namespace hgraph::analytics
         const auto *meta = index->scalar_value.schema();
         if (meta == scalar_descriptor<Int>::value_meta()) { return true; }
         const auto kind = meta != nullptr ? meta->try_value_kind() : std::nullopt;
-        if (kind != ValueTypeKind::List && kind != ValueTypeKind::Tuple) { return false; }
+        if (kind != ValueTypeKind::List && !meta->is_positional_tuple()) { return false; }
         const auto value = index->scalar_value.view();
         const auto items = value.as_indexed_view();
         for (const ValueView item : items)

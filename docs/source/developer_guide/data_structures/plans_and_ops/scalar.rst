@@ -179,6 +179,27 @@ Null is a *state*, not a schema or type. There is no null
   tuples and bundles, per-element for fixed and dynamic lists, per-slot
   for map values. Map keys and set elements are non-null by design.
 
+``Optional[T]`` (RFC 0050) is built on the nested form and adds no null
+schema. An ``Optional`` value is always a live value; what may be absent
+is its one payload, whose state is that field's validity bit. So a
+``TS[Optional[T]]`` can tick a value that is unset, a tick that is valid
+and wakes its consumers, without the time-series layer learning a new
+state: validity is still the last modified time, and a typed-null value
+still means there is no value at all.
+
+- ``ValueView::as_optional()`` gives an ``OptionalView``: ``has_value()``
+  says whether a payload is held, and ``value()`` gives it, a typed-null
+  view of the payload's type when none is.
+- ``OptionalView::begin_mutation()`` gives a ``MutableOptionalView``:
+  ``set(payload)`` holds a copy of a payload, and ``reset()`` returns to
+  the unset state through ``IndexedValueOps::clear_element``, which clears
+  the validity bit and leaves the storage alive.
+- A new value is unset. Unset equals unset and orders before a held
+  payload; two held payloads compare, and hash, as the payloads do.
+- The binary form is a presence tag, 0 or 1, and then the payload. The
+  JSON form is ``null`` for the unset state and the payload's own form
+  otherwise.
+
 Top-level null Values map to Python ``None`` at the bridge boundary;
 ``Value::from_python(None)`` calls ``reset()``. A non-owning
 ``ValueView`` cannot reset its source storage, so

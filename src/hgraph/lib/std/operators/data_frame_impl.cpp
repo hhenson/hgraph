@@ -1171,7 +1171,7 @@ namespace hgraph::stdlib
                     return {std::string{on.checked_as<Str>()}};
                 }
                 if (on.schema() != nullptr &&
-                    (on.schema()->value_kind() == ValueTypeKind::Tuple ||
+                    (on.schema()->is_positional_tuple() ||
                      on.schema()->value_kind() == ValueTypeKind::List))
                 {
                     std::vector<std::string> keys;
@@ -1493,7 +1493,7 @@ namespace hgraph::stdlib
                     return {std::string{key_col.checked_as<Str>()}};
                 }
                 if (key_col.schema() != nullptr &&
-                    (key_col.schema()->value_kind() == ValueTypeKind::Tuple ||
+                    (key_col.schema()->is_positional_tuple() ||
                      key_col.schema()->value_kind() == ValueTypeKind::List))
                 {
                     std::vector<std::string> names;
@@ -1512,7 +1512,7 @@ namespace hgraph::stdlib
             [[nodiscard]] std::vector<const ValueTypeMetaData *> key_parts(
                 const ValueTypeMetaData *key)
             {
-                if (key != nullptr && key->value_kind() == ValueTypeKind::Tuple)
+                if (key != nullptr && key->is_positional_tuple())
                 {
                     std::vector<const ValueTypeMetaData *> parts;
                     parts.reserve(key->field_count);
@@ -1922,7 +1922,7 @@ namespace hgraph::stdlib
             std::vector<Value> rows;
             const ValueView    value = ts.value();
             const auto         kind  = value.schema()->value_kind();
-            if (kind == ValueTypeKind::List || kind == ValueTypeKind::Tuple)
+            if (kind == ValueTypeKind::List || value.schema()->is_positional_tuple())
             {
                 for (ValueView element : value.as_indexed_view())
                 {

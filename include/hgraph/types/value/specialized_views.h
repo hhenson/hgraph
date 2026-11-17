@@ -142,6 +142,16 @@ namespace hgraph
             return base;
         }
 
+        [[nodiscard]] inline ValueView require_optional(ValueView base, const char *what)
+        {
+            require_valid(base.valid(), what);
+            if (base.schema() == nullptr || !base.schema()->is_optional())
+            {
+                throw std::logic_error(std::string{what} + " on a value that is no Optional");
+            }
+            return base;
+        }
+
         [[nodiscard]] inline bool binding_matches(const ValueView &view,
                                                   ValueTypeRef expected) noexcept
         {
@@ -1060,10 +1070,109 @@ namespace hgraph
         void clear() const;
     };
 
+    /**
+     * Read-only view over an ``Optional[T]`` value (RFC 0050): a live value
+     * that holds one payload of type ``T`` or is unset.
+     *
+     * The value itself is always there to view; what may be absent is its
+     * payload. ``has_value`` says whether one is held and ``value`` gives it.
+     * An unset Optional equals another unset one and orders before one that
+     * holds a payload; two that hold payloads compare as the payloads do.
+     */
+    class OptionalView : public ValueView
+    {
+      public:
+        explicit OptionalView(ValueView base)
+            : ValueView(specialized_view_detail::require_optional(std::move(base), "OptionalView"))
+            , ops_{specialized_view_detail::checked_indexed_ops(binding(), "OptionalView")}
+        {
+        }
+
+        /** True when a payload is held. */
+        [[nodiscard]] bool has_value() const { return ops_->element_at(ops_->context, data(), 0) != nullptr; }
+
+        /** The payload. When none is held this is a typed-null view: bound
+            to the payload's type, and not ``valid()``. Returned ``const``
+            by value for the reason ``IndexedValueView::at`` is. */
+        [[nodiscard]] const ValueView value() const
+        {
+            return ValueView{payload_binding(), ops_->element_at(ops_->context, data(), 0)};
+        }
+
+        /** The payload's type, held or not. */
+        [[nodiscard]] ValueTypeRef payload_binding() const noexcept
+        {
+            return ops_->element_binding(ops_->context, data(), 0);
+        }
+
+        /** Open a writable view over the value (requires mutable storage). */
+        [[nodiscard]] MutableOptionalView begin_mutation() const;
+
+      protected:
+        const IndexedValueOps *ops_{nullptr};
+    };
+
+    /**
+     * Writable view over an ``Optional[T]`` value: hold a payload, or return
+     * to the unset state.
+     */
+    class MutableOptionalView : public OptionalView
+    {
+      public:
+        explicit MutableOptionalView(ValueView base)
+            : OptionalView(specialized_view_detail::require_mutable(std::move(base), "MutableOptionalView"))
+        {
+            if (ops_->mutable_element_at == nullptr || ops_->clear_element == nullptr)
+            {
+                throw std::logic_error("MutableOptionalView: binding does not expose optional mutation ops");
+            }
+        }
+
+        /** Hold a copy of ``payload``, a value of the payload's type. */
+        void set(const ValueView &payload) const
+        {
+            if (!payload.valid()) { throw std::logic_error("MutableOptionalView::set requires a payload; use reset()"); }
+            void *element = ops_->mutable_element_at(ops_->context, mutable_data(), 0);
+            ValueView{payload_binding(), element}.begin_mutation().copy_from(payload);
+        }
+
+        /** Return to the unset state. */
+        void reset() const { ops_->clear_element(ops_->context, mutable_data(), 0); }
+    };
+
     inline IndexedValueView ValueView::as_indexed_view() const
     {
         if (!is_indexed()) { throw std::logic_error("ValueView::as_indexed_view on non-indexed view"); }
         return IndexedValueView{borrowed_ref()};
+    }
+
+    inline OptionalView ValueView::as_optional() const
+    {
+        if (!is_optional()) { throw std::logic_error("ValueView::as_optional on a view that is no Optional"); }
+        return OptionalView{borrowed_ref()};
+    }
+
+    inline std::optional<OptionalView> ValueView::try_as_optional() const
+    {
+        return is_optional() ? std::optional<OptionalView>{OptionalView{borrowed_ref()}} : std::nullopt;
+    }
+
+    inline MutableOptionalView OptionalView::begin_mutation() const
+    {
+        return MutableOptionalView{ValueView::begin_mutation()};
+    }
+
+    inline MutableOptionalView ValueView::as_mutable_optional() const
+    {
+        if (!is_optional()) { throw std::logic_error("ValueView::as_mutable_optional on a view that is no Optional"); }
+        return MutableOptionalView{borrowed_ref()};
+    }
+
+    inline std::optional<MutableOptionalView> ValueView::try_as_mutable_optional() const
+    {
+        return is_optional() && mutable_payload()
+                   ? std::optional<MutableOptionalView>{MutableOptionalView{borrowed_ref()}}
+                   : std::nullopt;
     }
 
     inline AtomicView ValueView::as_atomic() const

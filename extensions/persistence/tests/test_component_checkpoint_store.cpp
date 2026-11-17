@@ -529,6 +529,35 @@ TEST_CASE("component checkpoint store: nonfinite and signed-zero values recover 
     CHECK(bits(restored.graph.nodes.front().output->payload.view().checked_as<Float>()) == bits(quiet));
 }
 
+TEST_CASE("component checkpoint store: an Optional value keeps its type and both states")
+{
+    // RFC 0050: an Optional is a one-element Tuple that carries a flag. The
+    // image holds the flag, so the value comes back an Optional, held or
+    // unset, and not a Tuple.
+    const ComponentCheckpointStore checkpoints;
+    const auto *schema = scalar_descriptor<Optional<Int>>::value_meta();
+    const auto  binding = ValuePlanFactory::instance().type_for(schema);
+    Value held{binding};
+    held.view().as_optional().begin_mutation().set(Value{Int{5}}.view());
+
+    auto checkpoint = fixture();
+    checkpoint.graph.nodes.front().custom.payload = Value{binding};
+    checkpoint.graph.nodes.front().output->schema = schema_descriptor<TS<Optional<Int>>>::ts_meta();
+    checkpoint.graph.nodes.front().output->payload = held;
+    const bool verify = GENERATE(false, true);
+    const auto key = verify ? "verified-optional" : "plain-optional";
+    checkpoints.write(key, checkpoint, std::nullopt, verify);
+
+    const auto restored = checkpoints.read(key);
+    const auto unset = restored.graph.nodes.front().custom.payload.view();
+    REQUIRE(unset.is_optional());
+    CHECK_FALSE(unset.as_optional().has_value());
+    const auto output = restored.graph.nodes.front().output->payload.view();
+    REQUIRE(output.is_optional());
+    CHECK(output.schema() == schema);
+    CHECK(output.as_optional().value().checked_as<Int>() == Int{5});
+}
+
 TEST_CASE("component checkpoint store: reference locators and adapter clocks survive durable roundtrip")
 {
     TemporaryDirectory directory;

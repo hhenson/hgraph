@@ -278,7 +278,7 @@ namespace hgraph::operator_type_resolution
     [[nodiscard]] inline const ValueTypeMetaData *homogeneous_tuple_element_schema(
         const ValueTypeMetaData *value) noexcept
     {
-        if (value == nullptr || value->try_value_kind() != ValueTypeKind::Tuple || value->field_count == 0)
+        if (value == nullptr || !value->is_positional_tuple() || value->field_count == 0)
         {
             return nullptr;
         }

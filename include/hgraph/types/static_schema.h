@@ -228,6 +228,19 @@ namespace hgraph
     };
 
     /**
+     * ``Optional[T]`` (RFC 0050): a value that holds one ``TValue`` or is
+     * unset. ``TS<Optional<Int>>`` is the time series whose tick may be a
+     * null: a tick that is valid, wakes its consumers, and holds no payload.
+     * ``TValue`` is any value schema other than ``any`` and another
+     * ``Optional``.
+     */
+    template <typename TValue>
+    struct Optional
+    {
+        using value_type = TValue;
+    };
+
+    /**
      * A recursive edge of a ``NominalBundle``: one owner of
      * ``TTarget::value_type`` (RFC 0041). ``TTarget`` is a class with a nested
      * ``value_type``; it may be incomplete where the edge is written, so a
@@ -732,6 +745,27 @@ namespace hgraph
             if constexpr (is_concrete())
             {
                 return TypeRegistry::instance().owned(scalar_descriptor<TValue>::value_meta());
+            }
+            else
+            {
+                return nullptr;
+            }
+        }
+    };
+
+    template <typename TValue>
+    struct scalar_descriptor<Optional<TValue>>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept
+        {
+            return scalar_descriptor<TValue>::is_concrete();
+        }
+
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            if constexpr (is_concrete())
+            {
+                return TypeRegistry::instance().optional(scalar_descriptor<TValue>::value_meta());
             }
             else
             {

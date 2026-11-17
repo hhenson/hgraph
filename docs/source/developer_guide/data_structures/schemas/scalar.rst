@@ -46,6 +46,17 @@ A scalar schema has one of nine kinds, recorded on its
 ``Tuple``
     Fixed-arity ordered fields, accessed by index. Field types may differ.
 
+    ``Optional[T]`` (RFC 0050) is a one-element Tuple that carries
+    ``ValueTypeFlags::Optional``: a value that holds one payload of type
+    ``T`` or is unset. ``TypeRegistry::optional(payload)`` interns it by its
+    payload and names it ``Optional[T]``; the payload is any value type but
+    ``any`` and another ``Optional``. It is a Tuple by kind so that its
+    plan, ops and binary form are a tuple's, and it is no tuple to whoever
+    asks what a value is: ``is_positional_tuple()`` is false of it, and
+    tuple-shaped matching, binding, conversion and container operators ask
+    that and not the kind. ``value_schema_equivalent`` likewise tells an
+    ``Optional[T]`` value from a ``Tuple[T]`` one.
+
 ``Bundle``
     Named tuple. Fields are accessed by name; field-name metadata is
     preserved in the storage plan.

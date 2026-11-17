@@ -157,6 +157,10 @@ namespace hgraph
             metadata Bundle. Lets the nominal ancestry walk descend to the row
             without a registry lookup. */
         Frame = 1u << 14,
+        /** A one-element Tuple that is ``Optional[T]`` (RFC 0050): a live value
+            that holds its payload or is unset. The unset state is the
+            element's field validity, as an unset bundle field is. */
+        Optional = 1u << 15,
     };
 
     /** Bitwise OR over ``ValueTypeFlags``. */
@@ -383,6 +387,17 @@ namespace hgraph
         /** True when this container schema is backed by structurally-mutable storage. */
         [[nodiscard]] constexpr bool is_mutable() const noexcept { return has(ValueTypeFlags::Mutable); }
         [[nodiscard]] constexpr bool is_nullable() const noexcept { return has(ValueTypeFlags::Nullable); }
+        /** True for ``Optional[T]`` (RFC 0050); its payload type is ``fields[0].type``. */
+        [[nodiscard]] constexpr bool is_optional() const noexcept { return has(ValueTypeFlags::Optional); }
+        /** True for a positional Tuple that a user wrote as one. An
+            ``Optional[T]`` is a one-element Tuple by KIND, which is how its
+            storage and ops are a tuple's, and is no tuple to whoever asks
+            what a value is: tuple-shaped matching, conversion and operators
+            ask this and not the kind. */
+        [[nodiscard]] constexpr bool is_positional_tuple() const noexcept
+        {
+            return try_value_kind() == ValueTypeKind::Tuple && !is_optional();
+        }
 
         [[nodiscard]] constexpr bool is_enum() const noexcept { return has(ValueTypeFlags::Enum); }
         [[nodiscard]] constexpr bool is_owned() const noexcept { return has(ValueTypeFlags::Owned); }

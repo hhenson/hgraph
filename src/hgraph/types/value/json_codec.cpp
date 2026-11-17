@@ -1625,6 +1625,20 @@ namespace hgraph
             self.children[0]->write(concrete, out);
         }
 
+        /// ``Optional[T]`` (RFC 0050): ``null`` for the unset state, and the
+        /// payload's own form otherwise. A payload whose own form is ``null``,
+        /// an empty ``Owned``, is read back as the unset state.
+        void write_optional(const JsonConverter &self, const ValueView &view, std::string &out)
+        {
+            const auto payload = view.as_optional().value();
+            if (!payload.valid())
+            {
+                out += "null";
+                return;
+            }
+            self.children[0]->write(payload, out);
+        }
+
         void write_sequence(const JsonConverter &self, const ValueView &view, std::string &out)
         {
             out.push_back('[');
@@ -2106,6 +2120,24 @@ namespace hgraph
             return builder.build();
         }
 
+        Value read_optional(const JsonConverter &self, Reader &reader)
+        {
+            auto binding = self.binding;
+            if (!self.realization_bound)
+            {
+                if (const auto *snapshot = active_type_realization();
+                    snapshot != nullptr && !snapshot->is_polymorphic(self.meta))
+                {
+                    binding = snapshot->type_for(self.meta);
+                }
+            }
+            // A builder's value starts with every field unset: the unset
+            // state is what ``null`` leaves.
+            BundleBuilder builder{binding};
+            if (!reader.consume_keyword("null")) { builder.set(0, read_realized(*self.children[0], reader)); }
+            return builder.build();
+        }
+
         Value read_indirect(const JsonConverter &self, Reader &reader)
         {
             Value result{self.binding};
@@ -2328,6 +2360,17 @@ namespace hgraph
                 raw->children.push_back(converter_for_locked(meta->element_type));
                 raw->write_ = &write_owned;
                 raw->read_ = &read_indirect;
+                unwind.release();
+                return raw;
+            }
+
+            // Optional[T] (RFC 0050) is a one-element Tuple by kind, and is
+            // written as its payload and not as a one-element array.
+            if (meta->is_optional())
+            {
+                raw->children.push_back(converter_for_locked(meta->fields[0].type));
+                raw->write_ = &write_optional;
+                raw->read_ = &read_optional;
                 unwind.release();
                 return raw;
             }

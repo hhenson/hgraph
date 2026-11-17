@@ -213,7 +213,7 @@ namespace hgraph::stdlib
             if (const TSValueTypeMetaData *ts = time_series_schema_as<AnyTS>(input))
             {
                 const ValueTypeMetaData *value = ts->value_schema;
-                if (value != nullptr && (value->value_kind() == ValueTypeKind::Tuple || value->value_kind() == ValueTypeKind::List))
+                if (value != nullptr && (value->is_positional_tuple() || value->value_kind() == ValueTypeKind::List))
                 {
                     return value;
                 }
@@ -356,7 +356,7 @@ namespace hgraph::stdlib
                 {
                     return registry.tsl(registry.ts(value->element_type), value->fixed_size);
                 }
-                if (value->value_kind() == ValueTypeKind::Tuple)
+                if (value->is_positional_tuple())
                 {
                     if (const ValueTypeMetaData *element = homogeneous_tuple_element_schema(value))
                     {

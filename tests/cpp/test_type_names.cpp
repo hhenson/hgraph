@@ -51,6 +51,8 @@ TEST_CASE("type names: every value schema's name parses back to the schema")
         registry.fixed_list(i, 3),
         registry.fixed_list(i, 0),
         registry.nullable_tuple(i),
+        registry.optional(i),
+        registry.optional(registry.tuple({i, s})),
         registry.mutable_list(s),
         registry.set(s),
         registry.mutable_set(i),

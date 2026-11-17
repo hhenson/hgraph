@@ -752,6 +752,39 @@ namespace hgraph
         [[nodiscard]] const TSInputView &base() const noexcept { return *this; }
     };
 
+    /** ``TS<Optional<T>>`` input (RFC 0050): a tick whose value holds a
+        payload or is unset. A tick whose value is unset is a tick like any
+        other: the input is valid and modified, and its value has no payload. */
+    template <fixed_string Name, typename TValue, auto... TPolicies>
+    class In<Name, TS<Optional<TValue>>, TPolicies...> : public TSInputView
+    {
+      public:
+        using schema                     = TS<Optional<TValue>>;
+        using value_type                 = Optional<TValue>;
+        static constexpr auto field_name = Name;
+        static constexpr auto activity   = static_node_detail::resolved_input_activity<TPolicies...>();
+        static constexpr auto validity   = static_node_detail::resolved_input_validity<TPolicies...>();
+
+        explicit In(TSInputView view) noexcept : TSInputView(std::move(view)) {}
+
+        /** The current value: an optional view, which says whether a payload
+            is held and gives it (shadows the erased ``value() -> ValueView``). */
+        [[nodiscard]] OptionalView value() const { return TSInputView::value().as_optional(); }
+
+        /** The payload of the current value as a C++ value, for a payload
+            that is a C++ scalar; ``std::nullopt`` when the value is unset. */
+        [[nodiscard]] std::optional<TValue> payload() const
+        {
+            const auto held = value().value();
+            if (!held.valid()) { return std::nullopt; }
+            return held.template checked_as<TValue>();
+        }
+
+        /** The underlying erased input view. */
+        [[nodiscard]] const TSInputView &base() const noexcept { return *this; }
+        // modified() / valid() / delta_value() inherited from TSInputView.
+    };
+
     /** ``TS<AnyValue>`` input: expose the contained erased value without
         pretending the Any box is an ordinary C++ atomic scalar. */
     template <fixed_string Name, auto... TPolicies>
@@ -1296,6 +1329,74 @@ namespace hgraph
         {
             auto mutation = TSOutputView::begin_mutation(evaluation_time());
             static_cast<void>(mutation.copy_value_from(value));
+        }
+    };
+
+    /** ``TS<Optional<T>>`` output (RFC 0050). A node ticks a value that
+        holds a payload with ``set``, ticks a value that is unset with
+        ``set_null``, and does not tick by writing nothing. */
+    template <typename TValue>
+    class Out<TS<Optional<TValue>>> : public TSOutputView
+    {
+      public:
+        using schema     = TS<Optional<TValue>>;
+        using value_type = Optional<TValue>;
+
+        Out(TSOutputView view, DateTime /*evaluation_time*/, const PreparedOutputRoute * /*route*/ = nullptr) noexcept
+            : TSOutputView(std::move(view))
+        {
+        }
+
+        /** Tick a value that holds a copy of ``payload``, a value of the
+            payload's type. */
+        void set(const ValueView &payload) const
+        {
+            auto  mutation = TSOutputView::begin_mutation(evaluation_time());
+            Value held{mutation.value().binding()};
+            held.view().as_optional().begin_mutation().set(payload);
+            commit(mutation, std::move(held));
+        }
+
+        /** Tick a value that holds ``payload``, for a payload that is a C++
+            scalar. */
+        template <typename U>
+            requires(!std::derived_from<std::remove_cvref_t<U>, ValueView> &&
+                     !std::same_as<std::remove_cvref_t<U>, Value> && std::constructible_from<TValue, U &&>)
+        void set(U &&payload) const
+        {
+            auto         mutation = TSOutputView::begin_mutation(evaluation_time());
+            Value        held{mutation.value().binding()};
+            const auto   optional = held.view().as_optional().begin_mutation();
+            const TValue resolved{std::forward<U>(payload)};
+            optional.set(ValueView{optional.payload_binding(), static_cast<const void *>(&resolved)});
+            commit(mutation, std::move(held));
+        }
+
+        /** Tick a value that is unset: a tick that is valid and has no
+            payload. Writing nothing is what does not tick. */
+        void set_null() const
+        {
+            auto mutation = TSOutputView::begin_mutation(evaluation_time());
+            commit(mutation, Value{mutation.value().binding()});
+        }
+
+        /** Type-erased set: copy an ``Optional`` value, held or unset, and
+            tick it. */
+        void apply(const ValueView &value) const
+        {
+            if (!value.is_optional()) { throw std::invalid_argument("Out<TS<Optional<T>>>::apply requires an Optional value"); }
+            auto mutation = TSOutputView::begin_mutation(evaluation_time());
+            static_cast<void>(mutation.copy_value_from(value));
+        }
+
+      private:
+        template <typename TMutation>
+        static void commit(TMutation &mutation, Value value)
+        {
+            if (!mutation.move_value_from(std::move(value)))
+            {
+                throw std::logic_error("Out<TS<Optional<T>>>: failed to move the value into the output");
+            }
         }
     };
 

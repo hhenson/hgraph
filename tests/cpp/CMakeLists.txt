@@ -223,6 +223,7 @@ hgraph_add_test_objects(hgraph_wiring_test_objects
     test_checkpoint_codec.cpp
     test_component_checkpoint.cpp
     test_component_checkpoint_identity.cpp
+    test_optional_ts.cpp
     test_reference_checkpoint.cpp
     test_component_recovery_scenarios.cpp
     test_constant_checkpoint.cpp
@@ -311,6 +312,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
     test_mutable_map.cpp
     test_mutable_set.cpp
     test_observer_sets.cpp
+    test_optional_value.cpp
     test_plan_factories.cpp
     test_runtime_value_view.cpp
     test_schema_examples.cpp

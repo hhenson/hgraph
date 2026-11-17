@@ -164,6 +164,19 @@ namespace hgraph::persistence
                             elements.push_back(element);
                             fields.emplace_back(std::move(field), element);
                         }
+                        // RFC 0050: an Optional is a one-element Tuple that carries the flag.
+                        if (flag(ValueTypeFlags::Optional))
+                        {
+                            if (kind != static_cast<std::uint64_t>(ValueTypeKind::Tuple) || elements.size() != 1 ||
+                                elements.front() == nullptr ||
+                                elements.front()->try_value_kind() == ValueTypeKind::Any ||
+                                elements.front()->is_optional())
+                            {
+                                malformed("invalid Optional value schema");
+                            }
+                            schema = registry.optional(elements.front());
+                            break;
+                        }
                         schema = kind == static_cast<std::uint64_t>(ValueTypeKind::Tuple)
                                      ? registry.tuple(elements) : registry.un_named_bundle(fields);
                         break;

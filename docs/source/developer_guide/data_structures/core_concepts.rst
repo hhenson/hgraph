@@ -186,6 +186,13 @@ no longer short-circuits on non-bundle kinds); a sequence/dict fill
 marks every supplied slot; ``equals``/``compare``/``to_python`` honour
 the bits (unset tuple slot → ``None``).
 
+**``Optional[T]`` is one such slot** (RFC 0050): a one-element Tuple that
+carries ``ValueTypeFlags::Optional``, whose unset state is the validity
+bit of its one field. It is the only composite a writer returns to unset
+on purpose, so ``IndexedValueOps`` has ``clear_element`` beside
+``mutable_element_at``: the first clears a field's bit, the second sets
+it.
+
 **Nullable tuples, two mechanisms by size** (ruling 2026-07-09): the
 nullable trait (``ValueTypeFlags::Nullable`` / ``is_nullable()``, the
 ``registry.nullable_tuple(element)`` factory verb) yields a tuple that

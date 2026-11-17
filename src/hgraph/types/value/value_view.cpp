@@ -39,6 +39,9 @@ namespace hgraph
             // Owned[T] borrows Bundle-shaped indexed operations, but is an
             // indirection schema rather than T's structural twin.
             if (lhs->is_indirect() || rhs->is_indirect()) { return false; }
+            // Optional[T] (RFC 0050) is a one-element Tuple that carries a
+            // flag: it is no Tuple[T], and only another Optional is its twin.
+            if (lhs->is_optional() != rhs->is_optional()) { return false; }
 
             // A named bundle is structurally compatible with its anonymous
             // twin, but two different named bundles retain nominal identity.

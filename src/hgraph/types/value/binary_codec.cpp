@@ -96,6 +96,12 @@ namespace hgraph
             const std::size_t fields = self.children.size();
             reader.consume_work(fields);
             const auto       *bitmap = reader.take(bitmap_bytes(fields));
+            // Optional[T] (RFC 0050): its one-field bitmap is its presence
+            // tag, 0 or 1, and is held to that as an indirect value's is.
+            if (self.meta->is_optional() && std::to_integer<unsigned>(bitmap[0]) > 1)
+            {
+                throw std::runtime_error("binary codec: invalid optional presence tag");
+            }
 
             BundleBuilder builder{self.binding};
             for (std::size_t i = 0; i < fields; ++i)

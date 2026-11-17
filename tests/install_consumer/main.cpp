@@ -437,6 +437,30 @@ void check_typed_outcome() {
     const auto &error = observation.checked_as<CanonicalError>();
     if (!error.context || error.context->node != "owned") { throw std::runtime_error("installed error provenance lifetime was lost"); }
 }
+// RFC 0050: a node of the installed SDK publishes a tick whose value is
+// unset, and one that holds a payload, through ``Optional<T>``.
+struct ConsumerOptional {
+    static void eval(In<"ts", TS<Int>> ts, Out<TS<Optional<Int>>> out) {
+        if (ts.value() == 0) { out.set_null(); }
+        else { out.set(ts.value()); }
+    }
+};
+struct ConsumerOptionalRead {
+    static void eval(In<"ts", TS<Optional<Int>>> ts, Out<TS<Int>> out) {
+        const auto payload = ts.payload();
+        out.set(payload.has_value() ? *payload : Int{-1});
+    }
+};
+struct ConsumerOptionalGraph {
+    static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> input) {
+        return wire<ConsumerOptionalRead>(w, wire<ConsumerOptional>(w, input));
+    }
+};
+void check_optional() {
+    const auto result = testing::eval_node<ConsumerOptionalGraph>(std::vector<std::optional<Int>>{5, 0, std::nullopt, 7});
+    if (result != std::vector<std::optional<Int>>{5, -1, std::nullopt, 7})
+        throw std::runtime_error("installed Optional<T> node API is unusable");
+}
 void check_mixed_state() {
     const auto result = testing::eval_node<ConsumerMixedState>(std::vector<std::optional<Int>>{1, 2});
     if (result != std::vector<std::optional<Int>>{1, 3})
@@ -825,6 +849,7 @@ int main(int argc, char **argv)
 
     check_typed_outcome();
     check_mixed_state();
+    check_optional();
     check_distributed_client();
     check_probe_backend_round_trip();
     check_push_source_queue_contract();

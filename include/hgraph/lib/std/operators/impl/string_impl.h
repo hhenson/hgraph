@@ -589,7 +589,7 @@ namespace hgraph::stdlib
             {
                 return value_meta->element_type == scalar_descriptor<Str>::value_meta();
             }
-            if (value_meta->value_kind() == ValueTypeKind::Tuple)
+            if (value_meta->is_positional_tuple())
             {
                 // Tuple[str, str, ...]: every field must be str.
                 for (std::size_t index = 0; index < value_meta->field_count; ++index)

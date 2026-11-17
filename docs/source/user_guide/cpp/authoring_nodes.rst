@@ -182,6 +182,51 @@ ticks the output at the current evaluation time. A node has **at most one**
 In Python you ``return`` the value; in C++ you call ``out.set(...)``. Not calling
 ``set`` (Python: returning ``None``) leaves the output unticked for that cycle.
 
+A tick that is null — ``TS<Optional<T>>``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Available in C++.** A ``TS<T>`` either ticks a ``T`` or does not tick. Where a
+node must also be able to say "there is a value now, and it is nothing", declare
+the output ``TS<Optional<T>>``. Such a tick is a tick like any other: the output
+is valid, it is modified, and it wakes its consumers; its value holds no payload.
+
+.. code-block:: cpp
+
+   struct Cleared
+   {
+       static constexpr auto name = "cleared";
+
+       static void eval(In<"command", TS<Int>> command, Out<TS<Optional<Int>>> out)
+       {
+           if (command.value() == 0) { out.set_null(); return; }  // a tick whose value is null
+           if (command.value() < 0) { return; }                   // no tick
+           out.set(command.value());                              // a tick that holds the value
+       }
+   };
+
+   struct OrMinusOne
+   {
+       static constexpr auto name = "or_minus_one";
+
+       static void eval(In<"value", TS<Optional<Int>>> value, Out<TS<Int>> out)
+       {
+           const auto payload = value.payload();   // std::optional<Int>
+           out.set(payload.has_value() ? *payload : Int{-1});
+       }
+   };
+
+``In<..., TS<Optional<T>>>::value()`` is an ``OptionalView``: ``has_value()`` says
+whether a payload is held and ``value()`` gives it as a ``ValueView``, for a payload
+that is a composite. ``payload()`` gives a ``std::optional<T>`` for a payload that is
+a C++ scalar. ``Out<TS<Optional<T>>>`` has ``set(payload)``, ``set_null()`` and the
+erased ``apply(value)``, which takes an ``Optional`` value in either state.
+
+In a test, ``none`` is still no tick, and a tick is an ``Optional`` value, unset or
+holding its payload: ``eval_node`` tells the three apart.
+
+No arithmetic or container operator applies to an ``Optional``: it is no tuple and no
+number. A table does not record one yet, and refuses it where the table is wired.
+
 
 .. _node-local state:
 

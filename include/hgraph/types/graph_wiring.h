@@ -2053,7 +2053,7 @@ namespace hgraph
             const auto *produced = value_schema_without_storage(output->value_schema);
             const auto *expected = value_schema_without_storage(input->value_schema);
             if (produced != nullptr && expected != nullptr &&
-                produced->try_value_kind() == ValueTypeKind::Tuple &&
+                produced->is_positional_tuple() &&
                 expected->try_value_kind() == ValueTypeKind::List &&
                 expected->has(ValueTypeFlags::VariadicTuple) &&
                 expected->element_type != nullptr && produced->field_count > 0)

@@ -867,7 +867,8 @@ namespace hgraph::stdlib
             static bool requires_(const ResolutionMap &resolution, OperatorCallContext)
             {
                 const auto *meta = resolved_t(resolution);
-                if (meta == nullptr) { return false; }
+                // An Optional is a Tuple by kind and no container (RFC 0050).
+                if (meta == nullptr || meta->is_optional()) { return false; }
                 switch (meta->value_kind())
                 {
                     case ValueTypeKind::Map:
@@ -983,7 +984,8 @@ namespace hgraph::stdlib
             static bool requires_(const ResolutionMap &resolution, OperatorCallContext)
             {
                 const auto *meta = resolved_t(resolution);
-                if (meta == nullptr) { return false; }
+                // An Optional is a Tuple by kind and no container (RFC 0050).
+                if (meta == nullptr || meta->is_optional()) { return false; }
                 switch (meta->value_kind())
                 {
                     case ValueTypeKind::List:
