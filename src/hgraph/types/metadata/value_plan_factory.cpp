@@ -2440,8 +2440,26 @@ ValuePlanFactory::synthesise(const ValueTypeMetaData *schema) {
         "(typically through TypeRegistry::register_scalar<T>)");
 
   // An Optional (RFC 0050) is stored as a composite of one field: its
-  // payload, and the validity word that says whether one is held.
-  case ValueTypeKind::Optional:
+  // payload, and the validity word that says whether one is held. The
+  // payload's storage is live whether one is held or not, so it is
+  // default-constructed with the value: a payload that has no default
+  // constructor is refused here, by name, and not where a value of it is
+  // first made.
+  case ValueTypeKind::Optional: {
+    const MemoryUtils::StoragePlan *payload_plan =
+        plan_for(schema->element_type);
+    if (payload_plan == nullptr) {
+      throw std::logic_error(
+          "ValuePlanFactory: optional payload has no resolvable plan");
+    }
+    if (!payload_plan->can_default_construct()) {
+      throw std::invalid_argument(
+          "ValuePlanFactory: " + std::string{schema->name()} +
+          " requires a payload that is default-constructible: its storage "
+          "is live while the value holds nothing");
+    }
+    [[fallthrough]];
+  }
   case ValueTypeKind::Tuple: {
     auto builder = MemoryUtils::tuple();
     const std::size_t validity_words =
