@@ -630,6 +630,23 @@ composite_value_compare(const void *context, const void *lhs,
   return fmt::to_string(out);
 }
 
+/** An Optional (RFC 0050) is written as its payload is, and as ``None``
+    when it holds nothing: it is no tuple of one, and is not written as
+    one. */
+[[nodiscard]] std::string optional_value_to_string(const void *context,
+                                                   const void *memory) {
+  if (memory == nullptr) {
+    return {};
+  }
+  const auto *state = static_cast<const CompositeIndexedContext *>(context);
+  if (!composite_field_set(state, memory, 0)) {
+    return "None";
+  }
+  const auto &ops = state->child_bindings[0].ops_ref();
+  return ops.to_string(static_cast<const std::byte *>(memory) +
+                       state->offsets[0]);
+}
+
 
 
 [[nodiscard]] std::size_t array_indexed_size(const void *context,
@@ -1663,7 +1680,8 @@ struct CompositeIndexedOpsEntry {
                            const std::vector<ValueTypeRef> &child_bindings) {
     const std::size_t validity_words =
         (schema.value_kind() == ValueTypeKind::Bundle ||
-         schema.value_kind() == ValueTypeKind::Tuple)
+         schema.value_kind() == ValueTypeKind::Tuple ||
+         schema.value_kind() == ValueTypeKind::Optional)
             ? bundle_validity_word_count(schema.field_count)
             : 0;
     const std::size_t validity_components = validity_words == 0 ? 0 : 1;
@@ -1702,7 +1720,9 @@ struct CompositeIndexedOpsEntry {
         {ValueOpsKind::Indexed, &context, true,
          schema.is_hashable() ? &composite_value_hash : nullptr,
          &composite_value_equals, &composite_value_compare,
-         &composite_value_to_string,
+         schema.value_kind() == ValueTypeKind::Optional
+             ? &optional_value_to_string
+             : &composite_value_to_string,
          &python_ops_detail::forwarder<&PythonOps::Realized::composite_to_python>::call,
          &python_ops_detail::forwarder<&PythonOps::Realized::composite_from_python>::call
         },
@@ -2302,10 +2322,11 @@ ValueTypeRef ValuePlanFactory::realized_composite_type_for(
     std::span<const ValueTypeRef> field_bindings) {
   if (schema == nullptr ||
       (schema->value_kind() != ValueTypeKind::Tuple &&
-       schema->value_kind() != ValueTypeKind::Bundle) ||
+       schema->value_kind() != ValueTypeKind::Bundle &&
+       schema->value_kind() != ValueTypeKind::Optional) ||
       schema->is_indirect()) {
     throw std::invalid_argument("realized_composite_type_for requires a "
-                                "direct Tuple or Bundle schema");
+                                "direct Tuple, Bundle or Optional schema");
   }
   if (field_bindings.size() != schema->field_count) {
     throw std::invalid_argument(
@@ -2345,9 +2366,10 @@ ValueTypeRef ValuePlanFactory::projected_composite_type_for(
     const ValueTypeMetaData *schema,
     std::span<const ValueTypeRef> field_bindings) {
   if (schema == nullptr || (schema->value_kind() != ValueTypeKind::Tuple &&
-                            schema->value_kind() != ValueTypeKind::Bundle)) {
+                            schema->value_kind() != ValueTypeKind::Bundle &&
+                            schema->value_kind() != ValueTypeKind::Optional)) {
     throw std::invalid_argument(
-        "projected_composite_type_for requires a Tuple or Bundle schema");
+        "projected_composite_type_for requires a Tuple, Bundle or Optional schema");
   }
   if (field_bindings.size() != schema->field_count) {
     throw std::invalid_argument(
@@ -2417,6 +2439,9 @@ ValuePlanFactory::synthesise(const ValueTypeMetaData *schema) {
         "via register_atomic "
         "(typically through TypeRegistry::register_scalar<T>)");
 
+  // An Optional (RFC 0050) is stored as a composite of one field: its
+  // payload, and the validity word that says whether one is held.
+  case ValueTypeKind::Optional:
   case ValueTypeKind::Tuple: {
     auto builder = MemoryUtils::tuple();
     const std::size_t validity_words =
@@ -2549,7 +2574,8 @@ ValuePlanFactory::synthesise_type(const ValueTypeMetaData *schema) {
         "via TypeRegistry::register_scalar<T>");
 
   case ValueTypeKind::Tuple:
-  case ValueTypeKind::Bundle: {
+  case ValueTypeKind::Bundle:
+  case ValueTypeKind::Optional: {
     for (size_t index = 0; index < schema->field_count; ++index) {
       if (!type_for(schema->fields[index].type)) {
         throw std::logic_error(

@@ -65,6 +65,7 @@ namespace hgraph::python_bridge
           case ValueTypeKind::CyclicBuffer:
           case ValueTypeKind::Queue:
           case ValueTypeKind::Any:
+          case ValueTypeKind::Optional:
             return false;
           }
           return false;

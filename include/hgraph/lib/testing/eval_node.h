@@ -53,10 +53,10 @@ namespace hgraph::testing
     template <typename T> struct harness_element<TS<T>> { using type = T; };
     template <typename T> struct harness_element<TS<HomogeneousTuple<T>>> { using type = Value; };
     template <typename... T> struct harness_element<TS<FixedTuple<T...>>> { using type = Value; };
-    // RFC 0050: an ``Optional`` value is live whether it holds a payload or
-    // not, so the test element is the erased ``Value``. ``none`` is no tick;
-    // an unset ``Optional`` value is a tick whose value is unset.
-    template <typename T> struct harness_element<TS<Optional<T>>> { using type = Value; };
+    // RFC 0050: an optional value is live whether it holds a payload or
+    // nothing, so the test element is the erased ``Value``. ``none`` is no
+    // tick; a value that holds nothing is a tick.
+    template <typename T> struct harness_element<TS<std::optional<T>>> { using type = Value; };
     template <typename T, auto... Dimensions>
     struct harness_element<TS<ArrayOf<T, Dimensions...>>> { using type = Value; };
     template <typename T> struct harness_element<TS<SeriesOf<T>>> { using type = Series; };
@@ -169,8 +169,8 @@ namespace hgraph::testing
     };
 
     template <typename T>
-    struct ts_harness<TS<Optional<T>>>
-        : bundle_ts_harness<TS<Optional<T>>>
+    struct ts_harness<TS<std::optional<T>>>
+        : bundle_ts_harness<TS<std::optional<T>>>
     {
     };
 

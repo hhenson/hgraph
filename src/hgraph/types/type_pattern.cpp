@@ -89,7 +89,7 @@ namespace hgraph
 
         [[nodiscard]] const ValueTypeMetaData *homogeneous_tuple_element(const ValueTypeMetaData *value)
         {
-            if (value == nullptr || !value->is_positional_tuple() || value->field_count == 0)
+            if (value == nullptr || value->value_kind() != ValueTypeKind::Tuple || value->field_count == 0)
             {
                 return nullptr;
             }
@@ -121,7 +121,7 @@ namespace hgraph
                 {
                     element = concrete->element_type;
                 }
-                else if (concrete != nullptr && concrete->is_positional_tuple())
+                else if (concrete != nullptr && concrete->value_kind() == ValueTypeKind::Tuple)
                 {
                     element = homogeneous_tuple_element(concrete);
                 }
@@ -250,7 +250,7 @@ namespace hgraph
                     return pattern.children.empty() ||
                            scalar_pattern_match(pattern.children[0], concrete->element_type, map);
                 }
-                if (concrete->is_positional_tuple())
+                if (concrete->value_kind() == ValueTypeKind::Tuple)
                 {
                     if (pattern.children.empty()) { return true; }
                     const ValueTypeMetaData *element = homogeneous_tuple_element(concrete);
@@ -261,7 +261,7 @@ namespace hgraph
             {
                 const ValueTypeMetaData *element = nullptr;
                 if (concrete->value_kind() == ValueTypeKind::List) { element = concrete->element_type; }
-                else if (concrete->is_positional_tuple()) { element = homogeneous_tuple_element(concrete); }
+                else if (concrete->value_kind() == ValueTypeKind::Tuple) { element = homogeneous_tuple_element(concrete); }
                 return element != nullptr && !pattern.children.empty() &&
                        scalar_pattern_match(pattern.children[0], element, map);
             }
@@ -285,7 +285,7 @@ namespace hgraph
                 return output_ts_pattern_match(*pattern.projected, source, map);
             }
             case ScalarPattern::Kind::FixedTuple:
-                if (!concrete->is_positional_tuple() || concrete->field_count != pattern.children.size())
+                if (concrete->value_kind() != ValueTypeKind::Tuple || concrete->field_count != pattern.children.size())
                 {
                     return false;
                 }

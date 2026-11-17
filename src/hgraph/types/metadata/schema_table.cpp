@@ -97,7 +97,7 @@ namespace hgraph
         {
             const auto value = [&] { return earlier(reader, values, "value schema", &substitutes); };
             const auto kind = read_varint(reader);
-            if (kind > static_cast<std::uint64_t>(ValueTypeKind::Any)) { malformed("invalid value kind"); }
+            if (kind > static_cast<std::uint64_t>(ValueTypeKind::Optional)) { malformed("invalid value kind"); }
             const auto raw_flags = read_varint(reader);
             if (raw_flags > std::numeric_limits<std::uint32_t>::max()) { malformed("invalid value flags"); }
             const auto flags = static_cast<ValueTypeFlags>(raw_flags);
@@ -150,20 +150,18 @@ namespace hgraph
                         elements.push_back(element);
                         fields.emplace_back(std::move(field), element);
                     }
-                    // RFC 0050: an Optional is a one-element Tuple that carries the flag.
-                    if (flag(ValueTypeFlags::Optional))
-                    {
-                        if (kind != static_cast<std::uint64_t>(ValueTypeKind::Tuple) || elements.size() != 1 ||
-                            elements.front() == nullptr ||
-                            elements.front()->try_value_kind() == ValueTypeKind::Any ||
-                            elements.front()->is_optional())
-                        {
-                            malformed("invalid Optional value schema");
-                        }
-                        return registry.optional(elements.front());
-                    }
                     return kind == static_cast<std::uint64_t>(ValueTypeKind::Tuple) ? registry.tuple(elements)
                                                                                     : registry.un_named_bundle(fields);
+                }
+                case ValueTypeKind::Optional: {
+                    // RFC 0050: the payload, which is neither a box, that
+                    // holds nil itself, nor another Optional.
+                    const auto *payload = value();
+                    if (payload == nullptr || payload->try_value_kind() == ValueTypeKind::Any || payload->is_optional())
+                    {
+                        malformed("invalid Optional value schema");
+                    }
+                    return registry.optional(payload);
                 }
                 default: malformed("unsupported value schema recipe");
             }
@@ -216,6 +214,7 @@ namespace hgraph
                 case ValueTypeKind::Set:
                 case ValueTypeKind::CyclicBuffer:
                 case ValueTypeKind::Queue:
+                case ValueTypeKind::Optional:  // its payload (RFC 0050)
                     write_varint(value_ref(schema->element_type, depth + 1), record);
                     break;
                 case ValueTypeKind::Any:

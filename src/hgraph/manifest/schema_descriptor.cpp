@@ -375,6 +375,7 @@ namespace hgraph::manifest
         }
         case ValueTypeKind::List:
         case ValueTypeKind::Set:
+        case ValueTypeKind::Optional:  // as its payload is (RFC 0050)
             return manifest_scalar_encodable(meta->element_type, reason);
         case ValueTypeKind::Map:
             return manifest_scalar_encodable(meta->key_type, reason) &&

@@ -81,6 +81,35 @@ namespace
         }
     };
 
+    // RFC 0050: one source ticks a value that holds a payload, the other a
+    // value that holds nothing.
+    struct DiagnosticsOptionalSource
+    {
+        static constexpr auto name = "diagnostics_optional_source";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(Out<TS<std::optional<Int>>> out) { out.set(Int{42}); }
+    };
+
+    struct DiagnosticsNullSource
+    {
+        static constexpr auto name = "diagnostics_null_source";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(Out<TS<std::optional<Int>>> out) { out.set(std::nullopt); }
+    };
+
+    struct DiagnosticsOptionalGraph
+    {
+        static constexpr auto name = "diagnostics_optional_graph";
+
+        static void compose(Wiring &w)
+        {
+            wire<DiagnosticsSink>(w, wire<DiagnosticsOptionalSource>(w));
+            wire<DiagnosticsSink>(w, wire<DiagnosticsNullSource>(w));
+        }
+    };
+
     struct DiagnosticsRefSource
     {
         static constexpr auto name = "diagnostics_ref_source";
@@ -504,6 +533,38 @@ TEST_CASE("diagnostics: endpoint value capture is explicit and owned")
     REQUIRE(rendered != snapshot.entries.end());
     CHECK(rendered->output.error.empty());
     CHECK_FALSE(rendered->output.schema_label.empty());
+}
+
+TEST_CASE("diagnostics: an Optional value renders as its payload, or as null")
+{
+    GraphDiagnostics diagnostics{GraphDiagnosticsOptions{
+        .recent_window = 4,
+        .capture_values = true,
+    }};
+
+    GraphExecutorBuilder builder;
+    builder.graph_builder(build_graph<DiagnosticsOptionalGraph>())
+        .add_lifecycle_observer(&diagnostics);
+    GraphExecutorValue executor = builder.make_executor();
+    executor.view().run();
+
+    const GraphDiagnosticsSnapshot snapshot = diagnostics.snapshot();
+    const GraphDiagnosticEntry &held = entry_containing(
+        snapshot, "diagnostics_optional_source");
+    CHECK(held.output.available);
+    CHECK(held.output.valid);
+    INFO(held.output.error);
+    CHECK(held.output.error.empty());
+    CHECK(held.output.json == "42");
+
+    // A tick whose value holds nothing is valid, and renders as null.
+    const GraphDiagnosticEntry &nothing = entry_containing(
+        snapshot, "diagnostics_null_source");
+    CHECK(nothing.output.available);
+    CHECK(nothing.output.valid);
+    INFO(nothing.output.error);
+    CHECK(nothing.output.error.empty());
+    CHECK(nothing.output.json == "null");
 }
 
 TEST_CASE("diagnostics: reference values render the referenced output")

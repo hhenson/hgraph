@@ -601,7 +601,7 @@ TEST_CASE("ValueView kind predicates reject malformed compact kinds without thro
     using namespace hgraph;
 
     ValueTypeMetaData malformed{ValueTypeKind::Atomic, ValueTypeFlags::None, "malformed"};
-    malformed.header.kind = static_cast<TypeKind>(ValueTypeKind::Any) + 1;
+    malformed.header.kind = static_cast<TypeKind>(ValueTypeKind::Optional) + 1;
     const ValueTypeRef binding = intern_value_type(
         malformed, MemoryUtils::plan_for<std::int32_t>(), ops_for<std::int32_t>());
     const std::int32_t payload = 42;

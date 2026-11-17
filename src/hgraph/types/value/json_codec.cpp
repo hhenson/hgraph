@@ -2374,11 +2374,11 @@ namespace hgraph
                 return raw;
             }
 
-            // Optional[T] (RFC 0050) is a one-element Tuple by kind, and is
-            // written as its payload and not as a one-element array.
+            // Optional[T] (RFC 0050) is written as its payload, or ``null``
+            // when it holds nothing.
             if (meta->is_optional())
             {
-                raw->children.push_back(converter_for_locked(meta->fields[0].type));
+                raw->children.push_back(converter_for_locked(meta->element_type));
                 raw->write_ = &write_optional;
                 raw->read_ = &read_optional;
                 unwind.release();

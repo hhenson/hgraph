@@ -71,7 +71,7 @@ namespace hgraph::stdlib
             }
             const ListView values = source.as_list();
             const auto target_kind = target->try_value_kind();
-            if (target->is_positional_tuple())
+            if (target_kind == ValueTypeKind::Tuple)
             {
                 if (values.size() != target->field_count) { return std::nullopt; }
                 BundleBuilder builder{ValuePlanFactory::instance().type_for(target)};
@@ -2248,7 +2248,7 @@ namespace hgraph::stdlib
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext)
         {
             const auto *out = output_ts_value_schema(resolution);
-            return out != nullptr && out->is_positional_tuple();
+            return out != nullptr && out->value_kind() == ValueTypeKind::Tuple;
         }
 
     };
@@ -2291,7 +2291,7 @@ namespace hgraph::stdlib
             {
                 return false;
             }
-            if (in->is_positional_tuple() && in->field_count != out->fixed_size()) { return false; }
+            if (in->value_kind() == ValueTypeKind::Tuple && in->field_count != out->fixed_size()) { return false; }
             const ValueTypeMetaData *source_element = tuple_element_schema(in);
             if (source_element == nullptr) { return false; }
             const auto *element = time_series_schema_as<AnyTS>(out->element_ts());

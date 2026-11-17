@@ -229,7 +229,7 @@ TEST_CASE("TSData plan classifiers reject malformed compact value kinds")
     using namespace hgraph;
 
     ValueTypeMetaData malformed{ValueTypeKind::Atomic, ValueTypeFlags::None, "malformed"};
-    malformed.header.kind = static_cast<TypeKind>(ValueTypeKind::Any) + 1;
+    malformed.header.kind = static_cast<TypeKind>(ValueTypeKind::Optional) + 1;
 
     TSValueTypeMetaData scalar{TSTypeKind::TS, &malformed};
     scalar.value_schema       = &malformed;

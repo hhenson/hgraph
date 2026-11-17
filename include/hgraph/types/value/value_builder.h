@@ -1014,7 +1014,10 @@ namespace hgraph
             const auto *meta = binding ? binding.schema() : nullptr;
             if (plan == nullptr || meta == nullptr || !plan->is_composite()) { return std::nullopt; }
             const auto kind = meta->try_value_kind();
-            if (kind != ValueTypeKind::Bundle && kind != ValueTypeKind::Tuple) { return std::nullopt; }
+            if (kind != ValueTypeKind::Bundle && kind != ValueTypeKind::Tuple && kind != ValueTypeKind::Optional)
+            {
+                return std::nullopt;
+            }
             const auto components = plan->components();
             if (components.size() < meta->field_count) { return std::nullopt; }
             CompositeFieldLayout result;

@@ -186,6 +186,12 @@ namespace hgraph::stdlib::json_tree
             },
             [&](ListView values) { return indexed_to_node(values); },
             [&](TupleView values) { return indexed_to_node(values); },
+            // An Optional (RFC 0050) is its payload's node, or the null node
+            // when it holds nothing.
+            [](OptionalView optional) {
+                const auto payload = optional.value();
+                return payload.valid() ? to_node(payload) : box(Value{});
+            },
             [](MapView values) {
                 const ValueTypeRef str_binding = TypeRegistry::instance().scalar_type<Str>();
                 MapBuilder entries{str_binding, json_value_binding()};

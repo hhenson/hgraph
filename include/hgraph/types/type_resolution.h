@@ -603,7 +603,7 @@ namespace hgraph
         [[nodiscard]] inline const ValueTypeMetaData *homogeneous_tuple_element(
             const ValueTypeMetaData *concrete) noexcept
         {
-            if (concrete == nullptr || !concrete->is_positional_tuple() || concrete->field_count == 0)
+            if (concrete == nullptr || concrete->try_value_kind() != ValueTypeKind::Tuple || concrete->field_count == 0)
             {
                 return nullptr;
             }
@@ -659,7 +659,7 @@ namespace hgraph
     {
         static void unify(const ValueTypeMetaData *concrete, ResolutionMap &m)
         {
-            if (concrete == nullptr || !concrete->is_positional_tuple() ||
+            if (concrete == nullptr || concrete->value_kind() != ValueTypeKind::Tuple ||
                 concrete->field_count != sizeof...(TElements))
             {
                 return;

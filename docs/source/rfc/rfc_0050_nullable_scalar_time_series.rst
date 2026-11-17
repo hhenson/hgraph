@@ -35,33 +35,37 @@ Contract
 
 ``TypeRegistry::optional(payload)`` interns the value type ``Optional[T]``
 for a payload value type ``T``. A value of it is always a live value: it
-either holds one ``T`` or is unset. ``payload`` is any value type other than
-``any``, which already holds nil, and another ``Optional``.
+either holds one ``T`` or holds nothing, as a C++ ``std::optional<T>``
+does. ``payload`` is any value type other than ``any``, which already holds
+nil, and another ``Optional``.
 
-Equality, ordering and hashing are the payload's, with field validity's
-existing rule for the unset state: unset equals unset and orders before set.
+``Optional[T]`` has a value kind of its own, ``ValueTypeKind::Optional``,
+whose ``element_type`` is the payload. It is no tuple, no container and no
+atomic: whatever matches a value by its kind does not match it. Its storage
+is the payload followed by an engaged bit, and no payload is constructed
+while it holds nothing.
+
+Equality, ordering and hashing are ``std::optional``'s: nothing equals
+nothing and orders before a held payload, and two held payloads compare as
+the payloads do.
 No arithmetic or other operator is defined on ``Optional[T]``. Operators that
 take any scalar (pass-through, ``const``, equality, selection, collection of
 values) take it as they take any other value.
 
-In C++ a signature spells it ``Optional<T>``, beside ``Owned<T>`` and
-``FixedTuple<...>`` in ``static_schema.h``:
-``In<"x", TS<Optional<Int>>>`` and ``Out<TS<Optional<Int>>>``. A node reads
-it through an optional view of the value, which says whether a payload is
-held and gives it, and writes a held payload or the unset state:
+In C++ a signature spells it with the type that means it,
+``std::optional<T>``: ``In<"x", TS<std::optional<Int>>>`` and
+``Out<TS<std::optional<Int>>>``. The erased views are named as that type's
+members are:
 
-* ``ValueView::as_optional()`` gives an ``OptionalView`` with ``has_value()``
-  and ``value()``; its ``begin_mutation()`` gives a ``MutableOptionalView``
-  with ``set(payload)`` and ``reset()``.
-* ``In<"x", TS<Optional<T>>>::value()`` is that view, and ``payload()`` a
-  ``std::optional<T>`` for a payload that is a C++ scalar.
-* ``Out<TS<Optional<T>>>`` has ``set(payload)``, ``set_null()`` and the
-  erased ``apply(value)``.
-
-``Optional[T]`` is a Tuple by kind and no tuple to its users:
-``ValueTypeMetaData::is_positional_tuple()`` is false of it, and
-tuple-shaped matching, binding, conversion and container operators ask that
-and not the kind.
+* ``ValueView::as_optional()`` gives an ``OptionalView`` with ``has_value()``,
+  ``operator bool`` and ``value()``; its ``begin_mutation()`` gives a
+  ``MutableOptionalView`` with ``emplace(payload)`` and ``reset()``.
+* ``In<"x", TS<std::optional<T>>>::value()`` is the ``std::optional<T>``,
+  for a payload that is a C++ scalar, and ``view()`` the ``OptionalView``,
+  for any payload.
+* ``Out<TS<std::optional<T>>>::set`` takes a payload, a ``std::optional<T>``
+  or ``std::nullopt``; the erased ``apply(value)`` takes an ``Optional``
+  value.
 
 In Python, ``TS[Optional[T]]`` and ``TS[T | None]`` are the time series of
 ``Optional[T]``. A sentinel ``Null`` stands beside ``REMOVE`` in
@@ -119,15 +123,22 @@ of a ``CompoundScalar`` stays a field of ``X`` that may be unset, and an
 Representation
 --------------
 
-``Optional[T]`` is a composite of one payload with the validity word a
-bundle or a fixed tuple already carries for its fields: the payload's
-storage, followed by the word. It is marked by a value-type flag and named
-``Optional[T]``, which joins the type-name grammar of RFC 0042 and the wire
-descriptor of RFC 0017.
+``Optional[T]`` is a value kind of its own, modelled on ``std::optional``.
+An earlier form of this RFC made it a one-element tuple that carried a
+flag; every matcher of a tuple then had to be taught to leave it out, and
+each new one to remember. As a kind, nothing that matches a tuple, a
+container or an atomic matches it, and nothing has to ask.
 
-"Null is a state, not a schema or type" still holds. The unset state is the
-payload's validity bit inside a live value, as an unset bundle field is. So
-nothing in the time-series layer changes:
+Its storage is the payload followed by an engaged bit. The plan is the one
+a composite of one field has, with the validity word a bundle or a fixed
+tuple already carries for its fields, so copy, move, equality, order and
+hash are the composite's and are not written again. The schema is named
+``Optional[T]``, which joins the type-name grammar of RFC 0042, and its kind
+and payload join the wire descriptor of RFC 0017.
+
+"Null is a state, not a schema or type" still holds. Holding nothing is the
+engaged bit inside a live value, as an unset bundle field is. So nothing in
+the time-series layer changes:
 
 * validity stays the last modified time, and a tick whose value is unset is
   valid like any other;
@@ -199,7 +210,7 @@ Acceptance criteria and test plan
   native node publishes a held payload, the unset state and no tick, and
   ``eval_node`` tells the three apart; the binary and JSON codecs round-trip
   both states; an installed-SDK consumer builds a node that uses
-  ``Optional<T>``.
+  ``std::optional<T>``.
 * Python: the node above; ``Null`` refused on an output that is not
   ``Optional``; ``value`` and ``delta_value`` in the three cases;
   ``eval_node`` vectors and results; a ``TS[T]`` source bound to an
