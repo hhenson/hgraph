@@ -122,6 +122,16 @@ namespace hgraph
      * metadata used as a variadic-element list. ``FixedEmpty`` distinguishes
      * a zero-length fixed List from a dynamic List without changing the
      * shared ``fixed_size`` field used by other container kinds.
+     *
+     * Each flag is one bit of its own: a schema's flags are tested one at a
+     * time, with no regard to its kind, so two flags on one bit make each
+     * schema that has either pass for the other. The ``static_assert`` below
+     * the enum holds that; add a new flag to its list.
+     *
+     * The values are written into stored schema descriptors and tables, so
+     * what is written for a flag does not change once released. ``Frame``
+     * was released on the bit ``FixedEmpty`` has: it is told apart here and
+     * still written there (``manifest::descriptor_flags``).
      */
     enum class ValueTypeFlags : uint32_t
     {
@@ -156,8 +166,48 @@ namespace hgraph
             whose ``element_type`` is the row Bundle and ``key_type`` the
             metadata Bundle. Lets the nominal ancestry walk descend to the row
             without a registry lookup. */
-        Frame = 1u << 14,
+        Frame = 1u << 15,
     };
+
+    namespace value_type_flags_detail
+    {
+        /** Every flag, for the check that no two share a bit. */
+        inline constexpr ValueTypeFlags every_flag[] = {
+            ValueTypeFlags::TriviallyConstructible,
+            ValueTypeFlags::TriviallyDestructible,
+            ValueTypeFlags::TriviallyCopyable,
+            ValueTypeFlags::Hashable,
+            ValueTypeFlags::Comparable,
+            ValueTypeFlags::Equatable,
+            ValueTypeFlags::BufferCompatible,
+            ValueTypeFlags::VariadicTuple,
+            ValueTypeFlags::Mutable,
+            ValueTypeFlags::Nullable,
+            ValueTypeFlags::Enum,
+            ValueTypeFlags::Owned,
+            ValueTypeFlags::ShapedArray,
+            ValueTypeFlags::Shared,
+            ValueTypeFlags::FixedEmpty,
+            ValueTypeFlags::Frame,
+        };
+
+        /** True when each flag is a single bit that no other flag has. */
+        [[nodiscard]] constexpr bool each_flag_has_its_own_bit() noexcept
+        {
+            uint32_t seen = 0;
+            for (const ValueTypeFlags flag : every_flag)
+            {
+                const auto bits = static_cast<uint32_t>(flag);
+                const bool one_bit = bits != 0 && (bits & (bits - 1)) == 0;
+                if (!one_bit || (seen & bits) != 0) { return false; }
+                seen |= bits;
+            }
+            return true;
+        }
+    }  // namespace value_type_flags_detail
+
+    static_assert(value_type_flags_detail::each_flag_has_its_own_bit(),
+                  "each ValueTypeFlags value is one bit that no other flag has");
 
     /** Bitwise OR over ``ValueTypeFlags``. */
     constexpr ValueTypeFlags operator|(ValueTypeFlags lhs, ValueTypeFlags rhs) noexcept

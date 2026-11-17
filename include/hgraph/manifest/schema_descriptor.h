@@ -24,13 +24,14 @@
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/manifest/canonical.h>
+#include <hgraph/types/metadata/value_type_meta_data.h>
 
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 
 namespace hgraph
 {
-    struct ValueTypeMetaData;
     struct TSValueTypeMetaData;
     class ValueView;
 }  // namespace hgraph
@@ -46,6 +47,29 @@ namespace hgraph::manifest
 
     /** Append the canonical descriptor for a value-layer schema. */
     HGRAPH_EXPORT void append_value_descriptor(CanonicalWriter &writer, const ValueTypeMetaData *meta);
+
+    /**
+     * The flags of a value schema as its descriptor writes them.
+     *
+     * ``ValueTypeFlags::Frame`` was released on the bit that
+     * ``ValueTypeFlags::FixedEmpty`` has. The two are separate flags now, and
+     * a descriptor still writes ``Frame`` on that bit, so the descriptor of a
+     * typed frame is the one stored tables and manifests hold. Nothing is
+     * lost: no schema has both traits, a frame being an atomic and
+     * ``FixedEmpty`` a trait of a List, and the kind is written beside the
+     * flags. For the same reason a typed frame's descriptor keeps the fixed
+     * size of zero it was written with while it read as a fixed empty List.
+     */
+    [[nodiscard]] constexpr std::uint64_t descriptor_flags(ValueTypeFlags flags) noexcept
+    {
+        constexpr std::uint32_t frame_as_written = 1u << 14;
+        auto bits = static_cast<std::uint32_t>(flags);
+        if (has_flag(flags, ValueTypeFlags::Frame))
+        {
+            bits = (bits & ~static_cast<std::uint32_t>(ValueTypeFlags::Frame)) | frame_as_written;
+        }
+        return bits;
+    }
 
     /** Append the canonical descriptor for a time-series schema. */
     HGRAPH_EXPORT void append_ts_descriptor(CanonicalWriter &writer, const TSValueTypeMetaData *meta);

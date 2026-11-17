@@ -407,3 +407,39 @@ TEST_CASE("signal graph descriptors do not depend on a source being offered as a
     }
     CHECK_THROWS_AS(wrong.type(), std::invalid_argument);
 }
+
+TEST_CASE("manifest: a typed Frame and a fixed empty List keep the descriptors stored tables hold")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.value_type("int");
+    REQUIRE(integer != nullptr);
+    const auto *row = registry.bundle("tests.flag_bits.wire", "Row", {{"id", integer}}, {}, true);
+    const auto hex = [](const std::vector<std::byte> &bytes) {
+        std::string out;
+        static constexpr char digits[] = "0123456789abcdef";
+        for (const std::byte b : bytes)
+        {
+            out.push_back(digits[std::to_integer<unsigned>(b) >> 4]);
+            out.push_back(digits[std::to_integer<unsigned>(b) & 0xf]);
+        }
+        return out;
+    };
+
+    // ``Frame`` and ``FixedEmpty`` were one bit and are two. What a
+    // descriptor writes for each is what it wrote before, byte for byte:
+    // these are the descriptors as they were with the flags on one bit.
+    CHECK(hex(manifest::value_descriptor(registry.frame(row))) ==
+          "8501010002a88001030004206672616d655b74657374732e666c61675f626974732e776972653a3a526f775d"
+          "05570102027f08010c0102696403060100027f03020942011474657374732e666c61675f626974732e77697265"
+          "0203526f77040105085f5f747970655f5f061974657374732e666c61675f626974732e776972653a3a526f77"
+          "0700");
+    CHECK(hex(manifest::value_descriptor(registry.fixed_list(integer, 0))) == "10010302ff800105060100027f03020700");
+
+    // The flag itself is on its own bit, and is written on the old one.
+    CHECK(static_cast<std::uint32_t>(ValueTypeFlags::Frame) != static_cast<std::uint32_t>(ValueTypeFlags::FixedEmpty));
+    CHECK(manifest::descriptor_flags(ValueTypeFlags::Frame | ValueTypeFlags::Hashable) ==
+          ((1u << 14) | static_cast<std::uint32_t>(ValueTypeFlags::Hashable)));
+    CHECK(manifest::descriptor_flags(ValueTypeFlags::FixedEmpty) == (1u << 14));
+    CHECK(manifest::descriptor_flags(ValueTypeFlags::Hashable) == static_cast<std::uint32_t>(ValueTypeFlags::Hashable));
+}
