@@ -1351,7 +1351,17 @@ namespace hgraph
             payload's type. */
         void set(const ValueView &payload) const
         {
-            auto  mutation = TSOutputView::begin_mutation(evaluation_time());
+            auto mutation = TSOutputView::begin_mutation(evaluation_time());
+            // In place where the output's storage is the value's own: the
+            // payload's copy and one validity bit, and no allocation of the
+            // Optional's. Storage with side rules of its own takes a value
+            // built apart and moved in.
+            if (auto destination = mutation.mutable_value(); destination.valid())
+            {
+                destination.as_mutable_optional().set(payload);
+                mutation.mark_modified();
+                return;
+            }
             Value held{mutation.value().binding()};
             held.view().as_optional().begin_mutation().set(payload);
             commit(mutation, std::move(held));
@@ -1364,11 +1374,19 @@ namespace hgraph
                      !std::same_as<std::remove_cvref_t<U>, Value> && std::constructible_from<TValue, U &&>)
         void set(U &&payload) const
         {
-            auto         mutation = TSOutputView::begin_mutation(evaluation_time());
-            Value        held{mutation.value().binding()};
-            const auto   optional = held.view().as_optional().begin_mutation();
             const TValue resolved{std::forward<U>(payload)};
-            optional.set(ValueView{optional.payload_binding(), static_cast<const void *>(&resolved)});
+            const auto   hold = [&resolved](const MutableOptionalView &optional) {
+                optional.set(ValueView{optional.payload_binding(), static_cast<const void *>(&resolved)});
+            };
+            auto mutation = TSOutputView::begin_mutation(evaluation_time());
+            if (auto destination = mutation.mutable_value(); destination.valid())
+            {
+                hold(destination.as_mutable_optional());
+                mutation.mark_modified();
+                return;
+            }
+            Value held{mutation.value().binding()};
+            hold(held.view().as_optional().begin_mutation());
             commit(mutation, std::move(held));
         }
 
@@ -1377,6 +1395,12 @@ namespace hgraph
         void set_null() const
         {
             auto mutation = TSOutputView::begin_mutation(evaluation_time());
+            if (auto destination = mutation.mutable_value(); destination.valid())
+            {
+                destination.as_mutable_optional().reset();
+                mutation.mark_modified();
+                return;
+            }
             commit(mutation, Value{mutation.value().binding()});
         }
 
