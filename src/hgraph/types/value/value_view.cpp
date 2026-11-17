@@ -181,11 +181,35 @@ namespace hgraph
             return true;
         }
 
+        // Optional[T] (RFC 0050), across two realizations of one schema:
+        // nothing equals nothing and orders before a held payload, and two
+        // held payloads compare as the payloads do.
+        [[nodiscard]] bool semantic_optional_equals(const ValueView &lhs, const ValueView &rhs)
+        {
+            const auto a = lhs.as_optional();
+            const auto b = rhs.as_optional();
+            if (!a.has_value() || !b.has_value()) { return a.has_value() == b.has_value(); }
+            return a.value().equals(b.value());
+        }
+
+        [[nodiscard]] std::partial_ordering semantic_optional_compare(const ValueView &lhs, const ValueView &rhs)
+        {
+            const auto a = lhs.as_optional();
+            const auto b = rhs.as_optional();
+            if (!a.has_value() || !b.has_value())
+            {
+                if (a.has_value() == b.has_value()) { return std::partial_ordering::equivalent; }
+                return a.has_value() ? std::partial_ordering::greater : std::partial_ordering::less;
+            }
+            return a.value().compare(b.value());
+        }
+
         [[nodiscard]] bool semantic_equals(const ValueView &lhs, const ValueView &rhs)
         {
             const auto *schema = structural_schema(lhs.schema());
             if (schema == nullptr) { return false; }
 
+            if (schema->value_kind() == ValueTypeKind::Optional) { return semantic_optional_equals(lhs, rhs); }
             if (ordered_indexed_kind(schema->value_kind())) { return semantic_indexed_equals(lhs, rhs); }
             if (schema->value_kind() == ValueTypeKind::Set) { return semantic_set_equals(lhs, rhs); }
             if (schema->value_kind() == ValueTypeKind::Map) { return semantic_map_equals(lhs, rhs); }
@@ -196,6 +220,8 @@ namespace hgraph
         {
             const auto *schema = structural_schema(lhs.schema());
             if (schema == nullptr) { return std::partial_ordering::unordered; }
+
+            if (schema->value_kind() == ValueTypeKind::Optional) { return semantic_optional_compare(lhs, rhs); }
 
             if (ordered_indexed_kind(schema->value_kind())) { return semantic_indexed_compare(lhs, rhs); }
 
