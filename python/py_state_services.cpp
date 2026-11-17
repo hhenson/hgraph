@@ -1490,6 +1490,8 @@ namespace hgraph::python_bridge
     m.def("_set_removed_sentinel", [](nb::object sentinel) { PyTimeSeries::removed_slot() = std::move(sentinel); });
     m.def("_set_remove_if_exists_sentinel",
           [](nb::object sentinel) { remove_if_exists_sentinel_slot() = std::move(sentinel); });
+    m.def("_set_null_sentinel",
+          [](nb::object sentinel) { python_bridge::null_sentinel_slot() = std::move(sentinel); });
     m.def("_set_removed_class", [](nb::object cls) { python_bridge::removed_class_slot() = std::move(cls); });
     m.def("_set_set_delta_class", [](nb::object cls) { python_bridge::set_delta_class_slot() = std::move(cls); });
     m.def("_set_delta_shaper", [](nb::object fn) { python_bridge::delta_shaper_slot() = std::move(fn); });

@@ -577,6 +577,26 @@ Value and reference crossings
   not seen registers under ``module.qualname``. A bare class name is never
   looked up, so two classes of one name in two modules are two types, and a
   user's ``CmpResult`` is not hgraph's.
+- **``Optional[T]`` is its payload, or ``Null``** (RFC 0050). Directly under
+  ``TS[...]``, ``Optional[T]`` and ``T | None`` become the value type
+  ``optional_vt(T)``; ``_TSMeta.__getitem__`` makes that choice, so
+  ``_value_type`` keeps dropping the ``None`` of a union for a field and an
+  element, as before. The value's conversion gives the payload with no
+  wrapper, and the ``Null`` sentinel (``null_sentinel_slot``, handed over at
+  import as ``REMOVE`` is) for the unset state; it reads ``Null`` as unset
+  and anything else as a payload.
+
+  * A read splits the two meanings of ``None``. The atomic TSData *value*
+    conversion turns ``Null`` into ``None``, so ``input.value`` is ``None``
+    for a tick whose value is unset; the *delta* conversion keeps ``Null``,
+    since ``None`` there is "not modified". Where the current value stands
+    in for a delta (a sampled rebind), it is given in the delta form.
+  * A write refuses ``Null`` wherever the value written is no ``Optional``
+    (``require_null_admitted``), as a Python ``TypeError``, so one from a
+    node's result is the cause of the node's failure.
+  * An ``Optional`` keeps no retained Python object beside its value: each
+    read converts through the value's own ops.
+
 - **References are values** (ruling 2026-07-05): ``REF`` crosses the boundary
   as an opaque value; ``.output`` is deliberately not exposed. A non-REF
   parameter bound to a REF source receives the *dereferenced* value (binding

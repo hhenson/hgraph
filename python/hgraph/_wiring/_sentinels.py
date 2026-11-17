@@ -1,8 +1,9 @@
 """Delta sentinels shared across the wiring layer.
 
-``REMOVE``/``Removed``/``_SetDelta`` are identity-critical: they are handed
-to the C++ bridge at package import (``_hgraph._set_removed_sentinel`` and
-friends) so class identity — not equality — shapes TSS/TSD delta application.
+``REMOVE``/``Removed``/``_SetDelta``/``Null`` are identity-critical: they are
+handed to the C++ bridge at package import (``_hgraph._set_removed_sentinel``
+and friends) so class identity — not equality — shapes TSS/TSD delta
+application and the unset state of an ``Optional`` value.
 Define them here once; every other module re-exports."""
 
 # ``reduce(func, ts)`` has no zero, whereas ``reduce(func, ts, None)`` supplies
@@ -45,6 +46,36 @@ class _RemovedIfExists:
 
 
 REMOVE_IF_EXISTS = _RemovedIfExists()
+
+
+class _Null:
+    """hgraph's ``Null`` marker (RFC 0050): the unset state of the value of
+    a ``TS[Optional[T]]``.
+
+    A node that returns ``Null`` ticks a value that is unset: the output is
+    valid and modified, and holds no payload. ``None`` is still "no tick".
+    A reader sees ``None`` as the ``value`` of such a tick and ``Null`` as its
+    ``delta_value``, where ``None`` means "not modified"."""
+
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self):
+        return "Null"
+
+    def __bool__(self):
+        return False
+
+    def __reduce__(self):
+        # One instance, compared by identity, in every process.
+        return (_Null, ())
+
+
+Null = _Null()
 
 
 class Removed:

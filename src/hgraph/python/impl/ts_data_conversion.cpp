@@ -143,6 +143,7 @@ namespace hgraph::python_bridge
             }
             void       *memory = data.mutable_data();
             const auto *layout = table.layout_impl(table.context);
+            require_null_admitted(layout->value_binding.schema(), result);
             from_python(layout->value_binding, table.mutable_value_memory_impl(table.context, memory), result);
             auto *tracking = table.mutable_tracking_impl(table.context, memory);
             if (tracking->record_modified(evaluation_time)) { tracking->parent.notify_child_modified(evaluation_time); }
@@ -1045,6 +1046,13 @@ namespace hgraph::python_bridge
     void apply_python_result(const TSOutputView &output, nb::handle result)
     {
         if (result.is_none()) { return; }
+        // RFC 0050: only a ``TS[Optional[...]]`` has a tick for ``Null``. A
+        // collection or a reference given it whole is refused here; an
+        // atomic child is refused where it is written.
+        if (const auto *schema = output.schema(); schema != nullptr && schema->kind != TSTypeKind::TS)
+        {
+            require_null_admitted(nullptr, result);
+        }
         python_ops_for(output.storage_type())
             .apply_result_impl(output, borrow(result));
     }

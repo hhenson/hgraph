@@ -2434,6 +2434,21 @@ def _size_pattern(size):
     return _hgraph.size_pattern_value(int(size))
 
 
+def _optional_payload(scalar):
+    """``T`` when ``scalar`` is ``Optional[T]`` or ``T | None``; ``None`` for
+    any other annotation, a union of more than one type among them."""
+    import types
+    import typing
+
+    if typing.get_origin(scalar) not in (typing.Union, types.UnionType):
+        return None
+    args = typing.get_args(scalar)
+    members = tuple(arg for arg in args if arg is not type(None))
+    if len(members) == 1 and len(members) != len(args):
+        return members[0]
+    return None
+
+
 class _TSMeta(type):
     def __getitem__(cls, scalar):
         import collections.abc as _abc
@@ -2463,10 +2478,24 @@ class _TSMeta(type):
             except TypeError:
                 pass
             return expr
+        # RFC 0050: directly under ``TS[...]``, ``Optional[T]`` and ``T | None``
+        # are the value type that holds one ``T`` or is unset, so the series
+        # can tick a value that is null. Anywhere else an ``Optional`` keeps
+        # its reading: a field or an element that may be unset.
+        payload = _optional_payload(scalar)
         try:
-            value_type = _value_type(scalar)
+            if payload is not None:
+                value_type = _hgraph.optional_vt(_value_type(payload))
+                _bind_python_type(value_type, scalar)
+            else:
+                value_type = _value_type(scalar)
             expr = _TsExpr(_hgraph.ts(value_type), f"TS[{getattr(scalar, '__name__', scalar)}]")
         except _GenericType as e:
+            if payload is not None:
+                raise TypeError(
+                    f"TS[{scalar!r}]: an Optional of a type variable is not supported; "
+                    "declare the payload's type"
+                ) from None
             expr = _GenericTsExpr(
                 f"TS[{scalar!r}]",
                 pattern=_hgraph.type_pattern_ts(e.pattern),

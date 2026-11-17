@@ -102,6 +102,10 @@ namespace hgraph
             PyNewRef (*array_to_python)(const void *context, const void *memory){nullptr};
             PyNewRef (*array_to_numpy)(const void *context, const void *memory){nullptr};
             void (*array_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            /** ``Optional[T]`` (RFC 0050): the payload, or the ``Null``
+                sentinel for the unset state. ``context`` is the composite's. */
+            PyNewRef (*optional_to_python)(const void *context, const void *memory){nullptr};
+            void (*optional_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
             PyNewRef (*owned_to_python)(const void *context, const void *memory){nullptr};
             void (*owned_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
             PyNewRef (*shared_to_python)(const void *context, const void *memory){nullptr};

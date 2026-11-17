@@ -1703,8 +1703,14 @@ struct CompositeIndexedOpsEntry {
          schema.is_hashable() ? &composite_value_hash : nullptr,
          &composite_value_equals, &composite_value_compare,
          &composite_value_to_string,
-         &python_ops_detail::forwarder<&PythonOps::Realized::composite_to_python>::call,
-         &python_ops_detail::forwarder<&PythonOps::Realized::composite_from_python>::call
+         // RFC 0050: an Optional is its payload or ``Null`` in Python, and
+         // not the one-element tuple it is by kind.
+         schema.is_optional()
+             ? &python_ops_detail::forwarder<&PythonOps::Realized::optional_to_python>::call
+             : &python_ops_detail::forwarder<&PythonOps::Realized::composite_to_python>::call,
+         schema.is_optional()
+             ? &python_ops_detail::forwarder<&PythonOps::Realized::optional_from_python>::call
+             : &python_ops_detail::forwarder<&PythonOps::Realized::composite_from_python>::call
         },
         &composite_indexed_size,
         &composite_indexed_element_at,

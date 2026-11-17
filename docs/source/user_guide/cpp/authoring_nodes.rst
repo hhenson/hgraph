@@ -185,10 +185,11 @@ In Python you ``return`` the value; in C++ you call ``out.set(...)``. Not callin
 A tick that is null — ``TS<Optional<T>>``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-**Available in C++.** A ``TS<T>`` either ticks a ``T`` or does not tick. Where a
+**Available.** A ``TS<T>`` either ticks a ``T`` or does not tick. Where a
 node must also be able to say "there is a value now, and it is nothing", declare
-the output ``TS<Optional<T>>``. Such a tick is a tick like any other: the output
-is valid, it is modified, and it wakes its consumers; its value holds no payload.
+the output ``TS<Optional<T>>`` (Python: ``TS[Optional[T]]``). Such a tick is a
+tick like any other: the output is valid, it is modified, and it wakes its
+consumers; its value holds no payload.
 
 .. code-block:: cpp
 
@@ -214,6 +215,24 @@ is valid, it is modified, and it wakes its consumers; its value holds no payload
            out.set(payload.has_value() ? *payload : Int{-1});
        }
    };
+
+.. code-block:: python
+
+   @compute_node
+   def cleared(command: TS[int]) -> TS[Optional[int]]:
+       if command.value == 0:
+           return Null            # a tick whose value is null
+       if command.value < 0:
+           return None            # no tick
+       return command.value       # a tick that holds the value
+
+   @compute_node
+   def or_minus_one(value: TS[Optional[int]]) -> TS[int]:
+       return -1 if value.value is None else value.value
+
+In Python the unset state is the sentinel ``Null``: a node returns it, an
+``eval_node`` vector spells it, and ``delta_value`` reads it. ``value`` reads
+``None`` for a tick whose value is unset.
 
 ``In<..., TS<Optional<T>>>::value()`` is an ``OptionalView``: ``has_value()`` says
 whether a payload is held and ``value()`` gives it as a ``ValueView``, for a payload

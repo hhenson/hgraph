@@ -1,0 +1,180 @@
+"""``TS[Optional[T]]`` (RFC 0050): a time series whose tick may be a null.
+
+A node returns ``Null`` to tick a value that is unset, ``None`` to not tick,
+and a payload to tick a value that holds it. A reader sees ``None`` as the
+``value`` of a tick whose value is unset, with the input valid, and ``Null``
+as its ``delta_value``.
+"""
+
+import pickle
+from typing import Optional
+
+import pytest
+
+import hgraph as hg
+from hgraph import CompoundScalar, Null, TS, compute_node, eval_node, graph
+
+
+@compute_node
+def cleared(command: TS[int]) -> TS[Optional[int]]:
+    if command.value == 0:
+        return Null  # a tick whose value is null
+    if command.value < 0:
+        return None  # no tick, as on every output
+    return command.value  # a tick that holds the value
+
+
+def test_a_node_ticks_a_payload_a_null_or_nothing():
+    assert eval_node(cleared, [5, 0, -1, 7, 0, 0]) == [5, Null, None, 7, Null, Null]
+
+
+def test_none_and_null_are_two_spellings_in_a_vector():
+    @compute_node
+    def passed(value: TS[Optional[int]]) -> TS[Optional[int]]:
+        return value.delta_value
+
+    # ``None`` is no tick and ``Null`` a tick whose value is unset, on the
+    # way in and on the way out.
+    assert eval_node(passed, [5, Null, None, 7]) == [5, Null, None, 7]
+
+
+def test_value_is_none_and_delta_is_null_for_a_tick_that_is_unset():
+    @compute_node
+    def seen(value: TS[Optional[int]]) -> TS[str]:
+        delta = value.delta_value
+        return (
+            f"valid={value.valid} modified={value.modified} "
+            f"value={value.value!r} delta={'Null' if delta is Null else repr(delta)}"
+        )
+
+    assert eval_node(seen, [5, Null, None, Null]) == [
+        "valid=True modified=True value=5 delta=5",
+        "valid=True modified=True value=None delta=Null",
+        None,
+        "valid=True modified=True value=None delta=Null",
+    ]
+
+
+def test_a_tick_that_is_unset_stays_valid_while_another_input_ticks():
+    @compute_node
+    def held(value: TS[Optional[int]], other: TS[int]) -> TS[str]:
+        delta = value.delta_value
+        return f"{value.valid} {value.value!r} {'Null' if delta is Null else repr(delta)} {other.value}"
+
+    # The second cycle is driven by ``other`` alone: the unset value is
+    # still the value, and it is not modified, so its delta is ``None``.
+    assert eval_node(held, [Null, None, 3], [1, 2, 3]) == [
+        "True None Null 1",
+        "True None None 2",
+        "True 3 3 3",
+    ]
+
+
+def test_the_pipe_spelling_is_the_same_type():
+    assert TS[int | None] == TS[Optional[int]]
+    assert TS[Optional[int]] != TS[int]
+
+    @compute_node
+    def cleared_pipe(command: TS[int]) -> TS[int | None]:
+        return Null if command.value == 0 else command.value
+
+    assert eval_node(cleared_pipe, [5, 0]) == [5, Null]
+
+
+def test_an_output_takes_null_as_its_value_and_none_invalidates():
+    @compute_node
+    def assigned(command: TS[int], _output: hg.TS_OUT[Optional[int]] = None) -> TS[Optional[int]]:
+        if command.value == 0:
+            _output.value = Null
+        elif command.value > 0:
+            _output.value = command.value
+
+    assert eval_node(assigned, [5, 0, -1, 7]) == [5, Null, None, 7]
+
+
+def test_null_is_refused_by_an_output_that_is_no_optional():
+    @compute_node
+    def wrong(command: TS[int]) -> TS[int]:
+        return Null
+
+    with pytest.raises(Exception) as raised:
+        eval_node(wrong, [1])
+    chain = []
+    error = raised.value
+    while error is not None:
+        chain.append(error)
+        error = error.__cause__
+    assert any(isinstance(error, TypeError) and "Null" in str(error) for error in chain), chain
+
+    @compute_node
+    def wrong_collection(command: TS[int]) -> hg.TSS[int]:
+        return Null
+
+    with pytest.raises(Exception) as raised:
+        eval_node(wrong_collection, [1])
+    chain = []
+    error = raised.value
+    while error is not None:
+        chain.append(error)
+        error = error.__cause__
+    assert any(isinstance(error, TypeError) and "Null" in str(error) for error in chain), chain
+
+
+def test_a_payload_of_another_type_is_refused():
+    @compute_node
+    def wrong(command: TS[int]) -> TS[Optional[int]]:
+        return "text"
+
+    with pytest.raises(Exception):
+        eval_node(wrong, [1])
+
+
+def test_a_payload_may_be_a_compound_scalar():
+    class Quote(CompoundScalar):
+        bid: float
+        ask: Optional[float] = None
+
+    @compute_node
+    def quoted(command: TS[int]) -> TS[Optional[Quote]]:
+        if command.value == 0:
+            return Null
+        return Quote(bid=float(command.value))
+
+    result = eval_node(quoted, [2, 0])
+    assert result[0] == Quote(bid=2.0)
+    assert result[1] is Null
+
+
+def test_an_optional_field_of_a_compound_scalar_keeps_its_reading():
+    class Order(CompoundScalar):
+        price: float
+        note: Optional[str] = None
+
+    @compute_node
+    def note_of(order: TS[Order]) -> TS[str]:
+        return "none" if order.value.note is None else order.value.note
+
+    # A field that may be unset is not an Optional value: it reads ``None``
+    # when unset, and no ``Null`` is involved.
+    assert eval_node(note_of, [Order(price=1.0), Order(price=2.0, note="x")]) == ["none", "x"]
+
+
+def test_null_is_one_falsy_instance():
+    assert Null is type(Null)()
+    assert not Null
+    assert repr(Null) == "Null"
+    assert Null is not None
+    assert pickle.loads(pickle.dumps(Null)) is Null
+    assert hg.Null is Null
+
+
+def test_a_graph_passes_an_optional_series_between_nodes():
+    @compute_node
+    def or_minus_one(value: TS[Optional[int]]) -> TS[int]:
+        return -1 if value.value is None else value.value
+
+    @graph
+    def app(command: TS[int]) -> TS[int]:
+        return or_minus_one(cleared(command))
+
+    assert eval_node(app, [5, 0, -1, 7]) == [5, -1, None, 7]

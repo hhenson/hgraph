@@ -45,6 +45,7 @@ namespace hgraph::python_bridge
         {
             require_atomic_source(memory, source, modified_time);
             const auto &layout         = ts_data_seams::atomic_layout(context);
+            require_null_admitted(layout.value_binding.schema(), source);
             const bool  first_for_time = ts_data_seams::atomic_tracking(context, memory).last_modified_time != modified_time;
             from_python(layout.value_binding, ts_data_seams::atomic_mutable_value_memory(context, memory), source);
             return first_for_time;
@@ -55,6 +56,7 @@ namespace hgraph::python_bridge
         {
             require_atomic_source(memory, source, modified_time);
             const auto &layout         = ts_data_seams::atomic_layout(context);
+            require_null_admitted(layout.value_binding.schema(), source);
             const bool  first_for_time = ts_data_seams::atomic_tracking(context, memory).last_modified_time != modified_time;
             nb::object  retained_value = prepare_python_storage_value(layout.value_binding.schema(), source);
             from_python(layout.value_binding, ts_data_seams::atomic_mutable_value_memory(context, memory), source);
@@ -71,6 +73,20 @@ namespace hgraph::python_bridge
             return to_python(layout.value_binding, ts_data_seams::atomic_value_memory(context, memory));
         }
 
+        /** RFC 0050: the VALUE of a tick whose value is unset reads ``None``,
+            and its DELTA reads ``Null``. The value's own conversion gives
+            ``Null`` for the unset state; this is the value side of the two. */
+        [[nodiscard]] nb::object value_form(nb::object converted)
+        {
+            const nb::object &null = null_sentinel_slot();
+            return null.is_valid() && converted.is(null) ? nb::none() : converted;
+        }
+
+        [[nodiscard]] nb::object atomic_native_value_to_python(const void *context, const void *memory)
+        {
+            return value_form(atomic_native_to_python(context, memory));
+        }
+
         [[nodiscard]] nb::object atomic_cached_to_python(const void *context, const void *memory)
         {
             if (const auto *cached = retained(context, memory); cached != nullptr && cached->has_value())
@@ -80,6 +96,11 @@ namespace hgraph::python_bridge
             nb::object converted = atomic_native_to_python(context, memory);
             if (auto *cached = retained(context, memory); cached != nullptr) { cached->set(converted); }
             return converted;
+        }
+
+        [[nodiscard]] nb::object atomic_cached_value_to_python(const void *context, const void *memory)
+        {
+            return value_form(atomic_cached_to_python(context, memory));
         }
 
         [[nodiscard]] nb::object atomic_native_delta_to_python(const void *context, const void *memory,
@@ -200,15 +221,15 @@ namespace hgraph::python_bridge
     void fill_ts_data_conversions(PythonOps::TSData &section) noexcept
     {
         section.atomic_native_from_python            = &ts_from_python_slot<&atomic_native_from_python>;
-        section.atomic_native_to_python              = &to_python_slot<&atomic_native_to_python>;
+        section.atomic_native_to_python              = &to_python_slot<&atomic_native_value_to_python>;
         section.atomic_native_delta_to_python        = &ts_delta_to_python_slot<&atomic_native_delta_to_python>;
         // A Python-only output's binding IS the retained object: its value
         // slot converts straight through, like the native variant does.
         section.atomic_python_only_from_python       = &ts_from_python_slot<&atomic_native_from_python>;
-        section.atomic_python_only_to_python         = &to_python_slot<&atomic_native_to_python>;
+        section.atomic_python_only_to_python         = &to_python_slot<&atomic_native_value_to_python>;
         section.atomic_python_only_delta_to_python   = &ts_delta_to_python_slot<&atomic_python_only_delta_to_python>;
         section.atomic_cached_from_python            = &ts_from_python_slot<&atomic_cached_from_python>;
-        section.atomic_cached_to_python              = &to_python_slot<&atomic_cached_to_python>;
+        section.atomic_cached_to_python              = &to_python_slot<&atomic_cached_value_to_python>;
         section.atomic_cached_delta_to_python        = &ts_delta_to_python_slot<&atomic_cached_delta_to_python>;
         section.window_from_python                   = &ts_from_python_slot<&window_from_python>;
         section.window_to_python                     = &to_python_slot<&window_to_python>;

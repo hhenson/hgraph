@@ -52,7 +52,7 @@ from ._wiring import _GraphFn as GraphWiringNodeClass
 from ._wiring import _Generator as PythonGeneratorWiringNodeClass
 from ._wiring import GlobalContext, GlobalState, set_pooled_compound_scalar_storage, set_record_replay_config, set_as_of, set_table_schema_date_key, set_table_schema_as_of_key, evaluate_const, utc_now, get_recorded_value, get_recorder_api, get_recording_label, set_recorder_api, set_recording_label, EvaluationClock, TSW_OUT, get_context, equal_lambdas, callable_shape_key
 from ._wiring._state import set_time_zone_provider
-from ._wiring import WiringPort, WiringGraphContext, graph, run_graph, eval_node, wire, operator_function, map_, reduce, mesh_, MeshWiringPort, get_mesh, REMOVE, REMOVE_IF_EXISTS, feedback, delayed_binding, switch_, passive, compute_node, sink_node, generator, lift, lower, STATE, SCHEDULER, CLOCK, EvaluationEngineApi, LOGGER, NODE, Node, Traits, DebugContext, component, record_replay_scope, RecordReplayEnum, comparison_summary, push_queue, EvaluationMode, context, WiringError, reference_service, subscription_service, request_reply_service, register_service, service_impl, adaptor, adaptor_impl, service_adaptor, service_adaptor_impl, register_adaptor, from_graph, to_graph, impl_input, impl_output, get_service_inputs, is_realtime, set_service_output
+from ._wiring import WiringPort, WiringGraphContext, graph, run_graph, eval_node, wire, operator_function, map_, reduce, mesh_, MeshWiringPort, get_mesh, Null, REMOVE, REMOVE_IF_EXISTS, feedback, delayed_binding, switch_, passive, compute_node, sink_node, generator, lift, lower, STATE, SCHEDULER, CLOCK, EvaluationEngineApi, LOGGER, NODE, Node, Traits, DebugContext, component, record_replay_scope, RecordReplayEnum, comparison_summary, push_queue, EvaluationMode, context, WiringError, reference_service, subscription_service, request_reply_service, register_service, service_impl, adaptor, adaptor_impl, service_adaptor, service_adaptor_impl, register_adaptor, from_graph, to_graph, impl_input, impl_output, get_service_inputs, is_realtime, set_service_output
 
 from ._wiring._inspection import WiringDependency, inspect_wiring_dependencies, wiring_extension_state
 
@@ -115,6 +115,7 @@ TimeSeries = _hgraph.TimeSeries
 Graph = _hgraph.Graph
 _hgraph._set_removed_sentinel(REMOVE)
 _hgraph._set_remove_if_exists_sentinel(REMOVE_IF_EXISTS)
+_hgraph._set_null_sentinel(Null)
 _hgraph._set_requirements_error(RequirementsNotMetWiringError)
 from ._wiring import Removed as _Removed, _SetDelta, _simplify_delta
 _hgraph._set_removed_class(_Removed)
@@ -219,7 +220,7 @@ __all__ = [
     "NUMBER", "NUMBER_2", "DEFAULT",
     "spawn_", "pipeline_", "bind_",
     "WiringPort", "CmpResult", "DivideByZero", "RecordAsOf", "RecordRemoves", "NodeError", "exception_time_series", "try_except", "lift", "lower",
-    "TryExceptResult", "TryExceptTsdMapResult", "OperatorWiringNodeClass", "graph", "run_graph", "eval_node", "wire", "map_", "dmap_", "reduce", "mesh_", "MeshWiringPort", "get_mesh", "REMOVE", "REMOVE_IF_EXISTS", "feedback", "delayed_binding", "switch_", "passive", "compute_node", "sink_node", "generator", "STATE", "SCHEDULER", "CLOCK", "EvaluationEngineApi", "NODE", "Node", "Traits", "component", "record_replay_scope", "RecordReplayEnum", "comparison_summary", "push_queue", "EvaluationMode", "context",
+    "TryExceptResult", "TryExceptTsdMapResult", "OperatorWiringNodeClass", "graph", "run_graph", "eval_node", "wire", "map_", "dmap_", "reduce", "mesh_", "MeshWiringPort", "get_mesh", "Null", "REMOVE", "REMOVE_IF_EXISTS", "feedback", "delayed_binding", "switch_", "passive", "compute_node", "sink_node", "generator", "STATE", "SCHEDULER", "CLOCK", "EvaluationEngineApi", "NODE", "Node", "Traits", "component", "record_replay_scope", "RecordReplayEnum", "comparison_summary", "push_queue", "EvaluationMode", "context",
     "MIN_ST", "MIN_TD", "MIN_DT", "MAX_DT", "MAX_ET", "IN_MEMORY", "IN_MEMORY_DENSE", "DATA_FRAME",
     "default_path", "resolve_type_alias",
     "utc_now", "get_recorded_value", "get_recorder_api", "get_recording_label", "set_recorder_api", "set_recording_label", "EvaluationClock", "TSW_OUT", "get_context", "equal_lambdas", "is_feature_enabled",

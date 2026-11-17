@@ -40,6 +40,12 @@ namespace hgraph::python_bridge
           if (python_bridge::is_python_bundle_schema(schema)) {
             return true;
           }
+          // RFC 0050: an Optional's Python form is its payload or ``Null``,
+          // not the tuple it is by kind. It keeps no Python object beside
+          // its value: every read converts, through the Optional's own ops.
+          if (schema->is_optional()) {
+            return false;
+          }
           switch (schema->value_kind()) {
           case ValueTypeKind::Atomic:
             return schema == scalar_descriptor<Bool>::value_meta() ||

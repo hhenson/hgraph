@@ -638,6 +638,11 @@ nb::object &remove_if_exists_sentinel_slot() {
   return *slot;
 }
 
+nb::object &null_sentinel_slot() {
+  static auto *slot = new nb::object{};
+  return *slot;
+}
+
 nb::object &removed_class_slot() {
   static auto *slot = new nb::object{};
   return *slot;

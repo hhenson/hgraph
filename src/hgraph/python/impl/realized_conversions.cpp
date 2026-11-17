@@ -361,6 +361,41 @@ namespace hgraph::python_bridge
             }
         }
 
+        // -- Optional (RFC 0050) --------------------------------------------------
+        // An Optional is a one-element Tuple: the payload is its field 0,
+        // and the unset state that field's validity. In Python the payload
+        // is itself, with no wrapper, and the unset state is ``Null``.
+        [[nodiscard]] nb::object optional_value_to_python(const void *context, const void *memory)
+        {
+            if (memory == nullptr) { throw std::runtime_error("Optional to_python requires live value memory"); }
+            const auto *state = static_cast<const CompositeIndexedContext *>(context);
+            if (!realized_detail::composite_field_is_set(state, memory, 0))
+            {
+                nb::object &null = null_sentinel_slot();
+                if (!null.is_valid()) { throw std::runtime_error("Optional to_python: the Null sentinel is not set"); }
+                return null;
+            }
+            const auto *payload = static_cast<const std::byte *>(memory) + state->offsets[0];
+            return to_python(state->child_bindings[0].ops_ref(), payload);
+        }
+
+        void optional_value_from_python(const void *context, const ValueTypeRef &, void *memory, nb::handle source)
+        {
+            if (memory == nullptr) { throw std::runtime_error("Optional from_python requires live value memory"); }
+            // ``None`` is "no tick" where a time series is written, and is
+            // handled there: it forms no value (RFC 0004).
+            require_python_source(source, "Optional value");
+            const auto *state = static_cast<const CompositeIndexedContext *>(context);
+            if (nb::object &null = null_sentinel_slot(); null.is_valid() && source.is(null))
+            {
+                realized_detail::composite_set_field_validity(state, memory, 0, false);
+                return;
+            }
+            auto *payload = static_cast<std::byte *>(memory) + state->offsets[0];
+            assign_child_from_python(state->child_bindings[0], payload, source, "Optional value");
+            realized_detail::composite_set_field_validity(state, memory, 0, true);
+        }
+
         // -- owned and shared entries ---------------------------------------------
         [[nodiscard]] nb::object owned_entry_to_python(const void *, const void *memory)
         {
@@ -554,6 +589,8 @@ namespace hgraph::python_bridge
         section.array_to_python           = &to_python_slot<&array_value_to_python>;
         section.array_to_numpy            = &to_python_slot<&array_value_to_numpy>;
         section.array_from_python         = &from_python_slot<&array_value_from_python>;
+        section.optional_to_python        = &to_python_slot<&optional_value_to_python>;
+        section.optional_from_python      = &from_python_slot<&optional_value_from_python>;
         section.owned_to_python           = &to_python_slot<&owned_entry_to_python>;
         section.owned_from_python         = &from_python_slot<&owned_entry_from_python>;
         section.shared_to_python          = &to_python_slot<&shared_entry_to_python>;

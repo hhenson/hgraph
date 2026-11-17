@@ -142,6 +142,13 @@ namespace hgraph::python_bridge
     {
         return from_python(view, source);
     }
+    /**
+     * RFC 0050: ``Null`` is the unset state of an ``Optional[T]`` value, and a
+     * time series of any other value has no tick for it. Raises ``TypeError``
+     * when ``source`` is ``Null`` and ``value_schema`` is no ``Optional``.
+     */
+    HGRAPH_EXPORT void require_null_admitted(const ValueTypeMetaData *value_schema, nb::handle source);
+
     /** Export an input's current value through the resolved endpoint's erased TSDataOps. */
     [[nodiscard]] HGRAPH_EXPORT nb::object value_to_python(const TSInputView &view);
     /** Export an input's delta, preserving the sampled-rebind semantics TSInputView owns. */
