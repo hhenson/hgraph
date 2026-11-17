@@ -11,6 +11,8 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/primitive_types.h>
+#include <hgraph/manifest/canonical.h>
+#include <hgraph/manifest/schema_descriptor.h>
 #include <hgraph/types/metadata/schema_table.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/value/binary_codec.h>
@@ -21,6 +23,7 @@
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/types/value/visitor.h>
 
+#include <algorithm>
 #include <array>
 #include <compare>
 #include <stdexcept>
@@ -505,4 +508,28 @@ TEST_CASE("Optional: two realizations of one schema compare as one")
     CHECK(five_a.view().compare(none_b.view()) == std::partial_ordering::greater);
     CHECK(five_a.view().compare(seven_b.view()) == std::partial_ordering::less);
     CHECK(five_a.view().compare(five_b.view()) == std::partial_ordering::equivalent);
+}
+
+TEST_CASE("Optional: a manifest encodes whether it holds a payload, and then the payload")
+{
+    const auto encoded = [](const Value &value) {
+        manifest::CanonicalWriter writer;
+        manifest::encode_manifest_scalar(writer, value.view());
+        return writer.take();
+    };
+    const auto *schema = scalar_descriptor<std::optional<Int>>::value_meta();
+    std::string reason;
+    REQUIRE(manifest::manifest_scalar_encodable(schema, &reason));
+
+    // Nothing is one byte, and a payload is that byte set and then the
+    // payload as it is encoded alone.
+    const auto none = encoded(unset());
+    const auto five = encoded(held(5));
+    const auto plain = encoded(Value{Int{5}});
+    REQUIRE(none.size() == 1);
+    CHECK(none[0] == std::byte{0});
+    REQUIRE(five.size() == plain.size() + 1);
+    CHECK(five[0] == std::byte{1});
+    CHECK(std::equal(plain.begin(), plain.end(), five.begin() + 1));
+    CHECK(encoded(held(7)) != five);
 }
