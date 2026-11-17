@@ -18,6 +18,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <exception>
+#include <optional>
+#include <stdexcept>
 #include <string>
 
 namespace
@@ -44,6 +47,68 @@ namespace
             wire<stdlib::dense_record_impl>(w, wire<ThrowOnNegative>(w, x), Str{"out"});
         }
     };
+
+    /** A failure that carries more than its text. */
+    struct CodedFailure final : std::runtime_error
+    {
+        explicit CodedFailure(int code_) : std::runtime_error("coded failure"), code(code_) {}
+        int code;
+    };
+
+    struct ThrowCoded
+    {
+        static constexpr auto name = "introspection_coded_thrower";
+        static void           eval(In<"x", TS<Int>> x, Out<TS<Int>> out)
+        {
+            if (x.value() < 0) { throw CodedFailure{7}; }
+            out.set(x.value());
+        }
+    };
+
+    struct CodedGraph
+    {
+        static constexpr auto name = "introspection_coded_graph";
+        static void           compose(Wiring &w)
+        {
+            auto x = wire<stdlib::replay_impl, TS<Int>>(w, Str{"x"});
+            wire<stdlib::dense_record_impl>(w, wire<ThrowCoded>(w, x), Str{"out"});
+        }
+    };
+
+    struct ThrowCodedOnStart
+    {
+        static constexpr auto name = "introspection_coded_starter";
+        static void           start() { throw CodedFailure{11}; }
+        static void           eval(In<"x", TS<Int>> x, Out<TS<Int>> out) { out.set(x.value()); }
+    };
+
+    struct CodedStartGraph
+    {
+        static constexpr auto name = "introspection_coded_start_graph";
+        static void           compose(Wiring &w)
+        {
+            auto x = wire<stdlib::replay_impl, TS<Int>>(w, Str{"x"});
+            wire<stdlib::dense_record_impl>(w, wire<ThrowCodedOnStart>(w, x), Str{"out"});
+        }
+    };
+
+    /** The ``CodedFailure`` beneath ``failure``, at any depth of nesting. */
+    [[nodiscard]] std::optional<int> nested_code(const std::exception &failure)
+    {
+        if (const auto *coded = dynamic_cast<const CodedFailure *>(&failure)) { return coded->code; }
+        try
+        {
+            std::rethrow_if_nested(failure);
+        }
+        catch (const std::exception &nested)
+        {
+            return nested_code(nested);
+        }
+        catch (...)
+        {
+        }
+        return std::nullopt;
+    }
 }  // namespace
 
 TEST_CASE("diagnostics: an exception escaping the root graph names the throwing node")
@@ -55,6 +120,55 @@ TEST_CASE("diagnostics: an exception escaping the root graph names the throwing 
     CHECK_THROWS_WITH(run_graph(std::move(gb), MIN_ST, MAX_ET),
                       ContainsSubstring("node[") && ContainsSubstring("introspection_thrower") &&
                           ContainsSubstring("boom"));
+}
+
+TEST_CASE("diagnostics: the annotated failure nests the node's own exception")
+{
+    GraphBuilder gb = build_graph<CodedGraph>();
+    set_replay_values<Int>(gb.global_state(), "x", values<Int>(5, -3));
+
+    using Catch::Matchers::ContainsSubstring;
+    bool found = false;
+    try
+    {
+        static_cast<void>(run_graph(std::move(gb), MIN_ST, MAX_ET));
+        FAIL("the graph ran to its end");
+    }
+    catch (const std::exception &annotated)
+    {
+        CHECK_THAT(std::string{annotated.what()},
+                   ContainsSubstring("node[") && ContainsSubstring("introspection_coded_thrower") &&
+                       ContainsSubstring("coded failure"));
+        // The root annotation adds the node's identity to the text and keeps
+        // the failure it annotates beneath it, so a caller can still reach
+        // what the node threw. The Python bridge finds a callback's
+        // exception the same way.
+        found = nested_code(annotated) == 7;
+    }
+    CHECK(found);
+}
+
+TEST_CASE("diagnostics: a lifecycle failure nests the node's own exception")
+{
+    GraphBuilder gb = build_graph<CodedStartGraph>();
+    set_replay_values<Int>(gb.global_state(), "x", values<Int>(5));
+
+    using Catch::Matchers::ContainsSubstring;
+    bool found = false;
+    try
+    {
+        static_cast<void>(run_graph(std::move(gb), MIN_ST, MAX_ET));
+        FAIL("the graph ran to its end");
+    }
+    catch (const std::exception &annotated)
+    {
+        CHECK_THAT(std::string{annotated.what()},
+                   ContainsSubstring("introspection_coded_starter") && ContainsSubstring("start failed"));
+        // A start or a stop failure is made canonical on its way out, and
+        // the canonical failure keeps the one it was made from.
+        found = nested_code(annotated) == 11;
+    }
+    CHECK(found);
 }
 
 TEST_CASE("diagnostics: GraphView::dump lists every node with its schedule state")

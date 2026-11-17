@@ -13,6 +13,7 @@
  * register_python_overloads()).
  */
 #include "py_bindings.h"
+#include "py_exception.h"
 #include "py_runtime.h"
 
 #include <hgraph/util/scope.h>
@@ -76,8 +77,9 @@ template <typename Fn> decltype(auto) translate_python_error(Fn &&fn) {
     return std::forward<Fn>(fn)();
   } catch (const nb::python_error &error) {
     // python_error::what() formats the active traceback and therefore
-    // must be consumed before the surrounding GIL guard unwinds.
-    throw std::runtime_error(error.what());
+    // must be consumed before the surrounding GIL guard unwinds. The
+    // exception itself is kept beside that text for the run's caller.
+    throw PythonCallbackError(error);
   }
 }
 

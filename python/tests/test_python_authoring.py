@@ -881,6 +881,102 @@ def test_python_exception_is_translated_before_leaving_the_gil_scope():
           f"missing native node context: {error}")
 
 
+class _Coded(Exception):
+    """An exception that carries more than its text."""
+
+    def __init__(self, code):
+        super().__init__(f"failed with {code}")
+        self.code = code
+
+
+def test_node_failure_is_raised_from_the_python_exception():
+    @hg.compute_node
+    def broken(value: TS[int]) -> TS[int]:
+        raise _Coded("numeric.division_by_zero")
+
+    error = expect_raises(RuntimeError, lambda: eval_node(broken, [7]),
+                          "failed with numeric.division_by_zero")
+    check("node[" in str(error) and "evaluate failed" in str(error),
+          f"the message keeps the native node context: {error}")
+    cause = error.__cause__
+    check(isinstance(cause, _Coded), f"the node's exception is the cause: {cause!r}")
+    check(cause.code == "numeric.division_by_zero", "the cause is the object the node raised")
+    check(cause.__traceback__ is not None, "the cause keeps its traceback")
+    check(error.__suppress_context__, "the cause stands as `raise ... from` leaves it")
+
+
+def test_failure_cause_survives_lifecycle_hooks_generators_and_nested_graphs():
+    @hg.compute_node
+    def starts_badly(value: TS[int]) -> TS[int]:
+        return value.value
+
+    @starts_badly.start
+    def starts_badly_start():
+        raise _Coded("start")
+
+    error = expect_raises(RuntimeError, lambda: eval_node(starts_badly, [1]), "failed with start")
+    check(isinstance(error.__cause__, _Coded) and error.__cause__.code == "start",
+          f"a start hook's exception is the cause: {error.__cause__!r}")
+
+    @hg.compute_node
+    def stops_badly(value: TS[int]) -> TS[int]:
+        return value.value
+
+    @stops_badly.stop
+    def stops_badly_stop():
+        raise _Coded("stop")
+
+    error = expect_raises(RuntimeError, lambda: eval_node(stops_badly, [1]), "failed with stop")
+    check(isinstance(error.__cause__, _Coded) and error.__cause__.code == "stop",
+          f"a stop hook's exception is the cause: {error.__cause__!r}")
+
+    @hg.generator
+    def broken_source() -> TS[int]:
+        yield hg.MIN_ST, 1
+        raise _Coded("generator")
+
+    error = expect_raises(RuntimeError, lambda: run_graph(broken_source), "failed with generator")
+    check(isinstance(error.__cause__, _Coded) and error.__cause__.code == "generator",
+          f"a generator's exception is the cause: {error.__cause__!r}")
+
+    @hg.compute_node
+    def broken(value: TS[int]) -> TS[int]:
+        raise _Coded("nested")
+
+    @graph
+    def keyed(values: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return hg.map_(broken, values)
+
+    error = expect_raises(RuntimeError, lambda: eval_node(keyed, [{"a": 1}]), "failed with nested")
+    check(isinstance(error.__cause__, _Coded) and error.__cause__.code == "nested",
+          f"a nested graph's exception is the cause: {error.__cause__!r}")
+
+
+def test_retained_run_failure_is_raised_from_the_python_exception():
+    @hg.compute_node
+    def broken(value: TS[int]) -> TS[int]:
+        raise _Coded("retained")
+
+    @graph
+    def app():
+        hg.null_sink(broken(hg.const(1)))
+
+    error = expect_raises(
+        RuntimeError,
+        lambda: hg.evaluate_graph(app, hg.GraphConfiguration(cleanup_on_error=False)),
+        "failed with retained")
+    check(hasattr(error, "_hgraph_failed_run"), "the failed run is retained")
+    check(isinstance(error.__cause__, _Coded) and error.__cause__.code == "retained",
+          f"the retained failure keeps its cause: {error.__cause__!r}")
+
+
+def test_native_failure_has_no_python_cause():
+    # A failure that began in native code has no Python exception to be
+    # raised from.
+    error = expect_raises(RuntimeError, lambda: eval_node(hg.div_, [1], [0]))
+    check(error.__cause__ is None, f"a native failure has no cause: {error.__cause__!r}")
+
+
 def test_python_graphs_work_as_native_higher_order_functions():
     @graph
     def transform(value: TS[int]) -> TS[int]:

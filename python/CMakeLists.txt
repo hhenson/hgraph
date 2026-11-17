@@ -10,6 +10,7 @@ if(_hgraph_use_python_stable_abi)
 endif()
 nanobind_add_module(_hgraph ${_hgraph_nanobind_options}
     module.cpp
+    py_exception.cpp
     py_nodes.cpp
     py_ports.cpp
     py_state_services.cpp
