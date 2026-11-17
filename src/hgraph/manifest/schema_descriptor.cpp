@@ -616,6 +616,12 @@ namespace hgraph::manifest
                     writer.bytes_field(value_bytes);
                 }
             },
+            // An Optional (RFC 0050): whether it holds a payload, and then
+            // the payload's own encoding when it does.
+            [&](const OptionalView &optional) {
+                writer.varint(optional.has_value() ? 1 : 0);
+                if (optional.has_value()) { encode_manifest_scalar(writer, optional.value()); }
+            },
             [&](const CyclicBufferView &) -> void {
                 throw UnsupportedManifestValue(
                     "cyclic-buffer values have no canonical manifest encoding");
