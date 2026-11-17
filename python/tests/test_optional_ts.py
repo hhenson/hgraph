@@ -178,3 +178,41 @@ def test_a_graph_passes_an_optional_series_between_nodes():
         return or_minus_one(cleared(command))
 
     assert eval_node(app, [5, 0, -1, 7]) == [5, -1, None, 7]
+
+
+def test_an_alias_that_names_an_optional_is_one():
+    type MaybeInt = int | None
+    type Maybe[T] = T | None
+
+    assert TS[MaybeInt] == TS[Optional[int]]
+    assert TS[Maybe[int]] == TS[Optional[int]]
+
+    @compute_node
+    def cleared_alias(command: TS[int]) -> TS[MaybeInt]:
+        return Null if command.value == 0 else command.value
+
+    assert eval_node(cleared_alias, [5, 0]) == [5, Null]
+
+
+def test_a_sampled_rebind_reads_its_delta_in_the_delta_form():
+    # ``switch_`` rebinds its output to another branch's series. A branch
+    # that was already valid is sampled: its current value is the delta of
+    # the cycle it is switched to, and for a value that is unset that
+    # delta is ``Null``, as it is for a tick of its own.
+    @compute_node
+    def seen(value: TS[Optional[int]]) -> TS[str]:
+        delta = value.delta_value
+        return f"{value.value!r} {'Null' if delta is Null else repr(delta)}"
+
+    @graph
+    def app(select: TS[bool], command: TS[int], other: TS[int]) -> TS[str]:
+        chosen = hg.if_then_else(select, cleared(command), cleared(other))
+        return seen(chosen)
+
+    # The branch switched to holds a payload, and then one that is unset.
+    result = eval_node(app, [True, None, False], [0, None, None], [7, None, None])
+    assert result[0] == "None Null"
+    assert result[2] == "7 7"
+    result = eval_node(app, [True, None, False], [5, None, None], [0, None, None])
+    assert result[0] == "5 5"
+    assert result[2] == "None Null"

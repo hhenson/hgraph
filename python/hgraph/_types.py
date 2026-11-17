@@ -2482,7 +2482,11 @@ class _TSMeta(type):
         # are the value type that holds one ``T`` or is unset, so the series
         # can tick a value that is null. Anywhere else an ``Optional`` keeps
         # its reading: a field or an element that may be unset.
-        payload = _optional_payload(scalar)
+        # A PEP 695 alias is looked through first, ``type Maybe = int | None``
+        # and ``Maybe[int]`` of ``type Maybe[T] = T | None``, so that the alias
+        # reads as the type it names. ``scalar`` stays what was written, for
+        # the reverse binding.
+        payload = _optional_payload(resolve_type_alias(scalar))
         try:
             if payload is not None:
                 value_type = _hgraph.optional_vt(_value_type(payload))

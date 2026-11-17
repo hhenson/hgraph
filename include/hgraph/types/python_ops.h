@@ -133,6 +133,9 @@ namespace hgraph
             FromPythonFn    atomic_native_from_python{nullptr};
             ToPythonFn      atomic_native_to_python{nullptr};
             DeltaToPythonFn atomic_native_delta_to_python{nullptr};
+            /** The atomic value in its delta form (RFC 0050): what
+                ``TSDataOps::value_as_delta_to_python_impl`` forwards to. */
+            ToPythonFn      atomic_native_value_as_delta_to_python{nullptr};
             FromPythonFn    atomic_python_only_from_python{nullptr};
             ToPythonFn      atomic_python_only_to_python{nullptr};
             DeltaToPythonFn atomic_python_only_delta_to_python{nullptr};

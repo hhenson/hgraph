@@ -363,6 +363,15 @@ namespace hgraph
         PyNewRef (*delta_to_python_impl)(const void *context,
                                          const void *memory,
                                          DateTime evaluation_time) = &ts_data_detail::missing_delta_to_python;
+        // The CURRENT VALUE in the form a delta of it has (RFC 0050). A
+        // bound input's delta is sometimes its target's current value and
+        // not the target's own delta: a sampled rebind, where the target
+        // last ticked in an earlier cycle. The live endpoint says how that
+        // value reads as a delta. Null means "as ``to_python_impl`` gives
+        // it", which holds wherever the two forms agree. An atomic TS
+        // installs its own: the value of a tick whose Optional is unset
+        // reads ``None``, and its delta reads ``Null``.
+        PyNewRef (*value_as_delta_to_python_impl)(const void *context, const void *memory) = nullptr;
         // User-facing rendering owned by this live TSData strategy. The
         // canonical implementation delegates to the current value's ValueOps
         // table. Structurally distinct TS representations that share a value

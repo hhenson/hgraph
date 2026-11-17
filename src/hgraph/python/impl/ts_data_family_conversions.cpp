@@ -223,6 +223,9 @@ namespace hgraph::python_bridge
         section.atomic_native_from_python            = &ts_from_python_slot<&atomic_native_from_python>;
         section.atomic_native_to_python              = &to_python_slot<&atomic_native_value_to_python>;
         section.atomic_native_delta_to_python        = &ts_delta_to_python_slot<&atomic_native_delta_to_python>;
+        // The value in its delta form is the value's own conversion, with
+        // ``Null`` left as it is.
+        section.atomic_native_value_as_delta_to_python = &to_python_slot<&atomic_native_to_python>;
         // A Python-only output's binding IS the retained object: its value
         // slot converts straight through, like the native variant does.
         section.atomic_python_only_from_python       = &ts_from_python_slot<&atomic_native_from_python>;

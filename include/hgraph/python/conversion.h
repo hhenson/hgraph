@@ -143,6 +143,15 @@ namespace hgraph::python_bridge
         return from_python(view, source);
     }
     /**
+     * The current value of ``view`` in the form a delta of it has (RFC 0050),
+     * for where a bound input's delta is its target's current value: a
+     * sampled rebind. Dispatches through the endpoint's
+     * ``value_as_delta_to_python_impl``; an endpoint that installs none gives
+     * its value, the two forms being one. ``None`` when there is no value.
+     */
+    [[nodiscard]] HGRAPH_EXPORT nb::object value_as_delta_to_python(const TSDataView &view);
+
+    /**
      * RFC 0050: ``Null`` is the unset state of an ``Optional[T]`` value, and a
      * time series of any other value has no tick for it. Raises ``TypeError``
      * when ``source`` is ``Null`` and ``value_schema`` is no ``Optional``.

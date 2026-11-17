@@ -127,6 +127,14 @@ namespace hgraph::python_bridge
         return take(table.to_python_impl(table.context, view.data()));
     }
 
+    nb::object value_as_delta_to_python(const TSDataView &view)
+    {
+        const auto &table = view.ops();
+        if (!table.has_current_value_impl(table.context, view.data())) { return nb::none(); }
+        if (table.value_as_delta_to_python_impl == nullptr) { return take(table.to_python_impl(table.context, view.data())); }
+        return take(table.value_as_delta_to_python_impl(table.context, view.data()));
+    }
+
     nb::object delta_value_to_python(const TSDataView &view, DateTime evaluation_time)
     {
         const auto &table = view.ops();
@@ -172,30 +180,19 @@ namespace hgraph::python_bridge
         const auto data = view.input_data_view();
         if (!data.valid()) { return nb::none(); }
 
-        // RFC 0050: where the current VALUE stands for the delta, below, a
-        // tick whose value is unset reads ``None`` as a value and ``Null``
-        // as a delta. The value is there, since the data is valid, so a
-        // ``None`` is that unset state and nothing else.
-        const auto *view_schema = view.schema();
-        const bool  optional = view_schema != nullptr && view_schema->kind == TSTypeKind::TS &&
-                              view_schema->value_schema != nullptr && view_schema->value_schema->is_optional();
-        const auto value_as_delta = [&]() -> nb::object {
-            nb::object value = value_to_python(data);
-            if (optional && value.is_none() && null_sentinel_slot().is_valid()) { return null_sentinel_slot(); }
-            return value;
-        };
-
         // Sampled target rebinds carry the modification on the input link,
         // not on the already-valid target. In that case the input delta is
-        // the target's current value, exported by the target TSData strategy.
-        if (!data.ops().is_target_link && view.delta_is_sampled_rebind()) { return value_as_delta(); }
+        // the target's current value, exported by the target TSData strategy
+        // in the form a delta has (RFC 0050).
+        if (!data.ops().is_target_link && view.delta_is_sampled_rebind()) { return value_as_delta_to_python(data); }
 
         nb::object delta = delta_value_to_python(data, view.evaluation_time());
         if (!delta.is_none()) { return delta; }
 
+        const auto *view_schema = view.schema();
         if (view_schema != nullptr && view_schema->kind == TSTypeKind::TS && view.modified())
         {
-            return value_as_delta();
+            return value_as_delta_to_python(data);
         }
         return nb::none();
     }

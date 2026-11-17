@@ -137,8 +137,10 @@ namespace hgraph::python_bridge
                                                              DateTime evaluation_time)
         {
             auto target = seams::target_link_target_view(context, memory);
+            // A sampled link's delta is its target's current value, in the
+            // form the target gives a delta (RFC 0050).
             return seams::target_link_sampled(context, memory, evaluation_time)
-                       ? value_to_python(target) : delta_value_to_python(target, evaluation_time);
+                       ? value_as_delta_to_python(target) : delta_value_to_python(target, evaluation_time);
         }
 
         [[nodiscard]] nb::object target_link_dict_delta_to_python(const void *context, const void *memory,
@@ -161,7 +163,7 @@ namespace hgraph::python_bridge
                 const auto items = dict.items();
                 for (const auto &[key, child] : items)
                 {
-                    if (child.has_current_value()) { modified[to_python(key)] = value_to_python(child); }
+                    if (child.has_current_value()) { modified[to_python(key)] = value_as_delta_to_python(child); }
                 }
             }
             nb::dict result;

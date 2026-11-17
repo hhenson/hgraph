@@ -589,8 +589,16 @@ Value and reference crossings
   * A read splits the two meanings of ``None``. The atomic TSData *value*
     conversion turns ``Null`` into ``None``, so ``input.value`` is ``None``
     for a tick whose value is unset; the *delta* conversion keeps ``Null``,
-    since ``None`` there is "not modified". Where the current value stands
-    in for a delta (a sampled rebind), it is given in the delta form.
+    since ``None`` there is "not modified".
+  * Where the current value stands in for a delta, a sampled rebind, the
+    endpoint says how it reads: ``TSDataOps::value_as_delta_to_python_impl``,
+    reached through ``value_as_delta_to_python``. An atomic TS on native
+    storage installs it; every other representation leaves it null, its
+    value and delta forms being one. The facade asks the ops table and
+    looks at no kind or schema.
+  * A PEP 695 alias that names an ``Optional`` is looked through before the
+    annotation is read, so ``TS[Maybe]`` of ``type Maybe = int | None`` is
+    ``TS[Optional[int]]``.
   * A write refuses ``Null`` wherever the value written is no ``Optional``
     (``require_null_admitted``), as a Python ``TypeError``, so one from a
     node's result is the cause of the node's failure.
