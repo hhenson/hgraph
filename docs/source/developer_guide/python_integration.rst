@@ -284,8 +284,12 @@ components:
   contract (``_state: STATE``, bare ``_state``, and ``_state: STATE = None``
   are equivalent spellings); names eval does not declare keep their own
   annotation (an extra injectable such as ``clock: CLOCK``); reading inputs
-  stays stop-only. Signature resolution evaluates string annotations
-  everywhere (``eval_str=True`` / ``inspect.get_annotations``, issue #83),
+  stays stop-only. A compute node's ``stop`` may also take ``_output``, known
+  by that name as it is in eval: a read-only view of what the node last
+  published, whose ``valid`` is false when it never did. ``start`` takes
+  neither, and a sink's ``stop`` has no output to take. Signature resolution
+  evaluates string annotations everywhere
+  (``eval_str=True`` / ``inspect.get_annotations``, issue #83),
   so ``from __future__ import annotations`` modules wire identically. Input
   activity is REAL at the per-child link level: the node's start hook
   activates each packed input child per its ``active=`` policy and drops the
@@ -339,7 +343,8 @@ components:
 
 The compatibility gate intentionally does not recreate every Python-only
 runtime mechanism.  ``REF`` remains an opaque value without ``.output``;
-Python lifecycle callbacks are limited to wiring-time scalars and injectables;
+Python lifecycle callbacks are limited to wiring-time scalars and injectables,
+with ``stop`` also reading the node's inputs and its own output;
 service interfaces use one time-series request/subscription argument; and
 custom engine control or specialized threading policies should be implemented
 in C++ and exposed through the bridge. Constrained generic service interfaces

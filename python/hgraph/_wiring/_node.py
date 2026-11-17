@@ -339,6 +339,7 @@ class _LifecyclePlan:
             injectable = (
                 param.annotation in _INJECTABLE_MARKERS
                 or isinstance(param.annotation, (_StateExpr, _RecordableStateExpr))
+                or _is_stop_output(phase, param)
             )
             if not injectable and param.name not in owner._signature.parameters:
                 external.append(param.name)
@@ -347,6 +348,11 @@ class _LifecyclePlan:
         # classifies by eval's annotation, not its own (``_lifecycle_layout``).
         entries, codes = [], []
         for param in parameters:
+            if _is_stop_output(phase, param):
+                # The node's own output, to read: the marker carries no
+                # scalar, as eval's ``o`` carries none.
+                codes.append("o")
+                continue
             annotation = owner._lifecycle_annotation(param)
             if phase == "stop" and _is_time_series_annotation(annotation):
                 entries.append(("i", param))
@@ -360,6 +366,15 @@ class _LifecyclePlan:
                 entries.append(("s", param))
         self.entries = tuple(entries)
         self.config = "".join(codes)
+
+
+def _is_stop_output(phase, param):
+    """Whether a lifecycle parameter is ``stop``'s view of the node's output.
+
+    ``_output`` is known by its name, as it is in eval. Only ``stop`` takes
+    it: in ``start`` the output has published nothing yet.
+    """
+    return phase == "stop" and param.name == "_output"
 
 
 def _lift_entry(entry):
@@ -737,9 +752,14 @@ class _PyNode:
         eval_names = {p.name for p in self._params}
         for param in _wiring_signature_of(fn)[0].parameters.values():
             if param.name == "_output":
-                raise TypeError(
-                    f"@{self.__name__}.{phase} supports wiring-time scalars and injectables only"
-                )
+                if phase != "stop":
+                    raise TypeError(
+                        f"@{self.__name__}.{phase} supports wiring-time scalars and injectables only"
+                    )
+                if not self.has_output:
+                    raise TypeError(
+                        f"@{self.__name__}.stop cannot take '_output': the node has no output")
+                continue
             annotation = self._lifecycle_annotation(param)
             if (param.annotation in _INJECTABLE_MARKERS or
                     isinstance(param.annotation, (_StateExpr, _RecordableStateExpr)) or
