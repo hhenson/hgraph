@@ -42,8 +42,14 @@ nil, and another ``Optional``.
 ``Optional[T]`` has a value kind of its own, ``ValueTypeKind::Optional``,
 whose ``element_type`` is the payload. It is no tuple, no container and no
 atomic: whatever matches a value by its kind does not match it. Its storage
-is the payload followed by an engaged bit, and no payload is constructed
-while it holds nothing.
+is the payload followed by an engaged bit.
+
+One thing is not ``std::optional``'s. The payload's storage is always live,
+as an unset bundle field's is: it is default-constructed with the value,
+holding nothing clears the bit and leaves the storage as it is, and holding
+a payload assigns into it. A tick that sets or clears the value constructs
+and destroys nothing. The payload type must therefore be
+default-constructible, and one that is not is refused by name.
 
 Equality, ordering and hashing are ``std::optional``'s: nothing equals
 nothing and orders before a held payload, and two held payloads compare as

@@ -29,6 +29,15 @@ namespace
 {
     using namespace hgraph;
 
+    /** A scalar that cannot be made without a value. */
+    struct NoDefault
+    {
+        NoDefault() = delete;
+        explicit NoDefault(int given) : value(given) {}
+        int value;
+        bool operator==(const NoDefault &) const = default;
+    };
+
     /** An ``Optional[int]`` that holds ``payload``. */
     [[nodiscard]] Value held(Int payload)
     {
@@ -408,4 +417,18 @@ TEST_CASE("Optional: it is written as its payload is, or as None")
     BundleBuilder builder{ValuePlanFactory::instance().type_for(tuple_int)};
     builder.set(0, Value{Int{5}});
     CHECK(builder.build().view().to_string() == "(5,)");
+}
+
+TEST_CASE("Optional: a payload with no default constructor is refused by name")
+{
+    // The payload's storage is live while the value holds nothing, so it
+    // is default-constructed with the value. A payload that cannot be is
+    // refused where the storage is planned, and not where a value is made.
+    auto       &registry = TypeRegistry::instance();
+    const auto *payload = registry.register_scalar<NoDefault>("tests.optional.NoDefault");
+    const auto *schema = registry.optional(payload);
+    REQUIRE(schema != nullptr);
+    CHECK_THROWS_WITH(ValuePlanFactory::instance().type_for(schema),
+                      Catch::Matchers::ContainsSubstring("Optional[tests.optional.NoDefault]") &&
+                          Catch::Matchers::ContainsSubstring("default-constructible"));
 }
