@@ -136,9 +136,16 @@ never binds as it is. Two questions are therefore kept apart:
 * ``input_binds_output_schema`` adds the adaptation
   (``binding_adapts_to_optional``). Only a site that goes on to
   ``adapt_source_for_input`` asks it: the inputs and context inputs of a
-  node, an operator's selected overload, a sub-graph call and ``lift``, and
-  the declared output of a wired function, a dispatch branch and a Python
-  graph function.
+  node, a sub-graph call and ``lift``, and the declared output of a wired
+  function, a dispatch branch and a Python graph function.
+
+Overload selection does not consider the adaptation. An operator's
+candidates are matched by type pattern, and a ``TS[T]`` argument matches no
+candidate that declares ``TS[Optional[T]]``: the call is converted first,
+``convert[TS[Optional[T]]](ts)``, or the candidate is wired by its own name.
+Selecting through the adaptation needs a rank for it beside the nominal
+distance, so that a candidate on ``TS[T]`` is still preferred, and is left
+for a later change.
 
 In Python, ``binding_matches`` has the same widening as its last case. A
 Python node needs no conversion node: its input reads through the source's
@@ -231,8 +238,9 @@ The three questions this RFC left open were built as it proposed.
    refuses one where the table is wired, by name.
 
 Left for later changes: table recording through the presence column of
-RFC 0019; ``TS[Optional[T]]`` over a type variable in Python; and a payload
-that is a subtype of the declared one at the binding adaptation.
+RFC 0019; ``TS[Optional[T]]`` over a type variable in Python; a payload
+that is a subtype of the declared one at the binding adaptation; and the
+adaptation in an operator's overload selection.
 
 Acceptance criteria and test plan
 ---------------------------------

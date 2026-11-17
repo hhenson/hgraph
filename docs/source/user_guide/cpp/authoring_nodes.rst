@@ -247,7 +247,10 @@ its payload or nothing: ``eval_node`` tells the three apart.
 
 A ``TS<T>`` source may be wired to a ``TS<std::optional<T>>`` input: binding adds a
 conversion, and the node sees each tick as a value that holds it. The reverse is
-a wiring error, since an ``Optional`` may hold nothing and a ``T`` may not.
+a wiring error, since an ``Optional`` may hold nothing and a ``T`` may not. This
+is for a node or graph wired by its own name. An operator's overloads are chosen
+by the types as given, so a ``TS<T>`` argument does not select an overload that
+declares ``TS<std::optional<T>>``; convert it first.
 
 No arithmetic or container operator applies to an ``Optional``: it is no tuple and no
 number. A table does not record one yet, and refuses it where the table is wired.
