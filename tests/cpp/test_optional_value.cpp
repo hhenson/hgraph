@@ -303,3 +303,38 @@ TEST_CASE("Optional: the JSON form is null, or the payload's own")
     CHECK(held_pair.view().as_optional().has_value());
     CHECK(to_json_string(held_pair.view()) == "[4, \"four\"]");
 }
+
+TEST_CASE("Optional: nested in a composite or a map it reads its own JSON null")
+{
+    auto       &registry = TypeRegistry::instance();
+    const auto *optional_int = scalar_descriptor<Optional<Int>>::value_meta();
+
+    // A tuple's field: `[null]` is a field that holds an unset Optional.
+    const auto *tuple = registry.tuple({optional_int, optional_int});
+    const Value pair = from_json_string(tuple, "[null, 5]");
+    const auto  fields = pair.view().as_tuple();
+    REQUIRE(fields.at(0).valid());
+    CHECK_FALSE(fields.at(0).as_optional().has_value());
+    CHECK(fields.at(1).as_optional().value().checked_as<Int>() == 5);
+    CHECK(to_json_string(pair.view()) == "[null, 5]");
+
+    // A bundle's field: `null` is the Optional's, and a key left out is a
+    // field that is unset.
+    const auto *bundle = registry.un_named_bundle({{"first", optional_int}, {"second", optional_int}});
+    const Value partial = from_json_string(bundle, "{\"first\": null}");
+    const auto  named = partial.view().as_bundle();
+    REQUIRE(named.at("first").valid());
+    CHECK_FALSE(named.at("first").as_optional().has_value());
+    CHECK_FALSE(named.at("second").valid());
+    CHECK(to_json_string(partial.view()) == "{\"first\": null}");
+
+    // A map's value: the entry is there, and holds an unset Optional.
+    const auto *map = registry.map(scalar_descriptor<Str>::value_meta(), optional_int);
+    const Value entries = from_json_string(map, "{\"a\": null, \"b\": 7}");
+    const auto  read = entries.view().as_map();
+    REQUIRE(read.size() == 2);
+    const auto a = read.at(Value{Str{"a"}}.view());
+    REQUIRE(a.valid());
+    CHECK_FALSE(a.as_optional().has_value());
+    CHECK(read.at(Value{Str{"b"}}.view()).as_optional().value().checked_as<Int>() == 7);
+}

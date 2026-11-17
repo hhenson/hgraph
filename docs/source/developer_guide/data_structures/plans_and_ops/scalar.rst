@@ -198,7 +198,12 @@ still means there is no value at all.
   payload; two held payloads compare, and hash, as the payloads do.
 - The binary form is a presence tag, 0 or 1, and then the payload. The
   JSON form is ``null`` for the unset state and the payload's own form
-  otherwise.
+  otherwise. Inside a tuple, a bundle or a map the enclosing reader leaves
+  a ``null`` to the Optional, so the field or the entry is read as set,
+  holding a value that is unset.
+- ``Out<TS<Optional<T>>>`` writes in place where the output's storage is
+  the value's own: a tick costs the payload's copy and one validity bit,
+  and allocates nothing for a payload that needs nothing.
 
 Top-level null Values map to Python ``None`` at the bridge boundary;
 ``Value::from_python(None)`` calls ``reset()``. A non-owning
