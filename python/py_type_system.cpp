@@ -1214,6 +1214,39 @@ namespace hgraph::python_bridge
     });
     m.def("register_json_datetime_format", &register_json_datetime_format,
           nb::arg("format"), nb::arg("time_only") = false);
+    // The value type a Python ``Enum`` class is known by: the one registered
+    // for this very class, or the native one of hgraph's own ``CmpResult``,
+    // ``DivideByZero`` and ``ToTableMode``. ``None`` for a class not yet seen.
+    // A name is never consulted here: two classes of one name are two types.
+    m.def("enum_value_type_of", [](nb::handle cls) -> nb::object {
+        auto &by_class = python_bridge::enum_type_registry();
+        if (const auto registered = by_class.find(reinterpret_cast<PyTypeObject *>(cls.ptr()));
+            registered != by_class.end())
+        {
+            // A class can be freed and its address reused, so the entry
+            // counts only while the type still reads back as this class.
+            auto &classes = python_bridge::enum_class_registry();
+            if (const auto bound = classes.find(registered->second);
+                bound != classes.end() && bound->second.is(cls))
+            {
+                return nb::cast(PyValueType{registered->second});
+            }
+        }
+        const std::pair<const nb::object &, const char *> native[] = {
+            {python_bridge::cmp_result_enum_slot(), "CmpResult"},
+            {python_bridge::divide_by_zero_enum_slot(), "DivideByZero"},
+            {python_bridge::to_table_mode_enum_slot(), "ToTableMode"},
+        };
+        for (const auto &[slot, name] : native)
+        {
+            if (!slot.is_valid() || !slot.is(cls)) { continue; }
+            if (const auto *meta = TypeRegistry::instance().value_type(name); meta != nullptr)
+            {
+                return nb::cast(PyValueType{meta});
+            }
+        }
+        return nb::none();
+    }, nb::arg("cls"));
     m.def("enum_vt", [](const std::string &name, nb::list members, nb::object cls) {
         std::vector<std::pair<std::string, long long>> table;
         table.reserve(nb::len(members));

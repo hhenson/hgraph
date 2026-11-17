@@ -298,6 +298,26 @@ TEST_CASE("TypeRegistry gives named bundles qualified nominal identity") {
                           {{"value", integer}}) == left);
 }
 
+TEST_CASE("TypeRegistry enums are nominal by their qualified name") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const std::vector<std::pair<std::string, long long>> members{{"BUY", 1},
+                                                               {"SELL", 2}};
+
+  // The same members under two qualified names are two types: this is what
+  // lets the Python bridge keep two ``Enum`` classes of one name apart.
+  const auto *orders = registry.enum_type("tests.orders.Side", members);
+  const auto *layout = registry.enum_type("tests.layout.Side", members);
+  REQUIRE(orders != layout);
+  REQUIRE(std::string{orders->name()} == "tests.orders.Side");
+
+  // One name is one type, and it keeps the members it was given.
+  REQUIRE(registry.enum_type("tests.orders.Side", members) == orders);
+  CHECK_THROWS_WITH(
+      registry.enum_type("tests.orders.Side", {{"LEFT", 1}, {"RIGHT", 2}}),
+      Catch::Matchers::ContainsSubstring("different member table"));
+}
+
 TEST_CASE("TypeRegistry records invariant Bundle specializations") {
   using namespace hgraph;
   auto &registry = TypeRegistry::instance();

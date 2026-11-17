@@ -1977,18 +1977,17 @@ def _value_type(scalar):
         if _is_python_object_class(scalar):
             return _python_object_value_type(scalar)
     if name is None and isinstance(scalar, type) and issubclass(scalar, _enum.Enum):
-        # A python Enum is a FIRST-CLASS enum scalar (nominal identity by
-        # class name; the member table interns with the meta and the class
-        # registers for read-back). CmpResult/DivideByZero pre-registered by
-        # the bridge resolve to their existing metas by the same name path.
-        try:
-            return _hgraph.value_type(scalar.__name__)
-        except Exception:
-            pass
-        enum_name = scalar.__name__
-        qualname = getattr(scalar, "__qualname__", enum_name)
-        if "<locals>" in qualname:
-            enum_name = f"{scalar.__module__}.{qualname}"
+        # A python Enum is a FIRST-CLASS enum scalar, known by its class:
+        # the bridge answers for a class it has registered, and for hgraph's
+        # own CmpResult/DivideByZero/ToTableMode, whose types are native. A
+        # class it has not seen registers under ``module.qualname``, so two
+        # classes of one name in two modules are two types, and a user's
+        # ``CmpResult`` is not hgraph's. The member table interns with the
+        # meta and the class registers for read-back.
+        known = _hgraph.enum_value_type_of(scalar)
+        if known is not None:
+            return known
+        enum_name = f"{scalar.__module__}.{scalar.__qualname__}"
         enum_members = list(scalar)
         use_public_values = all(isinstance(member.value, int) for member in enum_members)
         members = [
