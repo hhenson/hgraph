@@ -1844,6 +1844,43 @@ TEST_CASE("TypeRegistry serializes concurrent equal schema requests") {
   REQUIRE(std::string{maps[0]->name()} == "Map[ConcurrentInt,ConcurrentStr]");
 }
 
+TEST_CASE("TypeRegistry: a fixed empty List is no Frame, and a Frame no fixed List") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  REQUIRE(integer != nullptr);
+  const auto *animal = registry.bundle(
+      "tests.flag_bits", "Animal", {{"id", integer}}, {}, true);
+  const auto *dog = registry.bundle(
+      "tests.flag_bits", "Dog",
+      {{"id", integer}, {"barks", registry.value_type("bool")}}, {animal});
+
+  const auto *no_dogs = registry.fixed_list(dog, 0);
+  const auto *no_animals = registry.fixed_list(animal, 0);
+  const auto *animal_frame = registry.frame(animal);
+  const auto *bare_frame = registry.value_type("frame");
+  REQUIRE(bare_frame != nullptr);
+
+  // Each trait is its own: the two once shared a flag bit.
+  CHECK(no_dogs->has(ValueTypeFlags::FixedEmpty));
+  CHECK_FALSE(no_dogs->has(ValueTypeFlags::Frame));
+  CHECK(animal_frame->has(ValueTypeFlags::Frame));
+  CHECK_FALSE(animal_frame->has(ValueTypeFlags::FixedEmpty));
+  CHECK_FALSE(animal_frame->is_fixed_size());
+
+  // The un-typed frame accepts any frame, and nothing that is not one.
+  CHECK(registry.value_is_a(animal_frame, bare_frame));
+  CHECK_FALSE(registry.value_is_a(no_dogs, bare_frame));
+  CHECK(registry.value_inheritance_distance(no_dogs, bare_frame) == std::nullopt);
+
+  // A Frame is covariant in its row. A List is not in its element,
+  // whatever its extent.
+  CHECK(registry.value_is_a(registry.frame(dog), animal_frame));
+  CHECK_FALSE(registry.value_is_a(registry.fixed_list(dog, 2), registry.fixed_list(animal, 2)));
+  CHECK_FALSE(registry.value_is_a(no_dogs, no_animals));
+  CHECK(registry.value_inheritance_distance(no_dogs, no_animals) == std::nullopt);
+}
+
 TEST_CASE("TypeRegistry::list distinguishes fixed and dynamic forms") {
   using namespace hgraph;
   auto &registry = TypeRegistry::instance();

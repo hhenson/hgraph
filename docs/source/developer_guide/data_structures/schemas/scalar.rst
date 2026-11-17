@@ -13,6 +13,22 @@ series payload. Scalar schemas are represented at runtime by
 - the canonical name — used for Python-bridge interop and diagnostic
   output.
 
+Each capability flag (``ValueTypeFlags``) is one bit of its own. A flag is
+tested alone, with no regard to the schema's kind, so the flags must not
+share a bit; a ``static_assert`` beside the enum holds that, and a new flag
+is added to its list. ``FixedEmpty`` (a zero-length ``List`` of fixed extent)
+and ``Frame`` (a typed frame) are separate traits: a fixed empty ``List`` is
+no frame, so the un-typed ``frame`` does not accept it, and it is not
+covariant in its element as a frame is in its row.
+
+The flag values are written into stored schema descriptors, so what is
+written for a flag does not change once released. ``Frame`` was released on
+the bit ``FixedEmpty`` has; a descriptor still writes it there
+(``manifest::descriptor_flags``), beside the kind that tells the two apart,
+and still writes the fixed size of zero a typed frame had while it read as a
+fixed empty ``List``. A descriptor stored before the two were separated is
+therefore the one written now, byte for byte.
+
 There are no layout fields on the schema. Size, alignment, and field
 offsets live on the matching ``StoragePlan``. That separation lets two
 implementations of the same kind share one schema while keeping their
