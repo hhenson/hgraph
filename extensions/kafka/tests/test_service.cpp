@@ -993,9 +993,9 @@ struct ReconnectSubscriptionCapture {
     if (record.valid() && record.modified()) {
       const auto fields = record.base().value().concrete().as_bundle();
       bounded_payloads.push_back(fields.at("value").checked_as<Bytes>().data);
-      auto cursor = subscription.template field<"cursor">();
+      auto subscription_cursor = subscription.template field<"cursor">();
       reconnect_generations.push_back(
-          cursor.base().value().concrete().as_bundle()
+          subscription_cursor.base().value().concrete().as_bundle()
               .at("assignment_generation").checked_as<Int>());
       if (bounded_payloads.back() == "after") {
         node.graph().executor().request_stop();

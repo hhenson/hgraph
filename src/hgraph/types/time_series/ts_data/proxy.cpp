@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <bit>
 #include <memory>
 #include <mutex>
 
@@ -86,6 +87,20 @@ namespace hgraph
             if (!built(modified_time))
             {
                 throw std::invalid_argument("TSDProxy build time must be in [MIN_ST, MAX_ET]");
+            }
+        }
+
+        [[nodiscard]] std::size_t next_updated_slot(const SlotBitmap &slots, std::size_t previous) noexcept
+        {
+            const auto first = previous == TS_DATA_NO_CHILD_ID ? 0 : previous + 1;
+            if (first >= slots.size()) { return TS_DATA_NO_CHILD_ID; }
+            auto index = first / SlotBitmap::bits_per_word;
+            auto word = slots.words[index] & (~std::uint64_t{0} << (first % SlotBitmap::bits_per_word));
+            for (;;)
+            {
+                if (word != 0) { return index * SlotBitmap::bits_per_word + std::countr_zero(word); }
+                if (++index == slots.word_count()) { return TS_DATA_NO_CHILD_ID; }
+                word = slots.words[index];
             }
         }
 
@@ -742,6 +757,10 @@ namespace hgraph
                 if (!source_available(memory) || !store.has_child(slot) || !source_dict(memory).slot_live(slot))
                     return false;
                 if (store.child_updated(slot)) { return true; }
+                const auto source = source_dict(memory);
+                if (source.last_modified_time() < store.tracking().last_modified_time ||
+                    !source.slot_modified(slot))
+                    return false;
                 const auto *state          = ctx(context);
                 const auto &ops            = state->element_type.ops_ref();
                 const auto *child_tracking = ops.tracking_impl(ops.context, store.child_at_slot(slot));
@@ -758,18 +777,12 @@ namespace hgraph
             [[nodiscard]] static std::size_t next_membership_removed(const void *, const void *memory, std::size_t previous)
             { return source_available(memory) ? source_dict(memory).next_membership_removed_slot(previous) : TS_DATA_NO_CHILD_ID; }
 
-            [[nodiscard]] static std::size_t next_modified_slot(const void *context,
+            [[nodiscard]] static std::size_t next_modified_slot(const void *,
                                                                 const void *memory,
                                                                 std::size_t previous)
             {
                 if (!source_available(memory)) { return TS_DATA_NO_CHILD_ID; }
-                const std::size_t capacity = source_dict(memory).slot_capacity();
-                for (std::size_t slot = previous == TS_DATA_NO_CHILD_ID ? 0 : previous + 1;
-                     slot < capacity; ++slot)
-                {
-                    if (slot_modified(context, memory, slot)) { return slot; }
-                }
-                return TS_DATA_NO_CHILD_ID;
+                return proxy_storage(memory).next_modified_child(previous);
             }
 
             [[nodiscard]] static const void *tsd_child_at_slot(const void *, const void *memory, std::size_t slot)
@@ -1580,8 +1593,14 @@ namespace hgraph
         require_concrete_build_time(modified_time);
 
         auto dict = source_dict();
-        bool touched = false;
-        for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
+        bool touched = dict.next_removed_slot() != TS_DATA_NO_CHILD_ID;
+        // Slot lifecycle callbacks can leave pending builds, including an
+        // earlier failed build. Reconcile those on structural changes. Ordinary
+        // value ticks only need the source's modified slots.
+        const bool reconcile_structure = structure_pending_;
+        for (std::size_t slot = reconcile_structure ? 0 : dict.next_modified_slot();
+             slot != TS_DATA_NO_CHILD_ID && slot < dict.slot_capacity();
+             slot = reconcile_structure ? slot + 1 : dict.next_modified_slot(slot))
         {
             const bool live = dict.slot_live(slot);
             if (dict.slot_removed(slot))
@@ -1686,6 +1705,46 @@ namespace hgraph
         // recorded since) must not see them - the lazy roll clears them on
         // the next record, but reads can arrive first (iteration order).
         return values_.slot_updated(slot) && updated_window_ == tracking_.last_modified_time;
+    }
+
+    std::size_t TSDProxy::next_modified_child(std::size_t previous) const
+    {
+        if (!source_available()) { return TS_DATA_NO_CHILD_ID; }
+        auto dict = source_dict();
+        for (;;)
+        {
+            // A reference may retarget after the source's once-per-time wake;
+            // reconcile those slots lazily. Referenced values also tick without
+            // a reference write, so include this proxy's own updated slots.
+            const auto updated_slot = updated_window_ == tracking_.last_modified_time
+                                          ? next_updated_slot(values_.updated, previous) : TS_DATA_NO_CHILD_ID;
+            auto source_slot = TS_DATA_NO_CHILD_ID;
+            if (child_refresh_ == TSDProxyChildRefresh::OnChildTick &&
+                dict.last_modified_time() >= tracking_.last_modified_time)
+            {
+                if (updated_slot != TS_DATA_NO_CHILD_ID && !dict.slot_modified(updated_slot))
+                {
+                    // Bound this probe by the next own update. Repeatedly
+                    // seeking a distant source bit past it can become quadratic
+                    // when many referenced children tick in the same cycle.
+                    for (auto candidate = previous == TS_DATA_NO_CHILD_ID ? 0 : previous + 1;
+                         candidate < updated_slot; ++candidate)
+                    {
+                        if (dict.slot_modified(candidate)) { source_slot = candidate; break; }
+                    }
+                }
+                else { source_slot = dict.next_modified_slot(previous); }
+            }
+            const auto slot = std::min(source_slot, updated_slot);
+            if (slot == TS_DATA_NO_CHILD_ID) { return slot; }
+            if (dict.slot_live(slot) && has_child(slot))
+            {
+                if (child_updated(slot)) { return slot; }
+                const auto child = TSDataView{element_type_, child_at_slot(slot)};
+                if (child.tracking().last_modified_time == tracking_.last_modified_time) { return slot; }
+            }
+            previous = slot;
+        }
     }
 
     bool TSDProxy::slot_published(std::size_t slot) const
@@ -2017,10 +2076,7 @@ namespace hgraph
         // window instead of rebasing it.
         if (modified_time != MIN_DT && modified_time > updated_window_)
         {
-            for (std::size_t index = 0; index < built_times_.size(); ++index)
-            {
-                if (values_.has_slot(index)) { values_.clear_updated(index); }
-            }
+            values_.updated.reset();
             updated_window_ = modified_time;
         }
         auto dict = source_dict();

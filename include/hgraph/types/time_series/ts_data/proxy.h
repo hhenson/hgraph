@@ -106,6 +106,7 @@ namespace hgraph
         [[nodiscard]] const TSDataTracking &key_set_tracking() const noexcept;
         [[nodiscard]] bool has_child(std::size_t slot) const noexcept;
         [[nodiscard]] bool child_updated(std::size_t slot) const noexcept;
+        [[nodiscard]] std::size_t next_modified_child(std::size_t previous) const;
         [[nodiscard]] bool slot_published(std::size_t slot) const;
         [[nodiscard]] const void *child_at_slot(std::size_t slot) const;
         [[nodiscard]] void *child_at_slot(std::size_t slot);
