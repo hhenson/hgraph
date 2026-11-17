@@ -127,12 +127,19 @@ namespace hgraph::python_bridge
         return take(table.to_python_impl(table.context, view.data()));
     }
 
+    nb::object current_value_to_python(const TSDataOps &ops, const void *memory, ValueForm form)
+    {
+        if (!ops.has_current_value_impl(ops.context, memory)) { return nb::none(); }
+        if (form == ValueForm::Delta && ops.value_as_delta_to_python_impl != nullptr)
+        {
+            return take(ops.value_as_delta_to_python_impl(ops.context, memory));
+        }
+        return take(ops.to_python_impl(ops.context, memory));
+    }
+
     nb::object value_as_delta_to_python(const TSDataView &view)
     {
-        const auto &table = view.ops();
-        if (!table.has_current_value_impl(table.context, view.data())) { return nb::none(); }
-        if (table.value_as_delta_to_python_impl == nullptr) { return take(table.to_python_impl(table.context, view.data())); }
-        return take(table.value_as_delta_to_python_impl(table.context, view.data()));
+        return current_value_to_python(view.ops(), view.data(), ValueForm::Delta);
     }
 
     nb::object delta_value_to_python(const TSDataView &view, DateTime evaluation_time)

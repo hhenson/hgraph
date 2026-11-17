@@ -168,14 +168,19 @@ namespace hgraph::python_bridge
         // child's TSDataOps so nested TSL/TSD/TSB representations retain
         // their own public Python semantics. The TSB and TSL bodies are
         // distinct provider entries the factory selects once (no kind switch).
-        [[nodiscard]] nb::object fixed_child_value_to_python(const void *context, const void *memory, std::size_t index)
+        //
+        // Each body is written once for both forms of a current value
+        // (RFC 0050): the value, and the value as a delta of it reads, which
+        // a sampled rebind gives. ``Form`` is the form each child is asked
+        // for, so the form holds all the way down.
+        [[nodiscard]] nb::object fixed_child_value_to_python(const void *context, const void *memory, std::size_t index,
+                                                             ValueForm form)
         {
-            const auto &ops   = seams::fixed_element_type(context, index).ops_ref();
-            const auto *child = seams::fixed_child_data(context, memory, index);
-            return ops.has_current_value_impl(ops.context, child) ? take(ops.to_python_impl(ops.context, child))
-                                                                  : nb::none();
+            return current_value_to_python(seams::fixed_element_type(context, index).ops_ref(),
+                                           seams::fixed_child_data(context, memory, index), form);
         }
 
+        template <ValueForm Form>
         [[nodiscard]] nb::object fixed_bundle_to_python(const void *context, const void *memory)
         {
             const auto &schema = seams::fixed_schema(context);
@@ -184,17 +189,18 @@ namespace hgraph::python_bridge
             {
                 const char *name = schema.fields()[index].name;
                 if (name == nullptr || *name == '\0') { continue; }
-                result[nb::str{name}] = fixed_child_value_to_python(context, memory, index);
+                result[nb::str{name}] = fixed_child_value_to_python(context, memory, index, Form);
             }
             return materialize_tsb_python_value(&schema, std::move(result));
         }
 
+        template <ValueForm Form>
         [[nodiscard]] nb::object fixed_list_to_python(const void *context, const void *memory)
         {
             nb::list result;
             for (std::size_t index = 0, count = seams::fixed_element_count(context); index < count; ++index)
             {
-                result.append(fixed_child_value_to_python(context, memory, index));
+                result.append(fixed_child_value_to_python(context, memory, index, Form));
             }
             return nb::tuple(result);
         }
@@ -396,15 +402,14 @@ namespace hgraph::python_bridge
         /** Dynamic TSL Python export is a TSData strategy. It deliberately
             recurses through child TSDataOps; the public facade must never
             infer this representation from TSTypeKind. */
+        template <ValueForm Form>
         [[nodiscard]] nb::object dynamic_to_python(const void *context, const void *memory)
         {
             const auto &ops = seams::dynamic_element_type(context).ops_ref();
             nb::list    result;
             for (std::size_t index = 0; index < seams::dynamic_size(memory); ++index)
             {
-                const auto *child = seams::dynamic_child_memory(memory, index);
-                result.append(ops.has_current_value_impl(ops.context, child) ? take(ops.to_python_impl(ops.context, child))
-                                                                             : nb::none());
+                result.append(current_value_to_python(ops, seams::dynamic_child_memory(memory, index), Form));
             }
             return nb::tuple(result);
         }
@@ -590,6 +595,7 @@ namespace hgraph::python_bridge
         }
 
         // -- slot-backed TSD -----------------------------------------------------------------
+        template <ValueForm Form>
         [[nodiscard]] nb::object tsd_to_python(const void *context, const void *memory)
         {
             const auto &layout    = seams::tsd_layout(context);
@@ -599,10 +605,8 @@ namespace hgraph::python_bridge
             for (std::size_t slot = 0; slot < seams::tsd_slot_capacity(memory); ++slot)
             {
                 if (!seams::tsd_slot_in_surface(memory, slot, seams::MapSurface::live)) { continue; }
-                const auto *child = seams::tsd_child_at_slot(memory, slot);
                 result[to_python(key_ops, seams::tsd_key_at_slot(memory, slot))] =
-                    child_ops.has_current_value_impl(child_ops.context, child)
-                        ? take(child_ops.to_python_impl(child_ops.context, child)) : nb::none();
+                    current_value_to_python(child_ops, seams::tsd_child_at_slot(memory, slot), Form);
             }
             return result;
         }
@@ -776,6 +780,7 @@ namespace hgraph::python_bridge
         /** TSDProxy is a concrete TSData representation. Python export
             therefore lives here and follows each child through its own
             erased TSDataOps instead of leaking proxy layout to a facade. */
+        template <ValueForm Form>
         [[nodiscard]] nb::object proxy_dict_to_python(const void *context, const void *memory)
         {
             const auto &child_ops = seams::proxy_layout(context).element_type.ops_ref();
@@ -783,10 +788,9 @@ namespace hgraph::python_bridge
             for (std::size_t slot = 0; slot < seams::proxy_slot_capacity(memory); ++slot)
             {
                 if (!seams::proxy_slot_live(memory, slot) || !seams::proxy_has_child(memory, slot)) { continue; }
-                const auto  key   = seams::proxy_key_at_slot(memory, slot);
-                const auto *child = seams::proxy_child_at_slot(memory, slot);
-                result[to_python(key.binding(), key.data())] = child_ops.has_current_value_impl(child_ops.context, child)
-                    ? take(child_ops.to_python_impl(child_ops.context, child)) : nb::none();
+                const auto key = seams::proxy_key_at_slot(memory, slot);
+                result[to_python(key.binding(), key.data())] =
+                    current_value_to_python(child_ops, seams::proxy_child_at_slot(memory, slot), Form);
             }
             return result;
         }
@@ -836,17 +840,22 @@ namespace hgraph::python_bridge
     void fill_structured_ts_data_conversions(PythonOps::TSData &section) noexcept
     {
         section.fixed_bundle_from_python                   = &ts_from_python_slot<&fixed_bundle_from_python>;
-        section.fixed_bundle_to_python                     = &to_python_slot<&fixed_bundle_to_python>;
+        section.fixed_bundle_to_python                     = &to_python_slot<&fixed_bundle_to_python<ValueForm::Value>>;
+        section.fixed_bundle_value_as_delta_to_python      = &to_python_slot<&fixed_bundle_to_python<ValueForm::Delta>>;
+        section.fixed_list_value_as_delta_to_python        = &to_python_slot<&fixed_list_to_python<ValueForm::Delta>>;
+        section.dynamic_value_as_delta_to_python           = &to_python_slot<&dynamic_to_python<ValueForm::Delta>>;
+        section.tsd_value_as_delta_to_python               = &to_python_slot<&tsd_to_python<ValueForm::Delta>>;
+        section.proxy_dict_value_as_delta_to_python        = &to_python_slot<&proxy_dict_to_python<ValueForm::Delta>>;
         section.fixed_bundle_delta_to_python               = &ts_delta_to_python_slot<&fixed_bundle_delta_to_python>;
         section.fixed_list_from_python                     = &ts_from_python_slot<&fixed_list_from_python>;
-        section.fixed_list_to_python                       = &to_python_slot<&fixed_list_to_python>;
+        section.fixed_list_to_python                       = &to_python_slot<&fixed_list_to_python<ValueForm::Value>>;
         section.fixed_list_delta_to_python                 = &ts_delta_to_python_slot<&fixed_list_delta_to_python>;
         section.fixed_value_to_python                      = &to_python_slot<&fixed_value_to_python>;
         section.fixed_delta_bundle_to_python               = &to_python_slot<&fixed_delta_bundle_to_python>;
         section.fixed_delta_map_to_python                  = &to_python_slot<&fixed_delta_map_to_python>;
         section.fixed_delta_key_set_to_python              = &to_python_slot<&fixed_delta_key_set_to_python>;
         section.dynamic_from_python                        = &ts_from_python_slot<&dynamic_from_python>;
-        section.dynamic_to_python                          = &to_python_slot<&dynamic_to_python>;
+        section.dynamic_to_python                          = &to_python_slot<&dynamic_to_python<ValueForm::Value>>;
         section.dynamic_delta_to_python                    = &ts_delta_to_python_slot<&dynamic_delta_to_python>;
         section.dynamic_value_projection_to_python         = &to_python_slot<&dynamic_value_projection_to_python>;
         section.dynamic_delta_projection_to_python         = &to_python_slot<&dynamic_delta_projection_to_python>;
@@ -861,13 +870,13 @@ namespace hgraph::python_bridge
         section.tss_set_added_to_python                    = &to_python_slot<&tss_set_to_python<seams::SetSurface::added>>;
         section.tss_set_removed_to_python                  = &to_python_slot<&tss_set_to_python<seams::SetSurface::removed>>;
         section.tsd_from_python                            = &ts_from_python_slot<&tsd_from_python>;
-        section.tsd_to_python                              = &to_python_slot<&tsd_to_python>;
+        section.tsd_to_python                              = &to_python_slot<&tsd_to_python<ValueForm::Value>>;
         section.tsd_delta_to_python                        = &ts_delta_to_python_slot<&tsd_delta_to_python>;
         section.tsd_map_key_set_to_python                  = &to_python_slot<&tsd_map_key_set_to_python>;
         section.tsd_dict_delta_to_python                   = &to_python_slot<&tsd_dict_delta_to_python>;
         section.tsd_map_live_to_python                     = &to_python_slot<&tsd_map_to_python<seams::MapSurface::live>>;
         section.tsd_map_modified_to_python                 = &to_python_slot<&tsd_map_to_python<seams::MapSurface::modified>>;
-        section.proxy_dict_to_python                       = &to_python_slot<&proxy_dict_to_python>;
+        section.proxy_dict_to_python                       = &to_python_slot<&proxy_dict_to_python<ValueForm::Value>>;
         section.proxy_dict_delta_to_python                 = &ts_delta_to_python_slot<&proxy_dict_delta_to_python>;
         section.proxy_key_set_to_python                    = &to_python_slot<&proxy_key_set_to_python>;
         section.proxy_key_set_delta_to_python              = &ts_delta_to_python_slot<&proxy_key_set_delta_to_python>;

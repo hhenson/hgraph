@@ -593,9 +593,14 @@ Value and reference crossings
   * Where the current value stands in for a delta, a sampled rebind, the
     endpoint says how it reads: ``TSDataOps::value_as_delta_to_python_impl``,
     reached through ``value_as_delta_to_python``. An atomic TS on native
-    storage installs it; every other representation leaves it null, its
-    value and delta forms being one. The facade asks the ops table and
-    looks at no kind or schema.
+    storage installs it. So does each strategy with children, a fixed
+    bundle or list, a dynamic list, a dictionary and its proxy, a
+    non-peered input and a target link: its value body is written once for
+    both forms (``ValueForm``) and exports each child through
+    ``current_value_to_python``, so the form asked of an aggregate is the
+    form every child below it is given in. A representation with no
+    children and one form leaves the slot null. The facade asks the ops
+    table and looks at no kind or schema.
   * A PEP 695 alias that names an ``Optional`` is looked through before the
     annotation is read, so ``TS[Maybe]`` of ``type Maybe = int | None`` is
     ``TS[Optional[int]]``.

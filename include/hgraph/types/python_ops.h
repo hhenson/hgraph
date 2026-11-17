@@ -151,6 +151,17 @@ namespace hgraph
             // entries once), and their value projections
             FromPythonFn    fixed_bundle_from_python{nullptr};
             ToPythonFn      fixed_bundle_to_python{nullptr};
+            // Each structural strategy's value with its children in the
+            // form a delta has (RFC 0050): what
+            // ``TSDataOps::value_as_delta_to_python_impl`` forwards to.
+            ToPythonFn      fixed_bundle_value_as_delta_to_python{nullptr};
+            ToPythonFn      fixed_list_value_as_delta_to_python{nullptr};
+            ToPythonFn      dynamic_value_as_delta_to_python{nullptr};
+            ToPythonFn      tsd_value_as_delta_to_python{nullptr};
+            ToPythonFn      proxy_dict_value_as_delta_to_python{nullptr};
+            ToPythonFn      input_bundle_value_as_delta_to_python{nullptr};
+            ToPythonFn      input_list_value_as_delta_to_python{nullptr};
+            ToPythonFn      target_link_value_as_delta_to_python{nullptr};
             DeltaToPythonFn fixed_bundle_delta_to_python{nullptr};
             FromPythonFn    fixed_list_from_python{nullptr};
             ToPythonFn      fixed_list_to_python{nullptr};

@@ -143,6 +143,22 @@ namespace hgraph::python_bridge
         return from_python(view, source);
     }
     /**
+     * The form a current value is exported in (RFC 0050). The two differ for
+     * a value that holds nothing: ``None`` as a value, ``Null`` as a delta.
+     */
+    enum class ValueForm : std::uint8_t { Value, Delta };
+
+    /**
+     * The current value of the endpoint that ``ops`` describes at ``memory``,
+     * in ``form``; ``None`` when it has none. A structural strategy exports
+     * each child through this, so that the form asked of an aggregate is the
+     * form each child is given in. An endpoint with no delta form of its own
+     * gives its value, the two being one.
+     */
+    [[nodiscard]] HGRAPH_EXPORT nb::object current_value_to_python(const TSDataOps &ops, const void *memory,
+                                                                   ValueForm form);
+
+    /**
      * The current value of ``view`` in the form a delta of it has (RFC 0050),
      * for where a bound input's delta is its target's current value: a
      * sampled rebind. Dispatches through the endpoint's

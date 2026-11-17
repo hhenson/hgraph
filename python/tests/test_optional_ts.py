@@ -216,3 +216,84 @@ def test_a_sampled_rebind_reads_its_delta_in_the_delta_form():
     result = eval_node(app, [True, None, False], [5, None, None], [0, None, None])
     assert result[0] == "5 5"
     assert result[2] == "None Null"
+
+
+def _shown(delta) -> str:
+    """A delta, or a value read as one, with ``Null`` spelled out."""
+    if delta is Null:
+        return "Null"
+    if isinstance(delta, dict):
+        return "{" + ", ".join(f"{key}: {_shown(item)}" for key, item in sorted(delta.items())) + "}"
+    if isinstance(delta, (tuple, list)):
+        return "(" + ", ".join(_shown(item) for item in delta) + ")"
+    return repr(delta)
+
+
+def test_a_sampled_list_in_a_dictionary_keeps_an_unset_child_as_null():
+    # A sampled rebind gives an aggregate's current value where its delta
+    # is asked for. Each child is given in the form a delta of it has, all
+    # the way down, so a child whose value is unset reads ``Null`` and not
+    # ``None``, which an output would take for "this child did not tick".
+    Pairs = hg.TSD[str, hg.TSL[TS[Optional[int]], hg.Size[2]]]
+
+    @compute_node
+    def keyed(command: TS[int]) -> Pairs:
+        return {"x": (Null if command.value == 0 else command.value, 7)}
+
+    @compute_node
+    def seen(value: Pairs) -> TS[str]:
+        return _shown(value.delta_value)
+
+    @graph
+    def app(select: TS[bool], a: TS[int], b: TS[int]) -> TS[str]:
+        return seen(hg.if_then_else(select, keyed(a), keyed(b)))
+
+    # The dictionary switched to was valid already, and holds the unset child.
+    result = eval_node(app, [True, None, False], [5, None, None], [0, None, None])
+    assert "Null" in result[2] and "7" in result[2]
+    assert "None" not in result[2]
+
+
+def test_a_sampled_bundle_in_a_dictionary_keeps_an_unset_child_as_null():
+    class Pair(hg.TimeSeriesSchema):
+        left: TS[Optional[int]]
+        right: TS[Optional[int]]
+
+    Pairs = hg.TSD[str, hg.TSB[Pair]]
+
+    @compute_node
+    def keyed(command: TS[int]) -> Pairs:
+        return {"x": {"left": Null if command.value == 0 else command.value, "right": 7}}
+
+    @compute_node
+    def seen(value: Pairs) -> TS[str]:
+        return _shown(value.delta_value)
+
+    @graph
+    def app(select: TS[bool], a: TS[int], b: TS[int]) -> TS[str]:
+        return seen(hg.if_then_else(select, keyed(a), keyed(b)))
+
+    result = eval_node(app, [True, None, False], [5, None, None], [0, None, None])
+    assert "Null" in result[2] and "7" in result[2]
+    assert "None" not in result[2]
+
+
+def test_a_sampled_dictionary_keeps_an_unset_child_as_null():
+    @compute_node
+    def keyed(command: TS[int]) -> hg.TSD[str, TS[Optional[int]]]:
+        return {"x": Null if command.value == 0 else command.value}
+
+    @compute_node
+    def seen(value: hg.TSD[str, TS[Optional[int]]]) -> TS[str]:
+        return _shown(value.delta_value)
+
+    @graph
+    def app(select: TS[bool], a: TS[int], b: TS[int]) -> TS[str]:
+        return seen(hg.if_then_else(select, keyed(a), keyed(b)))
+
+    result = eval_node(app, [True, None, False], [0, None, None], [7, None, None])
+    assert result[0] == "{x: Null}"
+    assert "7" in result[2]
+    # And the other way: the dictionary switched to holds the unset child.
+    result = eval_node(app, [True, None, False], [7, None, None], [0, None, None])
+    assert "Null" in result[2] and "None" not in result[2]

@@ -370,7 +370,10 @@ namespace hgraph
         // value reads as a delta. Null means "as ``to_python_impl`` gives
         // it", which holds wherever the two forms agree. An atomic TS
         // installs its own: the value of a tick whose Optional is unset
-        // reads ``None``, and its delta reads ``Null``.
+        // reads ``None``, and its delta reads ``Null``. A strategy with
+        // children installs its own too, exporting each child through the
+        // child's, so that a sampled aggregate keeps the form all the way
+        // down.
         PyNewRef (*value_as_delta_to_python_impl)(const void *context, const void *memory) = nullptr;
         // User-facing rendering owned by this live TSData strategy. The
         // canonical implementation delegates to the current value's ValueOps

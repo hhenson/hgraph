@@ -2059,6 +2059,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 base_ops.from_python_impl     = &python_ops_detail::forwarder<&PythonOps::TSData::tsd_from_python>::call;
                 base_ops.to_python_impl       = &python_ops_detail::forwarder<&PythonOps::TSData::tsd_to_python>::call;
                 base_ops.delta_to_python_impl = &python_ops_detail::forwarder<&PythonOps::TSData::tsd_delta_to_python>::call;
+                base_ops.value_as_delta_to_python_impl =
+                    &python_ops_detail::forwarder<&PythonOps::TSData::tsd_value_as_delta_to_python>::call;
 
                 dict_ops.structural_delta_current_impl = &tsd_structural_delta_current;
                 dict_ops.child_at_slot_impl = &tsd_child_at_slot;

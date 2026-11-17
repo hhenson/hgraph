@@ -1410,6 +1410,8 @@ namespace hgraph::detail
                 .python_family        = PythonTSDataFamily::target_link,
                 .to_python_impl       = &python_ops_detail::forwarder<&PythonOps::TSData::target_link_to_python>::call,
                 .delta_to_python_impl = &python_ops_detail::forwarder<&PythonOps::TSData::target_link_delta_to_python>::call,
+                .value_as_delta_to_python_impl =
+                    &python_ops_detail::forwarder<&PythonOps::TSData::target_link_value_as_delta_to_python>::call,
             };
         }
 

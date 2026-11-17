@@ -149,15 +149,15 @@ namespace hgraph::python_bridge
                     }
                 }
                 break;
-            case ValueTypeKind::Tuple:
+            case ValueTypeKind::Optional:
             {
                 // RFC 0050: an Optional is spelled ``Optional[T]``.
-                if (meta->is_optional())
-                {
-                    nb::object payload = element_annotation(meta->fields[0].type);
-                    if (!payload.is_valid()) { return nb::cast(PyValueType{meta}); }
-                    return nb::module_::import_("typing").attr("Optional").attr("__getitem__")(std::move(payload));
-                }
+                nb::object payload = element_annotation(meta->element_type);
+                if (!payload.is_valid()) { return nb::cast(PyValueType{meta}); }
+                return nb::module_::import_("typing").attr("Optional").attr("__getitem__")(std::move(payload));
+            }
+            case ValueTypeKind::Tuple:
+            {
                 nb::list elements;
                 for (std::size_t index = 0; index < meta->field_count; ++index)
                 {
