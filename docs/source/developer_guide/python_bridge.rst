@@ -569,6 +569,13 @@ understates the surface; that is lazy resolution, not a missing export.
 Value and reference crossings
 -----------------------------
 
+- **A Python ``Enum`` is a value type known by its class.** ``_value_type``
+  asks the bridge (``enum_value_type_of``) for the type registered for that
+  very class, and for hgraph's own ``CmpResult``, ``DivideByZero`` and
+  ``ToTableMode`` is answered with their native types. A class the bridge has
+  not seen registers under ``module.qualname``. A bare class name is never
+  looked up, so two classes of one name in two modules are two types, and a
+  user's ``CmpResult`` is not hgraph's.
 - **References are values** (ruling 2026-07-05): ``REF`` crosses the boundary
   as an opaque value; ``.output`` is deliberately not exposed. A non-REF
   parameter bound to a REF source receives the *dereferenced* value (binding
