@@ -12,26 +12,6 @@ namespace hgraph::python_bridge
             nb::gil_scoped_acquire gil;
             Py_DECREF(value);
         }
-
-        [[nodiscard]] nb::object cause_of(const std::exception &error)
-        {
-            if (const auto *python = dynamic_cast<const PythonCallbackError *>(&error))
-            {
-                return python->value();
-            }
-            // A nested failure that is no ``std::exception`` has no Python
-            // exception beneath it that this walk could reach. It leaves
-            // through ``python_cause``, which answers with no cause.
-            try
-            {
-                std::rethrow_if_nested(error);
-            }
-            catch (const std::exception &nested)
-            {
-                return cause_of(nested);
-            }
-            return {};
-        }
     } // namespace
 
     PythonCallbackError::PythonCallbackError(const nb::python_error &error)
@@ -48,16 +28,21 @@ namespace hgraph::python_bridge
     nb::object python_cause(const std::exception_ptr &error) noexcept
     {
         if (error == nullptr) { return {}; }
-        return fallback_on_exception(nb::object{}, [&]() -> nb::object {
+        nb::object cause;
+        // A failure that is no ``std::exception`` carries no Python exception
+        // this walk could reach, and leaves the cause unset.
+        static_cast<void>(fallback_on_exception(false, [&]() -> bool {
             try
             {
                 std::rethrow_exception(error);
             }
             catch (const std::exception &caught)
             {
-                return cause_of(caught);
+                return find_nested_exception<PythonCallbackError>(
+                    caught, [&](const PythonCallbackError &python) noexcept { cause = python.value(); });
             }
-        });
+        }));
+        return cause;
     }
 
     nb::object make_runtime_error(const char *message, nb::object cause) noexcept

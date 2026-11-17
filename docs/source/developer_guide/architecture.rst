@@ -558,6 +558,10 @@ Every place the runtime deliberately stops an exception is one of the
   ``error`` strings, Python boundaries that must ``PyErr_Clear``);
 * ``annotate_on_exception(f, annotate)`` -- rethrow enriched with context
   (``std::throw_with_nested`` from inside ``annotate``);
+* ``find_nested_exception<T>(failure, found)`` -- the way back down: the first
+  ``T`` at or beneath an annotated failure, handed to a ``noexcept`` callback
+  while it is alive. It ends without a match at a ``std::nested_exception``
+  that holds nothing, where ``std::rethrow_if_nested`` would terminate;
 * ``UnwindCleanupGuard`` / ``make_scope_exit`` -- rollback that must run
   when the protected step unwinds (deallocate what was allocated, clear a
   path that was set), with ``release()``/``complete()`` on the success path;

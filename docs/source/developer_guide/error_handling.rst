@@ -60,8 +60,9 @@ A failure that began as a Python exception in a user callback crosses the
 runtime as a ``PythonCallbackError`` (``python/py_exception.h``): a
 ``std::runtime_error`` whose ``what()`` is the traceback nanobind formats, as
 before, and which holds the exception object beside it. Where the run returns
-to Python, the bridge looks beneath the annotated failure for that object and
-raises the ``RuntimeError`` *from* it, with ``cleanup_on_error`` set or not. So
+to Python, the bridge looks beneath the annotated failure for that object
+(``find_nested_exception`` in ``util/scope.h``) and raises the
+``RuntimeError`` *from* it, with ``cleanup_on_error`` set or not. So
 ``error.__cause__`` is the exception the callback raised, with its own type,
 attributes and traceback, and the message is unchanged. Capture and
 ``try_except_`` still see only the text. A failure that began in native code

@@ -163,6 +163,46 @@ namespace hgraph
     }
 
     /**
+     * Find the first failure of type ``T`` at or beneath ``failure``, following
+     * the links ``std::throw_with_nested`` makes, and hand it to ``found``.
+     * Returns whether there was one.
+     *
+     * ``found`` is called while the failure is alive: a nested failure exists
+     * only inside the handler that rethrows it, so it cannot be returned by
+     * pointer. ``found`` copies what it needs out of the failure and must be
+     * ``noexcept``, so that nothing it does can be mistaken for the walk
+     * ending.
+     *
+     * The walk ends, without a match, at a failure that nests nothing, at a
+     * ``std::nested_exception`` that holds nothing (one made outside a
+     * handler, on which ``std::rethrow_if_nested`` would terminate), and at a
+     * nested failure that is not a ``std::exception``.
+     */
+    template <typename T, typename Found>
+    bool find_nested_exception(const std::exception &failure, Found &&found) noexcept
+    {
+        static_assert(std::is_nothrow_invocable_v<Found &, const T &>,
+                      "find_nested_exception: found must be noexcept");
+        if (const auto *match = dynamic_cast<const T *>(&failure))
+        {
+            found(*match);
+            return true;
+        }
+        const auto *nested = dynamic_cast<const std::nested_exception *>(&failure);
+        if (nested == nullptr || nested->nested_ptr() == nullptr) { return false; }
+        return fallback_on_exception(false, [&]() -> bool {
+            try
+            {
+                std::rethrow_exception(nested->nested_ptr());
+            }
+            catch (const std::exception &inner)
+            {
+                return find_nested_exception<T>(inner, found);
+            }
+        });
+    }
+
+    /**
      * Single-use cleanup guard that distinguishes normal completion from
      * exception unwinding.
      *
