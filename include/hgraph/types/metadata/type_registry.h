@@ -331,12 +331,11 @@ namespace hgraph
             bitset) - the "nullable tuple" trait for the value factory. */
         const ValueTypeMetaData *nullable_tuple(const ValueTypeMetaData *element_type);
         /**
-         * ``Optional[T]`` (RFC 0050): a value that holds one ``payload`` or is
-         * unset. It is a one-element Tuple carrying ``ValueTypeFlags::Optional``,
-         * so its storage is the payload followed by the field-validity word
-         * every fixed tuple has, and the tuple's plan, ops and binary form are
-         * its own. The unset state compares equal to itself and orders before
-         * a held payload.
+         * ``Optional[T]`` (RFC 0050): a value that holds one ``payload`` or
+         * holds nothing, as ``std::optional`` does. It has a kind of its own,
+         * ``ValueTypeKind::Optional``, and its ``element_type`` is the
+         * payload. Its storage is the payload followed by an engaged bit.
+         * Nothing compares equal to nothing and orders before a held payload.
          *
          * ``payload`` is any value type other than ``any``, which already
          * holds nil, and another ``Optional``; either is rejected.

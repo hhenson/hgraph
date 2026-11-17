@@ -285,6 +285,9 @@ namespace hgraph::ts_data_plan_factory_detail
                     // Any-storage scalars (Any itself and the JSON tree):
                     // the box copies whole through the Any value plan.
                     case ValueTypeKind::Any: return true;
+                    // An Optional copies whole through its value plan, held
+                    // or not (RFC 0050).
+                    case ValueTypeKind::Optional: return true;
                     case ValueTypeKind::Tuple:
                     case ValueTypeKind::List:
                     case ValueTypeKind::Set:

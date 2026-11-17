@@ -362,9 +362,10 @@ namespace hgraph::python_bridge
         }
 
         // -- Optional (RFC 0050) --------------------------------------------------
-        // An Optional is a one-element Tuple: the payload is its field 0,
-        // and the unset state that field's validity. In Python the payload
-        // is itself, with no wrapper, and the unset state is ``Null``.
+        // An Optional is stored as a composite of one field: the payload,
+        // and the bit that says whether one is held. In Python the payload
+        // is itself, with no wrapper, and a value that holds nothing is
+        // ``Null``.
         [[nodiscard]] nb::object optional_value_to_python(const void *context, const void *memory)
         {
             if (memory == nullptr) { throw std::runtime_error("Optional to_python requires live value memory"); }

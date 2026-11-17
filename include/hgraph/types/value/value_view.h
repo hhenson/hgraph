@@ -196,9 +196,8 @@ namespace hgraph
         }
         [[nodiscard]] bool is_queue() const noexcept { return valid() && schema()->try_value_kind() == ValueTypeKind::Queue; }
         [[nodiscard]] bool is_any()   const noexcept { return valid() && schema()->try_value_kind() == ValueTypeKind::Any; }
-        /** True for a value of ``Optional[T]`` (RFC 0050), held or unset. It
-            is a one-element Tuple that carries the Optional flag, so
-            ``is_tuple()`` is true of it too. */
+        /** True for a value of ``Optional[T]`` (RFC 0050), whether it holds
+            a payload or nothing. It is no tuple and no container. */
         [[nodiscard]] bool is_optional() const noexcept { return valid() && schema()->is_optional(); }
         [[nodiscard]] bool is_indexed() const noexcept
         {
@@ -218,6 +217,7 @@ namespace hgraph
                     return true;
                 case ValueTypeKind::Atomic:
                 case ValueTypeKind::Any:
+                case ValueTypeKind::Optional:
                     return false;
             }
             return false;

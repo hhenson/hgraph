@@ -152,7 +152,8 @@ namespace hgraph
             }
 
             const bool bundle = meta->value_kind() == ValueTypeKind::Bundle;
-            const bool tuple = meta->is_positional_tuple() && meta->field_count != 0;
+            const bool tuple = meta->value_kind() == ValueTypeKind::Tuple &&
+                               meta->field_count != 0;
             if (!bundle && !tuple)
             {
                 const bool released_arrow_type =
@@ -1131,6 +1132,13 @@ namespace hgraph
                 [&](QueueView queue) {
                     append_sequence_json(target, queue, evaluation_time,
                                          depth, source_path, recorder);
+                },
+                // An Optional (RFC 0050) renders as its payload does, or as
+                // ``null`` when it holds nothing.
+                [&](OptionalView optional) {
+                    append_diagnostic_json(target, optional.value(),
+                                           evaluation_time, depth + 1,
+                                           source_path, recorder);
                 });
         }
 

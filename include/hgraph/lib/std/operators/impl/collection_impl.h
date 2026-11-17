@@ -3503,7 +3503,7 @@ namespace hgraph::stdlib
                 const auto *schema = time_series_schema_at_as<AnyTS>(context, 0);
                 if (schema == nullptr ||
                     schema->value_schema == nullptr ||
-                    !schema->value_schema->is_positional_tuple() || schema->value_schema->field_count == 0)
+                    schema->value_schema->value_kind() != ValueTypeKind::Tuple || schema->value_schema->field_count == 0)
                 {
                     return nullptr;
                 }
@@ -3561,7 +3561,7 @@ namespace hgraph::stdlib
                                        ? key->scalar_value.try_as<Int>()
                                        : nullptr;
                 if (schema == nullptr || schema->value_schema == nullptr ||
-                    !schema->value_schema->is_positional_tuple() ||
+                    schema->value_schema->value_kind() != ValueTypeKind::Tuple ||
                     index == nullptr)
                 {
                     return nullptr;

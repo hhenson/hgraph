@@ -1,7 +1,8 @@
-// Tests for ``TS<Optional<T>>`` (RFC 0050): a time series whose tick may
+// Tests for ``TS<std::optional<T>>`` (RFC 0050): a time series whose tick may
 // be a null. A native node publishes a value that holds a payload, a value
 // that is unset, or nothing, and ``eval_node`` tells the three apart.
 
+#include <hgraph/lib/std/operators/impl/json_impl.h>
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
@@ -25,14 +26,14 @@ namespace
     /** An ``Optional[int]`` value that is unset: a tick whose value is null. */
     [[nodiscard]] Value null_int()
     {
-        return Value{ValuePlanFactory::instance().type_for(scalar_descriptor<Optional<Int>>::value_meta())};
+        return Value{ValuePlanFactory::instance().type_for(scalar_descriptor<std::optional<Int>>::value_meta())};
     }
 
     /** An ``Optional[int]`` value that holds ``payload``. */
     [[nodiscard]] Value some_int(Int payload)
     {
         Value value = null_int();
-        value.view().as_optional().begin_mutation().set(Value{payload}.view());
+        value.view().as_optional().begin_mutation().emplace(Value{payload}.view());
         return value;
     }
 
@@ -41,12 +42,12 @@ namespace
     struct Cleared
     {
         static constexpr auto name = "optional_cleared";
-        static void           eval(In<"command", TS<Int>> command, Out<TS<Optional<Int>>> out)
+        static void           eval(In<"command", TS<Int>> command, Out<TS<std::optional<Int>>> out)
         {
             const Int value = command.value();
             if (value == 0)
             {
-                out.set_null();
+                out.set(std::nullopt);
                 return;
             }
             if (value < 0) { return; }
@@ -58,10 +59,10 @@ namespace
     struct PayloadOrMinusOne
     {
         static constexpr auto name = "optional_payload_or_minus_one";
-        static void           eval(In<"value", TS<Optional<Int>>> value, Out<TS<Int>> out)
+        static void           eval(In<"value", TS<std::optional<Int>>> value, Out<TS<Int>> out)
         {
-            const auto payload = value.payload();
-            out.set(payload.has_value() ? *payload : Int{-1});
+            const std::optional<Int> held = value.value();
+            out.set(held.has_value() ? *held : Int{-1});
         }
     };
 
@@ -69,9 +70,20 @@ namespace
     struct PassOn
     {
         static constexpr auto name = "optional_pass_on";
-        static void eval(In<"value", TS<Optional<Int>>> value, Out<TS<Optional<Int>>> out)
+        static void eval(In<"value", TS<std::optional<Int>>> value, Out<TS<std::optional<Int>>> out)
         {
             out.apply(value.base().value());
+        }
+    };
+
+    // Passes each tick on, as the ``std::optional`` it is.
+    struct PassOnTyped
+    {
+        static constexpr auto name = "optional_pass_on_typed";
+        static void eval(In<"value", TS<std::optional<Int>>> value, Out<TS<std::optional<Int>>> out)
+        {
+            const std::optional<Int> held = value.value();
+            out.set(held);
         }
     };
 
@@ -80,7 +92,7 @@ namespace
     struct Seen
     {
         static constexpr auto name = "optional_seen";
-        static void           eval(In<"value", TS<Optional<Int>>> value, Out<TS<Int>> out)
+        static void           eval(In<"value", TS<std::optional<Int>>> value, Out<TS<Int>> out)
         {
             const Int valid = value.valid() ? 100 : 0;
             const Int modified = value.modified() ? 10 : 0;
@@ -93,12 +105,12 @@ namespace
     struct Doubled
     {
         static constexpr auto name = "optional_doubled";
-        static void eval(In<"value", TS<Optional<Int>>> value, Out<TS<Optional<Int>>> out)
+        static void eval(In<"value", TS<std::optional<Int>>> value, Out<TS<std::optional<Int>>> out)
         {
-            const auto payload = value.value().value();
+            const auto payload = value.view().value();
             if (!payload.valid())
             {
-                out.set_null();
+                out.set(std::nullopt);
                 return;
             }
             out.set(Value{Int{payload.checked_as<Int>() * 2}}.view());
@@ -109,7 +121,7 @@ namespace
     struct WrongApply
     {
         static constexpr auto name = "optional_wrong_apply";
-        static void           eval(In<"command", TS<Int>> command, Out<TS<Optional<Int>>> out)
+        static void           eval(In<"command", TS<Int>> command, Out<TS<std::optional<Int>>> out)
         {
             out.apply(Value{command.value()}.view());
         }
@@ -118,7 +130,7 @@ namespace
     struct OptionalLenGraph
     {
         [[maybe_unused]] static constexpr auto name = "optional_len_graph";
-        static Port<TS<Int>> compose(Wiring &w, Port<TS<Optional<Int>>> value)
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<std::optional<Int>>> value)
         {
             return wire<stdlib::len_>(w, value).as<TS<Int>>();
         }
@@ -127,11 +139,11 @@ namespace
     struct OptionalToTableGraph
     {
         [[maybe_unused]] static constexpr auto name = "optional_to_table_graph";
-        static auto compose(Wiring &w, Port<TS<Optional<Int>>> value) { return wire<stdlib::to_table>(w, value); }
+        static auto compose(Wiring &w, Port<TS<std::optional<Int>>> value) { return wire<stdlib::to_table>(w, value); }
     };
 }  // namespace
 
-TEST_CASE("TS<Optional<T>>: a node publishes a held payload, a null, or nothing")
+TEST_CASE("TS<std::optional<T>>: a node publishes a held payload, a null, or nothing")
 {
     // A tick whose value is unset is a tick: it is recorded, and is no
     // `none`. Publishing nothing is `none`.
@@ -139,33 +151,36 @@ TEST_CASE("TS<Optional<T>>: a node publishes a held payload, a null, or nothing"
                  values<Value>(some_int(5), null_int(), none, some_int(7), null_int(), null_int()));
 }
 
-TEST_CASE("TS<Optional<T>>: an input reads the payload, or that there is none")
+TEST_CASE("TS<std::optional<T>>: an input reads the payload, or that there is none")
 {
     CHECK_OUTPUT(testing::eval_node<PayloadOrMinusOne>(values<Value>(some_int(5), null_int(), none, some_int(0))),
                  {5, -1, none, 0});
 }
 
-TEST_CASE("TS<Optional<T>>: a tick whose value is unset is valid and modified")
+TEST_CASE("TS<std::optional<T>>: a tick whose value is unset is valid and modified")
 {
     // 111: valid, modified, a payload. 110: valid, modified, no payload.
     CHECK_OUTPUT(testing::eval_node<Seen>(values<Value>(some_int(5), null_int(), none, null_int())),
                  {111, 110, none, 110});
 }
 
-TEST_CASE("TS<Optional<T>>: a value is passed on in either state")
+TEST_CASE("TS<std::optional<T>>: a value is passed on in either state")
 {
     CHECK_OUTPUT(testing::eval_node<PassOn>(values<Value>(some_int(5), null_int(), none, some_int(7))),
+                 values<Value>(some_int(5), null_int(), none, some_int(7)));
+    // And as the ``std::optional`` a typed node reads and sets.
+    CHECK_OUTPUT(testing::eval_node<PassOnTyped>(values<Value>(some_int(5), null_int(), none, some_int(7))),
                  values<Value>(some_int(5), null_int(), none, some_int(7)));
     CHECK_OUTPUT(testing::eval_node<Doubled>(values<Value>(some_int(5), null_int(), some_int(-2))),
                  values<Value>(some_int(10), null_int(), some_int(-4)));
 }
 
-TEST_CASE("TS<Optional<T>>: an Optional output takes an Optional value and no other")
+TEST_CASE("TS<std::optional<T>>: an Optional output takes an Optional value and no other")
 {
     CHECK_THROWS(testing::eval_node<WrongApply>({1}));
 }
 
-TEST_CASE("TS<Optional<T>>: an Optional is no tuple to what takes one")
+TEST_CASE("TS<std::optional<T>>: an Optional is no tuple to what takes one")
 {
     stdlib::register_standard_operators();
 
@@ -176,7 +191,7 @@ TEST_CASE("TS<Optional<T>>: an Optional is no tuple to what takes one")
     CHECK_THROWS(testing::eval_node<OptionalLenGraph>(values<Value>(some_int(5))));
 }
 
-TEST_CASE("TS<Optional<T>>: a table refuses an Optional leaf by name")
+TEST_CASE("TS<std::optional<T>>: a table refuses an Optional leaf by name")
 {
     stdlib::register_standard_operators();
 
@@ -185,4 +200,13 @@ TEST_CASE("TS<Optional<T>>: a table refuses an Optional leaf by name")
     // leaf is refused where the table is wired.
     CHECK_THROWS_WITH(testing::eval_node<OptionalToTableGraph>(values<Value>(some_int(5))),
                       Catch::Matchers::ContainsSubstring("an Optional leaf is not recorded yet"));
+}
+
+TEST_CASE("TS<std::optional<T>>: the JSON tree holds its payload's node, or the null node")
+{
+    const Value held = stdlib::json_tree::to_node(some_int(5).view());
+    CHECK(stdlib::json_tree::unbox(held.view()).checked_as<Int>() == 5);
+
+    const Value nothing = stdlib::json_tree::to_node(null_int().view());
+    CHECK_FALSE(stdlib::json_tree::unbox(nothing.view()).valid());
 }

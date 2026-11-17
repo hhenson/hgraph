@@ -182,12 +182,13 @@ ticks the output at the current evaluation time. A node has **at most one**
 In Python you ``return`` the value; in C++ you call ``out.set(...)``. Not calling
 ``set`` (Python: returning ``None``) leaves the output unticked for that cycle.
 
-A tick that is null — ``TS<Optional<T>>``
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+A tick that is null — ``TS<std::optional<T>>``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 **Available.** A ``TS<T>`` either ticks a ``T`` or does not tick. Where a
 node must also be able to say "there is a value now, and it is nothing", declare
-the output ``TS<Optional<T>>`` (Python: ``TS[Optional[T]]``). Such a tick is a
+the output ``TS<std::optional<T>>`` (Python: ``TS[Optional[T]]``). The value type
+is ``Optional[T]``, and C++ spells it with the type that means it. Such a tick is a
 tick like any other: the output is valid, it is modified, and it wakes its
 consumers; its value holds no payload.
 
@@ -197,11 +198,11 @@ consumers; its value holds no payload.
    {
        static constexpr auto name = "cleared";
 
-       static void eval(In<"command", TS<Int>> command, Out<TS<Optional<Int>>> out)
+       static void eval(In<"command", TS<Int>> command, Out<TS<std::optional<Int>>> out)
        {
-           if (command.value() == 0) { out.set_null(); return; }  // a tick whose value is null
-           if (command.value() < 0) { return; }                   // no tick
-           out.set(command.value());                              // a tick that holds the value
+           if (command.value() == 0) { out.set(std::nullopt); return; }  // a tick whose value is null
+           if (command.value() < 0) { return; }                          // no tick
+           out.set(command.value());                                     // a tick that holds the value
        }
    };
 
@@ -209,10 +210,10 @@ consumers; its value holds no payload.
    {
        static constexpr auto name = "or_minus_one";
 
-       static void eval(In<"value", TS<Optional<Int>>> value, Out<TS<Int>> out)
+       static void eval(In<"value", TS<std::optional<Int>>> value, Out<TS<Int>> out)
        {
-           const auto payload = value.payload();   // std::optional<Int>
-           out.set(payload.has_value() ? *payload : Int{-1});
+           const std::optional<Int> held = value.value();
+           out.set(held.has_value() ? *held : Int{-1});
        }
    };
 
@@ -230,18 +231,19 @@ consumers; its value holds no payload.
    def or_minus_one(value: TS[Optional[int]]) -> TS[int]:
        return -1 if value.value is None else value.value
 
-In Python the unset state is the sentinel ``Null``: a node returns it, an
+In Python a value that holds nothing is the sentinel ``Null``: a node returns it, an
 ``eval_node`` vector spells it, and ``delta_value`` reads it. ``value`` reads
-``None`` for a tick whose value is unset.
+``None`` for a tick whose value holds nothing.
 
-``In<..., TS<Optional<T>>>::value()`` is an ``OptionalView``: ``has_value()`` says
-whether a payload is held and ``value()`` gives it as a ``ValueView``, for a payload
-that is a composite. ``payload()`` gives a ``std::optional<T>`` for a payload that is
-a C++ scalar. ``Out<TS<Optional<T>>>`` has ``set(payload)``, ``set_null()`` and the
-erased ``apply(value)``, which takes an ``Optional`` value in either state.
+``In<..., TS<std::optional<T>>>::value()`` is the ``std::optional<T>`` itself, for a
+payload that is a C++ scalar. ``view()`` is an ``OptionalView``, for any payload:
+``has_value()`` says whether a payload is held and ``value()`` gives it as a
+``ValueView``. ``Out<TS<std::optional<T>>>::set`` takes a payload, a
+``std::optional<T>``, or ``std::nullopt``; the erased ``apply(value)`` takes an
+``Optional`` value whatever it holds.
 
-In a test, ``none`` is still no tick, and a tick is an ``Optional`` value, unset or
-holding its payload: ``eval_node`` tells the three apart.
+In a test, ``none`` is still no tick, and a tick is an ``Optional`` value, holding
+its payload or nothing: ``eval_node`` tells the three apart.
 
 No arithmetic or container operator applies to an ``Optional``: it is no tuple and no
 number. A table does not record one yet, and refuses it where the table is wired.

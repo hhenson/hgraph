@@ -779,7 +779,8 @@ struct TypeRealizationSnapshot::Impl {
     ValueTypeRef result = canonical;
     switch (schema->value_kind()) {
     case ValueTypeKind::Tuple:
-    case ValueTypeKind::Bundle: {
+    case ValueTypeKind::Bundle:
+    case ValueTypeKind::Optional: {
       std::vector<ValueTypeRef> fields;
       fields.reserve(schema->field_count);
       bool changed = false;
@@ -915,7 +916,8 @@ struct TypeRealizationSnapshot::Impl {
     ValueTypeRef result = canonical;
     switch (schema->value_kind()) {
     case ValueTypeKind::Tuple:
-    case ValueTypeKind::Bundle: {
+    case ValueTypeKind::Bundle:
+    case ValueTypeKind::Optional: {
       std::vector<ValueTypeRef> fields;
       fields.reserve(schema->field_count);
       bool changed = false;

@@ -1072,12 +1072,14 @@ namespace hgraph
 
     /**
      * Read-only view over an ``Optional[T]`` value (RFC 0050): a live value
-     * that holds one payload of type ``T`` or is unset.
+     * that holds one payload of type ``T`` or holds nothing, as a
+     * ``std::optional<T>`` does. The members are named as that type's are.
      *
      * The value itself is always there to view; what may be absent is its
      * payload. ``has_value`` says whether one is held and ``value`` gives it.
-     * An unset Optional equals another unset one and orders before one that
-     * holds a payload; two that hold payloads compare as the payloads do.
+     * One that holds nothing equals another that holds nothing and orders
+     * before one that holds a payload; two that hold payloads compare as the
+     * payloads do.
      */
     class OptionalView : public ValueView
     {
@@ -1090,6 +1092,8 @@ namespace hgraph
 
         /** True when a payload is held. */
         [[nodiscard]] bool has_value() const { return ops_->element_at(ops_->context, data(), 0) != nullptr; }
+        /** True when a payload is held, as ``has_value`` is. */
+        [[nodiscard]] explicit operator bool() const { return has_value(); }
 
         /** The payload. When none is held this is a typed-null view: bound
             to the payload's type, and not ``valid()``. Returned ``const``
@@ -1113,8 +1117,8 @@ namespace hgraph
     };
 
     /**
-     * Writable view over an ``Optional[T]`` value: hold a payload, or return
-     * to the unset state.
+     * Writable view over an ``Optional[T]`` value: ``emplace`` a payload, or
+     * ``reset`` to hold nothing.
      */
     class MutableOptionalView : public OptionalView
     {
@@ -1129,14 +1133,17 @@ namespace hgraph
         }
 
         /** Hold a copy of ``payload``, a value of the payload's type. */
-        void set(const ValueView &payload) const
+        void emplace(const ValueView &payload) const
         {
-            if (!payload.valid()) { throw std::logic_error("MutableOptionalView::set requires a payload; use reset()"); }
+            if (!payload.valid())
+            {
+                throw std::logic_error("MutableOptionalView::emplace requires a payload; use reset()");
+            }
             void *element = ops_->mutable_element_at(ops_->context, mutable_data(), 0);
             ValueView{payload_binding(), element}.begin_mutation().copy_from(payload);
         }
 
-        /** Return to the unset state. */
+        /** Hold nothing. */
         void reset() const { ops_->clear_element(ops_->context, mutable_data(), 0); }
     };
 

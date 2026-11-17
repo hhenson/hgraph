@@ -386,7 +386,7 @@ TEST_CASE("value schemas expose the unified schema header as their standard-layo
     REQUIRE(meta->schema_header().kind == static_cast<TypeKind>(meta->value_kind()));
 
     ValueTypeMetaData invalid{ValueTypeKind::Atomic, ValueTypeFlags::None, "invalid"};
-    invalid.header.kind = static_cast<TypeKind>(ValueTypeKind::Any) + 1;
+    invalid.header.kind = static_cast<TypeKind>(ValueTypeKind::Optional) + 1;
     REQUIRE_FALSE(invalid.try_value_kind().has_value());
     REQUIRE_FALSE(try_value_type_kind(invalid.header.kind).has_value());
     REQUIRE_THROWS_AS(invalid.value_kind(), std::invalid_argument);

@@ -3001,7 +3001,7 @@ TEST_CASE("stdlib nonthrowing schema helpers reject malformed compact kinds")
     using namespace hgraph;
 
     ValueTypeMetaData malformed{ValueTypeKind::Atomic, ValueTypeFlags::None, "malformed"};
-    malformed.header.kind = static_cast<TypeKind>(ValueTypeKind::Any) + 1;
+    malformed.header.kind = static_cast<TypeKind>(ValueTypeKind::Optional) + 1;
 
     REQUIRE(stdlib::arithmetic_impl_detail::container_agg_element_meta<ValueTypeKind::Map>(&malformed) == nullptr);
     REQUIRE(stdlib::collection_impl_detail::nested_map_meta(&malformed) == nullptr);

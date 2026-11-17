@@ -103,8 +103,10 @@ namespace hgraph
                                                                         std::span<const ValueTypeRef> field_bindings = {},
                                                                         const void *representation = nullptr)
             {
-                if (schema.value_kind() != ValueTypeKind::Tuple && schema.value_kind() != ValueTypeKind::Bundle)
-                    throw std::invalid_argument("fixed-composite debug descriptor requires tuple or bundle schema");
+                if (schema.value_kind() != ValueTypeKind::Tuple && schema.value_kind() != ValueTypeKind::Bundle &&
+                    schema.value_kind() != ValueTypeKind::Optional)
+                    throw std::invalid_argument(
+                        "fixed-composite debug descriptor requires tuple, bundle or optional schema");
                 if (schema.field_count > std::numeric_limits<std::uint32_t>::max())
                     throw std::length_error("fixed-composite debug descriptor exceeds the field-count ABI");
                 if (!field_bindings.empty() && field_bindings.size() != schema.field_count)

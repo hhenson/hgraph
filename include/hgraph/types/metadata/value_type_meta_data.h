@@ -94,12 +94,22 @@ namespace hgraph
          * (and the eventual analogue of a generic / Python ``object``).
          */
         Any = 8,
+        /**
+         * ``Optional[T]`` (RFC 0050): holds one value of ``element_type`` or
+         * holds nothing, as ``std::optional`` does. Storage is the payload
+         * and an engaged bit; no payload is constructed while it holds
+         * nothing. It is no tuple and no container: nothing that matches a
+         * tuple, a list or an atomic matches it. Nothing equals nothing and
+         * orders before any held value; two held values compare as the
+         * payloads do.
+         */
+        Optional = 9,
     };
 
     /** Convert a compact kind when it belongs to the value family. */
     [[nodiscard]] constexpr std::optional<ValueTypeKind> try_value_type_kind(TypeKind kind) noexcept
     {
-        if (kind > static_cast<TypeKind>(ValueTypeKind::Any)) { return std::nullopt; }
+        if (kind > static_cast<TypeKind>(ValueTypeKind::Optional)) { return std::nullopt; }
         return static_cast<ValueTypeKind>(kind);
     }
 
@@ -157,10 +167,6 @@ namespace hgraph
             metadata Bundle. Lets the nominal ancestry walk descend to the row
             without a registry lookup. */
         Frame = 1u << 14,
-        /** A one-element Tuple that is ``Optional[T]`` (RFC 0050): a live value
-            that holds its payload or is unset. The unset state is the
-            element's field validity, as an unset bundle field is. */
-        Optional = 1u << 15,
     };
 
     /** Bitwise OR over ``ValueTypeFlags``. */
@@ -387,16 +393,10 @@ namespace hgraph
         /** True when this container schema is backed by structurally-mutable storage. */
         [[nodiscard]] constexpr bool is_mutable() const noexcept { return has(ValueTypeFlags::Mutable); }
         [[nodiscard]] constexpr bool is_nullable() const noexcept { return has(ValueTypeFlags::Nullable); }
-        /** True for ``Optional[T]`` (RFC 0050); its payload type is ``fields[0].type``. */
-        [[nodiscard]] constexpr bool is_optional() const noexcept { return has(ValueTypeFlags::Optional); }
-        /** True for a positional Tuple that a user wrote as one. An
-            ``Optional[T]`` is a one-element Tuple by KIND, which is how its
-            storage and ops are a tuple's, and is no tuple to whoever asks
-            what a value is: tuple-shaped matching, conversion and operators
-            ask this and not the kind. */
-        [[nodiscard]] constexpr bool is_positional_tuple() const noexcept
+        /** True for ``Optional[T]`` (RFC 0050); its payload type is ``element_type``. */
+        [[nodiscard]] constexpr bool is_optional() const noexcept
         {
-            return try_value_kind() == ValueTypeKind::Tuple && !is_optional();
+            return try_value_kind() == ValueTypeKind::Optional;
         }
 
         [[nodiscard]] constexpr bool is_enum() const noexcept { return has(ValueTypeFlags::Enum); }

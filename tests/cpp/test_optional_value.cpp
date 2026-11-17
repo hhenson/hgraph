@@ -11,6 +11,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/primitive_types.h>
+#include <hgraph/types/metadata/schema_table.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/value/binary_codec.h>
 #include <hgraph/types/value/json_codec.h>
@@ -18,6 +19,7 @@
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/value_view.h>
+#include <hgraph/types/value/visitor.h>
 
 #include <compare>
 #include <stdexcept>
@@ -30,16 +32,16 @@ namespace
     /** An ``Optional[int]`` that holds ``payload``. */
     [[nodiscard]] Value held(Int payload)
     {
-        const auto *schema = scalar_descriptor<Optional<Int>>::value_meta();
+        const auto *schema = scalar_descriptor<std::optional<Int>>::value_meta();
         Value       value{ValuePlanFactory::instance().type_for(schema)};
-        value.view().as_optional().begin_mutation().set(Value{payload}.view());
+        value.view().as_optional().begin_mutation().emplace(Value{payload}.view());
         return value;
     }
 
     /** An ``Optional[int]`` in the unset state. */
     [[nodiscard]] Value unset()
     {
-        const auto *schema = scalar_descriptor<Optional<Int>>::value_meta();
+        const auto *schema = scalar_descriptor<std::optional<Int>>::value_meta();
         return Value{ValuePlanFactory::instance().type_for(schema)};
     }
 }  // namespace
@@ -55,16 +57,16 @@ TEST_CASE("Optional: the registry interns it by payload and names it")
     CHECK(optional_int == registry.optional(int_meta));
     CHECK(optional_int != registry.optional(str_meta));
 
-    // A one-element Tuple that carries the flag: the payload is its field.
-    CHECK(optional_int->value_kind() == ValueTypeKind::Tuple);
+    // A kind of its own, whose element is the payload.
+    CHECK(optional_int->value_kind() == ValueTypeKind::Optional);
     CHECK(optional_int->is_optional());
-    REQUIRE(optional_int->field_count == 1);
-    CHECK(optional_int->fields[0].type == int_meta);
+    CHECK(optional_int->element_type == int_meta);
     CHECK(optional_int->name() == std::string_view{"Optional[int]"});
 
-    // It is no Tuple[int], which carries no flag.
+    // It is no Tuple[int], and a Tuple[int] is no Optional.
     const auto *tuple_int = registry.tuple({int_meta});
     CHECK(optional_int != tuple_int);
+    CHECK(tuple_int->value_kind() == ValueTypeKind::Tuple);
     CHECK_FALSE(tuple_int->is_optional());
 
     // What the payload is, the Optional is: an int hashes, so it does.
@@ -93,21 +95,21 @@ TEST_CASE("Optional: its name reads back to the schema, and its descriptor is it
     CHECK(parse_value_type_name(nested->name()) == nested);
     CHECK(parse_ts_type_name("TS[Optional[int]]") == registry.ts(optional_int));
 
-    // The flag is part of the canonical descriptor, so the wire tells an
+    // The kind is part of the canonical descriptor, so the wire tells an
     // Optional[int] from a Tuple[int].
     CHECK(manifest::value_descriptor(optional_int) != manifest::value_descriptor(registry.tuple({int_meta})));
     CHECK(manifest::value_descriptor(optional_int) == manifest::value_descriptor(registry.optional(int_meta)));
 }
 
-TEST_CASE("Optional: the static schema spells it Optional<T>")
+TEST_CASE("Optional: the static schema spells it std::optional<T>")
 {
     auto       &registry = TypeRegistry::instance();
     const auto *int_meta = scalar_descriptor<Int>::value_meta();
 
-    REQUIRE(scalar_descriptor<Optional<Int>>::is_concrete());
-    CHECK(scalar_descriptor<Optional<Int>>::value_meta() == registry.optional(int_meta));
-    CHECK(schema_descriptor<TS<Optional<Int>>>::ts_meta() == registry.ts(registry.optional(int_meta)));
-    CHECK(scalar_descriptor<Optional<Tuple<Int, Str>>>::value_meta() ==
+    REQUIRE(scalar_descriptor<std::optional<Int>>::is_concrete());
+    CHECK(scalar_descriptor<std::optional<Int>>::value_meta() == registry.optional(int_meta));
+    CHECK(schema_descriptor<TS<std::optional<Int>>>::ts_meta() == registry.ts(registry.optional(int_meta)));
+    CHECK(scalar_descriptor<std::optional<Tuple<Int, Str>>>::value_meta() ==
           registry.optional(scalar_descriptor<Tuple<Int, Str>>::value_meta()));
 }
 
@@ -123,12 +125,12 @@ TEST_CASE("Optional: a new value is unset, and a view holds a payload or returns
     CHECK(view.value().bound());
     CHECK(view.payload_binding().schema() == scalar_descriptor<Int>::value_meta());
 
-    view.begin_mutation().set(Value{Int{7}}.view());
+    view.begin_mutation().emplace(Value{Int{7}}.view());
     CHECK(view.has_value());
     CHECK(view.value().checked_as<Int>() == 7);
 
     // Holding another payload replaces the one held.
-    view.begin_mutation().set(Value{Int{9}}.view());
+    view.begin_mutation().emplace(Value{Int{9}}.view());
     CHECK(view.value().checked_as<Int>() == 9);
 
     view.begin_mutation().reset();
@@ -136,12 +138,12 @@ TEST_CASE("Optional: a new value is unset, and a view holds a payload or returns
     CHECK_FALSE(view.value().valid());
 
     // What was held is not seen again when a payload is next held.
-    view.begin_mutation().set(Value{Int{3}}.view());
+    view.begin_mutation().emplace(Value{Int{3}}.view());
     CHECK(view.value().checked_as<Int>() == 3);
 
     // A payload is a value: an empty one is refused, and reset is the way
     // to the unset state.
-    CHECK_THROWS_AS(view.begin_mutation().set(ValueView{}), std::logic_error);
+    CHECK_THROWS_AS(view.begin_mutation().emplace(ValueView{}), std::logic_error);
 }
 
 TEST_CASE("Optional: the views are for an Optional, and the mutable one for mutable storage")
@@ -152,15 +154,19 @@ TEST_CASE("Optional: the views are for an Optional, and the mutable one for muta
     CHECK_THROWS_AS(plain.view().as_optional(), std::logic_error);
     CHECK_THROWS_AS(plain.view().as_mutable_optional(), std::logic_error);
 
-    // A Tuple[int] is no Optional, though an Optional is a Tuple by kind.
+    // A Tuple[int] is no Optional, and an Optional is no tuple.
     const auto *tuple_int = TypeRegistry::instance().tuple({scalar_descriptor<Int>::value_meta()});
     const Value tuple{ValuePlanFactory::instance().type_for(tuple_int)};
     CHECK_FALSE(tuple.view().is_optional());
     CHECK_FALSE(tuple.view().try_as_optional().has_value());
 
     const Value value = held(5);
-    CHECK(value.view().is_tuple());
+    CHECK_FALSE(value.view().is_tuple());
+    CHECK_FALSE(value.view().is_indexed());
+    CHECK_FALSE(value.view().try_as_tuple().has_value());
     REQUIRE(value.view().try_as_optional().has_value());
+    CHECK(static_cast<bool>(value.view().as_optional()));
+    CHECK_FALSE(static_cast<bool>(unset().view().as_optional()));
     // A read-only view opens no mutation.
     CHECK_FALSE(value.view().try_as_mutable_optional().has_value());
     CHECK_THROWS_AS(value.view().as_mutable_optional(), std::logic_error);
@@ -240,7 +246,7 @@ TEST_CASE("Optional: a payload may be a composite")
     payload.set(1, Value{Str{"four"}});
 
     Value value{ValuePlanFactory::instance().type_for(schema)};
-    value.view().as_optional().begin_mutation().set(payload.build().view());
+    value.view().as_optional().begin_mutation().emplace(payload.build().view());
     const auto read = value.view().as_optional().value().as_tuple();
     CHECK(read.at(0).checked_as<Int>() == 4);
     CHECK(read.at(1).checked_as<Str>() == Str{"four"});
@@ -251,7 +257,7 @@ TEST_CASE("Optional: a payload may be a composite")
 
 TEST_CASE("Optional: the binary form is a presence tag and then the payload")
 {
-    const auto *schema = scalar_descriptor<Optional<Int>>::value_meta();
+    const auto *schema = scalar_descriptor<std::optional<Int>>::value_meta();
 
     const Value none = unset();
     const auto  none_bytes = to_binary_string(none.view());
@@ -278,7 +284,7 @@ TEST_CASE("Optional: the binary form is a presence tag and then the payload")
 TEST_CASE("Optional: the JSON form is null, or the payload's own")
 {
     auto       &registry = TypeRegistry::instance();
-    const auto *schema = scalar_descriptor<Optional<Int>>::value_meta();
+    const auto *schema = scalar_descriptor<std::optional<Int>>::value_meta();
 
     CHECK(to_json_string(unset().view()) == "null");
     CHECK(to_json_string(held(5).view()) == "5");
@@ -307,7 +313,7 @@ TEST_CASE("Optional: the JSON form is null, or the payload's own")
 TEST_CASE("Optional: nested in a composite or a map it reads its own JSON null")
 {
     auto       &registry = TypeRegistry::instance();
-    const auto *optional_int = scalar_descriptor<Optional<Int>>::value_meta();
+    const auto *optional_int = scalar_descriptor<std::optional<Int>>::value_meta();
 
     // A tuple's field: `[null]` is a field that holds an unset Optional.
     const auto *tuple = registry.tuple({optional_int, optional_int});
@@ -337,4 +343,69 @@ TEST_CASE("Optional: nested in a composite or a map it reads its own JSON null")
     REQUIRE(a.valid());
     CHECK_FALSE(a.as_optional().has_value());
     CHECK(read.at(Value{Str{"b"}}.view()).as_optional().value().checked_as<Int>() == 7);
+}
+
+TEST_CASE("Optional: a visitor reaches it by its own view, or by its catch-all")
+{
+    const Value five = held(5);
+    const Value none = unset();
+
+    // A handler of OptionalView takes it, whatever it holds.
+    const auto by_view = [](const ValueView &value) {
+        return visit(
+            value, [](OptionalView optional) { return optional.has_value() ? 1 : 0; }, [](ValueView) { return -1; });
+    };
+    CHECK(by_view(five.view()) == 1);
+    CHECK(by_view(none.view()) == 0);
+    CHECK(by_view(Value{Int{3}}.view()) == -1);
+
+    // With no such handler the catch-all does, and a tuple's does not.
+    CHECK(visit(five.view(), [](TupleView) { return 1; }, [](ValueView) { return 2; }) == 2);
+
+    // A visitor that names each kind it was written for, and has no
+    // catch-all, still compiles. An Optional is refused when it meets one.
+    const auto every_other_kind = [](const ValueView &value) {
+        return visit(
+            value, [](AtomicView) { return 0; }, [](TupleView) { return 0; }, [](BundleView) { return 0; },
+            [](ListView) { return 0; }, [](SetView) { return 0; }, [](MapView) { return 0; },
+            [](CyclicBufferView) { return 0; }, [](QueueView) { return 0; });
+    };
+    CHECK(every_other_kind(Value{Int{3}}.view()) == 0);
+    CHECK_THROWS_AS(every_other_kind(five.view()), std::invalid_argument);
+}
+
+TEST_CASE("Optional: a schema table writes its kind and its payload, and reads them back")
+{
+    auto       &registry = TypeRegistry::instance();
+    const auto *optional_int = registry.optional(scalar_descriptor<Int>::value_meta());
+    const auto *of_tuple = registry.optional(
+        registry.tuple({scalar_descriptor<Int>::value_meta(), scalar_descriptor<Str>::value_meta()}));
+    const auto *in_list = registry.list(optional_int, 0, false);
+
+    SchemaTableWriter writer;
+    const auto        optional_at = writer.value_ref(optional_int);
+    const auto        of_tuple_at = writer.value_ref(of_tuple);
+    const auto        in_list_at = writer.value_ref(in_list);
+    std::string       bytes;
+    writer.write(bytes);
+
+    BinaryReader      reader{bytes};
+    SchemaTableReader table;
+    table.read(reader);
+    CHECK(table.value_at(optional_at) == optional_int);
+    CHECK(table.value_at(of_tuple_at) == of_tuple);
+    CHECK(table.value_at(in_list_at) == in_list);
+    CHECK(table.value_at(optional_at)->value_kind() == ValueTypeKind::Optional);
+}
+
+TEST_CASE("Optional: it is written as its payload is, or as None")
+{
+    CHECK(held(5).view().to_string() == "5");
+    CHECK(unset().view().to_string() == "None");
+
+    // A tuple of one is written as a tuple; an Optional is not one.
+    const auto *tuple_int = TypeRegistry::instance().tuple({scalar_descriptor<Int>::value_meta()});
+    BundleBuilder builder{ValuePlanFactory::instance().type_for(tuple_int)};
+    builder.set(0, Value{Int{5}});
+    CHECK(builder.build().view().to_string() == "(5,)");
 }

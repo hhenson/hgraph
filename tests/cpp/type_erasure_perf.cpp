@@ -838,6 +838,8 @@ int main()
             return static_cast<std::uint64_t>(source->as_queue().size());
         case ValueTypeKind::Any:
             throw std::runtime_error("unexpected Any in manual atomic value dispatch");
+        case ValueTypeKind::Optional:
+            return static_cast<std::uint64_t>(source->as_optional().has_value());
         }
         throw std::runtime_error("unknown kind in manual atomic value dispatch");
     };
@@ -931,6 +933,8 @@ int main()
             return static_cast<std::uint64_t>(source->as_queue().size());
         case ValueTypeKind::Any:
             throw std::runtime_error("unexpected Any in manual bundle value dispatch");
+        case ValueTypeKind::Optional:
+            return static_cast<std::uint64_t>(source->as_optional().has_value());
         }
         throw std::runtime_error("unknown kind in manual bundle value dispatch");
     };

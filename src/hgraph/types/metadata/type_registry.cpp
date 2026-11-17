@@ -1659,7 +1659,7 @@ namespace hgraph
             }
             const auto source_kind = source->try_value_kind();
             const auto held_kind = held->try_value_kind();
-            if (source->is_positional_tuple() && held->is_un_named_bundle() && source->field_count == held->field_count)
+            if (source_kind == ValueTypeKind::Tuple && held->is_un_named_bundle() && source->field_count == held->field_count)
             {
                 for (std::size_t index = 0; index < source->field_count; ++index)
                 {
@@ -1963,9 +1963,12 @@ namespace hgraph
             fields[0].index   = 0;
             fields[0].type    = payload;
             ValueFieldMetaData *fields_ptr = store_value_fields(std::move(fields));
-            ValueTypeMetaData   m(ValueTypeKind::Tuple,
-                                  compute_composite_flags({payload}) | ValueTypeFlags::Optional,
+            ValueTypeMetaData   m(ValueTypeKind::Optional, compute_composite_flags({payload}),
                                   store_name_interned(unary_label("Optional", payload)));
+            m.element_type = payload;
+            // The storage is the payload and an engaged bit, which is what a
+            // composite of one field has: the payload is listed as that
+            // field so that the composite plan and ops are the Optional's.
             m.fields      = fields_ptr;
             m.field_count = 1;
             return m;

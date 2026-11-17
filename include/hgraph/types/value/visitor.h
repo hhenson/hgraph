@@ -112,6 +112,25 @@ namespace hgraph
                     return detail::invoke_value_visitor<CyclicBufferView>(visitor, current);
                 case ValueTypeKind::Queue:
                     return detail::invoke_value_visitor<QueueView>(visitor, current);
+                case ValueTypeKind::Optional:
+                    // An Optional (RFC 0050) goes to a handler of
+                    // ``OptionalView`` where the visitor has one, and to its
+                    // ``ValueView`` catch-all otherwise. It is asked of no
+                    // visitor at compile time: one written before the kind
+                    // existed still compiles, and is refused an Optional
+                    // here.
+                    if constexpr (std::invocable<Visitor &, OptionalView>)
+                    {
+                        return std::invoke(visitor, current.as_optional());
+                    }
+                    else if constexpr (std::invocable<Visitor &, ValueView>)
+                    {
+                        return std::invoke(visitor, detail::ValueVisitorAccess::borrow(current));
+                    }
+                    else
+                    {
+                        throw std::invalid_argument("value visitor has no handler for an Optional value");
+                    }
                 case ValueTypeKind::Any: {
                     auto boxed = current.as_any();
                     if (!boxed.has_value()) { throw std::invalid_argument("cannot visit an empty Any value"); }

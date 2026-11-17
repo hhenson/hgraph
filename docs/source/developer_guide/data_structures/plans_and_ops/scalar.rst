@@ -180,29 +180,35 @@ Null is a *state*, not a schema or type. There is no null
   for map values. Map keys and set elements are non-null by design.
 
 ``Optional[T]`` (RFC 0050) is built on the nested form and adds no null
-schema. An ``Optional`` value is always a live value; what may be absent
-is its one payload, whose state is that field's validity bit. So a
-``TS[Optional[T]]`` can tick a value that is unset, a tick that is valid
-and wakes its consumers, without the time-series layer learning a new
-state: validity is still the last modified time, and a typed-null value
-still means there is no value at all.
+schema. It is a value kind of its own, modelled on ``std::optional``: an
+``Optional`` value is always a live value, and what may be absent is its
+payload. So a ``TS[Optional[T]]`` can tick a value that holds nothing, a
+tick that is valid and wakes its consumers, without the time-series layer
+learning a new state: validity is still the last modified time, and a
+typed-null value still means there is no value at all.
 
-- ``ValueView::as_optional()`` gives an ``OptionalView``: ``has_value()``
-  says whether a payload is held, and ``value()`` gives it, a typed-null
-  view of the payload's type when none is.
+- The storage plan is a composite of one field: the payload, then the
+  validity word whose one bit is the engaged bit. The composite's ops are
+  the Optional's, so copy, move, equality, order and hash need none of
+  their own.
+- ``ValueView::as_optional()`` gives an ``OptionalView``, whose members
+  are named as ``std::optional``'s are: ``has_value()`` and
+  ``operator bool`` say whether a payload is held, and ``value()`` gives
+  it, a typed-null view of the payload's type when none is.
 - ``OptionalView::begin_mutation()`` gives a ``MutableOptionalView``:
-  ``set(payload)`` holds a copy of a payload, and ``reset()`` returns to
-  the unset state through ``IndexedValueOps::clear_element``, which clears
-  the validity bit and leaves the storage alive.
-- A new value is unset. Unset equals unset and orders before a held
-  payload; two held payloads compare, and hash, as the payloads do.
+  ``emplace(payload)`` holds a copy of a payload, and ``reset()`` holds
+  nothing, through ``IndexedValueOps::clear_element``, which clears the
+  engaged bit and leaves the storage alive.
+- A new value holds nothing. Nothing equals nothing and orders before a
+  held payload; two held payloads compare, and hash, as the payloads do.
 - The binary form is a presence tag, 0 or 1, and then the payload. The
-  JSON form is ``null`` for the unset state and the payload's own form
-  otherwise. Inside a tuple, a bundle or a map the enclosing reader leaves
-  a ``null`` to the Optional, so the field or the entry is read as set,
-  holding a value that is unset.
-- ``Out<TS<Optional<T>>>`` writes in place where the output's storage is
-  the value's own: a tick costs the payload's copy and one validity bit,
+  JSON form is ``null`` for a value that holds nothing and the payload's
+  own form otherwise. Inside a tuple, a bundle or a map the enclosing
+  reader leaves a ``null`` to the Optional, so the field or the entry is
+  read as set, holding a value that holds nothing.
+- A schema table writes the kind and the payload's schema.
+- ``Out<TS<std::optional<T>>>`` writes in place where the output's storage
+  is the value's own: a tick costs the payload's copy and one engaged bit,
   and allocates nothing for a payload that needs nothing.
 
 Top-level null Values map to Python ``None`` at the bridge boundary;
