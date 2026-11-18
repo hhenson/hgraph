@@ -40,6 +40,12 @@ inline std::atomic<bool> http_response_seen{false};
 inline std::atomic<bool> http_failure_seen{false};
 inline std::atomic<bool> ws_welcome_seen{false};
 inline std::atomic<bool> server_saw_client_ping{false};
+// NTLMv2 CHALLENGE_MESSAGE with server/domain target info and 128-bit negotiation.
+// [MS-NLMP] 4.2.4.3: https://learn.microsoft.com/openspecs/windows_protocols/ms-nlmp/bc612491-fb0b-4829-91bc-7c6b95ff67fe
+constexpr char ntlm_challenge[] =
+    "NTLM TlRMTVNTUAACAAAADAAMADgAAAAzgoriASNFZ4mrze8AAAAAAAAAACQAJABEAAAA"
+    "BgBwFwAAAA9TAGUAcgB2AGUAcgACAAwARABvAG0AYQBpAG4AAQAMAFMAZQByAHYAZQByAAAAAAA=";
+inline bool auth_negotiate_seen{};
 inline bool auth_token_seen{};
 inline bool auth_header_seen{};
 inline std::set<Int> welcomed_connections{};
@@ -210,12 +216,11 @@ struct EchoResponse {
           authenticated = token.starts_with("NTLM TlRMTVNTUAAD");
         }
       }
+      auth_negotiate_seen = auth_negotiate_seen || negotiate;
       auth_token_seen = auth_token_seen || authenticated;
       const Value response = authenticated
           ? make_response(Int{200}, {}, Bytes{"hello client"})
-          : make_response(Int{401}, {{"WWW-Authenticate", negotiate
-                ? "NTLM TlRMTVNTUAACAAAAAAAAADAAAAAFgooAMTIzNDU2NzgAAAAAAAAAAAQABAAwAAAAAAAAAA=="
-                : "NTLM"}}, Bytes{"challenge"});
+          : make_response(Int{401}, {{"WWW-Authenticate", negotiate ? ntlm_challenge : "NTLM"}}, Bytes{"challenge"});
       out.apply(response.view());
     }
   }
@@ -351,6 +356,7 @@ void run_loopback_once() {
     http_triggered.store(false);
     ws_triggered.store(false);
     http_response_seen.store(false);
+    auth_negotiate_seen = false;
     auth_token_seen = false;
     auth_header_seen = false;
     welcomed_connections.clear();
@@ -375,6 +381,7 @@ void run_loopback_once() {
                                               .at("message")
                                               .checked_as<Str>()}
                      : ""));
+    require(auth_negotiate_seen == Authenticate, "NTLM negotiation did not respect authentication opt-in");
     require(auth_token_seen == Authenticate, "NTLM response did not respect authentication opt-in");
     require(auth_header_seen == Authenticate, "Authorization header did not respect authentication opt-in");
     require(!http_failure_seen.load(),

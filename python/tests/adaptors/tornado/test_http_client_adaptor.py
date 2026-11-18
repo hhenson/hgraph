@@ -113,6 +113,15 @@ def test_http_client_positive_timeouts_round_up(timeout, expected_ms):
     assert result["options"].request_timeout_ms == expected_ms
 
 
+# The [MS-NLMP] §4.2.4.3 NTLMv2 CHALLENGE_MESSAGE includes a target name,
+# server/domain target information and 128-bit negotiation for Windows SSPI.
+# https://learn.microsoft.com/openspecs/windows_protocols/ms-nlmp/bc612491-fb0b-4829-91bc-7c6b95ff67fe
+_NTLM_CHALLENGE = (
+    "NTLM TlRMTVNTUAACAAAADAAMADgAAAAzgoriASNFZ4mrze8AAAAAAAAAACQAJABEAAAA"
+    "BgBwFwAAAA9TAGUAcgB2AGUAcgACAAwARABvAG0AYQBpAG4AAQAMAFMAZQByAHYAZQByAAAAAAA="
+)
+
+
 @pytest.fixture
 def http_endpoint():
     received = []
@@ -126,12 +135,15 @@ def http_endpoint():
             parsed = urlparse(self.path)
             if parsed.path == "/ntlm":
                 token = self.headers.get("Authorization", "")
-                received.append({"authorization": token})
                 if not token:
+                    received.append({"ntlm_stage": "initial"})
                     challenge = "NTLM"
                 else:
                     message = base64.b64decode(token.removeprefix("NTLM "))
-                    if message[8:12] == b"\x03\0\0\0":
+                    message_type = int.from_bytes(message[8:12], "little")
+                    stage = {1: "negotiate", 3: "authenticate"}.get(message_type, "unexpected")
+                    received.append({"ntlm_stage": stage})
+                    if stage == "authenticate":
                         length, _, offset = struct.unpack_from("<HHI", message, 36)
                         username = message[offset:offset + length].decode("utf-16-le")
                         response = username.encode()
@@ -140,7 +152,7 @@ def http_endpoint():
                         self.end_headers()
                         self.wfile.write(response)
                         return
-                    challenge = "NTLM TlRMTVNTUAACAAAAAAAAADAAAAAFgooAMTIzNDU2NzgAAAAAAAAAAAQABAAwAAAAAAAAAA=="
+                    challenge = _NTLM_CHALLENGE if stage == "negotiate" else "NTLM"
                 self.send_response(401)
                 self.send_header("WWW-Authenticate", challenge)
                 self.send_header("Content-Length", "0")
@@ -924,10 +936,12 @@ def test_legacy_client_reports_connection_failure_and_invalid_request(free_tcp_p
 
 
 def test_legacy_client_authenticates_with_native_ntlm(http_endpoint):
-    url, _ = http_endpoint
+    url, received = http_endpoint
     [response] = _eval_client_request(HttpGetRequest(
         f"{url}/ntlm", auth=Credentials("native-user", "password")))
-    assert response.status_code == 200
+    stages = [request["ntlm_stage"] for request in received]
+    assert response.status_code == 200, f"NTLM stages received by the loopback server: {stages}"
+    assert stages in (["initial", "negotiate", "authenticate"], ["negotiate", "authenticate"])
     assert response.body == b"native-user"
 
 
@@ -935,7 +949,7 @@ def test_legacy_client_without_auth_does_not_answer_ntlm_challenge(http_endpoint
     url, received = http_endpoint
     [response] = _eval_client_request(HttpGetRequest(f"{url}/ntlm", auth=None))
     assert response.status_code == 401
-    assert received == [{"authorization": ""}]
+    assert received == [{"ntlm_stage": "initial"}]
 
 
 class CustomGetRequest(HttpGetRequest):
