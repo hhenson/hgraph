@@ -2187,6 +2187,29 @@ namespace
         }
     };
 
+    struct MapGenerationCounts
+    {
+        std::vector<std::size_t> active;
+        std::vector<std::size_t> constructed;
+    };
+
+    struct MapWithReplacingKeys
+    {
+        static constexpr auto name = "map_with_replacing_keys";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TS<Bool>> select, Port<TS<Int>> pulse,
+                                                Scalar<"counts", MapGenerationCounts *> counts)
+        {
+            auto keys = wire<stdlib::if_then_else>(w, select, ConstABKeys::compose(w), ConstCKeys::compose(w))
+                            .as<TSS<Str>>();
+            auto mapped = wire<stdlib::map_>(w, fn<AddOneG>(), pulse, arg<"__keys__">(keys)).as<TSD<Str, TS<Int>>>();
+            const std::array triggers{pulse.erased()};
+            wire_map_active_count_recorder(w, mapped.erased(), triggers, counts.value()->active,
+                                           &counts.value()->constructed);
+            return mapped;
+        }
+    };
+
     struct NeverKeysNode
     {
         static constexpr auto name = "never_keys";
@@ -2250,25 +2273,12 @@ TEST_CASE("map_: a replaced key source retains its children only through the rep
 {
     using namespace hgraph;
     stdlib::register_standard_operators();
-    std::vector<std::size_t> active, constructed;
-    Wiring w;
-    auto select = wire<stdlib::replay_impl, TS<Bool>>(w, Str{"select"});
-    auto pulse  = wire<stdlib::replay_impl, TS<Int>>(w, Str{"pulse"});
-    auto keys   = wire<stdlib::if_then_else>(w, select, ConstABKeys::compose(w), ConstCKeys::compose(w)).as<TSS<Str>>();
-    auto mapped = wire<stdlib::map_>(w, fn<AddOneG>(), pulse, arg<"__keys__">(keys)).as<TSD<Str, TS<Int>>>();
-    const std::array triggers{pulse.erased()};
-    wire_map_active_count_recorder(w, mapped.erased(), triggers, active, &constructed);
+    MapGenerationCounts counts;
+    (void)eval_node<MapWithReplacingKeys>(values<Bool>(true, false, none, none, true, none),
+                                          values<Int>(0, 1, 2, 3, 4, 5), arg<"counts">(&counts));
 
-    GraphBuilder graph = std::move(w).finish();
-    set_replay_values(graph.global_state(), "select", values<Bool>(true, false, none, none, true, none));
-    set_replay_values(graph.global_state(), "pulse", values<Int>(0, 1, 2, 3, 4, 5));
-    GraphExecutorBuilder executor;
-    executor.graph_builder(std::move(graph)).start_time(MIN_ST).end_time(MIN_ST + TimeDelta{8});
-    auto run = executor.make_executor();
-    run.view().run();
-
-    CHECK(active == std::vector<std::size_t>{2, 1, 1, 1, 2, 2});
-    CHECK(constructed == std::vector<std::size_t>{2, 3, 1, 1, 3, 2});
+    CHECK(counts.active == std::vector<std::size_t>{2, 1, 1, 1, 2, 2});
+    CHECK(counts.constructed == std::vector<std::size_t>{2, 3, 1, 1, 3, 2});
 }
 
 TEST_CASE("map_: a drained generation receives no further slot queries")
