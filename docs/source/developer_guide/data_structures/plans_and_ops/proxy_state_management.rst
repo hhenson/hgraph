@@ -620,7 +620,8 @@ rebuilding an already reconciled child.
 The from-``REF`` identity operation compares peered target links using
 ``TSOutputHandle::same_as``. It also handles empty or unbound references,
 recurses through fixed bundle/list shapes, and delegates nested dynamic
-dictionaries to their proxy source cursor and child identities. This catches
+dictionaries to their active proxy source binding. The inner proxy owns its
+child reconciliation; the parent never compares all inner identities. This catches
 erase/reinsert plus reference rewrites that occur at one evaluation time,
 without relying on timestamps precise enough to distinguish the two source
 identities.
@@ -646,6 +647,10 @@ the corresponding source child dictionary's slot ops.
       ProxyInner -- source_ points to --> SourceInner
       SourceInner -- inner structural slots --> ProxyInner
       ProxyInner -- builder for inner slot --> RefLeaf
+
+An unchanged active inner binding is not rebound or resynchronised. Point
+reads still reconcile the selected reference leaf, including multiple writes
+at one evaluation time. Suspended or replaced sources must rebind normally.
 
 The outer proxy does not scan or manually maintain the inner key set.
 It owns the inner proxy child, and the inner proxy subscribes to the
@@ -687,3 +692,36 @@ Design Constraints
 - Static ``TSB`` and fixed ``TSL`` alternatives are populated by
   direct recursive traversal. They do not need ongoing proxy
   maintenance unless a ``TSD`` appears below them.
+
+Sparse Delta Traversal
+----------------------
+
+Proxy delta ranges, counts, input/output wrappers, and Python export use the
+same sparse added, removed, or modified cursors. ``Range`` and ``KeyValueRange``
+carry an optional ``seek(context, memory, first)`` operation. It returns the
+first candidate at or after ``first``; a result at or beyond the range limit
+ends traversal. Predicates still filter candidates. Range adapters preserve
+this cursor and its ordinal space, including retained removed snapshots.
+Full-value and sampled-rebind snapshots may visit every live entry.
+
+Modified traversal merges the source modified bitmap and the proxy's own
+updated bitmap. Source searches stop before the next proxy candidate using
+an exclusive upper bound, so dense mixed updates cannot repeatedly search a
+distant source bit. Each call reads the current bitmaps; later writes at the
+same evaluation time remain visible, including after restarting iteration.
+
+Structural callbacks index pending builds by slot. A source wake retries
+only those pending live slots and visits the source's modified slots. A
+successful build removes its pending entry; a failure retains it. Removal,
+erase, clear and source replacement discard obsolete entries. Initial bind
+and full source replacement still synchronise the whole collection.
+
+The added range cursor changes the erased value/TS return ABI; the bounded
+modified cursor changes the TS ops ABI. Downstream extensions must rebuild
+against value ABI 11 and TS ABI 26.
+
+``hgraph_tsd_proxy_perf N 1 value range`` measures sparse range export.
+``hgraph_tsd_proxy_perf N 1 mixed slots`` combines a reference retarget with
+one referenced value tick. Use ``N/2`` changed values in ``mixed`` mode to
+check the dense merge. Run each at 4,000, 8,000, 16,000 and 32,000 entries;
+setup is excluded and every timed iteration validates the delta contents.

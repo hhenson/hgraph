@@ -15,8 +15,8 @@ namespace hgraph
     struct TSDataOps;
     struct TSParentLink;
 
-    // 25: TSDataOps adds value_as_delta_to_python_impl before to_string_impl.
-    inline constexpr std::uint16_t TS_DATA_OPS_ABI_VERSION = 25;
+    // 26: sparse range return layout and bounded dictionary modified cursor.
+    inline constexpr std::uint16_t TS_DATA_OPS_ABI_VERSION = 26;
 
     class HGRAPH_CLASS_EXPORT TSRoleTypeRef
     {

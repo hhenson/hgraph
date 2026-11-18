@@ -31,6 +31,7 @@ namespace hgraph::ts_data_seams
 #include <sul/dynamic_bitset.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <compare>
 #include <cstddef>
 #include <cstdint>
@@ -474,9 +475,27 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 return evaluation_time != MIN_DT && delta_time_ == evaluation_time;
             }
-            [[nodiscard]] std::size_t next_modified_slot(std::size_t previous) const noexcept
+            [[nodiscard]] std::size_t next_modified_slot(std::size_t previous, std::size_t limit) const noexcept
             {
-                return next_delta_slot(modified_, previous);
+                // Bound the bitmap search when merging source and proxy changes.
+                // Repeatedly searching beyond the next proxy change is quadratic
+                // for dense proxy updates with a distant source modification.
+                const auto first = previous == TS_DATA_NO_CHILD_ID ? 0 : previous + 1;
+                const auto end = std::min(limit, modified_.size());
+                if (first >= end) { return TS_DATA_NO_CHILD_ID; }
+                constexpr auto width = sul::dynamic_bitset<>::bits_per_block;
+                auto block = first / width;
+                auto bits = modified_.data()[block] & (~sul::dynamic_bitset<>::block_type{0} << (first % width));
+                for (;;)
+                {
+                    if (bits != 0)
+                    {
+                        const auto slot = block * width + std::countr_zero(bits);
+                        return slot < end ? slot : TS_DATA_NO_CHILD_ID;
+                    }
+                    if (++block > (end - 1) / width) { return TS_DATA_NO_CHILD_ID; }
+                    bits = modified_.data()[block];
+                }
             }
             [[nodiscard]] bool slot_value_published(std::size_t slot) const noexcept
             {
@@ -2464,9 +2483,9 @@ namespace hgraph::ts_data_plan_factory_detail
             { return storage<TSDSlotStorage>(memory).next_membership_removed_slot(previous); }
 
             [[nodiscard]] static std::size_t tsd_next_modified_slot(const void *, const void *memory,
-                                                                    std::size_t previous)
+                                                                    std::size_t previous, std::size_t limit)
             {
-                return storage<TSDSlotStorage>(memory).next_modified_slot(previous);
+                return storage<TSDSlotStorage>(memory).next_modified_slot(previous, limit);
             }
 
             [[nodiscard]] static bool live_slot_predicate(const void *, const void *memory, std::size_t slot)

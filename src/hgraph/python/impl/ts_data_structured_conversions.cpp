@@ -747,10 +747,8 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::object proxy_set_to_python(const void *context, const void *memory)
         {
             nb::list items;
-            for (std::size_t slot = 0; slot < seams::proxy_slot_capacity(memory); ++slot)
+            for (const auto key : seams::proxy_keys<Surface>(context, memory))
             {
-                if (!seams::proxy_slot_in_set_surface<Surface>(context, memory, slot)) { continue; }
-                auto key = seams::proxy_key_at_slot(memory, slot);
                 items.append(to_python(key.binding(), key.data()));
             }
             return nb::steal(PyFrozenSet_New(items.ptr()));
@@ -800,7 +798,9 @@ namespace hgraph::python_bridge
             if (seams::proxy_tracking(memory).last_modified_time != evaluation_time) { return nb::none(); }
             const auto &child_ops = seams::proxy_layout(context).element_type.ops_ref();
             nb::dict    modified;
-            for (std::size_t slot = 0; slot < seams::proxy_slot_capacity(memory); ++slot)
+            for (auto slot = seams::proxy_next_map_slot<seams::ProxyMapSurface::modified>(context, memory, 0);
+                 slot < seams::proxy_slot_capacity(memory);
+                 slot = seams::proxy_next_map_slot<seams::ProxyMapSurface::modified>(context, memory, slot + 1))
             {
                 if (!seams::proxy_slot_modified(context, memory, slot) || !seams::proxy_has_child(memory, slot)) { continue; }
                 const auto  key   = seams::proxy_key_at_slot(memory, slot);
@@ -822,7 +822,9 @@ namespace hgraph::python_bridge
         {
             const auto value_type = seams::proxy_map_value_binding<Surface>(context, memory);
             nb::dict   result;
-            for (std::size_t slot = 0; slot < seams::proxy_slot_capacity(memory); ++slot)
+            for (auto slot = seams::proxy_next_map_slot<Surface>(context, memory, 0);
+                 slot < seams::proxy_slot_capacity(memory);
+                 slot = seams::proxy_next_map_slot<Surface>(context, memory, slot + 1))
             {
                 if (!seams::proxy_slot_in_map_surface<Surface>(context, memory, slot) || !seams::proxy_has_child(memory, slot))
                 {

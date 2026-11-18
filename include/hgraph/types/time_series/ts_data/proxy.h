@@ -6,6 +6,8 @@
 #include <hgraph/types/utils/slot_observer.h>
 #include <hgraph/types/utils/value_slot_store.h>
 
+#include <ankerl/unordered_dense.h>
+
 #include <cstddef>
 #include <vector>
 
@@ -106,7 +108,7 @@ namespace hgraph
         [[nodiscard]] const TSDataTracking &key_set_tracking() const noexcept;
         [[nodiscard]] bool has_child(std::size_t slot) const noexcept;
         [[nodiscard]] bool child_updated(std::size_t slot) const noexcept;
-        [[nodiscard]] std::size_t next_modified_child(std::size_t previous) const;
+        [[nodiscard]] std::size_t next_modified_child(std::size_t previous, std::size_t limit = TS_DATA_NO_CHILD_ID) const;
         [[nodiscard]] bool slot_published(std::size_t slot) const;
         [[nodiscard]] const void *child_at_slot(std::size_t slot) const;
         [[nodiscard]] void *child_at_slot(std::size_t slot);
@@ -133,6 +135,8 @@ namespace hgraph
         [[nodiscard]] TSRoleTypeRef element_type() const noexcept { return element_type_; }
         [[nodiscard]] std::size_t child_capacity() const noexcept { return values_.slot_capacity(); }
         [[nodiscard]] bool source_identities_match() const;
+        /** The inner proxy owns reconciliation while this source subscription is active. */
+        [[nodiscard]] bool observes_source(const TSDataView &source) const noexcept;
         /** Stop observing and rebuilding while retaining the source-backed
          * structural surface for readers that still hold this proxy. */
         void suspend_source();
@@ -171,6 +175,7 @@ namespace hgraph
         const void                   *value_builder_context_{nullptr};
         ValueSlotStore                values_{};
         std::vector<DateTime>         built_times_{};
+        ankerl::unordered_dense::set<std::size_t> pending_builds_{};
         DateTime                      updated_window_{MIN_DT};   // lazy delta-window roll
         // The bitmap has no set bit in [updated_search_begin_, updated_search_next_).
         // Child records maintain this interval; window/structural changes discard it.

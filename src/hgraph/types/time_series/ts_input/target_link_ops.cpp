@@ -861,18 +861,18 @@ namespace hgraph::detail
 
         [[nodiscard]] std::size_t target_link_dict_next_modified_slot(const void *context,
                                                                       const void *memory,
-                                                                      std::size_t previous)
+                                                                      std::size_t previous, std::size_t limit)
         {
             auto target = target_link_target_view(context, memory);
             auto dict = target.as_dict();
             const auto *link = target_link_for(context, memory);
             if (link == nullptr || !link->sampled_structural_transition())
             {
-                return dict.next_modified_slot(previous);
+                return dict.next_modified_slot(previous, limit);
             }
 
             for (std::size_t slot = previous == TS_DATA_NO_CHILD_ID ? 0 : previous + 1;
-                 slot < dict.slot_capacity(); ++slot)
+                 slot < std::min(limit, dict.slot_capacity()); ++slot)
             {
                 if (dict.slot_live(slot)) { return slot; }
             }

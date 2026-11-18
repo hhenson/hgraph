@@ -1054,6 +1054,8 @@ namespace hgraph::detail
                                           const TSOutputView &source_view,
                                           DateTime modified_time)
         {
+            const auto &nested = *static_cast<const TSDProxy *>(target.data());
+            if (nested.observes_source(source_view.data_view())) { return; }
             bind_tsd_proxy(target.borrowed_ref(), source_view.data_view().as_dict(), &from_ref_proxy_value_ops,
                            &plan, modified_time, TSDProxyChildRefresh::OnChildTick);
         }
@@ -1106,9 +1108,7 @@ namespace hgraph::detail
         {
             const auto &source_data = source_view.data_view();
             const auto &nested = *static_cast<const TSDProxy *>(target.data());
-            const auto actual_source = nested.source_view();
-            return actual_source.storage_type() == source_data.storage_type() &&
-                   actual_source.data() == source_data.data() && nested.source_identities_match();
+            return nested.observes_source(source_data);
         }
 
         [[nodiscard]] bool from_ref_interior_fixed_identity(const FromRefInteriorPlan &plan,

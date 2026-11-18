@@ -21,10 +21,22 @@ namespace hgraph
             return view->slot_live(slot) && view->at_slot(slot).valid();
         }
 
+        [[nodiscard]] std::size_t tsd_input_modified_seek(const void *context, const void *, std::size_t first)
+        {
+            const auto &self = *static_cast<const TSDInputView *>(context);
+            return self.data_view().next_modified_slot(first == 0 ? TS_DATA_NO_CHILD_ID : first - 1);
+        }
+
         [[nodiscard]] bool tsd_input_modified_slot(const void *context, const void *, std::size_t slot)
         {
             const auto *view = static_cast<const TSDInputView *>(context);
             return view->slot_live(slot) && view->slot_modified(slot);
+        }
+
+        [[nodiscard]] std::size_t tsd_input_added_seek(const void *context, const void *, std::size_t first)
+        {
+            const auto &self = *static_cast<const TSDInputView *>(context);
+            return self.data_view().next_membership_added_slot(first == 0 ? TS_DATA_NO_CHILD_ID : first - 1);
         }
 
         [[nodiscard]] bool tsd_input_added_slot(const void *context, const void *, std::size_t slot)
@@ -165,7 +177,8 @@ namespace hgraph
         if (!modified()) { return detail::empty_input_range<TSInputView>(); }
         return Range<TSInputView>{.context = this, .memory = nullptr, .limit = slot_capacity(),
                                   .predicate = &tsd_input_modified_slot,
-                                  .projector = &tsd_input_project_value};
+                                  .projector = &tsd_input_project_value,
+                                  .seek = view_.inherited_sampled_transition() ? nullptr : &tsd_input_modified_seek};
     }
 
     KeyValueRange<ValueView, TSInputView> TSDInputView::modified_items() const &
@@ -175,14 +188,16 @@ namespace hgraph
                                                      .memory = nullptr,
                                                      .limit = slot_capacity(),
                                                      .predicate = &tsd_input_modified_slot,
-                                                     .projector = &tsd_input_project_item};
+                                                     .projector = &tsd_input_project_item,
+                                  .seek = view_.inherited_sampled_transition() ? nullptr : &tsd_input_modified_seek};
     }
 
     Range<ValueView> TSDInputView::added_keys() const &
     {
         if (!structure_modified()) { return detail::empty_input_range<ValueView>(); }
         return Range<ValueView>{.context = this, .memory = nullptr, .limit = slot_capacity(),
-                                .predicate = &tsd_input_added_slot, .projector = &tsd_input_project_key};
+                                .predicate = &tsd_input_added_slot, .projector = &tsd_input_project_key,
+                                  .seek = view_.inherited_sampled_transition() ? nullptr : &tsd_input_added_seek};
     }
 
     Range<TSInputView> TSDInputView::added_values() const &
@@ -190,7 +205,8 @@ namespace hgraph
         if (!structure_modified()) { return detail::empty_input_range<TSInputView>(); }
         return Range<TSInputView>{.context = this, .memory = nullptr, .limit = slot_capacity(),
                                   .predicate = &tsd_input_added_slot,
-                                  .projector = &tsd_input_project_value};
+                                  .projector = &tsd_input_project_value,
+                                  .seek = view_.inherited_sampled_transition() ? nullptr : &tsd_input_added_seek};
     }
 
     KeyValueRange<ValueView, TSInputView> TSDInputView::added_items() const &
@@ -200,7 +216,8 @@ namespace hgraph
                                                      .memory = nullptr,
                                                      .limit = slot_capacity(),
                                                      .predicate = &tsd_input_added_slot,
-                                                     .projector = &tsd_input_project_item};
+                                                     .projector = &tsd_input_project_item,
+                                  .seek = view_.inherited_sampled_transition() ? nullptr : &tsd_input_added_seek};
     }
 
     Range<ValueView> TSDInputView::removed_keys() const &
@@ -214,6 +231,9 @@ namespace hgraph
             }, .projector = [](const void *context, const void *, std::size_t slot) {
                 const auto range = static_cast<const TSDInputView *>(context)->data_view().removed_items();
                 return range.projector(range.context, range.memory, slot).first;
+            }, .seek = [](const void *context, const void *, std::size_t first) {
+                const auto range = static_cast<const TSDInputView *>(context)->data_view().removed_items();
+                return range.seek == nullptr ? first : range.seek(range.context, range.memory, first);
             }};
     }
 
@@ -236,6 +256,9 @@ namespace hgraph
                 const auto &self = *static_cast<const TSDInputView *>(context);
                 const auto range = self.data_view().removed_values();
                 return self.view_.child_from_retained(range.projector(range.context, range.memory, slot));
+            }, .seek = [](const void *context, const void *, std::size_t first) {
+                const auto range = static_cast<const TSDInputView *>(context)->data_view().removed_values();
+                return range.seek == nullptr ? first : range.seek(range.context, range.memory, first);
             }};
     }
 
@@ -260,6 +283,9 @@ namespace hgraph
                 auto item = range.projector(range.context, range.memory, slot);
                 return std::pair<ValueView, TSInputView>{std::move(item.first),
                     self.view_.child_from_retained(std::move(item.second))};
+            }, .seek = [](const void *context, const void *, std::size_t first) {
+                const auto range = static_cast<const TSDInputView *>(context)->data_view().removed_items();
+                return range.seek == nullptr ? first : range.seek(range.context, range.memory, first);
             }};
     }
 

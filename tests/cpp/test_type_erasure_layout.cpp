@@ -91,7 +91,7 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     // ABI 13 made the Python slots unconditional and opaque.
     // ABI 24 distinguishes explicit empty sparse publications from child notifications.
     // ABI 25 adds current-value export in delta form for nullable sampled binds.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 25);
+    static_assert(TS_DATA_OPS_ABI_VERSION == 26);
     static_assert(sizeof(TSDataOps) == 288,
                   "TSDataOps changed shape: bump TS_DATA_OPS_ABI_VERSION and this size");
     static_assert(std::is_same_v<decltype(TSDataLayout::canonical_delta_binding), ValueTypeRef>);
@@ -353,7 +353,7 @@ TEST_CASE("value ops discriminator has a fixed byte ABI at offset zero")
     // nowhere near the value layer. Bump it deliberately, and bump
     // VALUE_OPS_ABI_VERSION with it so the mismatch is refused at load.
     // ABI 10 adds clear_element to IndexedValueOps and shifts derived tables.
-    static_assert(VALUE_OPS_ABI_VERSION == 10);
+    static_assert(VALUE_OPS_ABI_VERSION == 11);
     static_assert(sizeof(IndexedValueOps) == 248,
                   "IndexedValueOps changed shape: bump VALUE_OPS_ABI_VERSION and this size");
 

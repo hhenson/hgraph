@@ -12,21 +12,22 @@
 #include <string>
 #include <vector>
 
-// Run: hgraph_tsd_proxy_perf <entries> <changed> <value|reference> <slots|range>
+// Run: hgraph_tsd_proxy_perf <entries> <changed> <value|reference|mixed> <slots|range>
 // Times publication and delta consumption on a TSD[int, REF[TS[int]]] proxy.
 // Setup is excluded; every tick checks the modified count and captured values.
 int main(int argc, char **argv) {
     using namespace hgraph;
     if (argc != 5) {
-        std::cerr << "Usage: hgraph_tsd_proxy_perf <entries> <changed> <value|reference> <slots|range>\n";
+        std::cerr << "Usage: hgraph_tsd_proxy_perf <entries> <changed> <value|reference|mixed> <slots|range>\n";
         return 2;
     }
     const auto n = std::stoull(argv[1]);
     const auto changed = std::stoull(argv[2]);
+    const bool mixed = std::string{argv[3]} == "mixed";
     const bool retarget = std::string{argv[3]} == "reference";
     const bool range = std::string{argv[4]} == "range";
-    if (!changed || changed > n) return 2;
-    if (!retarget && std::string{argv[3]} != "value") return 2;
+    if (!changed || changed > n || (mixed && (changed >= n || n < 3))) return 2;
+    if (!retarget && !mixed && std::string{argv[3]} != "value") return 2;
     if (!range && std::string{argv[4]} != "slots") return 2;
     auto &registry = TypeRegistry::instance();
     const auto *integer = registry.register_scalar<std::int32_t>("int32");
@@ -69,13 +70,17 @@ int main(int argc, char **argv) {
     originals.reserve(changed);
     source_children.reserve(changed);
     for (std::size_t j = 0; j < changed; ++j) {
-        const auto index = (n / 2 + j * (n / changed)) % n;
+        const auto index = mixed ? (changed == 1 ? n / 2 : j * (n - 1) / changed)
+                                     : (n / 2 + j * (n / changed)) % n;
         selected.push_back(index);
         originals.emplace_back(TimeSeriesReference{targets[index]->view(initial)});
         Value key{static_cast<std::int32_t>(index)};
         source_children.push_back(source_dict.at(key.view()));
     }
     Value replacement{TimeSeriesReference{alternate.view(initial)}};
+    Value retarget_key{static_cast<std::int32_t>(n - 1)};
+    auto retarget_child = source_dict.at(retarget_key.view());
+    Value original_reference{TimeSeriesReference{targets[n - 1]->view(initial)}};
     std::int64_t tick = 0;
     std::uint64_t checksum = 0;
     auto run = [&](std::size_t iterations) {
@@ -84,6 +89,11 @@ int main(int argc, char **argv) {
             ++tick;
             const auto time = initial + TimeDelta{tick};
             const auto bit = static_cast<std::size_t>(tick & 1);
+            if (mixed) {
+                auto m = retarget_child.begin_mutation(time);
+                static_cast<void>(m.copy_value_from(bit ? replacement.view() : original_reference.view()));
+                if (source_dict.last_modified_time() != time) throw std::runtime_error("source did not tick");
+            }
             for (std::size_t j = 0; j < changed; ++j) {
                 if (retarget) {
                     auto mutation = source_children[j].begin_mutation(time);
@@ -107,7 +117,7 @@ int main(int argc, char **argv) {
                     sum += static_cast<std::uint64_t>(proxy.at_slot(slot).value().checked_as<std::int32_t>());
                 }
             }
-            if (count != changed || sum != changed * bit) {
+            if (count != changed + mixed || sum != (changed + mixed) * bit) {
                 throw std::runtime_error("unexpected delta: count=" + std::to_string(count) + " sum=" + std::to_string(sum));
             }
             checksum += count + sum;
