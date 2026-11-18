@@ -704,6 +704,10 @@ ends traversal. Predicates still filter candidates. Range adapters preserve
 this cursor and its ordinal space, including retained removed snapshots.
 Full-value and sampled-rebind snapshots may visit every live entry.
 
+Refreshing an already observed nested source preserves its publication time,
+including sampled switch ticks, without resynchronising its slots. Matching
+storage identity does not make a new publication silent.
+
 Modified traversal merges the source modified bitmap and the proxy's own
 updated bitmap. Source searches stop before the next proxy candidate using
 an exclusive upper bound, so dense mixed updates cannot repeatedly search a

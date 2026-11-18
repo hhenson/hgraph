@@ -138,6 +138,8 @@ namespace hgraph
         [[nodiscard]] bool source_identities_match() const;
         /** The inner proxy owns reconciliation while this source subscription is active. */
         [[nodiscard]] bool observes_source(const TSDataView &source) const noexcept;
+        /** Preserve an observed source publication without resynchronising its slots. */
+        bool refresh_observed_source(const TSDataView &source, DateTime modified_time);
         /** Stop observing and rebuilding while retaining the source-backed
          * structural surface for readers that still hold this proxy. */
         void suspend_source();

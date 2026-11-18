@@ -2052,16 +2052,12 @@ namespace hgraph
             throw std::logic_error("TSDProxy is not initialised");
         }
         auto target = TSDataView{element_type_, values_.value_memory(slot)};
-        try
-        {
+        annotate_on_exception([&] {
             value_ops_->build(*this, slot, target, source_child_at_slot(slot), modified_time,
                               value_builder_context_);
-        }
-        catch (...)
-        {
+        }, [&] {
             pending_slots_[slot] |= BuildPending;
-            throw;
-        }
+        });
         stamp_built(slot, modified_time);
     }
 
@@ -2090,6 +2086,14 @@ namespace hgraph
         return subscribed_ && !source_suspended_ &&
                source_storage_.storage_type() == source.storage_type() &&
                source_storage_.data() == source.data();
+    }
+
+    bool TSDProxy::refresh_observed_source(const TSDataView &source, DateTime modified_time)
+    {
+        if (!observes_source(source)) { return false; }
+        require_concrete_build_time(modified_time);
+        if (source.has_current_value()) { mark_modified(modified_time); }
+        return true;
     }
 
     bool TSDProxy::source_identities_match() const
