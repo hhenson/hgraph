@@ -1519,8 +1519,7 @@ namespace hgraph
             unsubscribe_source();
             if (element_type_ && has_constructed_children()) on_slots_cleared();
             else values_.destroy_all();
-            pending_builds_.clear();
-            pending_rechecks_.clear();
+            pending_slots_.clear();
             self_type_             = self_type;
             element_type_          = element_type;
             source_storage_        = TSDDataStorageRef{source.base().storage_ref(), TSTypeKind::TSD};
@@ -1561,7 +1560,7 @@ namespace hgraph
     void TSDProxy::on_slot_inserted(std::size_t slot)
     {
         structure_pending_ = true;
-        pending_builds_.insert(slot);
+        pending_slots_[slot] |= BuildPending;
         if (has_child(slot))
         {
             const auto state = slot < built_times_.size() ? built_times_[slot] : MIN_DT;
@@ -1572,7 +1571,7 @@ namespace hgraph
             const auto modified_time = current_lifecycle_time(slot);
             // The retained reference can be rewritten after this eager build,
             // with the source's once-per-time wake already consumed by removal.
-            if (child_refresh_ == TSDProxyChildRefresh::OnChildTick) { pending_rechecks_.insert(slot); }
+            if (child_refresh_ == TSDProxyChildRefresh::OnChildTick) { pending_slots_[slot] |= RecheckPending; }
             static_cast<void>(retry_pending_child_at_slot(slot, modified_time));
             mark_modified(modified_time);
             return;
@@ -1586,8 +1585,7 @@ namespace hgraph
     void TSDProxy::on_slot_removed(std::size_t slot)
     {
         structure_pending_ = true;
-        pending_builds_.erase(slot);
-        pending_rechecks_.erase(slot);
+        pending_slots_.erase(slot);
         if (has_child(slot))
         {
             detail::stop_owned_ts_data_tree(TSDataView{element_type_, values_.value_memory(slot)});
@@ -1600,8 +1598,7 @@ namespace hgraph
 
     void TSDProxy::on_slot_erased(std::size_t slot)
     {
-        pending_builds_.erase(slot);
-        pending_rechecks_.erase(slot);
+        pending_slots_.erase(slot);
         if (values_.has_slot(slot))
             detail::invalidate_owned_ts_data_tree(TSDataView{element_type_, values_.value_memory(slot)});
         if (slot < built_times_.size()) { built_times_[slot] = MIN_DT; }
@@ -1612,8 +1609,7 @@ namespace hgraph
 
     void TSDProxy::on_slots_cleared()
     {
-        pending_builds_.clear();
-        pending_rechecks_.clear();
+        pending_slots_.clear();
         for (std::size_t slot = 0; slot < values_.slot_capacity(); ++slot)
         {
             if (values_.has_slot(slot))
@@ -1625,6 +1621,20 @@ namespace hgraph
         updated_search_begin_ = TS_DATA_NO_CHILD_ID;
     }
 
+    bool TSDProxy::has_pending(std::size_t slot, PendingSlot flag) const noexcept
+    {
+        const auto entry = pending_slots_.find(slot);
+        return entry != pending_slots_.end() && (entry->second & flag) != 0;
+    }
+
+    void TSDProxy::clear_pending(std::size_t slot, PendingSlot flag) noexcept
+    {
+        const auto entry = pending_slots_.find(slot);
+        if (entry == pending_slots_.end()) { return; }
+        entry->second = static_cast<std::uint8_t>(entry->second & ~flag);
+        if (entry->second == 0) { pending_slots_.erase(entry); }
+    }
+
     void TSDProxy::on_source_modified(DateTime modified_time)
     {
         if (!source_storage_.valid() || value_ops_ == nullptr) { return; }
@@ -1632,12 +1642,12 @@ namespace hgraph
 
         auto dict = source_dict();
         bool touched = dict.next_removed_slot() != TS_DATA_NO_CHILD_ID;
-        // Retry only lifecycle debt. Copy the small pending set because a
+        // Retry only lifecycle debt. Copy the small pending table because a
         // successful build erases itself and observers may re-enter lifecycle hooks.
-        const std::vector<std::size_t> pending(pending_builds_.begin(), pending_builds_.end());
-        for (const auto slot : pending)
+        const std::vector<std::pair<std::size_t, std::uint8_t>> pending(pending_slots_.begin(), pending_slots_.end());
+        for (const auto &[slot, flags] : pending)
         {
-            if (pending_builds_.contains(slot) && dict.slot_live(slot))
+            if ((flags & BuildPending) != 0 && has_pending(slot, BuildPending) && dict.slot_live(slot))
             {
                 if (!has_child(slot))
                 {
@@ -1647,19 +1657,19 @@ namespace hgraph
                 if (built(built_times_[slot]))
                 {
                     refresh_stale_child(slot);
-                    pending_builds_.erase(slot);
+                    clear_pending(slot, BuildPending);
                 }
                 else { static_cast<void>(retry_pending_child_at_slot(slot, modified_time)); }
                 touched = true;
             }
         }
-        const std::vector<std::size_t> rechecks(pending_rechecks_.begin(), pending_rechecks_.end());
-        for (const auto slot : rechecks)
+        const std::vector<std::pair<std::size_t, std::uint8_t>> rechecks(pending_slots_.begin(), pending_slots_.end());
+        for (const auto &[slot, flags] : rechecks)
         {
-            if (pending_rechecks_.contains(slot) && dict.slot_live(slot) && has_child(slot))
+            if ((flags & RecheckPending) != 0 && has_pending(slot, RecheckPending) && dict.slot_live(slot) && has_child(slot))
             {
                 refresh_stale_child(slot);
-                pending_rechecks_.erase(slot);
+                clear_pending(slot, RecheckPending);
             }
         }
         for (auto slot = dict.next_modified_slot(); slot != TS_DATA_NO_CHILD_ID;
@@ -1909,8 +1919,7 @@ namespace hgraph
         }));
         values_.destroy_all();
         std::ranges::fill(built_times_, MIN_DT);
-        pending_builds_.clear();
-        pending_rechecks_.clear();
+        pending_slots_.clear();
         suspended_published_.clear();
         source_suspended_ = false;
         updated_window_ = MIN_DT;
@@ -2013,7 +2022,7 @@ namespace hgraph
         }
 
         require_concrete_build_time(modified_time);
-        pending_builds_.insert(slot);
+        pending_slots_[slot] |= BuildPending;
         refresh_child_at_slot(slot, modified_time);
         if (owes_insert) { slot_observers_.notify_insert(slot); }
         return true;
@@ -2050,7 +2059,7 @@ namespace hgraph
         }
         catch (...)
         {
-            pending_builds_.insert(slot);
+            pending_slots_[slot] |= BuildPending;
             throw;
         }
         stamp_built(slot, modified_time);
@@ -2064,7 +2073,7 @@ namespace hgraph
         // for the initial bind, so this only defends against a stale call.
         if (built_times_.size() <= slot) { built_times_.resize(slot + 1, MIN_DT); }
         built_times_[slot] = modified_time;
-        pending_builds_.erase(slot);
+        clear_pending(slot, BuildPending);
     }
 
     bool TSDProxy::has_constructed_children() const noexcept
