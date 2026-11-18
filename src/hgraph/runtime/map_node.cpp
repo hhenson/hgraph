@@ -12,6 +12,7 @@
 
 #include "mapped_child_bindings.h"
 #include "mapped_key_source.h"
+#include "retired_map_generation.h"
 
 #include <algorithm>
 #include <array>
@@ -136,7 +137,7 @@ namespace hgraph
             // inactive bank keeps the stopped old generation alive through the
             // replacement cycle.
             InPlaceGraphSlotStore<MapKeyEntry> previous_entries{};
-            DateTime previous_entries_time{MIN_DT};
+            std::optional<DateTime> previous_entries_retired_at{};
             // Cached bound-output handles of the outer inputs (tsd + broadcast
             // sources). Entry input bindings are established at creation and
             // refreshed only when an upstream source re-points.
@@ -271,15 +272,6 @@ namespace hgraph
                 return count_bank(entries) + count_bank(previous_entries);
             }
 
-            void destroy_previous_entries_before(DateTime evaluation_time) noexcept
-            {
-                if (previous_entries.has_entries() && previous_entries_time < evaluation_time)
-                {
-                    previous_entries.destroy_all();
-                    previous_entries_time = MIN_DT;
-                }
-            }
-
             void retire_entries(DateTime evaluation_time)
             {
                 if (previous_entries.has_entries())
@@ -287,7 +279,7 @@ namespace hgraph
                     throw std::logic_error("map_ previous key-source generation is still occupied");
                 }
                 entries.swap(previous_entries);
-                previous_entries_time = evaluation_time;
+                previous_entries_retired_at = evaluation_time;
             }
 
             [[nodiscard]] MapKeyEntry *entry_at(std::size_t slot)
@@ -720,7 +712,8 @@ namespace hgraph
         {
             const auto &spec       = context.spec;
             const auto  keys_index = *spec.keys_input_index;
-            storage.destroy_previous_entries_before(evaluation_time);
+            runtime_detail::destroy_retired_map_entries_before(
+                storage.previous_entries, storage.previous_entries_retired_at, evaluation_time);
             storage.entries.bind_graph_layout(context.graph_layout);
             storage.previous_entries.bind_graph_layout(context.graph_layout);
 
