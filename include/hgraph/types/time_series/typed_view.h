@@ -39,6 +39,7 @@ namespace hgraph
         [[nodiscard]] bool all_valid() const { return view_.all_valid(); }
         [[nodiscard]] DateTime last_modified_time() const { return view_.last_modified_time(); }
         [[nodiscard]] bool modified() const { return view_.modified(); }
+        [[nodiscard]] bool invalidated() const { return view_.invalidated(); }
         [[nodiscard]] ValueView value() const { return view_.value(); }
         [[nodiscard]] ValueView delta_value() const { return view_.delta_value(); }
 

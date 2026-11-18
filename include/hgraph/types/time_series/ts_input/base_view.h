@@ -123,6 +123,8 @@ namespace hgraph
 
         /** True when this view or a structural child was modified at the view's evaluation time. */
         [[nodiscard]] bool modified() const;
+        /** A scalar cleared this cycle and still invalid. Other shapes return false. */
+        [[nodiscard]] bool invalidated() const;
 
         /**
          * Read-only structural parent navigation for diagnostics.
@@ -224,6 +226,8 @@ namespace hgraph
         void make_active();
         /** Subscribe this input to structural changes rather than child value ticks. */
         void make_structural_active();
+        /** Observe membership of one key, including while that key is absent. */
+        void make_key_active(const ValueView &key);
         void make_passive();
         [[nodiscard]] bool active() const;
 
@@ -335,6 +339,7 @@ namespace hgraph
             [[nodiscard]] bool value_live() const noexcept;
             [[nodiscard]] DateTime last_modified_time(DateTime evaluation_time) const;
             [[nodiscard]] bool modified(DateTime evaluation_time) const;
+            [[nodiscard]] bool invalidated(const TSDataView &source, DateTime evaluation_time) const;
             [[nodiscard]] TSDataView &checked_value_data(const char *what) const;
             [[nodiscard]] InputDataCursor target_child(TSDataView child, std::size_t index) const;
             void bind_target(const TSOutputView &output);

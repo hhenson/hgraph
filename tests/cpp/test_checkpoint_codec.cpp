@@ -183,7 +183,8 @@ TEST_CASE("checkpoint codec: every optional part of an image survives", "[checkp
     node.custom.children = {first, second};
     node.custom.payload = Value{Int{4}};
     node.input_activity = {{.path = {0, 1}, .mode = TSInputActivityMode::Value},
-                           {.path = {}, .mode = TSInputActivityMode::Structural}};
+                           {.path = {}, .mode = TSInputActivityMode::Structural},
+                           {.path = {2}, .mode = TSInputActivityMode::Key, .key = Value{Str{"selected"}}}};
 
     const auto restored = decode_component_checkpoint(encoded(component(node)));
     CHECK(restored.component_id == "codec");
@@ -600,7 +601,7 @@ TEST_CASE("checkpoint codec: scheduler presence, deadlines and tags survive all 
     CHECK_THROWS_WITH(decode_component_checkpoint(resealed(oversized)), ContainsSubstring("invalid sequence size"));
     node.scheduler.reset();
     auto legacy = encoded(component(node));
-    REQUIRE(legacy[24] == 4);
+    REQUIRE(legacy[24] == checkpoint_image_format_version);
     legacy[24] = 3; // Same version 3 framing, without a scheduler field.
     restored = decode_component_checkpoint(resealed(legacy));
     CHECK_FALSE(restored.graph.nodes.front().scheduler);

@@ -28,6 +28,14 @@ Ordinary source child value ticks are not structural events. For the
 to-``REF`` alternative they do not rebuild or tick the proxy, because
 the reference identity remains the same.
 
+For from-``REF`` proxies, ``SourceChildNotifier`` observes each live source
+child and notifies only lookups for that key. Binding refresh stays lazy until
+the lookup reads the slot. This preserves later reference publications
+in a cycle after the source root has already notified. Removal detaches the
+observer before stopping the child; insertion reattaches it. Whole-source
+replacement and teardown detach all child observers. To-``REF`` proxies do not
+allocate these observers.
+
 There are two distinct to-``REF`` shapes involving ``TSD``:
 
 .. code-block:: text
@@ -727,7 +735,7 @@ a suspended source also drops debt for slots removed while unsubscribed.
 
 The added range cursor changes the erased value/TS return ABI; the bounded
 modified cursor changes the TS ops ABI. Downstream extensions must rebuild
-against value ABI 11 and TS ABI 26.
+against value ABI 11 and TS ABI 28.
 
 ``hgraph_tsd_proxy_perf N 1 value range`` measures sparse range export.
 ``hgraph_tsd_proxy_perf N 1 mixed slots`` combines a reference retarget with

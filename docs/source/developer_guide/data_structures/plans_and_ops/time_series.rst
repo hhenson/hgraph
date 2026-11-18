@@ -168,7 +168,11 @@ TSW intentionally uses ``all_valid`` for minimum-window readiness instead.
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 25. ABI 25 adds
+    ``TS_DATA_OPS_ABI_VERSION`` is 28. ABI 28 changes the sparse range
+    return layout and bounds dictionary modified-slot searches. Rebuild native
+    extensions against TS ABI 28 and value ABI 11. ABI 27 changes keyed observer spill
+    ownership and input activation/checkpoint records; native extensions must
+    be rebuilt. ABI 25 adds
     ``value_as_delta_to_python_impl`` for nullable sampled binds, shifting the
     later operations slots; native extensions must be rebuilt.
     ABI 24 adds an explicit empty-publication
@@ -1704,6 +1708,11 @@ modification, including equal timestamps after child invalidation; moves preserv
 it and detaching or silently rebinding clears it. The markers use evaluation time, so no cleanup allocation
 or registry lookup is required. Atomic complete payloads and
 rolling arrivals retain their existing per-arrival publication behavior.
+
+Owned scalars reuse the empty-delta timestamp for the time of an effective
+clear. The invalidation observation checks that the scalar is still invalid
+and its clear time matches the evaluation. Clearing it again while invalid
+leaves that time intact.
 
 HGL trace admission permits empty sparse payloads while retaining the sequential
 membership, index, overlap and removal checks. Its dense input horizon remains

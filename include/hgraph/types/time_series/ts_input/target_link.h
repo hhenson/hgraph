@@ -17,6 +17,7 @@ namespace hgraph::detail
     {
         Value,
         Structural,
+        Key,
     };
 
     struct TSInputTargetLinkState;
@@ -44,6 +45,7 @@ namespace hgraph::detail
             the target-link state observer instead. */
         bool scheduling_subscribed{false};
         TSOutputHandle observed{};
+        Value key{};
         /**
          * Resolved facts of ``observed`` (RFC 0008 stage 6), recomputed by
          * ``refresh_resolved`` at every write of ``observed`` and cleared
@@ -96,6 +98,7 @@ namespace hgraph::detail
         void unsubscribe_active_tree() noexcept;
         [[nodiscard]] TSOutputHandle tracking_source() const;
         void refresh_tracking_subscription();
+        void unsubscribe_tracking();
 
         TSInputTargetLinkStorage *owner{nullptr};
         TSOutputHandle target{};
@@ -106,6 +109,7 @@ namespace hgraph::detail
         // A structural-only reader of a stable collection needs membership
         // and lifetime notifications, not every value tick in the collection.
         bool tracks_structure{false};
+        bool tracks_key{false};
         /** Bind-time scalar forwarding route, borrowed under ``target``'s
             existing endpoint lifetime protocol. Null for physical producers,
             REF values and structural targets. */
@@ -159,6 +163,8 @@ namespace hgraph::detail
         [[nodiscard]] TSInputTargetActiveNode &child_node(TSInputTargetActiveNode *parent, std::size_t slot);
         void make_active(TSInputTargetActiveNode *node, const TSDataView &observed,
                          TSInputObservationKind observation_kind, Notifiable *target_notifier);
+        void make_key_active(TSInputTargetActiveNode *node, const TSDataView &observed,
+                             const ValueView &key, Notifiable *target_notifier);
         void make_passive(TSInputTargetActiveNode *node);
         [[nodiscard]] bool active(const TSInputTargetActiveNode *node) const noexcept;
         [[nodiscard]] TSOutputHandle target_output_at_path(const TSValueTypeMetaData &schema,

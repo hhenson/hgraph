@@ -79,6 +79,11 @@ namespace hgraph
         return evaluation_time_ != MIN_DT && data_.modified(evaluation_time_);
     }
 
+    bool TSOutputView::invalidated() const
+    {
+        return detail::ts_data_alive_at(data_.borrowed_ref(), evaluation_time_) && data_.invalidated(evaluation_time_);
+    }
+
     bool TSOutputView::valid() const
     {
         return detail::ts_data_alive_at(data_.borrowed_ref(), evaluation_time_) && data_.has_current_value();

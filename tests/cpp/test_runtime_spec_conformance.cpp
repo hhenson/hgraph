@@ -37,6 +37,7 @@ namespace
                          Out<TS<Int>> out)
         {
             const auto n = step.value();
+            CHECK_FALSE(ts.invalidated());
             std::size_t added = 0, removed = 0;
             for ([[maybe_unused]] const auto &key : ts.added_keys()) { ++added; }
             for ([[maybe_unused]] const auto &key : ts.removed_keys()) { ++removed; }
@@ -160,6 +161,7 @@ namespace
                          In<"value", TS<Int>, InputValidity::Unchecked, InputActivity::Passive> value, Out<TS<Int>> out)
         {
             CHECK(value.valid() == (step.value() == 0));
+            CHECK_FALSE(value.invalidated());
             CHECK(value.modified() == (step.value() == 0));
             CHECK(value.last_modified_time() == (step.value() == 0 ? MIN_ST : MIN_DT));
             out.set(step.value());
@@ -171,6 +173,65 @@ namespace
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> step, Port<TS<Int>> value)
         {
             return wire<ObserveScalar>(w, step, wire<SelectScalar>(w, step, value)).as<TS<Int>>();
+        }
+    };
+
+    enum ScalarAction : Int { Publish, Clear, ClearTwice, PublishThenClear, ClearThenPublish };
+
+    struct ApplyScalarAction
+    {
+        static void eval(In<"action", TS<Int>> action, Out<TS<Int>> out)
+        {
+            CHECK_FALSE(out.invalidated());
+
+            const auto publish = [&] {
+                out.set(Int{42});
+                CHECK_FALSE(out.invalidated());
+                CHECK(out.modified());
+            };
+            const auto clear = [&] {
+                const bool was_valid = out.valid();
+                const bool cleared_this_cycle = out.invalidated();
+                REQUIRE(out.begin_mutation(out.evaluation_time()).invalidate() == was_valid);
+                CHECK(out.invalidated() == (was_valid || cleared_this_cycle));
+                CHECK_FALSE(out.modified());
+                CHECK(out.last_modified_time() == MIN_DT);
+            };
+
+            switch (action.value())
+            {
+                case Publish: publish(); break;
+                case Clear: clear(); break;
+                case ClearTwice: clear(); clear(); break;
+                case PublishThenClear: publish(); clear(); break;
+                case ClearThenPublish: clear(); publish(); break;
+            }
+        }
+    };
+
+    template <InputActivity Activity>
+    struct ObserveScalarInvalidation
+    {
+        static void eval(In<"data", TS<Int>, InputValidity::Unchecked, Activity> data,
+                         In<"probe", TS<Bool>, InputValidity::Unchecked>, Out<TS<Bool>> out)
+        {
+            const bool invalidated = data.invalidated();
+            if (invalidated)
+            {
+                CHECK_FALSE(data.valid());
+                CHECK_FALSE(data.modified());
+                CHECK(data.last_modified_time() == MIN_DT);
+            }
+            out.set(invalidated);
+        }
+    };
+
+    template <InputActivity Activity>
+    struct ScalarInvalidationGraph
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>> action, Port<TS<Bool>> probe)
+        {
+            return wire<ObserveScalarInvalidation<Activity>>(w, wire<ApplyScalarAction>(w, action), probe);
         }
     };
 
@@ -232,4 +293,27 @@ TEST_CASE("Runtime rules: scalar reference withdrawal resets observed time throu
     using namespace hgraph;
     using namespace hgraph::testing;
     CHECK_OUTPUT(eval_node<ScalarReferenceGraph>(values<Int>(0, 1), values<Int>(7, none)), {0, 1});
+}
+
+TEST_CASE("An active scalar input wakes on a clear and observes the final write", "[runtime-contract][invalidation]")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    // Only the initial probe wakes the observer independently of the scalar.
+    // Back-to-back publish-then-clear cycles must each be visible from an invalid starting state.
+    const auto actions = values<Int>(none, Clear, Publish, ClearTwice, Clear, PublishThenClear, PublishThenClear,
+                                     Publish, ClearThenPublish, none);
+    const auto probes = values<Bool>(true);
+    CHECK_OUTPUT(eval_node<ScalarInvalidationGraph<InputActivity::Active>>(actions, probes),
+                 {false, none, false, true, none, true, true, false, false, none});
+}
+
+TEST_CASE("A passive scalar input observes a clear only on a coincident probe", "[runtime-contract][invalidation]")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    const auto actions = values<Int>(none, Publish, Clear, none, Publish, Clear, Clear);
+    const auto probes = values<Bool>(true, none, none, true, true, true, true);
+    CHECK_OUTPUT(eval_node<ScalarInvalidationGraph<InputActivity::Passive>>(actions, probes),
+                 {false, none, none, false, false, true, false});
 }

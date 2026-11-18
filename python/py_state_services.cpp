@@ -871,6 +871,8 @@ namespace hgraph::python_bridge
                      "Whether every direct child currently has a value.")
         .def_prop_ro("modified", &PyOutput::modified,
                      "Whether the output ticks in the current cycle.")
+        .def_prop_ro("invalidated", &PyOutput::invalidated,
+                     "Whether an owned scalar output lost its valid value in the current cycle.")
         .def_prop_ro("last_modified_time", &PyOutput::last_modified_time,
                      "The evaluation time of the most recent output tick.")
         .def_prop_ro("size", &PyOutput::window_size,
@@ -1012,6 +1014,8 @@ namespace hgraph::python_bridge
                      "Whether every direct child currently has a value.")
         .def_prop_ro("modified", &PyReadOnlyOutput::modified,
                      "Whether the output ticked in the current cycle.")
+        .def_prop_ro("invalidated", &PyReadOnlyOutput::invalidated,
+                     "Whether an owned scalar output lost its valid value in the current cycle.")
         .def_prop_ro("last_modified_time", &PyReadOnlyOutput::last_modified_time,
                      "The evaluation time of the most recent output tick.")
         .def_prop_ro("value", &PyReadOnlyOutput::value,
@@ -1393,6 +1397,8 @@ namespace hgraph::python_bridge
         // value/delta_value/modified/valid are raw tp_getset slots above —
         // a def_prop_ro here would REPLACE the raw descriptor in the type
         // dictionary and silently restore the vectorcall path.
+        .def_prop_ro("invalidated", &PyTimeSeries::invalidated,
+                     "Whether a directly bound scalar input lost its valid value in the current cycle.")
         .def_prop_ro("all_valid", &PyTimeSeries::all_valid,
                      "Whether every direct child currently has a value.")
         .def_prop_ro("size", &PyTimeSeries::window_size,

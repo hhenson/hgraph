@@ -159,6 +159,8 @@ namespace hgraph
         void record_child_modified(std::size_t child_id, DateTime mutation_time) override;
         void make_active(std::vector<std::size_t> path, TSDataView observed, Notifiable *target_notifier,
                          TSInputActivityMode mode);
+        void make_key_active(std::vector<std::size_t> path, TSDataView observed,
+                             const ValueView &key, Notifiable *target_notifier);
         void make_passive(const std::vector<std::size_t> &path);
         [[nodiscard]] bool active(const std::vector<std::size_t> &path) const noexcept;
 

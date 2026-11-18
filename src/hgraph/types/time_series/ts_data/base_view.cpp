@@ -164,6 +164,30 @@ bool TSDataView::modified(DateTime evaluation_time) const {
          tracking().last_modified_time == evaluation_time;
 }
 
+bool TSDataView::invalidated(DateTime evaluation_time) const {
+  if (evaluation_time == MIN_DT || !valid()) { return false; }
+  const auto &table = ops();
+  if (table.kind != TSTypeKind::TS || table.is_target_link) { return false; }
+  const auto &state = *table.tracking_impl(table.context, data());
+  return state.last_modified_time == MIN_DT && state.last_empty_delta_time == evaluation_time;
+}
+
+void TSDataView::subscribe_key(const ValueView &key, Notifiable *observer) const {
+  mutable_tracking().observers.subscribe_key(key, observer);
+}
+void TSDataView::unsubscribe_key(const ValueView &key, Notifiable *observer) const {
+  mutable_tracking().observers.unsubscribe_key(key, observer);
+}
+void TSDataView::replace_key_observer(const ValueView &key, Notifiable *observer, Notifiable *replacement) const {
+  mutable_tracking().observers.replace_key_observer(key, observer, replacement);
+}
+void TSDataView::subscribe_key_relay(KeyedNotifiable *observer) const {
+  mutable_tracking().observers.subscribe_key_relay(observer);
+}
+void TSDataView::unsubscribe_key_relay(KeyedNotifiable *observer) const {
+  mutable_tracking().observers.unsubscribe_key_relay(observer);
+}
+
 void TSDataView::subscribe(Notifiable *observer) const {
   require_live("TSDataView::subscribe");
   mutable_tracking().observers.subscribe(observer);
@@ -550,7 +574,10 @@ bool TSDataMutationView::invalidate() {
   state.observers.notify(mutation_time_);
   state.parent.notify_child_modified(mutation_time_);
   state.last_modified_time = MIN_DT;
-  state.last_empty_delta_time = MIN_DT;
+  // Only owned scalar storage retains this edge. Target links track their
+  // notifications separately. Invalidation clears the structural empty-delta clock.
+  state.last_empty_delta_time = table.kind == TSTypeKind::TS && !table.is_target_link
+                                    ? mutation_time_ : MIN_DT;
   return true;
 }
 

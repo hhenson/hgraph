@@ -108,6 +108,43 @@ TEST_CASE("distributed boundary retains dynamic list holes and shrink")
     CHECK(list_at(fixture.target, later).size() == 0);
 }
 
+TEST_CASE("distributed boundary carries a scalar clear inside a still-valid assembled bundle")
+{
+    const auto *scalar = schema_descriptor<TS<Int>>::ts_meta();
+    const auto *bundle = TypeRegistry::instance().un_named_tsb({{"data", scalar}, {"sibling", scalar}});
+    const auto peer = TSEndpointSchema::peered(scalar);
+    const auto endpoints = TSEndpointSchema::non_peered(bundle, {peer, peer});
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*bundle, endpoints)};
+    TSOutput data{scalar}, sibling{scalar}, target{bundle};
+    BoundaryTransfer transfer{bundle};
+
+    auto bindings = input.view();
+    auto fields = bindings.as_bundle();
+    fields.field("data").bind_output(data.view());
+    fields.field("sibling").bind_output(sibling.view());
+    set(data.view(MIN_ST), 10);
+    set(sibling.view(MIN_ST), 20);
+    transfer.apply(target.view(MIN_ST), transfer.capture(input.view(nullptr, MIN_ST), true).view());
+
+    const auto now = MIN_ST + MIN_TD;
+    REQUIRE(data.view(now).begin_mutation(now).invalidate());
+    auto assembled = input.view(nullptr, now);
+    auto observed = assembled.as_bundle();
+    auto cleared = observed.field("data");
+    REQUIRE(assembled.valid());
+    REQUIRE(assembled.modified());
+    CHECK(assembled.last_modified_time() == now);
+    CHECK(cleared.invalidated());
+    CHECK_FALSE(cleared.modified());
+    CHECK(cleared.last_modified_time() == MIN_DT);
+    transfer.apply(target.view(now), transfer.capture(assembled).view());
+    auto output = target.view(now);
+    auto received = output.as_bundle();
+    CHECK(received.field("data").invalidated());
+    CHECK_FALSE(received.field("sibling").modified());
+    CHECK(received.field("sibling").value().checked_as<Int>() == 20);
+}
+
 TEST_CASE("distributed boundary merges only the selected worker list indices")
 {
     BoundaryFixture fixture{schema_descriptor<TSL<TS<Int>, 4>>::ts_meta()};

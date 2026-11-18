@@ -1,4 +1,5 @@
 #include <hgraph/types/time_series/ts_data.h>
+#include "impl/keyed_observer_index.h"
 
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node.h>
@@ -15,6 +16,98 @@
 
 namespace hgraph
 {
+    TSDataObserverSet::ObserverList::ObserverList() = default;
+    TSDataObserverSet::ObserverList::~ObserverList() = default;
+
+    TSDataObserverSet::ObserverList &TSDataObserverSet::ensure_keyed()
+    {
+        if (auto *entries = many())
+        {
+            if (!entries->keyed) { entries->keyed = std::make_unique<detail::KeyedObserverIndex>(); }
+            return *entries;
+        }
+        auto entries = std::make_unique<ObserverList>();
+        entries->keyed = std::make_unique<detail::KeyedObserverIndex>();
+        if (auto *entry = single()) { static_cast<void>(entries->add(entry)); }
+        auto *result = entries.get();
+        set_many(entries.release());
+        return *result;
+    }
+
+    void TSDataObserverSet::subscribe_key(const ValueView &key, Notifiable *observer)
+    {
+        if (observer) { ensure_keyed().keyed->subscribe(key, observer); }
+    }
+    void TSDataObserverSet::unsubscribe_key(const ValueView &key, Notifiable *observer)
+    {
+        if (!observer) { return; }
+        auto *entries = many();
+        assert(entries && entries->keyed);
+        if (!entries || !entries->keyed) { return; }
+        entries->keyed->unsubscribe(key, observer);
+        compact_many(*entries);
+    }
+    void TSDataObserverSet::replace_key_observer(const ValueView &key, Notifiable *observer,
+                                               Notifiable *replacement) noexcept
+    {
+        auto *entries = many();
+        assert(entries && entries->keyed);
+        if (!entries || !entries->keyed) { return; }
+        auto it = entries->keyed->keys.find(key);
+        assert(it != entries->keyed->keys.end());
+        if (it != entries->keyed->keys.end()) { it->second->observers.replace(observer, replacement); }
+    }
+    void TSDataObserverSet::subscribe_key_relay(KeyedNotifiable *observer)
+    {
+        if (observer)
+        {
+            const bool added = ensure_keyed().keyed->relays.add(observer);
+            assert(added);
+            static_cast<void>(added);
+        }
+    }
+    void TSDataObserverSet::unsubscribe_key_relay(KeyedNotifiable *observer)
+    {
+        if (!observer) { return; }
+        auto *entries = many();
+        assert(entries && entries->keyed);
+        if (!entries || !entries->keyed) { return; }
+        const bool removed = entries->keyed->relays.remove(observer);
+        assert(removed);
+        static_cast<void>(removed);
+        compact_many(*entries);
+    }
+    void TSDataObserverSet::notify_key(const ValueView &key, DateTime time) const
+    {
+        auto *entries = many();
+        if (!entries || !entries->keyed) { return; }
+        ++entries->notify_depth;
+        auto cleanup = make_scope_exit([&] {
+            if (--entries->notify_depth == 0)
+            {
+                auto *self = const_cast<TSDataObserverSet *>(this);
+                if (self->many() == entries) { self->compact_many(*entries); }
+                else { delete entries; }
+            }
+        });
+        entries->keyed->notify(key, time);
+    }
+    void TSDataObserverSet::notify_keys(DateTime time) const
+    {
+        auto *entries = many();
+        if (!entries || !entries->keyed) { return; }
+        ++entries->notify_depth;
+        auto cleanup = make_scope_exit([&] {
+            if (--entries->notify_depth == 0)
+            {
+                auto *self = const_cast<TSDataObserverSet *>(this);
+                if (self->many() == entries) { self->compact_many(*entries); }
+                else { delete entries; }
+            }
+        });
+        entries->keyed->notify_all(time);
+    }
+
     TSDataObserverSet::TSDataObserverSet(const TSDataObserverSet &) noexcept
     {
     }
@@ -64,14 +157,16 @@ namespace hgraph
         if (single() != nullptr) { return 1; }
         const auto *entries = many();
         if (entries == nullptr) { return 0; }
-        return entries->size();
+        return entries->size() + (entries->keyed ? entries->keyed->registrations + entries->keyed->relays.size() : 0);
     }
 
     DynamicStorageMetrics TSDataObserverSet::dynamic_storage_metrics() const noexcept
     {
         const auto *entries = many();
         if (entries == nullptr) { return {}; }
-        return DynamicStorageMetrics{sizeof(ObserverList), sizeof(ObserverList)} + entries->buffer_metrics();
+        auto result = DynamicStorageMetrics{sizeof(ObserverList), sizeof(ObserverList)} + entries->buffer_metrics();
+        if (entries->keyed) { result += entries->keyed->dynamic_storage_metrics(); }
+        return result;
     }
 
     void TSDataObserverSet::subscribe(Notifiable *observer)
@@ -203,6 +298,7 @@ namespace hgraph
         }
         --entries->notify_depth;
 
+        if (entries->keyed) { entries->keyed->invalidate(source); }
         entries->clear_entries();
         if (entries->notify_depth == 0) { delete entries; }
     }
@@ -215,6 +311,7 @@ namespace hgraph
             else
             {
                 entries->clear_entries();
+                if (entries->keyed) { entries->keyed->clear(); }
             }
         }
         observers_.clear();
@@ -249,6 +346,11 @@ namespace hgraph
         }
 
         observers.compact();
+        if (observers.keyed)
+        {
+            if (!observers.keyed->keys.empty() || observers.keyed->relays.size() != 0) { return; }
+            observers.keyed.reset();
+        }
 
         if (observers.entries.empty())
         {

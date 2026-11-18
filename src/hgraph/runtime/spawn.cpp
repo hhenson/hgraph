@@ -152,7 +152,7 @@ namespace hgraph::spawn_detail
             for (std::size_t i = 0; i < plan_->inputs.size(); ++i)
             {
                 const auto input = bundle[i];
-                if (!first_ && !input.modified()) continue;
+                if (!first_ && !BoundaryTransfer::has_update(input)) continue;
                 const auto &binding = plan_->inputs[i];
                 auto payload = binding.transfer->capture(input, first_);
                 auto &frame = pending_[binding.stage];
@@ -644,7 +644,8 @@ namespace hgraph
                 const auto root = node.input(now);
                 const auto bundle = root.as_bundle();
                 const auto input = bundle[0];
-                if (input.modified()) node.global_state().set("__spawn_output", transfer->capture(input));
+                if (distributed::BoundaryTransfer::has_update(input))
+                    node.global_state().set("__spawn_output", transfer->capture(input));
             };
             NodeTypeDescriptor descriptor;
             descriptor.schema = std::move(meta);

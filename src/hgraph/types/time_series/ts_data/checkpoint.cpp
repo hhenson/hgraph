@@ -64,7 +64,10 @@ namespace hgraph
                     (void)ops.copy_value_from_impl(ops.context, memory, image.payload.view(),
                                                    image.last_modified_time);
                 }
-                ops.mutable_tracking_impl(ops.context, memory)->last_modified_time = image.last_modified_time;
+                auto &tracking = *ops.mutable_tracking_impl(ops.context, memory);
+                tracking.last_modified_time = image.last_modified_time;
+                // A quiet restore into invalid storage is not another scalar clear.
+                tracking.last_empty_delta_time = MIN_DT;
             }
 
             bool reference_eligible(const TSDataView &, const TSCheckpointContext *context)
