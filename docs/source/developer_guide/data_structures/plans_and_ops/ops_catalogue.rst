@@ -125,9 +125,13 @@ Ops-ABI ledger
 --------------
 
 Every record stamps the ABI version of the ops table it points at;
-record validation rejects mismatches at interning time. Bump the
+checked family handles reject mismatched records. Bump the
 constant when the ops struct layout changes, and this table with it: the
 values below are the ones the headers declare.
+
+Nullable ticks require Value ops ABI 10 (``IndexedValueOps::clear_element``)
+and TSData ops ABI 25 (``value_as_delta_to_python_impl``). Both shift later
+table slots; rebuild native extensions against the updated headers.
 
 .. list-table::
    :header-rows: 1
@@ -137,10 +141,10 @@ values below are the ones the headers declare.
      - Value
      - Declared in
    * - ``VALUE_OPS_ABI_VERSION``
-     - 9
+     - 10
      - ``include/hgraph/types/value/value_ops.h``
    * - ``TS_DATA_OPS_ABI_VERSION``
-     - 24
+     - 25
      - ``include/hgraph/types/time_series/ts_type_ref.h``
    * - ``NODE_OPS_ABI_VERSION``
      - 8

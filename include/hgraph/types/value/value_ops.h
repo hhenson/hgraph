@@ -47,15 +47,16 @@ namespace hgraph
     };
 
     static_assert(sizeof(ValueOpsKind) == 1);
+    // 10: IndexedValueOps adds clear_element, shifting its derived tables.
     // 9: format_string_impl/repr_string_impl removed -- one to_string.
     // Adding a field to ValueOps changes the table an extension was
     // compiled against, and a stale extension then reads the wrong
     // slots -- 17 web-adaptor tests failed with unrelated-looking
     // symptoms before this was bumped. The version makes that a clear
     // refusal instead (value_type_ref.cpp).
-    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 9;
+    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 10;
 
-    /** The byte size ``VALUE_OPS_ABI_VERSION`` 9 describes.
+    /** The base-table byte size ``VALUE_OPS_ABI_VERSION`` 10 describes.
      *
      * A field added to or removed from ``ValueOps`` shifts every slot after
      * it, and an extension compiled against the old table then dispatches
