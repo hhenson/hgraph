@@ -164,10 +164,10 @@ namespace hgraph
         return ops.next_membership_removed_slot_impl(ops.context, storage_.data(), previous);
     }
 
-    std::size_t TSDDataView::next_modified_slot(std::size_t previous) const
+    std::size_t TSDDataView::next_modified_slot(std::size_t previous, std::size_t limit) const
     {
         const auto &ops = dict_ops();
-        return ops.next_modified_slot_impl(ops.context, storage_.data(), previous);
+        return ops.next_modified_slot_impl(ops.context, storage_.data(), previous, limit);
     }
 
     ValueView TSDDataView::key_at_slot(std::size_t slot) const

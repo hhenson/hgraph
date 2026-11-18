@@ -155,6 +155,8 @@ namespace hgraph::ts_data_seams
     template <SetSurface Surface>
     [[nodiscard]] bool proxy_slot_in_set_surface(const void *context, const void *memory, std::size_t slot);
     template <ProxyMapSurface Surface>
+    [[nodiscard]] std::size_t proxy_next_map_slot(const void *context, const void *memory, std::size_t first);
+    template <ProxyMapSurface Surface>
     [[nodiscard]] bool proxy_slot_in_map_surface(const void *context, const void *memory, std::size_t slot);
     template <ProxyMapSurface Surface>
     [[nodiscard]] ValueTypeRef proxy_map_value_binding(const void *context, const void *memory) noexcept;

@@ -652,6 +652,19 @@ namespace
         }
     };
 
+    struct MapSwitchReducedNestedIntDicts
+    {
+        static constexpr auto name = "map_switch_reduced_nested_int_dicts";
+
+        static Port<TSD<Int, TSD<Int, TS<Int>>>> compose(
+            Wiring &w, Port<TSD<Int, TSD<Int, TSD<Int, TS<Int>>>>> values,
+            Port<TSD<Int, TS<Bool>>> keys)
+        {
+            return wire<stdlib::map_, TSD<Int, TSD<Int, TS<Int>>>>(
+                w, fn<SwitchReducedNestedIntDicts>(), values, keys);
+        }
+    };
+
     struct AddReducedInts
     {
         static constexpr auto name = "add_reduced_ints";
@@ -1240,6 +1253,30 @@ TEST_CASE("reduce over TSD: a switched keyed result removes through a downstream
                       dict_delta<Int, TS<Int>>({{1, 4}, {2, 5}}),
                       dict_delta<Int, TS<Int>>({{1, 4}, {2, 5}}),
                       dict_delta<Int, TS<Int>>({}, {1, 2})));
+}
+
+TEST_CASE("reduce over TSD: mapped switches retain sampled nested dictionary ticks")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    using Inner = TSD<Int, TS<Int>>;
+    using Middle = TSD<Int, Inner>;
+    CHECK_OUTPUT(
+        (eval_node<MapSwitchReducedNestedIntDicts>(
+            values<Value>(
+                dict_delta<Int, Middle>({{0, dict_delta<Int, Inner>(
+                    {{0, dict_delta<Int, TS<Int>>({{1, 1}, {2, 2}})},
+                     {1, dict_delta<Int, TS<Int>>({{1, 3}, {2, 4}})}})}}),
+                dict_delta<Int, Middle>({{0, dict_delta<Int, Inner>({}, {0})}}),
+                none,
+                dict_delta<Int, Middle>({{0, dict_delta<Int, Inner>({}, {1})}})),
+            values<Value>(dict_delta<Int, TS<Bool>>({{0, true}}), none,
+                          dict_delta<Int, TS<Bool>>({{0, false}}), none))),
+        values<Value>(
+            dict_delta<Int, Inner>({{0, dict_delta<Int, TS<Int>>({{1, 5}, {2, 7}})}}),
+            dict_delta<Int, Inner>({{0, dict_delta<Int, TS<Int>>({{1, 4}, {2, 5}})}}),
+            dict_delta<Int, Inner>({{0, dict_delta<Int, TS<Int>>({{1, 4}, {2, 5}})}}),
+            dict_delta<Int, Inner>({{0, dict_delta<Int, TS<Int>>({}, {1, 2})}})));
 }
 
 TEST_CASE("reduce over TSD: collapsing to one collection does not resample unchanged mapped keys")

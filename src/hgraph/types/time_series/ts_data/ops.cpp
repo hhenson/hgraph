@@ -242,7 +242,7 @@ namespace hgraph::ts_data_detail
             t.child_binding_at_slot_impl         = &sentinel_child_binding_at_slot;
             t.child_at_slot_impl                 = &sentinel_null_slot;
             t.slot_modified_impl                 = &sentinel_false_slot;
-            t.next_modified_slot_impl            = &sentinel_next;
+            t.next_modified_slot_impl            = [](const void *, const void *, std::size_t, std::size_t) { return TS_DATA_NO_CHILD_ID; };
             t.membership_slot_added_impl         = &sentinel_false_slot;
             t.membership_slot_removed_impl       = &sentinel_false_slot;
             t.next_membership_added_slot_impl    = &sentinel_next;
@@ -415,7 +415,7 @@ namespace hgraph::ts_data_detail
         missing_ts_data_op("key slot lookup");
     }
 
-    std::size_t missing_next_modified_slot(const void *, const void *, std::size_t)
+    std::size_t missing_next_modified_slot(const void *, const void *, std::size_t, std::size_t)
     {
         missing_ts_data_op("next modified slot");
     }

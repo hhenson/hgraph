@@ -90,8 +90,8 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     // family (python_family, ABI 14) and the bridge maps it to the table.
     // ABI 13 made the Python slots unconditional and opaque.
     // ABI 24 distinguishes explicit empty sparse publications from child notifications.
-    // ABI 27 adds keyed observer ownership and input activity records.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 27);
+    // ABI 28 adds sparse range cursors and bounds dictionary modified-slot searches.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 28);
     static_assert(sizeof(TSDataOps) == 288,
                   "TSDataOps changed shape: bump TS_DATA_OPS_ABI_VERSION and this size");
     static_assert(std::is_same_v<decltype(TSDataLayout::canonical_delta_binding), ValueTypeRef>);
@@ -156,23 +156,23 @@ TEST_CASE("polymorphic value type owner keeps a canonical no-op state")
     CHECK_FALSE(original.binding());
 }
 
-TEST_CASE("value type boundary rejects pre-nullable ops ABI records")
+TEST_CASE("value type boundary rejects previous ops ABI records")
 {
     using namespace hgraph;
 
     const auto type = TypeRegistry::instance().scalar_type<Int>();
     REQUIRE(ValueTypeRef::checked(type.typed_null().to_any()) == type);
     auto stale = *type.record();
-    stale.ops_abi_version = 9;
+    stale.ops_abi_version = VALUE_OPS_ABI_VERSION - 1;
     REQUIRE_THROWS_WITH(ValueTypeRef::checked(AnyPtr::typed_null(stale)),
-                        "ValueTypeRef requires value ops ABI version 10");
+                        "ValueTypeRef requires value ops ABI version 11");
     // This table cannot be registered: ABI rejection must precede reading kind.
     const ValueOps unusable_ops{};
-    REQUIRE_THROWS_WITH(intern_value_type(*type.schema(), type.checked_plan(), unusable_ops, nullptr, 9),
-                        "intern_value_type requires value ops ABI version 10");
+    REQUIRE_THROWS_WITH(intern_value_type(*type.schema(), type.checked_plan(), unusable_ops, nullptr, VALUE_OPS_ABI_VERSION - 1),
+                        "intern_value_type requires value ops ABI version 11");
 }
 
-TEST_CASE("time-series type boundaries reject pre-nullable ops ABI records")
+TEST_CASE("time-series type boundaries reject previous ops ABI records")
 {
     using namespace hgraph;
 
@@ -186,13 +186,13 @@ TEST_CASE("time-series type boundaries reject pre-nullable ops ABI records")
         CAPTURE(type.role());
         REQUIRE(TSRoleTypeRef::checked(AnyPtr::typed_null(*type.record())) == type);
         auto stale = *type.record();
-        stale.ops_abi_version = 24;
+        stale.ops_abi_version = TS_DATA_OPS_ABI_VERSION - 1;
         REQUIRE_THROWS_WITH(TSRoleTypeRef::checked(AnyPtr::typed_null(stale)),
-                            "TSRoleTypeRef requires TSData ops ABI version 27");
+                            "TSRoleTypeRef requires TSData ops ABI version 28");
         // Its layout operation throws: reject the ABI before calling it.
         const TSDataOps unusable_ops{};
-        REQUIRE_THROWS_WITH(intern_ts_type(*schema, type.role(), type.checked_plan(), unusable_ops, {}, 24),
-                            "intern_ts_type requires TSData ops ABI version 27");
+        REQUIRE_THROWS_WITH(intern_ts_type(*schema, type.role(), type.checked_plan(), unusable_ops, {}, TS_DATA_OPS_ABI_VERSION - 1),
+                            "intern_ts_type requires TSData ops ABI version 28");
     }
 }
 
@@ -353,7 +353,7 @@ TEST_CASE("value ops discriminator has a fixed byte ABI at offset zero")
     // nowhere near the value layer. Bump it deliberately, and bump
     // VALUE_OPS_ABI_VERSION with it so the mismatch is refused at load.
     // ABI 10 adds clear_element to IndexedValueOps and shifts derived tables.
-    static_assert(VALUE_OPS_ABI_VERSION == 10);
+    static_assert(VALUE_OPS_ABI_VERSION == 11);
     static_assert(sizeof(IndexedValueOps) == 248,
                   "IndexedValueOps changed shape: bump VALUE_OPS_ABI_VERSION and this size");
 

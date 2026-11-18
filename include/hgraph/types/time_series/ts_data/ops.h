@@ -139,7 +139,7 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT bool missing_contains_key(const void *, const void *, const ValueView &);
         [[nodiscard]] HGRAPH_EXPORT std::size_t missing_find_key_slot(const void *, const void *, const ValueView &);
         [[nodiscard]] HGRAPH_EXPORT std::size_t missing_next_delta_slot(const void *, const void *, std::size_t);
-        [[nodiscard]] HGRAPH_EXPORT std::size_t missing_next_modified_slot(const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT std::size_t missing_next_modified_slot(const void *, const void *, std::size_t, std::size_t);
         [[nodiscard]] HGRAPH_EXPORT Range<ValueView> missing_value_range(const void *, const void *);
         [[nodiscard]] HGRAPH_EXPORT KeyValueRange<ValueView, TSDataView> missing_ts_data_kv_range(
             const void *, const void *);
@@ -477,9 +477,9 @@ namespace hgraph
                                           std::size_t slot) = &ts_data_detail::missing_child_at_slot;
         bool (*slot_modified_impl)(const void *context, const void *memory,
                                    std::size_t slot) = &ts_data_detail::missing_slot_predicate;
-        /** Return the first modified slot after ``previous``; ``TS_DATA_NO_CHILD_ID`` starts iteration. */
+        /** Return the first modified slot after ``previous`` and below ``limit``; ``TS_DATA_NO_CHILD_ID`` starts iteration. */
         std::size_t (*next_modified_slot_impl)(const void *context, const void *memory,
-                                               std::size_t previous) =
+                                               std::size_t previous, std::size_t limit) =
             &ts_data_detail::missing_next_modified_slot;
         Range<TSDataView> (*make_ts_values_range_impl)(const void *context,
                                                        const void *memory) = &ts_data_detail::missing_ts_data_range;

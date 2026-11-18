@@ -1,6 +1,7 @@
 #ifndef HGRAPH_CPP_ROOT_VALUE_RANGE_H
 #define HGRAPH_CPP_ROOT_VALUE_RANGE_H
 
+#include <algorithm>
 #include <cstddef>
 #include <iterator>
 #include <utility>
@@ -10,7 +11,7 @@ namespace hgraph
     /**
      * Type-erased lazy range over storage-backed value-layer results.
      *
-     * Carries four function-pointer-friendly fields:
+     * Carries storage-independent traversal fields:
      *
      * - ``context`` — opaque pointer the predicate / projector both
      *   receive (typically ops state).
@@ -27,6 +28,10 @@ namespace hgraph
      *   the yielded ``T`` (typically a ``ValueView`` built from the
      *   storage's element memory at that index).
      *
+     * - ``seek`` — optional sparse cursor returning the first candidate at or
+     *   after an index (or any index >= limit when exhausted). The predicate
+     *   still filters candidates. A null cursor walks consecutive indices.
+     *
      * The range is allocation-free, copy-cheap, and decoupled from
      * any concrete storage layout. The same ``Range<ValueView>`` is
      * produced by compact storage and (in future) slot-store-backed
@@ -35,6 +40,7 @@ namespace hgraph
     template <typename T>
     struct Range
     {
+        using seek_fn = std::size_t (*)(const void *context, const void *memory, std::size_t first);
         using predicate_fn = bool (*)(const void *context, const void *memory, std::size_t index);
         using projector_fn = T (*)(const void *context, const void *memory, std::size_t index);
 
@@ -43,6 +49,7 @@ namespace hgraph
         std::size_t  limit{0};
         predicate_fn predicate{nullptr};
         projector_fn projector{nullptr};
+        seek_fn seek{nullptr};
 
         // Self-contained iterator: copies the range's fields so
         // it remains valid even after the range it was built from goes
@@ -63,6 +70,7 @@ namespace hgraph
             predicate_fn predicate{nullptr};
             projector_fn projector{nullptr};
             std::size_t  index{0};
+            seek_fn seek{nullptr};
 
             [[nodiscard]] T operator*() const { return projector(context, memory, index); }
 
@@ -86,21 +94,25 @@ namespace hgraph
 
             void advance_to_match() noexcept
             {
-                if (predicate == nullptr) { return; }
-                while (index < limit && !predicate(context, memory, index)) { ++index; }
+                while (index < limit)
+                {
+                    if (seek != nullptr) { index = std::min(limit, seek(context, memory, index)); }
+                    if (index == limit || predicate == nullptr || predicate(context, memory, index)) { return; }
+                    ++index;
+                }
             }
         };
 
         [[nodiscard]] iterator begin() const noexcept
         {
-            iterator it{context, memory, limit, predicate, projector, 0};
+            iterator it{context, memory, limit, predicate, projector, 0, seek};
             it.advance_to_match();
             return it;
         }
 
         [[nodiscard]] iterator end() const noexcept
         {
-            return iterator{context, memory, limit, predicate, projector, limit};
+            return iterator{context, memory, limit, predicate, projector, limit, seek};
         }
     };
 
@@ -112,6 +124,7 @@ namespace hgraph
     struct KeyValueRange
     {
         using value_type   = std::pair<K, V>;
+        using seek_fn = std::size_t (*)(const void *context, const void *memory, std::size_t first);
         using predicate_fn = bool (*)(const void *context, const void *memory, std::size_t index);
         using projector_fn = value_type (*)(const void *context, const void *memory, std::size_t index);
 
@@ -120,6 +133,7 @@ namespace hgraph
         std::size_t  limit{0};
         predicate_fn predicate{nullptr};
         projector_fn projector{nullptr};
+        seek_fn seek{nullptr};
 
         struct iterator
         {
@@ -134,6 +148,7 @@ namespace hgraph
             predicate_fn predicate{nullptr};
             projector_fn projector{nullptr};
             std::size_t  index{0};
+            seek_fn seek{nullptr};
 
             [[nodiscard]] value_type operator*() const { return projector(context, memory, index); }
 
@@ -157,21 +172,25 @@ namespace hgraph
 
             void advance_to_match() noexcept
             {
-                if (predicate == nullptr) { return; }
-                while (index < limit && !predicate(context, memory, index)) { ++index; }
+                while (index < limit)
+                {
+                    if (seek != nullptr) { index = std::min(limit, seek(context, memory, index)); }
+                    if (index == limit || predicate == nullptr || predicate(context, memory, index)) { return; }
+                    ++index;
+                }
             }
         };
 
         [[nodiscard]] iterator begin() const noexcept
         {
-            iterator it{context, memory, limit, predicate, projector, 0};
+            iterator it{context, memory, limit, predicate, projector, 0, seek};
             it.advance_to_match();
             return it;
         }
 
         [[nodiscard]] iterator end() const noexcept
         {
-            return iterator{context, memory, limit, predicate, projector, limit};
+            return iterator{context, memory, limit, predicate, projector, limit, seek};
         }
     };
 }  // namespace hgraph

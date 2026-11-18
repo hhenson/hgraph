@@ -61,8 +61,10 @@ namespace hgraph
         [[nodiscard]] bool membership_slot_removed(std::size_t slot) const;
         [[nodiscard]] std::size_t next_membership_added_slot(std::size_t previous = TS_DATA_NO_CHILD_ID) const;
         [[nodiscard]] std::size_t next_membership_removed_slot(std::size_t previous = TS_DATA_NO_CHILD_ID) const;
-        /** Sparse traversal of modified value slots; pass ``TS_DATA_NO_CHILD_ID`` for the first slot. */
-        [[nodiscard]] std::size_t next_modified_slot(std::size_t previous = TS_DATA_NO_CHILD_ID) const;
+        /** Sparse traversal of modified value slots below ``limit`` (exclusive);
+         * pass ``TS_DATA_NO_CHILD_ID`` for the first slot or an unbounded limit. */
+        [[nodiscard]] std::size_t next_modified_slot(std::size_t previous = TS_DATA_NO_CHILD_ID,
+                                                     std::size_t limit = TS_DATA_NO_CHILD_ID) const;
 
         /** Key or child TSData view at ``slot``; throws if the slot is not occupied. */
         [[nodiscard]] ValueView key_at_slot(std::size_t slot) const;

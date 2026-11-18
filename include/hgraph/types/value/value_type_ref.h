@@ -14,7 +14,8 @@ namespace hgraph
 {
     // 10: IndexedValueOps adds clear_element, shifting its derived tables.
     // 9: ValueOps removes format_string_impl/repr_string_impl.
-    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 10;
+    // 11: Range and KeyValueRange returns include a sparse seek cursor.
+    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 11;
 
     struct ValueOps;
     class Value;

@@ -781,10 +781,10 @@ namespace hgraph
 
             [[nodiscard]] static std::size_t next_modified_slot(const void *,
                                                                 const void *memory,
-                                                                std::size_t previous)
+                                                                std::size_t previous, std::size_t limit)
             {
                 if (!source_available(memory)) { return TS_DATA_NO_CHILD_ID; }
-                return proxy_storage(memory).next_modified_child(previous);
+                return proxy_storage(memory).next_modified_child(previous, limit);
             }
 
             [[nodiscard]] static const void *tsd_child_at_slot(const void *, const void *memory, std::size_t slot)
@@ -837,6 +837,15 @@ namespace hgraph
             }
 
             template <TSDProxySetSurface Surface>
+            [[nodiscard]] static std::size_t set_seek(const void *context, const void *memory, std::size_t first)
+            {
+                const auto previous = first == 0 ? TS_DATA_NO_CHILD_ID : first - 1;
+                if constexpr (Surface == TSDProxySetSurface::Added) { return next_added_slot(context, memory, previous); }
+                else if constexpr (Surface == TSDProxySetSurface::Removed) { return next_removed_slot(context, memory, previous); }
+                else { return first; }
+            }
+
+            template <TSDProxySetSurface Surface>
             [[nodiscard]] static std::size_t set_size(const void *context, const void *memory) noexcept
             {
                 return fallback_on_exception<std::size_t>(0, [&] {
@@ -845,10 +854,8 @@ namespace hgraph
                     {
                         std::size_t count = 0;
                         auto        dict  = source_dict(memory);
-                        for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
-                        {
-                            if (slot_in_set_surface<Surface>(context, memory, slot)) { ++count; }
-                        }
+                        for (auto slot = set_seek<Surface>(context, memory, 0); slot < dict.slot_capacity();
+                             slot = set_seek<Surface>(context, memory, slot + 1)) { ++count; }
                         return count;
                     }
                 });
@@ -926,6 +933,7 @@ namespace hgraph
                     .limit     = slot_capacity(context, memory),
                     .predicate = &slot_in_set_surface<Surface>,
                     .projector = &key_projector,
+                    .seek = &set_seek<Surface>,
                 };
             }
 
@@ -1009,6 +1017,16 @@ namespace hgraph
             }
 
             template <TSDProxyMapSurface Surface>
+            [[nodiscard]] static std::size_t map_seek(const void *context, const void *memory, std::size_t first)
+            {
+                const auto previous = first == 0 ? TS_DATA_NO_CHILD_ID : first - 1;
+                if constexpr (Surface == TSDProxyMapSurface::Added) { return next_added_slot(context, memory, previous); }
+                else if constexpr (Surface == TSDProxyMapSurface::Removed) { return next_removed_slot(context, memory, previous); }
+                else if constexpr (Surface == TSDProxyMapSurface::Modified) { return next_modified_slot(context, memory, previous, TS_DATA_NO_CHILD_ID); }
+                else { return first; }
+            }
+
+            template <TSDProxyMapSurface Surface>
             [[nodiscard]] static std::size_t map_size(const void *context, const void *memory) noexcept
             {
                 return fallback_on_exception<std::size_t>(0, [&] {
@@ -1017,10 +1035,8 @@ namespace hgraph
                     {
                         std::size_t count = 0;
                         auto        dict  = source_dict(memory);
-                        for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
-                        {
-                            if (map_slot_in_surface<Surface>(context, memory, slot)) { ++count; }
-                        }
+                        for (auto slot = map_seek<Surface>(context, memory, 0); slot < dict.slot_capacity();
+                             slot = map_seek<Surface>(context, memory, slot + 1)) { ++count; }
                         return count;
                     }
                 });
@@ -1150,6 +1166,7 @@ namespace hgraph
                     .limit     = slot_capacity(context, memory),
                     .predicate = &map_slot_in_surface<Surface>,
                     .projector = &key_projector,
+                    .seek = &map_seek<Surface>,
                 };
             }
 
@@ -1162,6 +1179,7 @@ namespace hgraph
                     .limit     = slot_capacity(context, memory),
                     .predicate = &map_slot_in_surface<Surface>,
                     .projector = &map_value_projector<Surface>,
+                    .seek = &map_seek<Surface>,
                 };
             }
 
@@ -1175,6 +1193,7 @@ namespace hgraph
                     .limit     = slot_capacity(context, memory),
                     .predicate = &map_slot_in_surface<Surface>,
                     .projector = &map_kv_projector<Surface>,
+                    .seek = &map_seek<Surface>,
                 };
             }
 
@@ -1258,6 +1277,7 @@ namespace hgraph
                     .limit     = slot_capacity(context, memory),
                     .predicate = &map_slot_in_surface<Surface>,
                     .projector = &ts_value_projector,
+                    .seek = &map_seek<Surface>,
                 };
             }
 
@@ -1271,6 +1291,7 @@ namespace hgraph
                     .limit     = slot_capacity(context, memory),
                     .predicate = &map_slot_in_surface<Surface>,
                     .projector = &ts_kv_projector,
+                    .seek = &map_seek<Surface>,
                 };
             }
 
@@ -1542,6 +1563,7 @@ namespace hgraph
             unsubscribe_source();
             if (element_type_ && has_constructed_children()) on_slots_cleared();
             else values_.destroy_all();
+            pending_slots_.clear();
             self_type_             = self_type;
             element_type_          = element_type;
             source_storage_        = TSDDataStorageRef{source.base().storage_ref(), TSTypeKind::TSD};
@@ -1583,6 +1605,7 @@ namespace hgraph
     void TSDProxy::on_slot_inserted(std::size_t slot)
     {
         structure_pending_ = true;
+        pending_slots_[slot] |= BuildPending;
         subscribe_source_child(slot);
         if (has_child(slot))
         {
@@ -1592,6 +1615,9 @@ namespace hgraph
                 throw std::logic_error("TSDProxy retained insertion requires insert-owed state");
             }
             const auto modified_time = current_lifecycle_time(slot);
+            // The retained reference can be rewritten after this eager build,
+            // with the source's once-per-time wake already consumed by removal.
+            if (child_refresh_ == TSDProxyChildRefresh::OnChildTick) { pending_slots_[slot] |= RecheckPending; }
             static_cast<void>(retry_pending_child_at_slot(slot, modified_time));
             mark_modified(modified_time);
             return;
@@ -1606,6 +1632,7 @@ namespace hgraph
     {
         if (slot < source_children_.size()) { source_children_[slot].reset(); }
         structure_pending_ = true;
+        pending_slots_.erase(slot);
         if (has_child(slot))
         {
             detail::stop_owned_ts_data_tree(TSDataView{element_type_, values_.value_memory(slot)});
@@ -1618,6 +1645,7 @@ namespace hgraph
 
     void TSDProxy::on_slot_erased(std::size_t slot)
     {
+        pending_slots_.erase(slot);
         if (slot < source_children_.size()) { source_children_[slot].reset(); }
         if (values_.has_slot(slot))
             detail::invalidate_owned_ts_data_tree(TSDataView{element_type_, values_.value_memory(slot)});
@@ -1629,6 +1657,7 @@ namespace hgraph
 
     void TSDProxy::on_slots_cleared()
     {
+        pending_slots_.clear();
         source_children_.clear();
         for (std::size_t slot = 0; slot < values_.slot_capacity(); ++slot)
         {
@@ -1641,6 +1670,20 @@ namespace hgraph
         updated_search_begin_ = TS_DATA_NO_CHILD_ID;
     }
 
+    bool TSDProxy::has_pending(std::size_t slot, PendingSlot flag) const noexcept
+    {
+        const auto entry = pending_slots_.find(slot);
+        return entry != pending_slots_.end() && (entry->second & flag) != 0;
+    }
+
+    void TSDProxy::clear_pending(std::size_t slot, PendingSlot flag) noexcept
+    {
+        const auto entry = pending_slots_.find(slot);
+        if (entry == pending_slots_.end()) { return; }
+        entry->second = static_cast<std::uint8_t>(entry->second & ~flag);
+        if (entry->second == 0) { pending_slots_.erase(entry); }
+    }
+
     void TSDProxy::on_source_modified(DateTime modified_time)
     {
         if (!source_storage_.valid() || value_ops_ == nullptr) { return; }
@@ -1648,13 +1691,38 @@ namespace hgraph
 
         auto dict = source_dict();
         bool touched = dict.next_removed_slot() != TS_DATA_NO_CHILD_ID;
-        // Slot lifecycle callbacks can leave pending builds, including an
-        // earlier failed build. Reconcile those on structural changes. Ordinary
-        // value ticks only need the source's modified slots.
-        const bool reconcile_structure = structure_pending_;
-        for (std::size_t slot = reconcile_structure ? 0 : dict.next_modified_slot();
-             slot != TS_DATA_NO_CHILD_ID && slot < dict.slot_capacity();
-             slot = reconcile_structure ? slot + 1 : dict.next_modified_slot(slot))
+        // Retry only lifecycle debt. Copy the small pending table because a
+        // successful build erases itself and observers may re-enter lifecycle hooks.
+        const std::vector<std::pair<std::size_t, std::uint8_t>> pending(pending_slots_.begin(), pending_slots_.end());
+        for (const auto &[slot, flags] : pending)
+        {
+            if ((flags & BuildPending) != 0 && has_pending(slot, BuildPending) && dict.slot_live(slot))
+            {
+                if (!has_child(slot))
+                {
+                    construct_child_at_slot(slot);
+                    built_times_[slot] = MAX_DT;
+                }
+                if (built(built_times_[slot]))
+                {
+                    refresh_stale_child(slot);
+                    clear_pending(slot, BuildPending);
+                }
+                else { static_cast<void>(retry_pending_child_at_slot(slot, modified_time)); }
+                touched = true;
+            }
+        }
+        const std::vector<std::pair<std::size_t, std::uint8_t>> rechecks(pending_slots_.begin(), pending_slots_.end());
+        for (const auto &[slot, flags] : rechecks)
+        {
+            if ((flags & RecheckPending) != 0 && has_pending(slot, RecheckPending) && dict.slot_live(slot) && has_child(slot))
+            {
+                refresh_stale_child(slot);
+                clear_pending(slot, RecheckPending);
+            }
+        }
+        for (auto slot = dict.next_modified_slot(); slot != TS_DATA_NO_CHILD_ID;
+             slot = dict.next_modified_slot(slot))
         {
             const bool live = dict.slot_live(slot);
             if (dict.slot_removed(slot))
@@ -1772,7 +1840,7 @@ namespace hgraph
         return updated_search_next_;
     }
 
-    std::size_t TSDProxy::next_modified_child(std::size_t previous) const
+    std::size_t TSDProxy::next_modified_child(std::size_t previous, std::size_t limit) const
     {
         if (!source_available()) { return TS_DATA_NO_CHILD_ID; }
         auto dict = source_dict();
@@ -1787,21 +1855,10 @@ namespace hgraph
             if (child_refresh_ == TSDProxyChildRefresh::OnChildTick &&
                 dict.last_modified_time() >= tracking_.last_modified_time)
             {
-                if (updated_slot != TS_DATA_NO_CHILD_ID && !dict.slot_modified(updated_slot))
-                {
-                    // Bound this probe by the next own update. Repeatedly
-                    // seeking a distant source bit past it can become quadratic
-                    // when many referenced children tick in the same cycle.
-                    for (auto candidate = previous == TS_DATA_NO_CHILD_ID ? 0 : previous + 1;
-                         candidate < updated_slot; ++candidate)
-                    {
-                        if (dict.slot_modified(candidate)) { source_slot = candidate; break; }
-                    }
-                }
-                else { source_slot = dict.next_modified_slot(previous); }
+                source_slot = dict.next_modified_slot(previous, std::min(limit, updated_slot));
             }
             const auto slot = std::min(source_slot, updated_slot);
-            if (slot == TS_DATA_NO_CHILD_ID) { return slot; }
+            if (slot >= limit) { return TS_DATA_NO_CHILD_ID; }
             // Lazy reconciliation can mark this candidate updated. It is
             // already consumed: retain the known-empty interval after it
             // instead of making the next call search that interval again.
@@ -1929,6 +1986,7 @@ namespace hgraph
         }));
         values_.destroy_all();
         std::ranges::fill(built_times_, MIN_DT);
+        pending_slots_.clear();
         suspended_published_.clear();
         source_suspended_ = false;
         updated_window_ = MIN_DT;
@@ -1977,6 +2035,7 @@ namespace hgraph
             // Pending removal retains constructed, stopped storage at its
             // stable address. The source's physical erase callback owns its
             // eventual invalidation and destruction.
+            pending_slots_.erase(slot);
             if (slot < dict.slot_capacity() && dict.slot_occupied(slot)) { continue; }
 
             if (has_child(slot))
@@ -2031,6 +2090,7 @@ namespace hgraph
         }
 
         require_concrete_build_time(modified_time);
+        pending_slots_[slot] |= BuildPending;
         refresh_child_at_slot(slot, modified_time);
         if (owes_insert) { slot_observers_.notify_insert(slot); }
         return true;
@@ -2060,8 +2120,12 @@ namespace hgraph
             throw std::logic_error("TSDProxy is not initialised");
         }
         auto target = TSDataView{element_type_, values_.value_memory(slot)};
-        value_ops_->build(*this, slot, target, source_child_at_slot(slot), modified_time,
-                          value_builder_context_);
+        annotate_on_exception([&] {
+            value_ops_->build(*this, slot, target, source_child_at_slot(slot), modified_time,
+                              value_builder_context_);
+        }, [&] {
+            pending_slots_[slot] |= BuildPending;
+        });
         stamp_built(slot, modified_time);
     }
 
@@ -2073,6 +2137,7 @@ namespace hgraph
         // for the initial bind, so this only defends against a stale call.
         if (built_times_.size() <= slot) { built_times_.resize(slot + 1, MIN_DT); }
         built_times_[slot] = modified_time;
+        clear_pending(slot, BuildPending);
     }
 
     bool TSDProxy::has_constructed_children() const noexcept
@@ -2082,6 +2147,21 @@ namespace hgraph
             if (values_.has_slot(slot)) { return true; }
         }
         return false;
+    }
+
+    bool TSDProxy::observes_source(const TSDataView &source) const noexcept
+    {
+        return subscribed_ && !source_suspended_ &&
+               source_storage_.storage_type() == source.storage_type() &&
+               source_storage_.data() == source.data();
+    }
+
+    bool TSDProxy::refresh_observed_source(const TSDataView &source, DateTime modified_time)
+    {
+        if (!observes_source(source)) { return false; }
+        require_concrete_build_time(modified_time);
+        if (source.has_current_value()) { mark_modified(modified_time); }
+        return true;
     }
 
     bool TSDProxy::source_identities_match() const
@@ -2358,6 +2438,12 @@ namespace hgraph
         }
 
         template <ProxyMapSurface Surface>
+        std::size_t proxy_next_map_slot(const void *context, const void *memory, std::size_t first)
+        {
+            return TSDProxyContext::map_seek<map_surface_of<Surface>()>(context, memory, first);
+        }
+
+        template <ProxyMapSurface Surface>
         bool proxy_slot_in_map_surface(const void *context, const void *memory, std::size_t slot)
         {
             return TSDProxyContext::map_slot_in_surface<map_surface_of<Surface>()>(context, memory, slot);
@@ -2374,6 +2460,11 @@ namespace hgraph
         {
             return TSDProxyContext::map_value_at_slot<map_surface_of<Surface>()>(context, memory, slot);
         }
+
+        template std::size_t proxy_next_map_slot<ProxyMapSurface::live>(const void *, const void *, std::size_t);
+        template std::size_t proxy_next_map_slot<ProxyMapSurface::added>(const void *, const void *, std::size_t);
+        template std::size_t proxy_next_map_slot<ProxyMapSurface::removed>(const void *, const void *, std::size_t);
+        template std::size_t proxy_next_map_slot<ProxyMapSurface::modified>(const void *, const void *, std::size_t);
 
         // One instantiation per surface: the bridge calls the selected one.
         template Range<ValueView> proxy_keys<SetSurface::live>(const void *, const void *);

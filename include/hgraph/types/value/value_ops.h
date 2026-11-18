@@ -47,7 +47,7 @@ namespace hgraph
     };
 
     static_assert(sizeof(ValueOpsKind) == 1);
-    /** The base-table byte size ``VALUE_OPS_ABI_VERSION`` 10 describes.
+    /** The base-table byte size ``VALUE_OPS_ABI_VERSION`` 11 describes.
      *
      * A field added to or removed from ``ValueOps`` shifts every slot after
      * it, and an extension compiled against the old table then dispatches
