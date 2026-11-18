@@ -30,6 +30,25 @@ namespace {
         compare(direct, expected);
         compare(pipeline, expected);
     }
+
+    struct ClearOnNegative
+    {
+        static void eval(In<"command", TS<Int>> command, Out<TS<Int>> out, DateTime now)
+        {
+            if (command.value() < 0) { static_cast<void>(out.begin_mutation(now).invalidate()); }
+            else { out.set(command.value()); }
+        }
+    };
+
+    template <bool Spawn, bool Pipeline = false>
+    struct CaptureClears
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> command, Scalar<"trace", Trace *> trace)
+        {
+            auto value = wire<ClearOnNegative>(w, command);
+            return CaptureGraph<TS<Int>, Spawn, Pipeline>::compose(w, value, trace);
+        }
+    };
 }
 
 using namespace hgraph;
@@ -40,6 +59,24 @@ TEST_CASE("spawn: direct sink and pass-through pipeline preserve scalar and sign
     prepare();
     boundary_oracle<TS<Int>>(values<Int>(1, none, 3, 4, none, 6));
     boundary_oracle<SIGNAL>(values<bool>(true, none, true));
+}
+
+TEST_CASE("spawn: scalar clears reach a remote sink across every stage", "[spawn]")
+{
+    prepare();
+    Trace local, remote, pipeline;
+    const auto commands = values<Int>(10, -1, none, -1, 20, -1);
+    (void)eval_node<CaptureClears<false>>(commands, arg<"trace">(&local));
+    REQUIRE(local.samples.size() == 4);
+    CHECK(local.samples[0].value == "10");
+    CHECK_FALSE(local.samples[1].valid);
+    CHECK(local.samples[2].value == "20");
+    CHECK_FALSE(local.samples[3].valid);
+
+    (void)eval_node<CaptureClears<true>>(commands, arg<"trace">(&remote));
+    (void)eval_node<CaptureClears<true, true>>(commands, arg<"trace">(&pipeline));
+    compare(remote, local);
+    compare(pipeline, local);
 }
 
 TEST_CASE("spawn: collection boundaries preserve values deltas and membership", "[spawn]")

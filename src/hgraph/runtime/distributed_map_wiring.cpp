@@ -143,7 +143,7 @@ namespace hgraph::distributed
                 const auto root = node.input(now);
                 auto inputs = root.as_bundle();
                 const auto input = inputs[0];
-                if (input.modified()) node.global_state().set("__hgraph_distributed_output", transfer->capture(input, false, group, filtered_groups));
+                if (BoundaryTransfer::has_update(input)) node.global_state().set("__hgraph_distributed_output", transfer->capture(input, false, group, filtered_groups));
             };
             NodeTypeDescriptor descriptor;
             descriptor.schema = std::move(meta);
@@ -251,7 +251,7 @@ namespace hgraph::distributed
             for (std::size_t i = 0; i < plan.input_transfers.size(); ++i)
             {
                 auto input = bundle[i];
-                if (input.modified()) request.staged.push_back({i, plan.input_transfers[i]->capture(input)});
+                if (BoundaryTransfer::has_update(input)) request.staged.push_back({i, plan.input_transfers[i]->capture(input)});
             }
             const auto next = pool.exchange(request, [&](std::size_t group, const CycleReply &reply) {
                 for (const auto &delta : reply.collected)

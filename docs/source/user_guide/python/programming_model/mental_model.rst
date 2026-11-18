@@ -239,6 +239,13 @@ Alongside the value, the types expose the time-oriented properties this makes po
 have a value yet), and ``modified`` (whether the value was updated in this round of
 evaluation).
 
+A scalar time-series also exposes ``invalidated``. On an owned output or
+its directly bound input, a clear that removes a value makes
+``invalidated`` true for that evaluation. Both ``valid`` and ``modified``
+are false. On the next quiet evaluation all three are false. An active
+input can wake its node on the clear. A passive input sees it if another
+input wakes the node in the same evaluation.
+
 .. note:: It is worth being clear on this point, as it is a common source of confusion.
           Scalars do not vary with time, time-series do. A ``float`` is a scalar; a
           ``TS[float]`` is a time-series whose value at any point in time is a ``float``.

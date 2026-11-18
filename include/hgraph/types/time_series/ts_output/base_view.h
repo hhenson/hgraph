@@ -137,6 +137,8 @@ namespace hgraph
         [[nodiscard]] bool bound() const noexcept { return output_ != nullptr && data_.valid(); }
         [[nodiscard]] DateTime last_modified_time() const;
         [[nodiscard]] bool modified() const;
+        /** A scalar cleared this cycle and still invalid. Other shapes return false. */
+        [[nodiscard]] bool invalidated() const;
         [[nodiscard]] bool valid() const;
         [[nodiscard]] bool all_valid() const;
 
