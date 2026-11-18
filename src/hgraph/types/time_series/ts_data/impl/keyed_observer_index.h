@@ -4,38 +4,67 @@
 #include <hgraph/types/time_series/ts_data/types.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_hash.h>
-#include <unordered_map>
+#include <ankerl/unordered_dense.h>
 
 namespace hgraph::detail
 {
     /** Owned by the observer-set spill, never by a process-wide side table.
-        Shared bucket ownership permits self-unsubscription during dispatch. */
+        Dispatch pins permit self-unsubscription without atomic reference counts. */
     struct KeyedObserverIndex
     {
-        // Count allocator requests, including shared bucket control blocks and
-        // the standard library's hash nodes/bucket array, without ABI guesses.
+        // Count allocator requests for the dense key index without ABI guesses.
         template <typename T> struct Allocator
         {
             using value_type = T;
+            using propagate_on_container_move_assignment = std::true_type;
             std::size_t *bytes{};
+            Allocator() noexcept = default;
             explicit Allocator(std::size_t *bytes_) noexcept : bytes(bytes_) {}
             template <typename U> Allocator(const Allocator<U> &other) noexcept : bytes(other.bytes) {}
             T *allocate(std::size_t count)
             {
                 auto *memory = std::allocator<T>{}.allocate(count);
-                *bytes += count * sizeof(T);
+                if (bytes) { *bytes += count * sizeof(T); }
                 return memory;
             }
             void deallocate(T *memory, std::size_t count) noexcept
             {
-                *bytes -= count * sizeof(T);
+                if (bytes) { *bytes -= count * sizeof(T); }
                 std::allocator<T>{}.deallocate(memory, count);
             }
             template <typename U> bool operator==(const Allocator<U> &other) const noexcept { return bytes == other.bytes; }
         };
         std::size_t allocated_bytes{0};
-        using Entry = std::pair<const Value, std::shared_ptr<TSDataTracking>>;
-        std::unordered_map<Value, std::shared_ptr<TSDataTracking>, ValueHash, ValueEqual, Allocator<Entry>>
+        struct Bucket : TSDataTracking
+        {
+            explicit Bucket(std::size_t &bytes_) noexcept : bytes(bytes_) { bytes += sizeof(Bucket); }
+            ~Bucket() { bytes -= sizeof(Bucket); }
+            std::size_t &bytes;
+            std::size_t pins{0};
+            bool attached{true};
+        };
+        struct ReleaseBucket
+        {
+            void operator()(Bucket *bucket) const noexcept
+            {
+                bucket->attached = false;
+                if (bucket->pins == 0) { delete bucket; }
+            }
+        };
+        using BucketOwner = std::unique_ptr<Bucket, ReleaseBucket>;
+        struct Pin
+        {
+            explicit Pin(Bucket *bucket_) noexcept : bucket(bucket_) { ++bucket->pins; }
+            Pin(const Pin &) = delete;
+            Pin(Pin &&other) noexcept : bucket(std::exchange(other.bucket, nullptr)) {}
+            ~Pin()
+            {
+                if (bucket && --bucket->pins == 0 && !bucket->attached) { delete bucket; }
+            }
+            Bucket *bucket;
+        };
+        using Entry = std::pair<Value, BucketOwner>;
+        ankerl::unordered_dense::map<Value, BucketOwner, ValueHash, ValueEqual, Allocator<Entry>>
             keys{0, ValueHash{}, ValueEqual{}, Allocator<Entry>{&allocated_bytes}};
         ObserverListStorage<KeyedNotifiable> relays;
         std::size_t registrations{0};
@@ -55,7 +84,7 @@ namespace hgraph::detail
             auto it = keys.find(key);
             const bool inserted = it == keys.end();
             if (inserted)
-                it = keys.emplace(Value{key}, std::allocate_shared<TSDataTracking>(Allocator<TSDataTracking>{&allocated_bytes})).first;
+                it = keys.emplace(Value{key}, BucketOwner{new Bucket{allocated_bytes}}).first;
             auto rollback = make_scope_exit([&] { if (inserted) { keys.erase(it); } });
             it->second->observers.subscribe(observer);
             ++registrations;
@@ -74,16 +103,19 @@ namespace hgraph::detail
         {
             // Resolve before callbacks: a callback can erase or rehash keys.
             auto it = keys.find(key);
-            auto bucket = it == keys.end() ? nullptr : it->second;
-            if (bucket) { static_cast<void>(bucket->record_modified(time)); }
+            if (it != keys.end())
+            {
+                Pin pin{it->second.get()};
+                static_cast<void>(pin.bucket->record_modified(time));
+            }
             visit_relays([&](KeyedNotifiable &relay) { relay.key_modified(key, time); });
         }
         void notify_all(DateTime time)
         {
-            std::vector<std::shared_ptr<TSDataTracking>> snapshot;
+            std::vector<Pin> snapshot;
             snapshot.reserve(keys.size());
-            for (const auto &[key, bucket] : keys) { snapshot.push_back(bucket); }
-            for (const auto &bucket : snapshot) { static_cast<void>(bucket->record_modified(time)); }
+            for (const auto &[key, bucket] : keys) { snapshot.emplace_back(bucket.get()); }
+            for (const auto &pin : snapshot) { static_cast<void>(pin.bucket->record_modified(time)); }
             visit_relays([&](KeyedNotifiable &relay) { relay.keys_replaced(time); });
         }
         void invalidate(const TSDataTracking *source) noexcept

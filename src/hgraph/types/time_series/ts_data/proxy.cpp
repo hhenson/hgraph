@@ -1448,6 +1448,40 @@ namespace hgraph
         owner_->on_source_invalidated(source);
     }
 
+    // A root notification is coalesced before later sibling writes. Observe
+    // source children individually only for proxies that follow references.
+    struct TSDProxy::SourceChildNotifier final : Notifiable
+    {
+        SourceChildNotifier(TSDProxy &owner_, std::size_t slot_, const TSDataView &source)
+            : owner(owner_), slot(slot_), observed(source.storage_ref())
+        {
+            source.subscribe(this);
+        }
+        ~SourceChildNotifier() override
+        {
+            if (observed.has_value()) { TSDataView{observed}.unsubscribe(this); }
+        }
+        void notify(DateTime time) override
+        {
+            if (!owner.subscribed_ || owner.source_suspended_) { return; }
+            // Wake only lookups for this reference position. Their later read
+            // reconciles the binding after all publications for the cycle.
+            owner.key_set_tracking_.observers.notify_key(owner.source_dict().key_at_slot(slot), time);
+        }
+        void source_invalidated(const TSDataTracking *) noexcept override { observed.reset(); }
+        TSDProxy &owner;
+        std::size_t slot;
+        TSDataStorageRef<> observed;
+    };
+
+    void TSDProxy::subscribe_source_child(std::size_t slot)
+    {
+        if (child_refresh_ != TSDProxyChildRefresh::OnChildTick) { return; }
+        if (source_children_.size() <= slot) { source_children_.resize(slot + 1); }
+        if (!source_children_[slot])
+            source_children_[slot] = std::make_unique<SourceChildNotifier>(*this, slot, source_child_at_slot(slot));
+    }
+
     TSDProxy::TSDProxy() noexcept
         : source_sync_(*this)
     {
@@ -1549,6 +1583,7 @@ namespace hgraph
     void TSDProxy::on_slot_inserted(std::size_t slot)
     {
         structure_pending_ = true;
+        subscribe_source_child(slot);
         if (has_child(slot))
         {
             const auto state = slot < built_times_.size() ? built_times_[slot] : MIN_DT;
@@ -1569,6 +1604,7 @@ namespace hgraph
 
     void TSDProxy::on_slot_removed(std::size_t slot)
     {
+        if (slot < source_children_.size()) { source_children_[slot].reset(); }
         structure_pending_ = true;
         if (has_child(slot))
         {
@@ -1582,6 +1618,7 @@ namespace hgraph
 
     void TSDProxy::on_slot_erased(std::size_t slot)
     {
+        if (slot < source_children_.size()) { source_children_[slot].reset(); }
         if (values_.has_slot(slot))
             detail::invalidate_owned_ts_data_tree(TSDataView{element_type_, values_.value_memory(slot)});
         if (slot < built_times_.size()) { built_times_[slot] = MIN_DT; }
@@ -1592,6 +1629,7 @@ namespace hgraph
 
     void TSDProxy::on_slots_cleared()
     {
+        source_children_.clear();
         for (std::size_t slot = 0; slot < values_.slot_capacity(); ++slot)
         {
             if (values_.has_slot(slot))
@@ -1816,6 +1854,17 @@ namespace hgraph
         source_view().subscribe(&source_sync_);
         auto rollback_source = make_scope_exit<true>([&] { source_view().unsubscribe(&source_sync_); });
         source_dict().key_set().base().subscribe_key_relay(&source_sync_);
+        auto rollback_key_relay = make_scope_exit<true>([&] {
+            source_dict().key_set().base().unsubscribe_key_relay(&source_sync_);
+            source_children_.clear();
+        });
+        if (child_refresh_ == TSDProxyChildRefresh::OnChildTick)
+        {
+            auto dict = source_dict();
+            for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
+                if (dict.slot_live(slot)) { subscribe_source_child(slot); }
+        }
+        rollback_key_relay.release();
         rollback_source.release();
         rollback_slot_observer.release();
         subscribed_ = true;
@@ -1823,6 +1872,7 @@ namespace hgraph
 
     void TSDProxy::unsubscribe_source(bool strict, bool retain_source) noexcept
     {
+        source_children_.clear();
         if (!source_storage_.valid())
         {
             subscribed_ = false;
@@ -1849,6 +1899,7 @@ namespace hgraph
         auto current = source_view();
         if (!current.valid() || &current.tracking() != source) { return; }
 
+        source_children_.clear();
         const auto prior_refresh = child_refresh_;
         child_refresh_ = TSDProxyChildRefresh::Invalidating;
         auto restore_refresh = make_scope_exit([&]() noexcept { child_refresh_ = prior_refresh; });

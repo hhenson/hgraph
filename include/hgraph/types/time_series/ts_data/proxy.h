@@ -142,6 +142,8 @@ namespace hgraph
 
       private:
         friend class TSDProxySlotSync;
+        struct SourceChildNotifier;
+        void subscribe_source_child(std::size_t slot);
 
         /** Source slot lifecycle callbacks, invoked by ``TSDProxySlotSync``. */
         void on_slot_capacity(std::size_t old_capacity, std::size_t new_capacity);
@@ -173,6 +175,7 @@ namespace hgraph
         const void                   *value_builder_context_{nullptr};
         ValueSlotStore                values_{};
         std::vector<DateTime>         built_times_{};
+        std::vector<std::unique_ptr<SourceChildNotifier>> source_children_{};
         DateTime                      updated_window_{MIN_DT};   // lazy delta-window roll
         // The bitmap has no set bit in [updated_search_begin_, updated_search_next_).
         // Child records maintain this interval; window/structural changes discard it.
