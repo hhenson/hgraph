@@ -758,6 +758,7 @@ namespace hgraph
         set_cache_.clear();
         mutable_list_cache_.clear();
         nullable_tuple_cache_.clear();
+        optional_cache_.clear();
         series_cache_.clear();
         frame_cache_.clear();
         mutable_set_cache_.clear();
@@ -1942,6 +1943,34 @@ namespace hgraph
                                     ValueTypeFlags::Nullable,
                                 store_name_interned(unary_label("NullableTuple", element_type)));
             m.element_type = element_type;
+            return m;
+        });
+        return &meta;
+    }
+
+    const ValueTypeMetaData *TypeRegistry::optional(const ValueTypeMetaData *payload)
+    {
+        const std::lock_guard lock(mutex_);
+        if (payload == nullptr) { throw std::invalid_argument("optional requires a payload value schema"); }
+        if (payload->try_value_kind() == ValueTypeKind::Any)
+        {
+            throw std::invalid_argument("optional: an any already holds nil and takes no Optional");
+        }
+        if (payload->is_optional()) { throw std::invalid_argument("optional: the payload is already an Optional"); }
+        const ValueTypeMetaData &meta = optional_cache_.intern(payload, [&]() {
+            auto fields       = std::make_unique<ValueFieldMetaData[]>(1);
+            fields[0].name    = nullptr;
+            fields[0].index   = 0;
+            fields[0].type    = payload;
+            ValueFieldMetaData *fields_ptr = store_value_fields(std::move(fields));
+            ValueTypeMetaData   m(ValueTypeKind::Optional, compute_composite_flags({payload}),
+                                  store_name_interned(unary_label("Optional", payload)));
+            m.element_type = payload;
+            // The storage is the payload and an engaged bit, which is what a
+            // composite of one field has: the payload is listed as that
+            // field so that the composite plan and ops are the Optional's.
+            m.fields      = fields_ptr;
+            m.field_count = 1;
             return m;
         });
         return &meta;

@@ -1132,6 +1132,13 @@ namespace hgraph
                 [&](QueueView queue) {
                     append_sequence_json(target, queue, evaluation_time,
                                          depth, source_path, recorder);
+                },
+                // An Optional (RFC 0050) renders as its payload does, or as
+                // ``null`` when it holds nothing.
+                [&](OptionalView optional) {
+                    append_diagnostic_json(target, optional.value(),
+                                           evaluation_time, depth + 1,
+                                           source_path, recorder);
                 });
         }
 

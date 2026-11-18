@@ -102,6 +102,10 @@ namespace hgraph
             PyNewRef (*array_to_python)(const void *context, const void *memory){nullptr};
             PyNewRef (*array_to_numpy)(const void *context, const void *memory){nullptr};
             void (*array_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            /** ``Optional[T]`` (RFC 0050): the payload, or the ``Null``
+                sentinel for the unset state. ``context`` is the composite's. */
+            PyNewRef (*optional_to_python)(const void *context, const void *memory){nullptr};
+            void (*optional_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
             PyNewRef (*owned_to_python)(const void *context, const void *memory){nullptr};
             void (*owned_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
             PyNewRef (*shared_to_python)(const void *context, const void *memory){nullptr};
@@ -129,6 +133,9 @@ namespace hgraph
             FromPythonFn    atomic_native_from_python{nullptr};
             ToPythonFn      atomic_native_to_python{nullptr};
             DeltaToPythonFn atomic_native_delta_to_python{nullptr};
+            /** The atomic value in its delta form (RFC 0050): what
+                ``TSDataOps::value_as_delta_to_python_impl`` forwards to. */
+            ToPythonFn      atomic_native_value_as_delta_to_python{nullptr};
             FromPythonFn    atomic_python_only_from_python{nullptr};
             ToPythonFn      atomic_python_only_to_python{nullptr};
             DeltaToPythonFn atomic_python_only_delta_to_python{nullptr};
@@ -144,6 +151,17 @@ namespace hgraph
             // entries once), and their value projections
             FromPythonFn    fixed_bundle_from_python{nullptr};
             ToPythonFn      fixed_bundle_to_python{nullptr};
+            // Each structural strategy's value with its children in the
+            // form a delta has (RFC 0050): what
+            // ``TSDataOps::value_as_delta_to_python_impl`` forwards to.
+            ToPythonFn      fixed_bundle_value_as_delta_to_python{nullptr};
+            ToPythonFn      fixed_list_value_as_delta_to_python{nullptr};
+            ToPythonFn      dynamic_value_as_delta_to_python{nullptr};
+            ToPythonFn      tsd_value_as_delta_to_python{nullptr};
+            ToPythonFn      proxy_dict_value_as_delta_to_python{nullptr};
+            ToPythonFn      input_bundle_value_as_delta_to_python{nullptr};
+            ToPythonFn      input_list_value_as_delta_to_python{nullptr};
+            ToPythonFn      target_link_value_as_delta_to_python{nullptr};
             DeltaToPythonFn fixed_bundle_delta_to_python{nullptr};
             FromPythonFn    fixed_list_from_python{nullptr};
             ToPythonFn      fixed_list_to_python{nullptr};

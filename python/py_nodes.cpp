@@ -61,6 +61,9 @@ void apply_py_result(nb::handle result, Out<TsVar<"O">> &out) {
   if (const auto *route = out.prepared_output();
       route != nullptr && route->native() && !result.is_none() &&
       route->value_ops != nullptr && route->value_ops->from_python_impl != nullptr) {
+    // RFC 0050: ``Null`` ticks an Optional output's unset value, through
+    // the Optional's own from_python below; no other output takes it.
+    require_null_admitted(route->value_binding.schema(), result);
     const DateTime time = out.evaluation_time();
     route->value_ops->from_python_impl(route->value_ops->context, route->value_binding,
                                        route->native_value, borrow(result));

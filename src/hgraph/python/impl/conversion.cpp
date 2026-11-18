@@ -1,3 +1,4 @@
+#include <hgraph/python/bridge_state.h>
 #include <hgraph/python/conversion.h>
 #include <hgraph/python/native_scalar_registration.h>
 
@@ -126,6 +127,21 @@ namespace hgraph::python_bridge
         return take(table.to_python_impl(table.context, view.data()));
     }
 
+    nb::object current_value_to_python(const TSDataOps &ops, const void *memory, ValueForm form)
+    {
+        if (!ops.has_current_value_impl(ops.context, memory)) { return nb::none(); }
+        if (form == ValueForm::Delta && ops.value_as_delta_to_python_impl != nullptr)
+        {
+            return take(ops.value_as_delta_to_python_impl(ops.context, memory));
+        }
+        return take(ops.to_python_impl(ops.context, memory));
+    }
+
+    nb::object value_as_delta_to_python(const TSDataView &view)
+    {
+        return current_value_to_python(view.ops(), view.data(), ValueForm::Delta);
+    }
+
     nb::object delta_value_to_python(const TSDataView &view, DateTime evaluation_time)
     {
         const auto &table = view.ops();
@@ -135,6 +151,19 @@ namespace hgraph::python_bridge
             return nb::none();
         }
         return take(table.delta_to_python_impl(table.context, view.data(), evaluation_time));
+    }
+
+    void require_null_admitted(const ValueTypeMetaData *value_schema, nb::handle source)
+    {
+        const nb::object &null = null_sentinel_slot();
+        if (!null.is_valid() || !source.is(null)) { return; }
+        if (value_schema != nullptr && value_schema->is_optional()) { return; }
+        // Raised as a Python error, so that one from a node's result is the
+        // cause of the node's failure as one the node raised would be.
+        PyErr_SetString(PyExc_TypeError,
+                        "Null is the unset value of a TS[Optional[...]]: a time series of any other value has "
+                        "no tick for it. Return None for no tick.");
+        throw nb::python_error();
     }
 
     bool from_python(TSDataMutationView &view, nb::handle source)
@@ -160,8 +189,9 @@ namespace hgraph::python_bridge
 
         // Sampled target rebinds carry the modification on the input link,
         // not on the already-valid target. In that case the input delta is
-        // the target's current value, exported by the target TSData strategy.
-        if (!data.ops().is_target_link && view.delta_is_sampled_rebind()) { return value_to_python(data); }
+        // the target's current value, exported by the target TSData strategy
+        // in the form a delta has (RFC 0050).
+        if (!data.ops().is_target_link && view.delta_is_sampled_rebind()) { return value_as_delta_to_python(data); }
 
         nb::object delta = delta_value_to_python(data, view.evaluation_time());
         if (!delta.is_none()) { return delta; }
@@ -169,7 +199,7 @@ namespace hgraph::python_bridge
         const auto *view_schema = view.schema();
         if (view_schema != nullptr && view_schema->kind == TSTypeKind::TS && view.modified())
         {
-            return value_to_python(data);
+            return value_as_delta_to_python(data);
         }
         return nb::none();
     }

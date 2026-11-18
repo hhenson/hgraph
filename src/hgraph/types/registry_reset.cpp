@@ -1,3 +1,4 @@
+#include "time_series/ts_output/nullable.h"
 #include <hgraph/types/value/binary_codec.h>
 #include <hgraph/types/value/json_codec.h>
 #include <hgraph/types/value/table_codec.h>
@@ -64,6 +65,7 @@ namespace hgraph
         clear_executor_runtime_types();
         clear_graph_runtime_types();
         clear_node_runtime_types();
+        detail::clear_borrowed_nullable_types();
         TSInputBuilderFactory::reset();
         TSDataPlanFactory::instance().reset();
         ValuePlanFactory::instance().reset();

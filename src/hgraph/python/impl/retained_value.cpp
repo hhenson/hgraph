@@ -66,6 +66,11 @@ namespace hgraph::python_bridge
           case ValueTypeKind::Queue:
           case ValueTypeKind::Any:
             return false;
+          // RFC 0050: an Optional's Python form is its payload or ``Null``.
+          // It keeps no Python object beside its value: every read
+          // converts, through the Optional's own ops.
+          case ValueTypeKind::Optional:
+            return false;
           }
           return false;
         }

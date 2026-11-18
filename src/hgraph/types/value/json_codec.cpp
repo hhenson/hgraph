@@ -1625,6 +1625,25 @@ namespace hgraph
             self.children[0]->write(concrete, out);
         }
 
+        /// ``Optional[T]`` (RFC 0050): ``null`` for the unset state, and the
+        /// payload's own form otherwise. A payload whose own form is ``null``,
+        /// an empty ``Owned``, is read back as the unset state.
+        ///
+        /// Inside a composite or a map the enclosing reader leaves a ``null``
+        /// to this one, so the field or the entry is read as SET, holding an
+        /// Optional that is unset. JSON has one ``null``: a tuple's slot that
+        /// is itself unset is written the same way, and reads back as that.
+        void write_optional(const JsonConverter &self, const ValueView &view, std::string &out)
+        {
+            const auto payload = view.as_optional().value();
+            if (!payload.valid())
+            {
+                out += "null";
+                return;
+            }
+            self.children[0]->write(payload, out);
+        }
+
         void write_sequence(const JsonConverter &self, const ValueView &view, std::string &out)
         {
             out.push_back('[');
@@ -2065,7 +2084,10 @@ namespace hgraph
                 for (std::size_t i = 0; i < self.children.size(); ++i)
                 {
                     if (i != 0) { reader.expect(','); }
-                    if (reader.consume_keyword("null"))
+                    // An Optional field reads its own ``null``: it is the
+                    // unset state of a value the field holds (RFC 0050), and
+                    // not a field that is unset.
+                    if (!self.children[i]->meta->is_optional() && reader.consume_keyword("null"))
                     {
                         if (self.meta->value_kind() != ValueTypeKind::Bundle)
                         {
@@ -2096,13 +2118,31 @@ namespace hgraph
                             }
                         }
                         if (index == self.names.size()) { reader.skip_value(); }
-                        else if (reader.consume_keyword("null")) {}
+                        else if (!self.children[index]->meta->is_optional() && reader.consume_keyword("null")) {}
                         else { builder.set(index, read_realized(*self.children[index], reader)); }
                         if (!reader.consume_if(',')) { break; }
                     }
                     reader.expect('}');
                 }
             }
+            return builder.build();
+        }
+
+        Value read_optional(const JsonConverter &self, Reader &reader)
+        {
+            auto binding = self.binding;
+            if (!self.realization_bound)
+            {
+                if (const auto *snapshot = active_type_realization();
+                    snapshot != nullptr && !snapshot->is_polymorphic(self.meta))
+                {
+                    binding = snapshot->type_for(self.meta);
+                }
+            }
+            // A builder's value starts with every field unset: the unset
+            // state is what ``null`` leaves.
+            BundleBuilder builder{binding};
+            if (!reader.consume_keyword("null")) { builder.set(0, read_realized(*self.children[0], reader)); }
             return builder.build();
         }
 
@@ -2212,10 +2252,12 @@ namespace hgraph
                         else { key = self.children[0]->read(key_reader); }
                     }
                     reader.expect(':');
-                    if (reader.consume_keyword("null"))
+                    if (!self.children[1]->meta->is_optional() && reader.consume_keyword("null"))
                     {
                         // JSON null = an unset entry (a None-valued mapping
-                        // value; element validity).
+                        // value; element validity). An Optional value reads
+                        // its own ``null`` instead: the entry is there, and
+                        // holds a value that is unset (RFC 0050).
                         builder.set_item_unset(key.view());
                     }
                     else
@@ -2328,6 +2370,17 @@ namespace hgraph
                 raw->children.push_back(converter_for_locked(meta->element_type));
                 raw->write_ = &write_owned;
                 raw->read_ = &read_indirect;
+                unwind.release();
+                return raw;
+            }
+
+            // Optional[T] (RFC 0050) is written as its payload, or ``null``
+            // when it holds nothing.
+            if (meta->is_optional())
+            {
+                raw->children.push_back(converter_for_locked(meta->element_type));
+                raw->write_ = &write_optional;
+                raw->read_ = &read_optional;
                 unwind.release();
                 return raw;
             }

@@ -224,7 +224,8 @@ namespace hgraph
          */
         template <typename T,
                   typename = std::enable_if_t<!std::is_same_v<std::decay_t<T>, Value> &&
-                                              !std::is_same_v<std::decay_t<T>, ValueTypeRef>>>
+                                              !std::is_same_v<std::decay_t<T>, ValueTypeRef> &&
+                                              !std::is_base_of_v<ValueView, std::decay_t<T>>>>
         explicit Value(T value)
         {
             ValueTypeRef binding = TypeRegistry::instance().scalar_type<T>();

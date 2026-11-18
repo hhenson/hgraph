@@ -505,9 +505,12 @@ def _infer_ts_type(series):
     """The TS type for an eval_node input vector, from its first non-None
     sample (hgraph's operators are driven without annotations)."""
     from .._types import TS, TSS, TSD
+    from ._sentinels import Null
 
     for sample in series:
-        if sample is None:
+        # ``Null`` is a tick whose value is unset (RFC 0050): it has no
+        # payload to say what the series is of.
+        if sample is None or sample is Null:
             continue
         # UN-ANNOTATED inference treats container samples as SCALAR values
         # (hgraph's operator-test convention). TSS/TSD delta semantics apply

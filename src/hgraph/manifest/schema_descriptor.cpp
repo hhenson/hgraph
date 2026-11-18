@@ -379,6 +379,7 @@ namespace hgraph::manifest
         }
         case ValueTypeKind::List:
         case ValueTypeKind::Set:
+        case ValueTypeKind::Optional:  // as its payload is (RFC 0050)
             return manifest_scalar_encodable(meta->element_type, reason);
         case ValueTypeKind::Map:
             return manifest_scalar_encodable(meta->key_type, reason) &&
@@ -618,6 +619,12 @@ namespace hgraph::manifest
                     writer.bytes_field(key_bytes);
                     writer.bytes_field(value_bytes);
                 }
+            },
+            // An Optional (RFC 0050): whether it holds a payload, and then
+            // the payload's own encoding when it does.
+            [&](const OptionalView &optional) {
+                writer.varint(optional.has_value() ? 1 : 0);
+                if (optional.has_value()) { encode_manifest_scalar(writer, optional.value()); }
             },
             [&](const CyclicBufferView &) -> void {
                 throw UnsupportedManifestValue(

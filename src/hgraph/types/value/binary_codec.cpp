@@ -107,6 +107,31 @@ namespace hgraph
             return builder.build();
         }
 
+        // --- optional (RFC 0050) -------------------------------------------
+        // A presence tag, 0 or 1, and then the payload when one is held.
+
+        void write_optional(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
+        {
+            const auto payload = view.as_optional().value();
+            writer.out.push_back(payload.valid() ? '\1' : '\0');
+            if (payload.valid()) { self.children[0]->write(payload, writer); }
+        }
+
+        Value read_optional(const BinaryConverter &self, BinaryReader &reader)
+        {
+            reader.consume_work(1);
+            const auto tag = std::to_integer<unsigned>(*reader.take(1));
+            // Held to 0 or 1, as an indirect value's presence tag is.
+            if (tag > 1) { throw std::runtime_error("binary codec: invalid optional presence tag"); }
+            Value result{self.binding};
+            if (tag == 1)
+            {
+                const Value payload = self.children[0]->read(reader);
+                result.view().as_optional().begin_mutation().emplace(payload.view());
+            }
+            return result;
+        }
+
         // --- atoms ---------------------------------------------------------
 
         void write_atom(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
@@ -1830,6 +1855,12 @@ namespace hgraph
             return hash;
         }
 
+        std::uint64_t hash_optional(const BinaryConverter &self, const ValueView &view)
+        {
+            const auto payload = view.as_optional().value();
+            return hash_combine(hash_seed, payload.valid() ? self.children[0]->hash_(*self.children[0], payload) : 0);
+        }
+
         std::uint64_t hash_sequence(const BinaryConverter &self, const ValueView &view)
         {
             const auto indexed = view.as_indexed_view();
@@ -2072,6 +2103,13 @@ namespace hgraph
                     raw->write_ = &write_composite;
                     raw->hash_ = &hash_composite;
                     raw->read_  = &read_composite;
+                    break;
+                }
+                case ValueTypeKind::Optional: {
+                    raw->children.push_back(converter_for_locked(meta->element_type, created));
+                    raw->write_ = &write_optional;
+                    raw->hash_ = &hash_optional;
+                    raw->read_  = &read_optional;
                     break;
                 }
                 case ValueTypeKind::List: {

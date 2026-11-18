@@ -186,6 +186,14 @@ no longer short-circuits on non-bundle kinds); a sequence/dict fill
 marks every supplied slot; ``equals``/``compare``/``to_python`` honour
 the bits (unset tuple slot → ``None``).
 
+**``Optional[T]`` is stored as one such slot** (RFC 0050). It is a value
+kind of its own, modelled on ``std::optional``, and its storage is a
+composite of one field: the payload, and the validity bit that says
+whether one is held. It is the only value a writer returns to holding
+nothing on purpose, so ``IndexedValueOps`` has ``clear_element`` beside
+``mutable_element_at``: the first clears a field's bit, the second sets
+it.
+
 **Nullable tuples, two mechanisms by size** (ruling 2026-07-09): the
 nullable trait (``ValueTypeFlags::Nullable`` / ``is_nullable()``, the
 ``registry.nullable_tuple(element)`` factory verb) yields a tuple that

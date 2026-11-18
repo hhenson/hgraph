@@ -103,6 +103,13 @@ namespace hgraph::ts_data_plan_factory_detail
                     : value_storage == ValueStorageVariant::NativeWithPythonCache
                         ? &python_ops_detail::forwarder<&PythonOps::TSData::atomic_cached_delta_to_python>::call
                         : &python_ops_detail::forwarder<&PythonOps::TSData::atomic_native_delta_to_python>::call,
+                // RFC 0050: only native storage holds a value whose value
+                // and delta forms differ, an Optional. The other variants
+                // keep the Python object, which is one form for both.
+                .value_as_delta_to_python_impl =
+                    value_storage == ValueStorageVariant::Native
+                        ? &python_ops_detail::forwarder<&PythonOps::TSData::atomic_native_value_as_delta_to_python>::call
+                        : nullptr,
             };
         }
 

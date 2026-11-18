@@ -26,12 +26,10 @@ namespace hgraph::python_bridge
     {
         namespace seams = ts_input_seams;
 
-        [[nodiscard]] nb::object child_value_to_python(TSRoleTypeRef type, const void *memory)
+        [[nodiscard]] nb::object child_value_to_python(TSRoleTypeRef type, const void *memory, ValueForm form)
         {
             if (!type || memory == nullptr) { return nb::none(); }
-            const auto &ops = *type.ops();
-            if (!ops.has_current_value_impl(ops.context, memory)) { return nb::none(); }
-            return take(ops.to_python_impl(ops.context, memory));
+            return current_value_to_python(*type.ops(), memory, form);
         }
 
         [[nodiscard]] nb::object child_delta_to_python(TSRoleTypeRef type, const void *memory, DateTime evaluation_time)
@@ -44,6 +42,9 @@ namespace hgraph::python_bridge
         }
 
         // -- endpoint shapes -----------------------------------------------------------
+        // Each value body is written once for both forms of a current value
+        // (RFC 0050); ``Form`` is the form each child is asked for.
+        template <ValueForm Form>
         [[nodiscard]] nb::object input_bundle_to_python(const void *context, const void *memory)
         {
             const auto &schema = seams::input_schema(context);
@@ -53,18 +54,20 @@ namespace hgraph::python_bridge
                 const auto &field = schema.fields()[index];
                 if (field.name == nullptr) { continue; }
                 result[nb::str{field.name}] = child_value_to_python(seams::input_child_type(context, memory, index),
-                                                                    seams::input_child_memory(context, memory, index));
+                                                                    seams::input_child_memory(context, memory, index),
+                                                                    Form);
             }
             return materialize_tsb_python_value(&schema, std::move(result));
         }
 
+        template <ValueForm Form>
         [[nodiscard]] nb::object input_list_to_python(const void *context, const void *memory)
         {
             nb::list result;
             for (std::size_t index = 0, count = seams::input_child_count(context); index < count; ++index)
             {
                 result.append(child_value_to_python(seams::input_child_type(context, memory, index),
-                                                    seams::input_child_memory(context, memory, index)));
+                                                    seams::input_child_memory(context, memory, index), Form));
             }
             return nb::tuple(result);
         }
@@ -133,12 +136,20 @@ namespace hgraph::python_bridge
             return value_to_python(seams::target_link_target_view(context, memory));
         }
 
+        /** A link's value in the form a delta has is its target's. */
+        [[nodiscard]] nb::object target_link_value_as_delta_to_python(const void *context, const void *memory)
+        {
+            return value_as_delta_to_python(seams::target_link_target_view(context, memory));
+        }
+
         [[nodiscard]] nb::object target_link_delta_to_python(const void *context, const void *memory,
                                                              DateTime evaluation_time)
         {
             auto target = seams::target_link_target_view(context, memory);
+            // A sampled link's delta is its target's current value, in the
+            // form the target gives a delta (RFC 0050).
             return seams::target_link_sampled(context, memory, evaluation_time)
-                       ? value_to_python(target) : delta_value_to_python(target, evaluation_time);
+                       ? value_as_delta_to_python(target) : delta_value_to_python(target, evaluation_time);
         }
 
         [[nodiscard]] nb::object target_link_dict_delta_to_python(const void *context, const void *memory,
@@ -161,7 +172,7 @@ namespace hgraph::python_bridge
                 const auto items = dict.items();
                 for (const auto &[key, child] : items)
                 {
-                    if (child.has_current_value()) { modified[to_python(key)] = value_to_python(child); }
+                    if (child.has_current_value()) { modified[to_python(key)] = value_as_delta_to_python(child); }
                 }
             }
             nb::dict result;
@@ -173,9 +184,12 @@ namespace hgraph::python_bridge
 
     void fill_ts_input_conversions(PythonOps::TSData &section) noexcept
     {
-        section.input_bundle_to_python           = &to_python_slot<&input_bundle_to_python>;
+        section.input_bundle_to_python           = &to_python_slot<&input_bundle_to_python<ValueForm::Value>>;
+        section.input_bundle_value_as_delta_to_python = &to_python_slot<&input_bundle_to_python<ValueForm::Delta>>;
+        section.input_list_value_as_delta_to_python   = &to_python_slot<&input_list_to_python<ValueForm::Delta>>;
+        section.target_link_value_as_delta_to_python  = &to_python_slot<&target_link_value_as_delta_to_python>;
         section.input_bundle_delta_to_python     = &ts_delta_to_python_slot<&input_bundle_delta_to_python>;
-        section.input_list_to_python             = &to_python_slot<&input_list_to_python>;
+        section.input_list_to_python             = &to_python_slot<&input_list_to_python<ValueForm::Value>>;
         section.input_list_delta_to_python       = &ts_delta_to_python_slot<&input_list_delta_to_python>;
         section.input_value_projection_to_python = &to_python_slot<&input_value_projection_to_python>;
         section.input_delta_bundle_to_python     = &to_python_slot<&input_delta_projection_to_python>;

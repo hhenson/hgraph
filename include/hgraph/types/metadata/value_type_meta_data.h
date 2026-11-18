@@ -94,12 +94,28 @@ namespace hgraph
          * (and the eventual analogue of a generic / Python ``object``).
          */
         Any = 8,
+        /**
+         * ``Optional[T]`` (RFC 0050): holds one value of ``element_type`` or
+         * holds nothing, as ``std::optional`` does. It is no tuple and no
+         * container: nothing that matches a tuple, a list or an atomic
+         * matches it. Nothing equals nothing and orders before any held
+         * value; two held values compare as the payloads do.
+         *
+         * Storage is the payload and an engaged bit. Here it differs from
+         * ``std::optional``: the payload's storage is always live, as an
+         * unset bundle field's is. It is default-constructed with the
+         * value, holding nothing clears the bit and leaves the storage as
+         * it is, and holding a payload assigns into it. So a tick that
+         * sets or clears the value constructs and destroys nothing, and
+         * the payload type must be default-constructible.
+         */
+        Optional = 9,
     };
 
     /** Convert a compact kind when it belongs to the value family. */
     [[nodiscard]] constexpr std::optional<ValueTypeKind> try_value_type_kind(TypeKind kind) noexcept
     {
-        if (kind > static_cast<TypeKind>(ValueTypeKind::Any)) { return std::nullopt; }
+        if (kind > static_cast<TypeKind>(ValueTypeKind::Optional)) { return std::nullopt; }
         return static_cast<ValueTypeKind>(kind);
     }
 
@@ -433,6 +449,11 @@ namespace hgraph
         /** True when this container schema is backed by structurally-mutable storage. */
         [[nodiscard]] constexpr bool is_mutable() const noexcept { return has(ValueTypeFlags::Mutable); }
         [[nodiscard]] constexpr bool is_nullable() const noexcept { return has(ValueTypeFlags::Nullable); }
+        /** True for ``Optional[T]`` (RFC 0050); its payload type is ``element_type``. */
+        [[nodiscard]] constexpr bool is_optional() const noexcept
+        {
+            return try_value_kind() == ValueTypeKind::Optional;
+        }
 
         [[nodiscard]] constexpr bool is_enum() const noexcept { return has(ValueTypeFlags::Enum); }
         [[nodiscard]] constexpr bool is_owned() const noexcept { return has(ValueTypeFlags::Owned); }

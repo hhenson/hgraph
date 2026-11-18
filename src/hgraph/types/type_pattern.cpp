@@ -867,30 +867,31 @@ namespace hgraph
         return ts_pattern_match(pattern, concrete, map);
     }
 
-    bool input_ts_pattern_match(const TypePattern &pattern,
+    static bool input_ts_pattern_match_impl(const TypePattern &pattern,
                                 const TSValueTypeMetaData *concrete,
-                                ResolutionMap &map)
+                                ResolutionMap &map, bool nullable_widening)
     {
         if (concrete == nullptr) { return false; }
         if (pattern.kind == TypePattern::Kind::Signal) { return true; }
         if (pattern.kind != TypePattern::Kind::REF && concrete->kind == TSTypeKind::REF)
         {
             if (prebound_as_supplied(pattern, concrete, map)) { return true; }
-            return input_ts_pattern_match(pattern, concrete->referenced_ts(), map);
+            return input_ts_pattern_match_impl(pattern, concrete->referenced_ts(), map, nullable_widening);
         }
 
         switch (pattern.kind)
         {
             case TypePattern::Kind::Concrete:
-                return graph_wiring_detail::input_accepts_output_schema(pattern.meta, concrete);
+                return (nullable_widening || !graph_wiring_detail::binding_adapts_to_optional(pattern.meta, concrete)) &&
+                       graph_wiring_detail::input_accepts_output_schema(pattern.meta, concrete);
             case TypePattern::Kind::TSL:
                 if (concrete->kind != TSTypeKind::TSL) { return false; }
                 if (!size_pattern_match(pattern, concrete->fixed_size(), map)) { return false; }
-                return input_ts_pattern_match(pattern.children[0], concrete->element_ts(), map);
+                return input_ts_pattern_match_impl(pattern.children[0], concrete->element_ts(), map, false);
             case TypePattern::Kind::TSD:
                 return concrete->kind == TSTypeKind::TSD &&
                        scalar_pattern_match(pattern.scalar, concrete->key_type(), map) &&
-                       input_ts_pattern_match(pattern.children[0], concrete->element_ts(), map);
+                       input_ts_pattern_match_impl(pattern.children[0], concrete->element_ts(), map, false);
             case TypePattern::Kind::TSB:
                 if (concrete->kind != TSTypeKind::TSB) { return false; }
                 if (pattern.schema_var) { return tsb_schema_var_match(pattern, concrete, map); }
@@ -900,21 +901,28 @@ namespace hgraph
                 {
                     const TSFieldMetaData &field = concrete->fields()[i];
                     if (field.name == nullptr || pattern.field_names[i] != field.name) { return false; }
-                    if (!input_ts_pattern_match(pattern.children[i], field.type, map)) { return false; }
+                    if (!input_ts_pattern_match_impl(pattern.children[i], field.type, map, false)) { return false; }
                 }
                 return true;
             case TypePattern::Kind::REF:
-                return input_ts_pattern_match(pattern.children[0],
+                return input_ts_pattern_match_impl(pattern.children[0],
                                               concrete->kind == TSTypeKind::REF ? concrete->referenced_ts() : concrete,
-                                              map);
+                                              map, false);
             case TypePattern::Kind::TS:
-                return concrete->kind == TSTypeKind::TS &&
-                       input_scalar_pattern_match(pattern.scalar, concrete->value_schema, map);
+                if (concrete->kind != TSTypeKind::TS) { return false; }
+                if (pattern.scalar.kind == ScalarPattern::Kind::Concrete &&
+                    pattern.scalar.meta != nullptr && pattern.scalar.meta->is_optional() &&
+                    pattern.scalar.meta->element_type == concrete->value_schema)
+                {
+                    return nullable_widening;
+                }
+                return input_scalar_pattern_match(pattern.scalar, concrete->value_schema, map);
             case TypePattern::Kind::Var:
             {
                 if (const TSValueTypeMetaData *bound = map.find_ts(pattern.name))
                 {
-                    return graph_wiring_detail::input_accepts_output_schema(bound, concrete) &&
+                    return (nullable_widening || !graph_wiring_detail::binding_adapts_to_optional(bound, concrete)) &&
+                           graph_wiring_detail::input_accepts_output_schema(bound, concrete) &&
                            input_ts_allowed_by_constraints(pattern, bound);
                 }
                 const auto *value = TypeRegistry::instance().dereference(concrete);
@@ -928,6 +936,13 @@ namespace hgraph
                 return ts_pattern_match(pattern, concrete, map);
         }
         return false;
+    }
+
+    bool input_ts_pattern_match(const TypePattern &pattern,
+                                const TSValueTypeMetaData *concrete,
+                                ResolutionMap &map)
+    {
+        return input_ts_pattern_match_impl(pattern, concrete, map, true);
     }
 
     bool ts_pattern_match(const TypePattern &pattern, const TSValueTypeMetaData *concrete, ResolutionMap &map)

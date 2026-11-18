@@ -217,6 +217,16 @@ namespace hgraph::stdlib
                     sink(suffix, meta, std::move(path));
                     return;
                 }
+                // RFC 0050: an Arrow null cell reads back as no tick, so a
+                // column cannot tell a tick whose value is unset from none.
+                // An Optional leaf waits for a presence column, and is refused.
+                if (meta != nullptr && meta->is_optional())
+                {
+                    throw std::invalid_argument(fmt::format(
+                        "to_table: an Optional leaf is not recorded yet: column '{}' is {}, and a table "
+                        "has no cell for a tick whose value is unset",
+                        suffix.empty() ? "value" : suffix, meta->name()));
+                }
                 if (meta != nullptr && (meta->value_kind() == ValueTypeKind::Bundle ||
                                         meta->value_kind() == ValueTypeKind::Tuple))
                 {

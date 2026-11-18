@@ -1,7 +1,7 @@
 RFC 0050: Nullable scalar time series
 =====================================
 
-:Status: Proposed
+:Status: Accepted (value type, Python bridge and binding adaptation complete)
 :Created: 2026-11-17
 :Target: Value types, the Python bridge and HGL publications
 
@@ -19,8 +19,8 @@ the ``None`` of the union is dropped where the value type is made, a node
 that returns ``None`` does not tick, and ``output.value = None`` invalidates.
 Part 1 of issue #1797 asks for the missing tick.
 
-This RFC adds one value type, ``Optional[T]``, and nothing to the
-time-series layer.
+This RFC adds ``Optional[T]`` and a borrowed time-series binding.
+Existing owning storage and timestamp representation remain unchanged.
 
 Ownership
 ---------
@@ -35,22 +35,44 @@ Contract
 
 ``TypeRegistry::optional(payload)`` interns the value type ``Optional[T]``
 for a payload value type ``T``. A value of it is always a live value: it
-either holds one ``T`` or is unset. ``payload`` is any value type other than
-``any``, which already holds nil, and another ``Optional``.
+either holds one ``T`` or holds nothing, as a C++ ``std::optional<T>``
+does. ``payload`` is any value type other than ``any``, which already holds
+nil, and another ``Optional``.
 
-Equality, ordering and hashing are the payload's, with field validity's
-existing rule for the unset state: unset equals unset and orders before set.
+``Optional[T]`` has a value kind of its own, ``ValueTypeKind::Optional``,
+whose ``element_type`` is the payload. It is no tuple, no container and no
+atomic: whatever matches a value by its kind does not match it. Its storage
+is the payload followed by an engaged bit.
+
+One thing is not ``std::optional``'s. The payload's storage is always live,
+as an unset bundle field's is: it is default-constructed with the value,
+holding nothing clears the bit and leaves the storage as it is, and holding
+a payload assigns into it. A tick that sets or clears the value constructs
+and destroys nothing. The payload type must therefore be
+default-constructible, and one that is not is refused by name.
+
+Equality, ordering and hashing are ``std::optional``'s: nothing equals
+nothing and orders before a held payload, and two held payloads compare as
+the payloads do.
 No arithmetic or other operator is defined on ``Optional[T]``. Operators that
 take any scalar (pass-through, ``const``, equality, selection, collection of
 values) take it as they take any other value.
 
-In C++ a signature spells it ``Optional<T>``, beside ``Owned<T>`` and
-``FixedTuple<...>`` in ``static_schema.h``:
-``In<"x", TS<Optional<Int>>>`` and ``Out<TS<Optional<Int>>>``. A node reads
-it through an optional view of the value, which says whether a payload is
-held and gives it, and writes a held payload or the unset state. The exact
-view and builder names follow the existing ``as_bundle`` and ``as_list``
-family and are fixed by the implementation's first commit.
+C++ signatures use the schema-only marker ``Optional<T>``:
+``In<"x", TS<Optional<Int>>>`` and ``Out<TS<Optional<Int>>>``.
+The marker owns no payload and cannot be constructed.
+
+* ``value()`` and ``view()`` on the input return a borrowed ``OptionalView``.
+* ``has_value()`` tests presence. ``value()`` on that view borrows the payload
+  as a ``ValueView``; it is empty for null. ``try_value<T>()`` returns a native
+  payload pointer, or ``nullptr`` when absent or of another type.
+* ``input.try_value()`` also handles invalid inputs, returning an empty view.
+  Check ``input.valid()`` to distinguish invalidity from valid-null.
+* ``out.set(payload)`` publishes a value; ``out.set(Null)`` publishes null.
+  ``out.set(optional_view)`` or ``out.apply(erased_optional)`` copies a nullable
+  value into the output. Writing nothing remains silence.
+* Borrowed views and pointers are live observations, valid only within the
+  producer's lifetime. ``Value{view}`` makes an owning capture.
 
 In Python, ``TS[Optional[T]]`` and ``TS[T | None]`` are the time series of
 ``Optional[T]``. A sentinel ``Null`` stands beside ``REMOVE`` in
@@ -97,9 +119,19 @@ compared by identity.
 |                                   | as today                              |
 +-----------------------------------+---------------------------------------+
 
-A ``TS[T]`` source bound to a ``TS[Optional[T]]`` input is accepted: binding
-adds the adaptation that publishes each tick as a held payload. The reverse
-is a wiring error.
+A ``TS[T]`` source binds directly to a ``TS[Optional[T]]`` input through a
+read-only output alternative. The view shares the producer's payload, tracking
+and notifications. Binding creates no conversion node and copies no payload.
+An invalid source stays invalid; it does not become a valid null.
+
+``T`` must be the exact payload type. The reverse binding is rejected.
+Overload matching admits the widening and prefers an exact ``TS[T]`` match.
+Python uses the same C++ matcher and runtime binding.
+
+The logical optional kind remains distinct from ``T``. A plain source's borrowed
+representation has no engaged word; its valid values are always present.
+Captures use the existing owning Optional representation, so later writes,
+invalidation or graph teardown cannot change earlier recordings.
 
 Only the scalar directly under ``TS[...]`` changes. An ``Optional[X]`` field
 of a ``CompoundScalar`` stays a field of ``X`` that may be unset, and an
@@ -108,15 +140,22 @@ of a ``CompoundScalar`` stays a field of ``X`` that may be unset, and an
 Representation
 --------------
 
-``Optional[T]`` is a composite of one payload with the validity word a
-bundle or a fixed tuple already carries for its fields: the payload's
-storage, followed by the word. It is marked by a value-type flag and named
-``Optional[T]``, which joins the type-name grammar of RFC 0042 and the wire
-descriptor of RFC 0017.
+``Optional[T]`` is a value kind of its own, modelled on ``std::optional``.
+An earlier form of this RFC made it a one-element tuple that carried a
+flag; every matcher of a tuple then had to be taught to leave it out, and
+each new one to remember. As a kind, nothing that matches a tuple, a
+container or an atomic matches it, and nothing has to ask.
 
-"Null is a state, not a schema or type" still holds. The unset state is the
-payload's validity bit inside a live value, as an unset bundle field is. So
-nothing in the time-series layer changes:
+Its storage is the payload followed by an engaged bit. The plan is the one
+a composite of one field has, with the validity word a bundle or a fixed
+tuple already carries for its fields, so copy, move, equality, order and
+hash are the composite's and are not written again. The schema is named
+``Optional[T]``, which joins the type-name grammar of RFC 0042, and its kind
+and payload join the wire descriptor of RFC 0017.
+
+"Null is a state, not a schema or type" still holds. Holding nothing is the
+engaged bit inside a live value, as an unset bundle field is. So nothing in
+the time-series layer changes:
 
 * validity stays the last modified time, and a tick whose value is unset is
   valid like any other;
@@ -151,7 +190,7 @@ change to ``hgraph_spec``.
 Performance
 -----------
 
-No existing path changes. A tick of ``Optional[T]`` costs the payload's copy
+A published tick of ``Optional[T]`` costs the payload's copy
 and one validity-word write, with no allocation for a payload that needs
 none. The Python fast compute path stays for the atomic kinds it covers
 today; an ``Optional`` output uses the erased apply.
@@ -169,16 +208,20 @@ Alternatives considered
 * A new spelling, ``TS[Nullable[T]]``, leaving ``Optional`` dropped. Issue
   #1797 chose ``Optional``: it is what a reader expects it to mean.
 
-Unresolved questions
---------------------
+Resolved questions
+------------------
 
-1. Binding ``TS[T]`` to a ``TS[Optional[T]]`` input: the adaptation above, or
-   a wiring error that asks for an explicit conversion. Proposed: the
-   adaptation.
-2. The payload: any value type but ``any`` and ``Optional``, or leaf scalars
-   only to begin with. Proposed: any value type.
-3. Table recording of an ``Optional`` leaf: in this RFC's implementation, or
-   the later change above. Proposed: later.
+The three questions this RFC left open were built as it proposed.
+
+1. Binding ``TS[T]`` to a ``TS[Optional[T]]`` input is the adaptation above,
+   and not a wiring error.
+2. The payload is any value type but ``any`` and ``Optional``.
+3. Table recording of an ``Optional`` leaf is a later change: ``to_table``
+   refuses one where the table is wired, by name.
+
+Left for later changes: table recording through the presence column of
+RFC 0019; ``TS[Optional[T]]`` over a type variable in Python; a payload
+that is a subtype of the declared one at the binding adaptation; and structural collection widening. Timestamp packing is deferred.
 
 Acceptance criteria and test plan
 ---------------------------------
@@ -188,7 +231,7 @@ Acceptance criteria and test plan
   native node publishes a held payload, the unset state and no tick, and
   ``eval_node`` tells the three apart; the binary and JSON codecs round-trip
   both states; an installed-SDK consumer builds a node that uses
-  ``Optional<T>``.
+  ``Optional<T>`` and borrowed value access.
 * Python: the node above; ``Null`` refused on an output that is not
   ``Optional``; ``value`` and ``delta_value`` in the three cases;
   ``eval_node`` vectors and results; a ``TS[T]`` source bound to an

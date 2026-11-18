@@ -577,6 +577,43 @@ Value and reference crossings
   not seen registers under ``module.qualname``. A bare class name is never
   looked up, so two classes of one name in two modules are two types, and a
   user's ``CmpResult`` is not hgraph's.
+- **``Optional[T]`` is its payload, or ``Null``** (RFC 0050). Directly under
+  ``TS[...]``, ``Optional[T]`` and ``T | None`` become the value type
+  ``optional_vt(T)``; ``_TSMeta.__getitem__`` makes that choice, so
+  ``_value_type`` keeps dropping the ``None`` of a union for a field and an
+  element, as before. The value's conversion gives the payload with no
+  wrapper, and the ``Null`` sentinel (``null_sentinel_slot``, handed over at
+  import as ``REMOVE`` is) for the unset state; it reads ``Null`` as unset
+  and anything else as a payload.
+
+  * A read splits the two meanings of ``None``. The atomic TSData *value*
+    conversion turns ``Null`` into ``None``, so ``input.value`` is ``None``
+    for a tick whose value is unset; the *delta* conversion keeps ``Null``,
+    since ``None`` there is "not modified".
+  * Where the current value stands in for a delta, a sampled rebind, the
+    endpoint says how it reads: ``TSDataOps::value_as_delta_to_python_impl``,
+    reached through ``value_as_delta_to_python``. An atomic TS on native
+    storage installs it. So does each strategy with children, a fixed
+    bundle or list, a dynamic list, a dictionary and its proxy, a
+    non-peered input and a target link: its value body is written once for
+    both forms (``ValueForm``) and exports each child through
+    ``current_value_to_python``, so the form asked of an aggregate is the
+    form every child below it is given in. A representation with no
+    children and one form leaves the slot null. The facade asks the ops
+    table and looks at no kind or schema.
+  * A PEP 695 alias that names an ``Optional`` is looked through before the
+    annotation is read, so ``TS[Maybe]`` of ``type Maybe = int | None`` is
+    ``TS[Optional[int]]``.
+  * The payload uses the same scalar representation as ``TS[T]``.
+    In particular, ``Optional[Callable]`` holds an evaluation-time
+    ``ValueCallable``, including parameterized ``Callable`` annotations;
+    it does not select the wiring-time ``WiredFn`` representation.
+  * A write refuses ``Null`` wherever the value written is no ``Optional``
+    (``require_null_admitted``), as a Python ``TypeError``, so one from a
+    node's result is the cause of the node's failure.
+  * An ``Optional`` keeps no retained Python object beside its value: each
+    read converts through the value's own ops.
+
 - **References are values** (ruling 2026-07-05): ``REF`` crosses the boundary
   as an opaque value; ``.output`` is deliberately not exposed. A non-REF
   parameter bound to a REF source receives the *dereferenced* value (binding

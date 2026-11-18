@@ -64,6 +64,11 @@ struct HGRAPH_LOCAL PythonValueHolder {
 [[nodiscard]] HGRAPH_EXPORT nb::object &to_table_mode_enum_slot();
 [[nodiscard]] HGRAPH_EXPORT nb::object &removed_sentinel_slot();
 
+/** hgraph's ``Null`` sentinel (RFC 0050): the Python spelling of the unset
+    state of an ``Optional[T]`` value. A node that returns it ticks a value
+    that is unset; ``None`` stays "no tick". Compared by identity. */
+[[nodiscard]] HGRAPH_EXPORT nb::object &null_sentinel_slot();
+
 /** hgraph's REMOVE_IF_EXISTS sentinel (lenient TSD key removal; REMOVE
     is strict — absent key raises at delta application). */
 [[nodiscard]] HGRAPH_EXPORT nb::object &remove_if_exists_sentinel_slot();

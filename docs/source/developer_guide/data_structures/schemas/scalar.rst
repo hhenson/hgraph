@@ -5,7 +5,7 @@ A scalar schema is the value-layer's concept identity for a non-time-
 series payload. Scalar schemas are represented at runtime by
 ``ValueTypeMetaData``. The struct carries:
 
-- ``kind`` — the value kind (one of the nine listed below),
+- ``kind`` — the value kind (one of the ten listed below),
 - capability flags — for example, whether the value is hashable,
   comparable, or buffer-exposable,
 - component fields — for composite kinds, the field list (bundle/tuple)
@@ -38,7 +38,7 @@ Types* — the multi-implementation rationale).
 Value Kinds
 -----------
 
-A scalar schema has one of nine kinds, recorded on its
+A scalar schema has one of ten kinds, recorded on its
 ``ValueTypeMetaData``:
 
 ``Atomic``
@@ -61,6 +61,32 @@ A scalar schema has one of nine kinds, recorded on its
 
 ``Tuple``
     Fixed-arity ordered fields, accessed by index. Field types may differ.
+
+``Optional``
+    ``Optional[T]`` (RFC 0050): a value that holds one payload of type
+    ``T`` or holds nothing, as a C++ ``std::optional<T>`` does.
+    ``TypeRegistry::optional(payload)`` interns it by its payload and names
+    it ``Optional[T]``; the payload is the schema's ``element_type``, and is
+    any value type but ``any`` and another ``Optional``.
+
+    It is no tuple, no container and no atomic. Whatever matches a value by
+    its kind, tuple-shaped matching, binding, conversion and the container
+    operators among them, does not match it, and nothing has to ask. A
+    visitor reaches it through a handler of ``OptionalView``, or through its
+    ``ValueView`` catch-all.
+
+    Nothing equals nothing and orders before any held payload; two held
+    payloads compare, and hash, as the payloads do.
+
+    Its storage is the payload followed by an engaged bit. The plan is the
+    one a composite of one field has, so the schema lists its payload as
+    that field too. Here it differs from ``std::optional``: the payload's
+    storage is always live, as an unset bundle field's is. It is
+    default-constructed with the value; holding nothing clears the bit and
+    leaves the storage as it is, and holding a payload assigns into it. A
+    tick that sets or clears the value therefore constructs and destroys
+    nothing, and the payload type must be default-constructible: the plan
+    factory refuses one that is not, by name.
 
 ``Bundle``
     Named tuple. Fields are accessed by name; field-name metadata is

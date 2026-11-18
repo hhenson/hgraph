@@ -294,6 +294,8 @@ namespace hgraph
                 dict_base.apply_delta_impl = &ts_data_detail::apply_delta_tsd;
                 dict_base.to_python_impl       = &python_ops_detail::forwarder<&PythonOps::TSData::proxy_dict_to_python>::call;
                 dict_base.delta_to_python_impl = &python_ops_detail::forwarder<&PythonOps::TSData::proxy_dict_delta_to_python>::call;
+                dict_base.value_as_delta_to_python_impl =
+                    &python_ops_detail::forwarder<&PythonOps::TSData::proxy_dict_value_as_delta_to_python>::call;
                 dict_ops.structural_delta_current_impl = &structural_delta_current;
                 dict_ops.slot_published_impl = &slot_published;
                 dict_ops.child_at_slot_impl = &tsd_child_at_slot;

@@ -182,6 +182,78 @@ ticks the output at the current evaluation time. A node has **at most one**
 In Python you ``return`` the value; in C++ you call ``out.set(...)``. Not calling
 ``set`` (Python: returning ``None``) leaves the output unticked for that cycle.
 
+A tick that is null — ``TS<Optional<T>>``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Available.** A ``TS<T>`` either ticks a ``T`` or does not tick. Where a
+node must also be able to say "there is a value now, and it is nothing", declare
+the output ``TS<Optional<T>>`` (Python: ``TS[Optional[T]]``). The value type
+is ``Optional[T]``; ``Optional<T>`` is a schema marker with no owned value. Such a tick is a
+tick like any other: the output is valid, it is modified, and it wakes its
+consumers; its value holds no payload.
+
+.. code-block:: cpp
+
+   struct Cleared
+   {
+       static constexpr auto name = "cleared";
+
+       static void eval(In<"command", TS<Int>> command, Out<TS<Optional<Int>>> out)
+       {
+           if (command.value() == 0) { out.set(Null); return; }  // a tick whose value is null
+           if (command.value() < 0) { return; }                          // no tick
+           out.set(command.value());                                     // a tick that holds the value
+       }
+   };
+
+   struct OrMinusOne
+   {
+       static constexpr auto name = "or_minus_one";
+
+       static void eval(In<"value", TS<Optional<Int>>> value, Out<TS<Int>> out)
+       {
+           const Int *held = value.value().try_value<Int>();
+           out.set(held != nullptr ? *held : Int{-1});
+       }
+   };
+
+.. code-block:: python
+
+   @compute_node
+   def cleared(command: TS[int]) -> TS[Optional[int]]:
+       if command.value == 0:
+           return Null            # a tick whose value is null
+       if command.value < 0:
+           return None            # no tick
+       return command.value       # a tick that holds the value
+
+   @compute_node
+   def or_minus_one(value: TS[Optional[int]]) -> TS[int]:
+       return -1 if value.value is None else value.value
+
+In Python a value that holds nothing is the sentinel ``Null``: a node returns it, an
+``eval_node`` vector spells it, and ``delta_value`` reads it. ``value`` reads
+``None`` for a tick whose value holds nothing.
+
+``value()`` and ``view()`` return a borrowed ``OptionalView``.
+``has_value()`` tests presence; ``value()`` borrows the payload as a ``ValueView``;
+``try_value<T>()`` returns a native pointer or ``nullptr``. For unchecked inputs,
+``input.try_value()`` safely returns an empty view for invalid or null input;
+``input.valid()`` distinguishes the two.
+
+``out.set(payload)`` publishes a value, ``out.set(Null)`` publishes null, and
+``out.set(optional_view)`` publishes a borrowed nullable value. In test vectors,
+``none`` remains silence. Use ``Value{view}`` to retain a snapshot beyond the
+producer's next write or lifetime.
+
+A ``TS<T>`` source binds to ``TS<Optional<T>>`` through a read-only view over
+its existing payload and tracking. No conversion node is inserted. Overloads
+accept this widening and prefer an exact ``TS<T>`` match. The reverse binding
+is rejected.
+
+No arithmetic or container operator applies to an ``Optional``: it is no tuple and no
+number. A table does not record one yet, and refuses it where the table is wired.
+
 
 .. _node-local state:
 

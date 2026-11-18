@@ -740,6 +740,39 @@ namespace hgraph
         }
     };
 
+    /** Schema-only nullable marker. Runtime access uses OptionalView. */
+    template <typename TValue>
+    struct Optional
+    {
+        using payload_type = TValue;
+        Optional() = delete;
+    };
+
+    /** Publish a valid null value; doing nothing remains a silent tick. */
+    struct null_t {};
+    inline constexpr null_t Null{};
+
+    template <typename TValue>
+    struct scalar_descriptor<Optional<TValue>>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept
+        {
+            return scalar_descriptor<TValue>::is_concrete();
+        }
+
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            if constexpr (is_concrete())
+            {
+                return TypeRegistry::instance().optional(scalar_descriptor<TValue>::value_meta());
+            }
+            else
+            {
+                return nullptr;
+            }
+        }
+    };
+
     template <typename TValue>
     struct scalar_descriptor<Shared<TValue>>
     {

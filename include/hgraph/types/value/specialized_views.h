@@ -4,6 +4,7 @@
 #include <hgraph/types/value/container_ops.h>
 #include <hgraph/types/value/value_range.h>
 #include <hgraph/types/value/value_view.h>
+#include <hgraph/util/scope.h>
 
 #include <cstddef>
 #include <iterator>
@@ -139,6 +140,16 @@ namespace hgraph
         {
             require_valid(base.valid(), what);
             if (!base.mutable_payload()) { throw std::logic_error(std::string{what} + " on read-only view"); }
+            return base;
+        }
+
+        [[nodiscard]] inline ValueView require_optional(ValueView base, const char *what)
+        {
+            require_valid(base.valid(), what);
+            if (base.schema() == nullptr || !base.schema()->is_optional())
+            {
+                throw std::logic_error(std::string{what} + " on a value that is no Optional");
+            }
             return base;
         }
 
@@ -1060,10 +1071,132 @@ namespace hgraph
         void clear() const;
     };
 
+    /**
+     * Read-only view over an ``Optional[T]`` value (RFC 0050): a live value
+     * that holds one payload of type ``T`` or holds nothing, as a
+     * ``std::optional<T>`` does. The members are named as that type's are.
+     *
+     * The value itself is always there to view; what may be absent is its
+     * payload. ``has_value`` says whether one is held and ``value`` gives it.
+     * One that holds nothing equals another that holds nothing and orders
+     * before one that holds a payload; two that hold payloads compare as the
+     * payloads do.
+     */
+    class OptionalView : public ValueView
+    {
+      public:
+        explicit OptionalView(ValueView base)
+            : ValueView(specialized_view_detail::require_optional(std::move(base), "OptionalView"))
+            , ops_{specialized_view_detail::checked_indexed_ops(binding(), "OptionalView")}
+        {
+        }
+
+        /** True when a payload is held. */
+        [[nodiscard]] bool has_value() const { return ops_->element_at(ops_->context, data(), 0) != nullptr; }
+        /** True when a payload is held, as ``has_value`` is. */
+        [[nodiscard]] explicit operator bool() const { return has_value(); }
+
+        /** The payload. When none is held this is a typed-null view: bound
+            to the payload's type, and not ``valid()``. Returned ``const``
+            by value for the reason ``IndexedValueView::at`` is. */
+        [[nodiscard]] const ValueView value() const
+        {
+            return ValueView{payload_binding(), ops_->element_at(ops_->context, data(), 0)};
+        }
+
+        /** Native payload pointer, or null when absent or of another type.
+            The pointer borrows the producer and must not outlive the view's source. */
+        template <typename T>
+        [[nodiscard]] const T *try_value() const { return value().template try_as<T>(); }
+
+        /** The payload's type, held or not. */
+        [[nodiscard]] ValueTypeRef payload_binding() const noexcept
+        {
+            return ops_->element_binding(ops_->context, data(), 0);
+        }
+
+        /** Open a writable view over the value (requires mutable storage). */
+        [[nodiscard]] MutableOptionalView begin_mutation() const;
+
+      protected:
+        const IndexedValueOps *ops_{nullptr};
+    };
+
+    /**
+     * Writable view over an ``Optional[T]`` value: ``emplace`` a payload, or
+     * ``reset`` to hold nothing.
+     */
+    class MutableOptionalView : public OptionalView
+    {
+      public:
+        explicit MutableOptionalView(ValueView base)
+            : OptionalView(specialized_view_detail::require_mutable(std::move(base), "MutableOptionalView"))
+        {
+            if (ops_->mutable_element_at == nullptr || ops_->clear_element == nullptr)
+            {
+                throw std::logic_error("MutableOptionalView: binding does not expose optional mutation ops");
+            }
+        }
+
+        /** Hold a copy of ``payload``, a value of the payload's type. */
+        void emplace(const ValueView &payload) const
+        {
+            if (!payload.valid())
+            {
+                throw std::logic_error("MutableOptionalView::emplace requires a payload; use reset()");
+            }
+            // A whole-value assignment, as ``BundleBuilder::set`` makes: it
+            // serves a payload whose own view opens no mutation, an
+            // immutable set or map, and one realized with another plan.
+            const bool  held = has_value();
+            const auto  destination = payload_binding();
+            void       *element = ops_->mutable_element_at(ops_->context, mutable_data(), 0);
+            // The slot is marked engaged to be written. A payload that is
+            // refused leaves the value holding what it held.
+            auto restore = ::hgraph::make_scope_exit([&]() noexcept {
+                if (!held) { ops_->clear_element(ops_->context, mutable_data(), 0); }
+            });
+            destination.ops_ref().copy_assign_from(destination, element, payload.binding(), payload.data());
+            restore.release();
+        }
+
+        /** Hold nothing. */
+        void reset() const { ops_->clear_element(ops_->context, mutable_data(), 0); }
+    };
+
     inline IndexedValueView ValueView::as_indexed_view() const
     {
         if (!is_indexed()) { throw std::logic_error("ValueView::as_indexed_view on non-indexed view"); }
         return IndexedValueView{borrowed_ref()};
+    }
+
+    inline OptionalView ValueView::as_optional() const
+    {
+        if (!is_optional()) { throw std::logic_error("ValueView::as_optional on a view that is no Optional"); }
+        return OptionalView{borrowed_ref()};
+    }
+
+    inline std::optional<OptionalView> ValueView::try_as_optional() const
+    {
+        return is_optional() ? std::optional<OptionalView>{OptionalView{borrowed_ref()}} : std::nullopt;
+    }
+
+    inline MutableOptionalView OptionalView::begin_mutation() const
+    {
+        return MutableOptionalView{ValueView::begin_mutation()};
+    }
+
+    inline MutableOptionalView ValueView::as_mutable_optional() const
+    {
+        if (!is_optional()) { throw std::logic_error("ValueView::as_mutable_optional on a view that is no Optional"); }
+        return MutableOptionalView{borrowed_ref()};
+    }
+
+    inline std::optional<MutableOptionalView> ValueView::try_as_mutable_optional() const
+    {
+        return is_optional() && mutable_payload()
+                   ? std::optional<MutableOptionalView>{MutableOptionalView{borrowed_ref()}}
+                   : std::nullopt;
     }
 
     inline AtomicView ValueView::as_atomic() const

@@ -1,3 +1,4 @@
+#include "nullable.h"
 #include "../ts_data/ownership.h"
 #include <hgraph/types/time_series/ts_output/alternative.h>
 #include <hgraph/types/time_series/ts_output.h>
@@ -26,6 +27,16 @@ namespace hgraph::detail
 {
     namespace
     {
+        bool alternative_route_matches_nullable(const TSValueTypeMetaData *source,
+                                                const TSValueTypeMetaData &requested)
+        {
+            if (source == nullptr || requested.kind != TSTypeKind::TS ||
+                requested.value_schema == nullptr || !requested.value_schema->is_optional()) { return false; }
+            source = TypeRegistry::instance().dereference(source);
+            return source != nullptr && source->kind == TSTypeKind::TS &&
+                   source->value_schema == requested.value_schema->element_type;
+        }
+
         struct ToRefBuildContext
         {
             const TSOutput *output{nullptr};
@@ -1789,6 +1800,45 @@ namespace hgraph::detail
         }
     }
 
+    struct TSOutputAlternativeStore::NullableAlternativeState final
+    {
+        const TSValueTypeMetaData *requested_schema;
+        TSOutputHandle source;
+        TSRoleTypeRef type;
+
+        NullableAlternativeState(const TSValueTypeMetaData &requested, const TSOutputView &view)
+            : requested_schema{&requested}, source{view.handle()},
+              type{borrowed_nullable_type_for(view.storage_type(), requested)} {}
+
+        TSOutputHandle handle(const TSOutput *output) const
+        {
+            return TSOutputHandle{output, TSDataView{type, source.data_view().data()}};
+        }
+    };
+
+    void TSOutputAlternativeStore::NullableAlternativeDelete::operator()(NullableAlternativeState *state) const noexcept
+    {
+        delete state;
+    }
+
+    TSOutputHandle TSOutputAlternativeStore::nullable_binding(const AlternativeKey &key,
+        const TSOutputView &source, const TSValueTypeMetaData &requested_schema)
+    {
+        auto *state = nullable_alternatives_.find(key);
+        if (state == nullptr)
+        {
+            // Preserve the existing reference subscription/retarget protocol,
+            // then widen its resolved plain-value endpoint.
+            auto resolved = source.schema()->kind == TSTypeKind::REF
+                ? source.binding_for(*TypeRegistry::instance().dereference(source.schema())).view(source.evaluation_time())
+                : source.borrowed_ref();
+            std::unique_ptr<NullableAlternativeState, NullableAlternativeDelete> inserted{
+                new NullableAlternativeState(requested_schema, resolved)};
+            state = nullable_alternatives_.insert(key, std::move(inserted)).first;
+        }
+        return state->handle(source.output());
+    }
+
     struct TSOutputAlternativeStore::ToRefAlternativeState final
     {
         ToRefAlternativeState(const TSValueTypeMetaData &requested_schema, const TSOutputView &source,
@@ -2338,7 +2388,12 @@ namespace hgraph::detail
 
     DynamicStorageMetrics TSOutputAlternativeStore::dynamic_storage_metrics() const noexcept
     {
-        DynamicStorageMetrics result = to_ref_alternatives_.dynamic_storage_metrics();
+        DynamicStorageMetrics result = nullable_alternatives_.dynamic_storage_metrics();
+        nullable_alternatives_.for_each([&](const AlternativeKey &, const NullableAlternativeState &) {
+            result.live_bytes += sizeof(NullableAlternativeState);
+            result.reserved_bytes += sizeof(NullableAlternativeState);
+        });
+        result += to_ref_alternatives_.dynamic_storage_metrics();
         result += ref_link_alternatives_.dynamic_storage_metrics();
         result += interior_from_ref_alternatives_.dynamic_storage_metrics();
 
@@ -2404,7 +2459,8 @@ namespace hgraph::detail
         const TSValueTypeMetaData &requested_schema) noexcept
     {
         return source_schema != nullptr &&
-               (alternative_route_matches_to_ref(source_schema, requested_schema) ||
+               (alternative_route_matches_nullable(source_schema, requested_schema) ||
+                alternative_route_matches_to_ref(source_schema, requested_schema) ||
                 alternative_route_matches_from_ref(source_schema, requested_schema) ||
                 alternative_route_matches_from_ref_interior(source_schema, requested_schema));
     }
@@ -2423,7 +2479,8 @@ namespace hgraph::detail
             BindFn                    bind{nullptr};
         };
 
-        static constexpr std::array<AlternativeRoute, 3> routes{{
+        static constexpr std::array<AlternativeRoute, 4> routes{{
+            {&alternative_route_matches_nullable, &TSOutputAlternativeStore::nullable_binding},
             {&alternative_route_matches_to_ref, &TSOutputAlternativeStore::to_ref_binding},
             {&alternative_route_matches_from_ref, &TSOutputAlternativeStore::from_ref_binding},
             {&alternative_route_matches_from_ref_interior, &TSOutputAlternativeStore::from_ref_interior_binding},
@@ -2451,6 +2508,10 @@ namespace hgraph::detail
         const TSOutputView &source, const TSValueTypeMetaData &requested_schema)
     {
         const auto key = key_for(source, requested_schema);
+        if (alternative_route_matches_nullable(source.schema(), requested_schema))
+        {
+            return nullable_binding(key, source, requested_schema);
+        }
         if (alternative_route_matches_to_ref(source.schema(), requested_schema))
         {
             auto *state = to_ref_alternatives_.find(key);
@@ -2532,6 +2593,7 @@ namespace hgraph::detail
                 result = TSOutputAlternativeDescriptor{state.source, state.requested_schema, std::move(path)};
             }
         };
+        nullable_alternatives_.for_each(inspect);
         to_ref_alternatives_.for_each(inspect);
         ref_link_alternatives_.for_each(inspect);
         interior_from_ref_alternatives_.for_each(inspect);
@@ -2569,6 +2631,7 @@ namespace hgraph::detail
             };
             walk(walk, state.handle(key.source_output).data_view());
         };
+        nullable_alternatives_.for_each(inspect);
         to_ref_alternatives_.for_each(inspect);
         ref_link_alternatives_.for_each(inspect);
         interior_from_ref_alternatives_.for_each(inspect);
@@ -2594,6 +2657,7 @@ namespace hgraph::detail
     {
         static_cast<void>(checkpoint_binding_for(source, requested_schema));
         const auto key = key_for(source, requested_schema);
+        if (nullable_alternatives_.find(key) != nullptr) { return; }
         if (auto *state = to_ref_alternatives_.find(key)) { state->restore_checkpoint(clocks, time); return; }
         if (auto *state = ref_link_alternatives_.find(key)) { state->restore_checkpoint(clocks, time); return; }
         if (auto *state = interior_from_ref_alternatives_.find(key)) { state->restore_checkpoint(clocks, time); return; }

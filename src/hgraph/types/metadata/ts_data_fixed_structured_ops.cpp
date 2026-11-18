@@ -391,6 +391,10 @@ namespace hgraph::ts_data_plan_factory_detail
                 .delta_to_python_impl =
                     bundle ? &python_ops_detail::forwarder<&PythonOps::TSData::fixed_bundle_delta_to_python>::call
                            : &python_ops_detail::forwarder<&PythonOps::TSData::fixed_list_delta_to_python>::call,
+                .value_as_delta_to_python_impl =
+                    bundle
+                        ? &python_ops_detail::forwarder<&PythonOps::TSData::fixed_bundle_value_as_delta_to_python>::call
+                        : &python_ops_detail::forwarder<&PythonOps::TSData::fixed_list_value_as_delta_to_python>::call,
             };
             ops.size_impl                   = &fixed_indexed_size;
             ops.element_binding_impl        = &fixed_indexed_element_binding;

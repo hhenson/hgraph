@@ -183,6 +183,7 @@ namespace hgraph
             }
             if (family == "VariadicTuple") { return registry.list(one(), 0, true); }
             if (family == "NullableTuple") { return registry.nullable_tuple(one()); }
+            if (family == "Optional") { return registry.optional(one()); }
             if (family == "List")
             {
                 // A shown size is a fixed extent (``List[T,0]`` is the fixed empty list).

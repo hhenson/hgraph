@@ -15,7 +15,8 @@ namespace hgraph
     struct TSDataOps;
     struct TSParentLink;
 
-    inline constexpr std::uint16_t TS_DATA_OPS_ABI_VERSION = 24;
+    // 25: TSDataOps adds value_as_delta_to_python_impl before to_string_impl.
+    inline constexpr std::uint16_t TS_DATA_OPS_ABI_VERSION = 25;
 
     class HGRAPH_CLASS_EXPORT TSRoleTypeRef
     {
@@ -67,7 +68,7 @@ namespace hgraph
         friend HGRAPH_EXPORT TSRoleTypeRef intern_ts_type(
             const TSValueTypeMetaData &, TypeRole,
             const MemoryUtils::StoragePlan &, const TSDataOps &,
-            std::string_view);
+            std::string_view, std::uint16_t);
         explicit constexpr TSRoleTypeRef(const TypeRecord *record) noexcept : record_(record) {}
 
         const TypeRecord *record_{nullptr};
@@ -163,12 +164,14 @@ namespace hgraph
     using TSInputTypeRef = BasicTSTypeRef<TypeRole::Input>;
     using TSOutputTypeRef = BasicTSTypeRef<TypeRole::Output>;
 
+    // The default is compiled into the caller. Validate it before reading ops.
     [[nodiscard]] HGRAPH_EXPORT TSRoleTypeRef intern_ts_type(
         const TSValueTypeMetaData &schema,
         TypeRole role,
         const MemoryUtils::StoragePlan &plan,
         const TSDataOps &ops,
-        std::string_view implementation_label = {});
+        std::string_view implementation_label = {},
+        std::uint16_t ops_abi_version = TS_DATA_OPS_ABI_VERSION);
     [[nodiscard]] HGRAPH_EXPORT bool is_migrated_ts_root_schema(
         const TSValueTypeMetaData *schema) noexcept;
     [[nodiscard]] HGRAPH_EXPORT TypeCapabilities ts_type_capabilities(

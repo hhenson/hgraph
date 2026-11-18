@@ -6,11 +6,16 @@
 #include <hgraph/types/type_pointer.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <type_traits>
 
 namespace hgraph
 {
+    // 10: IndexedValueOps adds clear_element, shifting its derived tables.
+    // 9: ValueOps removes format_string_impl/repr_string_impl.
+    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 10;
+
     struct ValueOps;
     class Value;
     class ValueView;
@@ -81,7 +86,7 @@ namespace hgraph
 
       private:
         friend ValueTypeRef intern_value_type(const ValueTypeMetaData &, const MemoryUtils::StoragePlan &,
-                                              const ValueOps &, const DebugDescriptor *);
+                                              const ValueOps &, const DebugDescriptor *, std::uint16_t);
         friend HGRAPH_EXPORT ValueTypeRef value_owning_type(ValueTypeRef);
         friend class Value;
         friend class ValueView;
@@ -94,10 +99,12 @@ namespace hgraph
     [[nodiscard]] TypeCapabilities value_type_capabilities(const ValueTypeMetaData &schema,
                                                            const MemoryUtils::StoragePlan &plan,
                                                            const ValueOps &ops);
+    // The default is compiled into the caller. Validate it before reading ops.
     [[nodiscard]] ValueTypeRef intern_value_type(const ValueTypeMetaData &schema,
                                                  const MemoryUtils::StoragePlan &plan,
                                                  const ValueOps &ops,
-                                                 const DebugDescriptor *debug = nullptr);
+                                                 const DebugDescriptor *debug = nullptr,
+                                                 std::uint16_t ops_abi_version = VALUE_OPS_ABI_VERSION);
 
     /** Register and resolve the ordinary owning representation for a
         graph-local binding.  The association is published once on the type

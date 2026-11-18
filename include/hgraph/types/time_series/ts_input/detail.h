@@ -109,6 +109,9 @@ namespace hgraph::detail
         reference_fn     reference{nullptr};
         to_python_fn       to_python{nullptr};
         delta_to_python_fn delta_to_python{nullptr};
+        /** The value with its children in the form a delta has (RFC 0050).
+            Null for a shape with no children: its value is that form. */
+        to_python_fn       value_as_delta_to_python{nullptr};
     };
 
     struct TSInputSchedulingNotifier final : Notifiable

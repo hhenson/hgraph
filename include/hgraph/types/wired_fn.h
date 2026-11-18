@@ -398,7 +398,7 @@ namespace hgraph
                 {
                     if (const auto *declared = output_schema(); declared != nullptr)
                     {
-                        if (!graph_wiring_detail::input_accepts_output_schema(
+                        if (!graph_wiring_detail::input_binds_output_schema(
                                 declared, out.schema))
                         {
                             throw std::invalid_argument(

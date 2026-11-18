@@ -752,6 +752,38 @@ namespace hgraph
         [[nodiscard]] const TSInputView &base() const noexcept { return *this; }
     };
 
+    /** ``TS<Optional<T>>`` input (RFC 0050): a tick whose value holds a
+        payload or holds nothing. A tick whose value holds nothing is a tick
+        like any other: the input is valid and modified, and its value has no
+        payload. */
+    template <fixed_string Name, typename TValue, auto... TPolicies>
+    class In<Name, TS<Optional<TValue>>, TPolicies...> : public TSInputView
+    {
+      public:
+        using schema                     = TS<Optional<TValue>>;
+        using value_type                 = OptionalView;
+        static constexpr auto field_name = Name;
+        static constexpr auto activity   = static_node_detail::resolved_input_activity<TPolicies...>();
+        static constexpr auto validity   = static_node_detail::resolved_input_validity<TPolicies...>();
+
+        explicit In(TSInputView view) noexcept : TSInputView(std::move(view)) {}
+
+        /** Borrow the nullable value. No payload copy or owning wrapper. */
+        [[nodiscard]] OptionalView value() const { return TSInputView::value().as_optional(); }
+        [[nodiscard]] OptionalView view() const { return value(); }
+
+        /** Borrow the payload, or an empty view for invalid/null input. */
+        [[nodiscard]] const ValueView try_value() const
+        {
+            if (!valid()) { return {}; }
+            return value().value();
+        }
+
+        /** The underlying erased input view. */
+        [[nodiscard]] const TSInputView &base() const noexcept { return *this; }
+        // modified() / valid() / delta_value() inherited from TSInputView.
+    };
+
     /** ``TS<AnyValue>`` input: expose the contained erased value without
         pretending the Any box is an ordinary C++ atomic scalar. */
     template <fixed_string Name, auto... TPolicies>
@@ -1296,6 +1328,93 @@ namespace hgraph
         {
             auto mutation = TSOutputView::begin_mutation(evaluation_time());
             static_cast<void>(mutation.copy_value_from(value));
+        }
+    };
+
+    /** ``TS<Optional<T>>`` output (RFC 0050). A node ticks a value
+        that holds a payload by setting the payload, ticks a value that holds
+        nothing by setting ``Null``, and does not tick by writing
+        nothing. */
+    template <typename TValue>
+    class Out<TS<Optional<TValue>>> : public TSOutputView
+    {
+      public:
+        using schema     = TS<Optional<TValue>>;
+        using value_type = OptionalView;
+
+        Out(TSOutputView view, DateTime /*evaluation_time*/, const PreparedOutputRoute * /*route*/ = nullptr) noexcept
+            : TSOutputView(std::move(view))
+        {
+        }
+
+        /** Tick a value that holds a copy of ``payload``, a value of the
+            payload's type. */
+        void set(const ValueView &payload) const
+        {
+            write([&payload](const MutableOptionalView &optional) { optional.emplace(payload); });
+        }
+
+        /** Tick a value that holds ``payload``, for a payload that is a C++
+            scalar. */
+        template <typename U>
+            requires(!std::derived_from<std::remove_cvref_t<U>, ValueView> &&
+                     !std::same_as<std::remove_cvref_t<U>, Value> &&
+                     !std::same_as<std::remove_cvref_t<U>, null_t> &&
+                     std::constructible_from<TValue, U &&>)
+        void set(U &&payload) const
+        {
+            const auto assign = [this](const TValue &resolved) {
+                write([&resolved](const MutableOptionalView &optional) {
+                    optional.emplace(ValueView{optional.payload_binding(), static_cast<const void *>(&resolved)});
+                });
+            };
+            if constexpr (std::same_as<std::remove_cvref_t<U>, TValue>) { assign(payload); }
+            else { assign(TValue{std::forward<U>(payload)}); }
+        }
+
+        /** Publish the borrowed nullable value, copying only at the output. */
+        void set(const OptionalView &value) const { apply(value); }
+
+        /** Tick a value that holds nothing: a tick that is valid and has no
+            payload. Writing nothing is what does not tick. */
+        void set(null_t) const
+        {
+            write([](const MutableOptionalView &optional) { optional.reset(); });
+        }
+
+        /** Type-erased set: copy an ``Optional`` value, whatever it holds,
+            and tick it. */
+        void apply(const ValueView &value) const
+        {
+            if (!value.is_optional())
+            {
+                throw std::invalid_argument("Out<TS<Optional<T>>>::apply requires an Optional value");
+            }
+            auto mutation = TSOutputView::begin_mutation(evaluation_time());
+            static_cast<void>(mutation.copy_value_from(value));
+        }
+
+      private:
+        /** Give the output's value to ``change`` and tick it. In place where
+            the output's storage is the value's own: the payload's copy and
+            one engaged bit, and no allocation of the optional's. Storage with
+            side rules of its own takes a value built apart and moved in. */
+        template <typename TChange>
+        void write(TChange &&change) const
+        {
+            auto mutation = TSOutputView::begin_mutation(evaluation_time());
+            if (auto destination = mutation.mutable_value(); destination.valid())
+            {
+                change(destination.as_mutable_optional());
+                mutation.mark_modified();
+                return;
+            }
+            Value held{mutation.value().binding()};
+            change(held.view().as_optional().begin_mutation());
+            if (!mutation.move_value_from(std::move(held)))
+            {
+                throw std::logic_error("Out<TS<Optional<T>>>: failed to move the value into the output");
+            }
         }
     };
 

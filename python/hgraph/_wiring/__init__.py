@@ -6,7 +6,7 @@ symbol fails loudly at import time. ``_wiring_stack`` is re-exported by
 from-import aliasing — it stays the SAME list object as
 ``hgraph._wiring._core._wiring_stack``; nothing may rebind it."""
 from ._sentinels import (
-    REMOVE, REMOVE_IF_EXISTS, Removed, _Removed, _SetDelta, _simplify_delta, compute_set_delta, set_delta
+    Null, REMOVE, REMOVE_IF_EXISTS, Removed, _Removed, _SetDelta, _simplify_delta, compute_set_delta, set_delta
 )
 from ._state import (
     GlobalContext, GlobalState, RecordReplayContext, RecordReplayEnum, _GLOBAL_MISSING,
@@ -70,7 +70,7 @@ from ._runner import (
 __all__ = [
     "CLOCK", "EvaluationClock", "callable_shape_key", "equal_lambdas", "get_context", "get_recorded_value", "get_recorder_api", "get_recording_label", "set_recorder_api", "set_recording_label", "utc_now", "TSW_OUT", "DebugContext", "EvaluationEngineApi", "EvaluationLifeCycleObserver", "EvaluationMode", "Feedback", "GlobalContext", "GlobalState",
     "GraphConfiguration", "IncorrectTypeBinding", "LOGGER", "NODE", "Node", "ParseError", "RECORDABLE_STATE", "Traits",
-    "REMOVE", "REMOVE_IF_EXISTS", "RecordReplayContext", "RecordReplayEnum", "Removed",
+    "Null", "REMOVE", "REMOVE_IF_EXISTS", "RecordReplayContext", "RecordReplayEnum", "Removed",
     "RequirementsNotMetWiringError", "SCHEDULER", "STATE", "TSB_OUT", "TSD_OUT", "TSS_OUT", "TS_OUT", "WiringError",
     "WiringPort", "DelayedBinding", "_AdaptorStub", "_BindingsMap", "_Collect", "_Combine", "_Component",
     "_Convert", "_DISPATCH_KEYS_NODE", "_DISPATCH_KEY_NODE", "_DUNDERS", "_Dispatch", "_Emit",

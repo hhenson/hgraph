@@ -142,6 +142,38 @@ namespace hgraph::python_bridge
     {
         return from_python(view, source);
     }
+    /**
+     * The form a current value is exported in (RFC 0050). The two differ for
+     * a value that holds nothing: ``None`` as a value, ``Null`` as a delta.
+     */
+    enum class ValueForm : std::uint8_t { Value, Delta };
+
+    /**
+     * The current value of the endpoint that ``ops`` describes at ``memory``,
+     * in ``form``; ``None`` when it has none. A structural strategy exports
+     * each child through this, so that the form asked of an aggregate is the
+     * form each child is given in. An endpoint with no delta form of its own
+     * gives its value, the two being one.
+     */
+    [[nodiscard]] HGRAPH_EXPORT nb::object current_value_to_python(const TSDataOps &ops, const void *memory,
+                                                                   ValueForm form);
+
+    /**
+     * The current value of ``view`` in the form a delta of it has (RFC 0050),
+     * for where a bound input's delta is its target's current value: a
+     * sampled rebind. Dispatches through the endpoint's
+     * ``value_as_delta_to_python_impl``; an endpoint that installs none gives
+     * its value, the two forms being one. ``None`` when there is no value.
+     */
+    [[nodiscard]] HGRAPH_EXPORT nb::object value_as_delta_to_python(const TSDataView &view);
+
+    /**
+     * RFC 0050: ``Null`` is the unset state of an ``Optional[T]`` value, and a
+     * time series of any other value has no tick for it. Raises ``TypeError``
+     * when ``source`` is ``Null`` and ``value_schema`` is no ``Optional``.
+     */
+    HGRAPH_EXPORT void require_null_admitted(const ValueTypeMetaData *value_schema, nb::handle source);
+
     /** Export an input's current value through the resolved endpoint's erased TSDataOps. */
     [[nodiscard]] HGRAPH_EXPORT nb::object value_to_python(const TSInputView &view);
     /** Export an input's delta, preserving the sampled-rebind semantics TSInputView owns. */

@@ -381,6 +381,7 @@ namespace hgraph
             .reference = &input_tsl_reference,
             .to_python = python_forwarder<&PythonOps::TSData::input_list_to_python>,
             .delta_to_python = python_forwarder<&PythonOps::TSData::input_list_delta_to_python>,
+            .value_as_delta_to_python = python_forwarder<&PythonOps::TSData::input_list_value_as_delta_to_python>,
         };
 
         const detail::TSInputEndpointOps endpoint_tsw_ops{
@@ -406,6 +407,7 @@ namespace hgraph
             .reference = &input_tsb_reference,
             .to_python = python_forwarder<&PythonOps::TSData::input_bundle_to_python>,
             .delta_to_python = python_forwarder<&PythonOps::TSData::input_bundle_delta_to_python>,
+            .value_as_delta_to_python = python_forwarder<&PythonOps::TSData::input_bundle_value_as_delta_to_python>,
         };
 
         const detail::TSInputEndpointOps endpoint_ref_ops{
@@ -1860,6 +1862,16 @@ namespace hgraph
             return endpoint_ops.to_python(context, memory);
         }
 
+        [[nodiscard]] PyNewRef input_value_as_delta_to_python(const void *context, const void *memory)
+        {
+            const auto *state = static_cast<const InputBindingContext *>(context);
+            const auto &endpoint_ops = *state->endpoint_ops;
+            // An endpoint shape that installs none has no children: its
+            // value is the form a delta of it has.
+            if (endpoint_ops.value_as_delta_to_python == nullptr) { return input_to_python(context, memory); }
+            return endpoint_ops.value_as_delta_to_python(context, memory);
+        }
+
         [[nodiscard]] PyNewRef input_delta_to_python(const void *context,
                                                      const void *memory,
                                                      DateTime evaluation_time)
@@ -2192,6 +2204,7 @@ namespace hgraph
                 .mutable_indexed_child_memory_impl = &input_mutable_element_memory,
                 .to_python_impl = &input_to_python,
                 .delta_to_python_impl = &input_delta_to_python,
+                .value_as_delta_to_python_impl = &input_value_as_delta_to_python,
             };
             context->ts_data_ops.size_impl = &input_indexed_size;
             context->ts_data_ops.element_binding_impl = &input_value_storage_type;

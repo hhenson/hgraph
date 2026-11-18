@@ -381,6 +381,9 @@ namespace hgraph
                 return 0;
             }
 
+            // Prefer an exact payload match over nullable widening.
+            if (graph_wiring_detail::binding_adapts_to_optional(expected, actual)) { return 1; }
+
             const auto distance = registry.value_inheritance_distance(
                 actual->value_schema, expected->value_schema);
             return distance.has_value() ? static_cast<int>(*distance) : 0;

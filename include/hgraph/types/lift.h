@@ -526,7 +526,7 @@ namespace hgraph
                 {
                     throw std::invalid_argument("lift<F>: arguments must have concrete time-series schemas");
                 }
-                if (!graph_wiring_detail::input_accepts_output_schema(expected, raw_args[i].schema))
+                if (!graph_wiring_detail::input_binds_output_schema(expected, raw_args[i].schema))
                 {
                     throw std::invalid_argument("lift<F>: argument schema does not match the lifted function signature");
                 }

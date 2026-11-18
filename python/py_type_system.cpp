@@ -149,6 +149,13 @@ namespace hgraph::python_bridge
                     }
                 }
                 break;
+            case ValueTypeKind::Optional:
+            {
+                // RFC 0050: an Optional is spelled ``Optional[T]``.
+                nb::object payload = element_annotation(meta->element_type);
+                if (!payload.is_valid()) { return nb::cast(PyValueType{meta}); }
+                return nb::module_::import_("typing").attr("Optional").attr("__getitem__")(std::move(payload));
+            }
             case ValueTypeKind::Tuple:
             {
                 nb::list elements;
@@ -1108,6 +1115,10 @@ namespace hgraph::python_bridge
     });
     m.def("owned_vt", [](PyValueType target) {
         return PyValueType{TypeRegistry::instance().owned(target.meta)};
+    });
+    m.def("optional_vt", [](PyValueType payload) {
+        // RFC 0050: the value type that holds one payload or is unset.
+        return PyValueType{TypeRegistry::instance().optional(payload.meta)};
     });
     m.def("shared_vt", [](PyValueType target) {
         return PyValueType{TypeRegistry::instance().shared(target.meta)};

@@ -696,6 +696,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     .from_python_impl          = &python_ops_detail::forwarder<&PythonOps::TSData::dynamic_from_python>::call,
                     .to_python_impl            = &python_ops_detail::forwarder<&PythonOps::TSData::dynamic_to_python>::call,
                     .delta_to_python_impl      = &python_ops_detail::forwarder<&PythonOps::TSData::dynamic_delta_to_python>::call,
+                    .value_as_delta_to_python_impl =
+                        &python_ops_detail::forwarder<&PythonOps::TSData::dynamic_value_as_delta_to_python>::call,
                 };
                 ops.size_impl                   = &dynamic_indexed_size;
                 ops.modified_index_count_impl   = &dynamic_modified_index_count;
