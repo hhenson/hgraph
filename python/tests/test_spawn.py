@@ -168,6 +168,26 @@ def test_pipeline_scalar_config_named_inputs_and_fragments(tmp_path):
     assert trace.values() == [(hg.MIN_ST + n * hg.MIN_TD, v, v) for n, v in [(0, 6), (1, 12), (3, 42)]]
 
 
+def test_pipeline_clears_held_scalar_before_combining_with_a_side_input(tmp_path):
+    trace = Trace(tmp_path / "trace")
+
+    @hg.compute_node
+    def source(command: hg.TS[int], _output: hg.TS_OUT[int] = None) -> hg.TS[int]:
+        if command.value < 0:
+            _output.invalidate()
+        else:
+            _output.value = command.value
+
+    @hg.graph
+    def app(command: hg.TS[int], side: hg.TS[int]) -> None:
+        hg.spawn_(hg.pipeline_([identity, hg.bind_(combine, side=side), trace.stage()]), source(command))
+
+    # The side input keeps ticking through the clear and a later silent cycle.
+    # Only another publication on the cleared input permits the sum again.
+    hg.eval_node(app, [10, -1, None, 20], [1, 2, 3, 4])
+    assert trace.values() == [(hg.MIN_ST, 11, 11), (hg.MIN_ST + 3 * hg.MIN_TD, 24, 24)]
+
+
 def test_external_binding_uses_historical_value_and_is_active(tmp_path):
     trace, expected = Trace(tmp_path / "trace"), Trace(tmp_path / "expected")
     @hg.graph

@@ -137,7 +137,7 @@ namespace hgraph::distributed
                          Scalar<"group", Int> group, Scalar<"groups", Int> groups,
                          TypeArg<"tp", TsVar<"S">, AutoResolve>, GlobalStateView gs)
         {
-            if (!ts.modified()) return;
+            if (!BoundaryTransfer::has_update(ts.base())) return;
             gs.set(slot.value(), transfer.value()->capture(ts.base(), false,
                 static_cast<std::size_t>(group.value()), static_cast<std::size_t>(groups.value())));
         }

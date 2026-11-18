@@ -9,7 +9,6 @@
 
 #include <limits>
 #include <algorithm>
-#include <unordered_map>
 #include <unordered_set>
 
 namespace hgraph::distributed
@@ -56,7 +55,6 @@ namespace hgraph::distributed
         BoundBinaryConverter time{};
         ValueTypeRef element_binding{};
         std::vector<std::unique_ptr<Plan>> children{};
-        std::unordered_map<std::string_view, std::size_t> fields{};
         Capture capture{};
         Apply apply{};
         Decode decode{};
@@ -91,7 +89,6 @@ namespace hgraph::distributed
                     for (std::size_t index = 0; index < schema->data.tsb.field_count; ++index)
                     {
                         const auto &field = schema->data.tsb.fields[index];
-                        fields.emplace(field.name, index);
                         children.push_back(std::make_unique<Plan>(field.type));
                     }
                     capture = &capture_bundle; apply = &apply_bundle; decode = &decode_bundle; break;
@@ -402,14 +399,15 @@ namespace hgraph::distributed
             else if (in.is_bindable() && in.data_view().valid())
             {
                 // Owning list strategies provide a dense changed-index surface.
-                // A non-peered prefix below uses input-local modification flags,
-                // which additionally include independently sampled child links.
+                // A non-peered prefix below reads each scalar's clear as well
+                // as input-local publications, including sampled child links.
                 const auto data = in.data_view().as_list();
                 if (data.modified(in.evaluation_time()))
                     for (const auto index : data.modified_indices()) write_item(index, list.at(index));
             }
             else
-                for (const auto &[index, child] : list.modified_items()) write_item(index, child);
+                for (const auto &[index, child] : list.items())
+                    if (BoundaryTransfer::has_update(child)) write_item(index, child);
             byte(0, bytes);
         }
         static void apply_list(const Plan &plan, const TSOutputView &out, const Decoded &decoded,
@@ -446,10 +444,10 @@ namespace hgraph::distributed
         {
             auto &bytes = writer.out;
             const auto bundle = in.as_bundle();
-            const auto items = full ? bundle.items() : bundle.modified_items();
-            for (const auto &[name, child] : items)
+            for (std::size_t index = 0; index < bundle.size(); ++index)
             {
-                const auto index = plan.fields.at(name);
+                const auto child = bundle.at(index);
+                if (!full && !BoundaryTransfer::has_update(child)) continue;
                 byte(1, bytes); write_varint(index, bytes);
                 plan.children[index]->write(child, full, 0, 0, writer);
             }
@@ -537,6 +535,7 @@ namespace hgraph::distributed
             throw error.with_context(needed_by, schema != nullptr ? schema->name() : std::string_view{});
         }
     }
+    bool BoundaryTransfer::has_update(const TSInputView &input) { return input.modified() || input.invalidated(); }
     const TSValueTypeMetaData *BoundaryTransfer::schema() const noexcept { return plan_->schema; }
     const ValueTypeMetaData *BoundaryTransfer::payload_schema()
     { return TypeRegistry::instance().register_scalar<std::string>("str"); }

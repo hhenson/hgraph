@@ -18,7 +18,7 @@ namespace hgraph
 namespace hgraph::distributed
 {
     /** Schema-compiled transport for a materialized time-series tree.
-     * Ordinary cycles visit only modified children; a newly observed/rebound
+     * An incremental frame carries published or invalidated children. A newly bound
      * subtree carries its complete state once. The payload owns bytes, never
      * references, and preserves invalid collection members and window history.
      * Build at wiring time and retain the plan: capture/apply perform no schema
@@ -27,6 +27,9 @@ namespace hgraph::distributed
     class HGRAPH_CLASS_EXPORT BoundaryTransfer
     {
       public:
+        /** A publication or scalar clear must cross the boundary this cycle. */
+        [[nodiscard]] static bool has_update(const TSInputView &input);
+
         explicit BoundaryTransfer(const TSValueTypeMetaData *schema, BinaryDecodeLimits limits = {});
         /** ``needed_by`` names what is being wired -- "dmap_ input 2" -- so that
          * a scalar with no wire form is refused here, at wiring, by a message
