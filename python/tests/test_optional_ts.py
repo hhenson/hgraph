@@ -251,7 +251,8 @@ def test_a_sampled_list_in_a_dictionary_keeps_an_unset_child_as_null():
 
     # The dictionary switched to was valid already, and holds the unset child.
     result = eval_node(app, [True, None, False], [5, None, None], [0, None, None])
-    assert "Null" in result[2] and "7" in result[2]
+    assert "Null" in result[2]
+    assert "7" in result[2]
     assert "None" not in result[2]
 
 
@@ -275,7 +276,8 @@ def test_a_sampled_bundle_in_a_dictionary_keeps_an_unset_child_as_null():
         return seen(hg.if_then_else(select, keyed(a), keyed(b)))
 
     result = eval_node(app, [True, None, False], [5, None, None], [0, None, None])
-    assert "Null" in result[2] and "7" in result[2]
+    assert "Null" in result[2]
+    assert "7" in result[2]
     assert "None" not in result[2]
 
 
@@ -297,7 +299,8 @@ def test_a_sampled_dictionary_keeps_an_unset_child_as_null():
     assert "7" in result[2]
     # And the other way: the dictionary switched to holds the unset child.
     result = eval_node(app, [True, None, False], [7, None, None], [0, None, None])
-    assert "Null" in result[2] and "None" not in result[2]
+    assert "Null" in result[2]
+    assert "None" not in result[2]
 
 
 def test_a_plain_series_binds_to_an_optional_input():
