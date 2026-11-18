@@ -1968,6 +1968,7 @@ namespace hgraph
             // Pending removal retains constructed, stopped storage at its
             // stable address. The source's physical erase callback owns its
             // eventual invalidation and destruction.
+            pending_slots_.erase(slot);
             if (slot < dict.slot_capacity() && dict.slot_occupied(slot)) { continue; }
 
             if (has_child(slot))

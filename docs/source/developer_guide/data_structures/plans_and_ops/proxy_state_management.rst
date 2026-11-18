@@ -722,7 +722,8 @@ resurrection retains an identity recheck until the next source wake, since a
 reference rewrite can follow insertion after the current wake was consumed.
 The recheck flag survives intervening projected reads and successful builds. Removal,
 erase, clear and source replacement discard obsolete entries. Initial bind
-and full source replacement still synchronise the whole collection.
+and full source replacement still synchronise the whole collection. Resuming
+a suspended source also drops debt for slots removed while unsubscribed.
 
 The added range cursor changes the erased value/TS return ABI; the bounded
 modified cursor changes the TS ops ABI. Downstream extensions must rebuild

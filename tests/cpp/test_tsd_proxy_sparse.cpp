@@ -378,3 +378,36 @@ TEST_CASE("Proxy resurrection rechecks its slot after source delta rollover", "[
     REQUIRE(child.value().checked_as<std::int32_t>() == 2);
     REQUIRE(CountedDict<0>::visits < 100);
 }
+
+TEST_CASE("Proxy resume drops rechecks for slots erased while suspended", "[proxy][sparse]") {
+    using namespace hgraph;
+    FlatFixture f(4096);
+    auto source_data = f.source.view();
+    auto source = source_data.as_dict();
+    auto proxy_data = f.proxy.view();
+    auto &storage = *static_cast<TSDProxy *>(const_cast<void *>(proxy_data.data()));
+    {
+        auto m = source.begin_mutation(MIN_ST + TimeDelta{1});
+        for (std::int32_t i = 0; i < 256; ++i) {
+            Value key{i};
+            REQUIRE(m.erase(key.view()));
+            m.set(key.view(), f.one.view());
+        }
+    }
+    storage.suspend_source();
+    {
+        auto m = source.begin_mutation(MIN_ST + TimeDelta{2});
+        for (std::int32_t i = 0; i < 256; ++i) {
+            Value key{i};
+            REQUIRE(m.erase(key.view()));
+        }
+    }
+    // Roll the removals out while the proxy is unsubscribed.
+    Value key{std::int32_t{2048}};
+    source.begin_mutation(MIN_ST + TimeDelta{3}).set(key.view(), f.one.view());
+    bind_tsd_proxy(proxy_data, source, &FlatFixture::value_ops, nullptr,
+                   MIN_ST + TimeDelta{4}, TSDProxyChildRefresh::OnChildTick);
+    CountedDict<0>::reset();
+    source.begin_mutation(MIN_ST + TimeDelta{5}).set(key.view(), f.zero.view());
+    REQUIRE(CountedDict<0>::visits < 100);
+}
