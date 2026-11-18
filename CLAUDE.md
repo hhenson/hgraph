@@ -190,6 +190,11 @@ stability tiers, and release process — read it before any 1.0-directed work.
 
 ## 6. Build & test
 
+Before pushing code, follow the full Windows, macOS, and Linux local gates in
+[`AGENTS.md`](AGENTS.md#definition-of-done), using the provided machines when
+available. Check host availability and report any skipped platform; the commands
+below are development checks, not a substitute for those full suites.
+
 ```sh
 cmake -S . -B build                 # configure (fmt + Catch2 fetched if absent)
 cmake --build build -j              # build hgraph_core + tests
