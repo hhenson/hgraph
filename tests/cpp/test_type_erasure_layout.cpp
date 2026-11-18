@@ -188,11 +188,11 @@ TEST_CASE("time-series type boundaries reject pre-nullable ops ABI records")
         auto stale = *type.record();
         stale.ops_abi_version = 24;
         REQUIRE_THROWS_WITH(TSRoleTypeRef::checked(AnyPtr::typed_null(stale)),
-                            "TSRoleTypeRef requires TSData ops ABI version 25");
+                            "TSRoleTypeRef requires TSData ops ABI version 27");
         // Its layout operation throws: reject the ABI before calling it.
         const TSDataOps unusable_ops{};
         REQUIRE_THROWS_WITH(intern_ts_type(*schema, type.role(), type.checked_plan(), unusable_ops, {}, 24),
-                            "intern_ts_type requires TSData ops ABI version 25");
+                            "intern_ts_type requires TSData ops ABI version 27");
     }
 }
 

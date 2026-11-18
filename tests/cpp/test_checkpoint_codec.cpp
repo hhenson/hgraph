@@ -601,7 +601,7 @@ TEST_CASE("checkpoint codec: scheduler presence, deadlines and tags survive all 
     CHECK_THROWS_WITH(decode_component_checkpoint(resealed(oversized)), ContainsSubstring("invalid sequence size"));
     node.scheduler.reset();
     auto legacy = encoded(component(node));
-    REQUIRE(legacy[24] == 4);
+    REQUIRE(legacy[24] == checkpoint_image_format_version);
     legacy[24] = 3; // Same version 3 framing, without a scheduler field.
     restored = decode_component_checkpoint(resealed(legacy));
     CHECK_FALSE(restored.graph.nodes.front().scheduler);
