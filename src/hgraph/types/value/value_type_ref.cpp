@@ -82,8 +82,15 @@ namespace hgraph
     ValueTypeRef intern_value_type(const ValueTypeMetaData &schema,
                                    const MemoryUtils::StoragePlan &plan,
                                    const ValueOps &ops,
-                                   const DebugDescriptor *debug)
+                                   const DebugDescriptor *debug,
+                                   std::uint16_t ops_abi_version)
     {
+        if (ops_abi_version != VALUE_OPS_ABI_VERSION)
+        {
+            throw std::invalid_argument(
+                "intern_value_type requires value ops ABI version " +
+                std::to_string(VALUE_OPS_ABI_VERSION));
+        }
         if (ops.kind <= ValueOpsKind::Invalid || ops.kind > ValueOpsKind::MutableMap)
         {
             throw std::invalid_argument("intern_value_type requires a valid ValueOps kind");

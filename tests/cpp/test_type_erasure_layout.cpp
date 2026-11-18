@@ -166,6 +166,10 @@ TEST_CASE("value type boundary rejects pre-nullable ops ABI records")
     stale.ops_abi_version = 9;
     REQUIRE_THROWS_WITH(ValueTypeRef::checked(AnyPtr::typed_null(stale)),
                         "ValueTypeRef requires value ops ABI version 10");
+    // This table cannot be registered: ABI rejection must precede reading kind.
+    const ValueOps unusable_ops{};
+    REQUIRE_THROWS_WITH(intern_value_type(*type.schema(), type.checked_plan(), unusable_ops, nullptr, 9),
+                        "intern_value_type requires value ops ABI version 10");
 }
 
 TEST_CASE("time-series type boundaries reject pre-nullable ops ABI records")
@@ -185,6 +189,10 @@ TEST_CASE("time-series type boundaries reject pre-nullable ops ABI records")
         stale.ops_abi_version = 24;
         REQUIRE_THROWS_WITH(TSRoleTypeRef::checked(AnyPtr::typed_null(stale)),
                             "TSRoleTypeRef requires TSData ops ABI version 25");
+        // Its layout operation throws: reject the ABI before calling it.
+        const TSDataOps unusable_ops{};
+        REQUIRE_THROWS_WITH(intern_ts_type(*schema, type.role(), type.checked_plan(), unusable_ops, {}, 24),
+                            "intern_ts_type requires TSData ops ABI version 25");
     }
 }
 

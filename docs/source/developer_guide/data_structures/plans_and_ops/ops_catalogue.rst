@@ -132,6 +132,9 @@ values below are the ones the headers declare.
 Nullable ticks require Value ops ABI 10 (``IndexedValueOps::clear_element``)
 and TSData ops ABI 25 (``value_as_delta_to_python_impl``). Both shift later
 table slots; rebuild native extensions against the updated headers.
+Registration takes the caller's ABI version as a header-supplied default
+argument and rejects mismatches before reading the table. The changed
+registration signatures also prevent older unversioned callers from linking.
 
 .. list-table::
    :header-rows: 1
@@ -142,7 +145,7 @@ table slots; rebuild native extensions against the updated headers.
      - Declared in
    * - ``VALUE_OPS_ABI_VERSION``
      - 10
-     - ``include/hgraph/types/value/value_ops.h``
+     - ``include/hgraph/types/value/value_type_ref.h``
    * - ``TS_DATA_OPS_ABI_VERSION``
      - 25
      - ``include/hgraph/types/time_series/ts_type_ref.h``

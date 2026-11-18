@@ -80,8 +80,15 @@ namespace hgraph
                                  TypeRole role,
                                  const MemoryUtils::StoragePlan &plan,
                                  const TSDataOps &ops,
-                                 std::string_view implementation_label)
+                                 std::string_view implementation_label,
+                                 std::uint16_t ops_abi_version)
     {
+        if (ops_abi_version != TS_DATA_OPS_ABI_VERSION)
+        {
+            throw std::invalid_argument(
+                "intern_ts_type requires TSData ops ABI version " +
+                std::to_string(TS_DATA_OPS_ABI_VERSION));
+        }
         if (!schema.header.valid() || schema.header.family != TypeFamily::TimeSeries ||
             schema.header.kind != static_cast<TypeKind>(schema.kind) ||
             !migrated_kind(schema))
