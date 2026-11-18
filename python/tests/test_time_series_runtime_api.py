@@ -8,14 +8,66 @@ from hgraph import (
     MIN_TD,
     NODE,
     REF,
+    STATE,
     TS,
     TSB,
     TSB_OUT,
     TS_OUT,
     TimeSeriesSchema,
     compute_node,
+    graph,
 )
 from hgraph.test import eval_node
+
+
+@pytest.mark.parametrize("with_state", [False, True], ids=["fast", "state-injected"])
+@pytest.mark.parametrize("passive", [False, True], ids=["active", "passive"])
+def test_scalar_invalidation_is_observable_for_one_cycle(with_state, passive):
+    def status(view):
+        return view.valid, view.modified, view.invalidated
+
+    owner_status = []
+
+    @compute_node
+    def source(action: TS[str], _output: TS_OUT[int] = None) -> TS[int]:
+        if action.value == "publish":
+            _output.value = 7
+        elif action.value == "clear":
+            _output.invalidate()
+        owner_status.append(status(_output))
+
+    def observe(watched):
+        result = status(watched)
+        assert status(watched.output) == result
+        return result
+
+    active = ("probe",) if passive else ("watched", "probe")
+
+    if with_state:
+        @compute_node(active=active, valid=())
+        def inspect(watched: TS[int], probe: TS[bool], state: STATE = None) -> TS[tuple[bool, bool, bool]]:
+            return observe(watched)
+    else:
+        @compute_node(active=active, valid=())
+        def inspect(watched: TS[int], probe: TS[bool]) -> TS[tuple[bool, bool, bool]]:
+            return observe(watched)
+
+    @graph
+    def run(action: TS[str], probe: TS[bool]) -> TS[tuple[bool, bool, bool]]:
+        return inspect(source(action), probe)
+
+    idle = False, False, False
+    published = True, True, False
+    held = True, False, False
+    cleared = False, False, True
+    # A probe exposes the first clear even on a passive input, then a
+    # repeated clear while already invalid. The final clear has no other wake.
+    actions = ["idle", "publish", "idle", "clear", "clear", "publish", "clear", "idle"]
+    probes = [True, True, True, True, True, True, None, True]
+    assert eval_node(run, actions, probes) == [
+        idle, published, held, cleared, idle, published, None if passive else cleared, idle
+    ]
+    assert owner_status == [idle, published, held, cleared, idle, published, cleared, idle]
 
 
 def test_input_and_output_views_expose_generic_time_series_interrogation():

@@ -1707,6 +1707,11 @@ it and detaching or silently rebinding clears it. The markers use evaluation tim
 or registry lookup is required. Atomic complete payloads and
 rolling arrivals retain their existing per-arrival publication behavior.
 
+Owned scalars reuse the empty-delta timestamp for the time of an effective
+clear. The invalidation observation checks that the scalar is still invalid
+and its clear time matches the evaluation. Clearing it again while invalid
+leaves that time intact.
+
 HGL trace admission permits empty sparse payloads while retaining the sequential
 membership, index, overlap and removal checks. Its dense input horizon remains
 independent of the number of publications. Ordinary held-value publication

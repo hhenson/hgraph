@@ -352,8 +352,8 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT bool record_modified(DateTime modified_time);
 
         DateTime last_modified_time{MIN_DT};
-        // An explicit empty sparse publication is distinct from a parent
-        // notification caused solely by child invalidation.
+        // Sparse structures use this for explicit empty publications. Owned
+        // scalars use it for the last clear while last_modified_time is MIN_DT.
         DateTime last_empty_delta_time{MIN_DT};
         TSParentLink parent{};
         TSDataObserverSet observers{};

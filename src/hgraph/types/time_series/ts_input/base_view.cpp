@@ -166,6 +166,13 @@ namespace hgraph
         return data.last_modified_time();
     }
 
+    bool TSInputView::InputDataCursor::invalidated(const TSDataView &source, DateTime evaluation_time) const
+    {
+        if (!source.invalidated(evaluation_time)) { return false; }
+        const auto *declared = schema();
+        return declared != nullptr && declared->kind == TSTypeKind::TS;
+    }
+
     bool TSInputView::InputDataCursor::modified(DateTime evaluation_time) const
     {
         if (evaluation_time == MIN_DT) { return false; }
@@ -178,9 +185,10 @@ namespace hgraph
         {
             if (route_node->resolved.tracking->last_modified_time == evaluation_time) { return true; }
             if (!is_target_root() || !raw_data.modified(evaluation_time)) { return false; }
+            const auto &source = route_node->observed.data_view();
+            if (source.has_current_value()) { return true; }
             const auto *link = link_storage();
-            return route_node->observed.data_view().has_current_value() ||
-                   (link != nullptr && !link->empty_scalar_route());
+            return link != nullptr && !link->empty_scalar_route() && !invalidated(source, evaluation_time);
         }
         const auto &data = resolved_value_data(evaluation_time);
         if (is_target_position())
@@ -193,12 +201,15 @@ namespace hgraph
             if (is_target_root() && link != nullptr && link->state()->scalar_target_link != nullptr &&
                 (!data.valid() || !data.has_current_value()) && link->empty_scalar_route()) { return false; }
             if (!data.valid()) { return raw_data.modified(evaluation_time); }
-            if (is_target_root() && raw_data.modified(evaluation_time)) { return true; }   // rebind (sampled)
-            if (structural_sample_time(link_storage()) == evaluation_time)
+            if (data.modified(evaluation_time)) { return true; }
+            if ((is_target_root() && raw_data.modified(evaluation_time)) ||
+                structural_sample_time(link) == evaluation_time)
             {
-                return true;
+                // A link can carry the producer's invalidation notification
+                // or a sampled rebind. Only the former suppresses modification.
+                return !invalidated(data, evaluation_time);
             }
-            return data.modified(evaluation_time);
+            return false;
         }
         return data.valid() && data.modified(evaluation_time);
     }
@@ -505,6 +516,11 @@ namespace hgraph
     bool TSInputView::modified() const
     {
         return data_.modified(evaluation_time_);
+    }
+
+    bool TSInputView::invalidated() const
+    {
+        return data_.invalidated(data_view(), evaluation_time_);
     }
 
     bool TSInputView::has_parent_input() const noexcept

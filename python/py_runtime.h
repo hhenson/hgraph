@@ -562,6 +562,7 @@ namespace hgraph::python_bridge
         }
 
         [[nodiscard]] bool modified() const { return checked().modified(); }
+        [[nodiscard]] bool invalidated() const { return checked().invalidated(); }
 
         [[nodiscard]] nb::object delta_value() const
         {
@@ -1302,6 +1303,7 @@ namespace hgraph::python_bridge
         [[nodiscard]] bool valid() const { return output.valid(); }
         [[nodiscard]] bool all_valid() const { return output.all_valid(); }
         [[nodiscard]] bool modified() const { return output.modified(); }
+        [[nodiscard]] bool invalidated() const { return output.invalidated(); }
         [[nodiscard]] DateTime last_modified_time() const
         {
             return output.last_modified_time();
@@ -1743,6 +1745,11 @@ namespace hgraph::python_bridge
         {
             return key_set_projection ? projected_dict().data_view().key_set().modified(checked().evaluation_time())
                                       : checked().modified();
+        }
+        [[nodiscard]] bool invalidated() const
+        {
+            const auto &input = checked();
+            return !key_set_projection && input.invalidated();
         }
         [[nodiscard]] bool valid() const
         {

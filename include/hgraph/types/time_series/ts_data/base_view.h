@@ -250,6 +250,9 @@ namespace hgraph
         /** True when this node was modified at ``evaluation_time``. */
         [[nodiscard]] bool modified(DateTime evaluation_time) const;
 
+        /** True when this scalar was cleared at this time and is still invalid. */
+        [[nodiscard]] bool invalidated(DateTime evaluation_time) const;
+
         /** Register / remove a per-level modification observer. */
         void subscribe(Notifiable *observer) const;
         void unsubscribe(Notifiable *observer) const;

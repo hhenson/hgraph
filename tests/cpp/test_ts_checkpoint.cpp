@@ -60,6 +60,29 @@ TEST_CASE("TS checkpoint: atomic import preserves timestamps and never notifies"
     target.unsubscribe(&observer);
 }
 
+TEST_CASE("TS checkpoint: restoring an invalid scalar does not replay a clear", "[checkpoint][invalidation]")
+{
+    const auto *schema = checkpoint_int_schema();
+    TSOutput source{schema}, fresh{schema}, previously_cleared{schema};
+    const auto now = MIN_ST + MIN_TD;
+    for (auto *output : {&source, &previously_cleared})
+    {
+        assign(output->data_view(), 42, MIN_ST);
+        REQUIRE(output->view(now).begin_mutation(now).invalidate());
+        REQUIRE(output->view(now).invalidated());
+        REQUIRE_FALSE(output->view(now).modified());
+    }
+
+    const auto image = capture_ts_checkpoint(source.data_view());
+    for (auto *target : {&fresh, &previously_cleared})
+    {
+        restore_ts_checkpoint(target->data_view(), image);
+        CHECK_FALSE(target->view(now).valid());
+        CHECK_FALSE(target->view(now).modified());
+        CHECK_FALSE(target->view(now).invalidated());
+    }
+}
+
 TEST_CASE("TS checkpoint: fixed structures retain partial validity and each child clock", "[checkpoint]")
 {
     auto &registry = TypeRegistry::instance();
@@ -389,8 +412,10 @@ TEST_CASE("TS checkpoint: invalid containers retain their structural membership"
         auto mutation = source_view.as_dict().begin_mutation(MIN_ST);
         mutation.set(key.view(), payload.view());
     }
-    REQUIRE(source_view.begin_mutation(MIN_ST + TimeDelta{1}).invalidate());
+    const auto now = MIN_ST + MIN_TD;
+    REQUIRE(source_view.begin_mutation(now).invalidate());
     CHECK_FALSE(source_view.has_current_value());
+    CHECK_FALSE(source.view(now).invalidated());
     CHECK(source_view.as_dict().size() == 1);
     restore_ts_checkpoint(target.data_view(), capture_ts_checkpoint(source.data_view()));
     auto target_view = target.data_view();

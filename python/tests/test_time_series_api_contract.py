@@ -54,6 +54,7 @@ BASE_INPUT_API = {
     "delta_value",
     "has_parent_input",
     "has_peer",
+    "invalidated",
     "is_reference",
     "last_modified_time",
     "make_active",
@@ -125,6 +126,7 @@ BASE_OUTPUT_API = {
     "clear",
     "delta_value",
     "invalidate",
+    "invalidated",
     "is_reference",
     "last_modified_time",
     "modified",
@@ -972,6 +974,8 @@ def test_runtime_stub_declares_the_supported_time_series_contract():
     output_declaration = class_declaration("OutputView")
     read_only_output_declaration = class_declaration("TimeSeriesOutput")
     reference_declaration = class_declaration("TimeSeriesRef")
+    for view in (input_declaration, output_declaration, read_only_output_declaration):
+        assert "def invalidated(self) -> bool:" in view
     for name in sorted(BASE_INPUT_API | ITERABLE_API | TSD_API | TSS_API | TSW_API):
         assert f"def {name}(" in input_declaration, name
     for name in sorted(
