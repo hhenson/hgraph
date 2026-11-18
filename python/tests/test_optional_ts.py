@@ -7,7 +7,8 @@ as its ``delta_value``.
 """
 
 import pickle
-from typing import Optional
+import collections.abc as abc
+from typing import Callable, Optional
 
 import pytest
 
@@ -422,3 +423,34 @@ def test_borrowed_composite_payload_and_reference_retarget():
     result = eval_node(selected, [True, None, False, None], [5, None, None, None], [7, None, None, 9])
     assert result[0] == 5
     assert result[2:] == [7, 9]
+
+
+@pytest.mark.parametrize("annotation", [Callable, Callable[[int], int], abc.Callable, abc.Callable[[int], int]])
+def test_nullable_callable_keeps_its_runtime_representation(annotation):
+    @compute_node
+    def produce(command: TS[int]) -> TS[Optional[annotation]]:
+        if command.value == 0:
+            return Null
+        if command.value > 0:
+            offset = command.value
+            return lambda value: value + offset
+
+    @compute_node
+    def plain(command: TS[int]) -> TS[annotation]:
+        offset = command.value
+        return lambda value: value + offset
+
+    @compute_node
+    def apply(value: TS[Optional[annotation]]) -> TS[int]:
+        return -1 if value.value is None else value.value(10)
+
+    @graph
+    def nullable_app(command: TS[int]) -> TS[int]:
+        return apply(produce(command))
+
+    @graph
+    def widened_app(command: TS[int]) -> TS[int]:
+        return apply(plain(command))
+
+    assert eval_node(nullable_app, [5, 0, -1, 7]) == [15, -1, None, 17]
+    assert eval_node(widened_app, [5, None, 7]) == [15, None, 17]

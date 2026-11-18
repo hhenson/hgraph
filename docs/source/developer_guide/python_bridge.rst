@@ -604,6 +604,10 @@ Value and reference crossings
   * A PEP 695 alias that names an ``Optional`` is looked through before the
     annotation is read, so ``TS[Maybe]`` of ``type Maybe = int | None`` is
     ``TS[Optional[int]]``.
+  * The payload uses the same scalar representation as ``TS[T]``.
+    In particular, ``Optional[Callable]`` holds an evaluation-time
+    ``ValueCallable``, including parameterized ``Callable`` annotations;
+    it does not select the wiring-time ``WiredFn`` representation.
   * A write refuses ``Null`` wherever the value written is no ``Optional``
     (``require_null_admitted``), as a Python ``TypeError``, so one from a
     node's result is the cause of the node's failure.

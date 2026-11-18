@@ -9,6 +9,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/types/lift.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/specialized_views.h>
@@ -18,6 +19,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <optional>
+#include <array>
 #include <vector>
 
 namespace
@@ -272,6 +274,54 @@ namespace
             return wire<OptionalPair>(w, value);
         }
     };
+
+    struct TripleCallable
+    {
+        static Int apply(Int value) { return value * 3; }
+    };
+    struct NullableCallableSource
+    {
+        static void eval(In<"command", TS<Int>> command, Out<TS<Optional<ValueCallable>>> out)
+        {
+            if (command.value() == 0) { out.set(Null); }
+            else if (command.value() > 0) { out.set(value_fn<TripleCallable>()); }
+        }
+    };
+    struct PlainCallableSource
+    {
+        static void eval(In<"command", TS<Int>> command, Out<TS<ValueCallable>> out)
+        {
+            if (command.value() > 0) { out.set(value_fn<TripleCallable>()); }
+        }
+    };
+    struct CallNullable
+    {
+        static void eval(In<"fn", TS<Optional<ValueCallable>>> fn, Out<TS<Int>> out)
+        {
+            const auto held = fn.value();
+            const auto *callable = held.try_value<ValueCallable>();
+            if (callable == nullptr) { out.set(Int{-1}); return; }
+            const Value argument{Int{10}};
+            const std::array args{ValueCallArg{argument.view()}};
+            out.set(callable->invoke(args).view().checked_as<Int>());
+        }
+    };
+    template <typename Producer>
+    struct NullableCallableGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> command)
+        {
+            return wire<CallNullable>(w, wire<Producer>(w, command));
+        }
+    };
+}
+
+TEST_CASE("nullable binding: runtime callables can be published and borrowed")
+{
+    CHECK_OUTPUT(testing::eval_node<NullableCallableGraph<NullableCallableSource>>({1, 0, -1, 2}),
+                 {30, -1, none, 30});
+    CHECK_OUTPUT(testing::eval_node<NullableCallableGraph<PlainCallableSource>>({1, none, 2}),
+                 {30, none, 30});
 }
 
 TEST_CASE("nullable binding: null ticks, silence and invalidation are distinct")

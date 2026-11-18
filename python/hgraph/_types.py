@@ -2489,7 +2489,12 @@ class _TSMeta(type):
         payload = _optional_payload(resolve_type_alias(scalar))
         try:
             if payload is not None:
-                value_type = _hgraph.optional_vt(_value_type(payload))
+                # Use the payload's TS representation: Callable is runtime
+                # data here, not the wiring-time fn selected by _value_type.
+                payload_ts = TS[payload]
+                if isinstance(payload_ts, _GenericTsExpr):
+                    raise _GenericType()
+                value_type = _hgraph.optional_vt(_hgraph.ts_value_vt(payload_ts.handle))
                 _bind_python_type(value_type, scalar)
             else:
                 value_type = _value_type(scalar)
