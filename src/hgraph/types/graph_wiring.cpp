@@ -1205,11 +1205,7 @@ WiringPortRef adapt_source_for_input_impl(Wiring &w,
       source.schema->element_ts()->kind == TSTypeKind::TS &&
       input_accepts_output_schema(input_schema->element_ts(),
                                   source.schema->element_ts());
-  // RFC 0050: a TS[T] source for a TS[Optional[T]] input is converted, so
-  // that each of its ticks is one whose value holds the payload.
-  const bool to_optional = graph_wiring_detail::binding_adapts_to_optional(
-      input_schema, source.schema);
-  if ((nominal_upcast || keyed_nominal_upcast || to_optional) &&
+  if ((nominal_upcast || keyed_nominal_upcast) &&
       !time_series_value_equivalent(input_schema, source.schema)) {
     WiringArg arg;
     arg.kind = WiringArg::Kind::TimeSeries;

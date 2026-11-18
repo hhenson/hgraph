@@ -752,35 +752,32 @@ namespace hgraph
         [[nodiscard]] const TSInputView &base() const noexcept { return *this; }
     };
 
-    /** ``TS<std::optional<T>>`` input (RFC 0050): a tick whose value holds a
+    /** ``TS<Optional<T>>`` input (RFC 0050): a tick whose value holds a
         payload or holds nothing. A tick whose value holds nothing is a tick
         like any other: the input is valid and modified, and its value has no
         payload. */
     template <fixed_string Name, typename TValue, auto... TPolicies>
-    class In<Name, TS<std::optional<TValue>>, TPolicies...> : public TSInputView
+    class In<Name, TS<Optional<TValue>>, TPolicies...> : public TSInputView
     {
       public:
-        using schema                     = TS<std::optional<TValue>>;
-        using value_type                 = std::optional<TValue>;
+        using schema                     = TS<Optional<TValue>>;
+        using value_type                 = OptionalView;
         static constexpr auto field_name = Name;
         static constexpr auto activity   = static_node_detail::resolved_input_activity<TPolicies...>();
         static constexpr auto validity   = static_node_detail::resolved_input_validity<TPolicies...>();
 
         explicit In(TSInputView view) noexcept : TSInputView(std::move(view)) {}
 
-        /** The current value as the ``std::optional`` it is, for a payload
-            that is a C++ scalar: ``std::nullopt`` when it holds nothing
-            (typed; shadows the erased ``value() -> ValueView``). */
-        [[nodiscard]] value_type value() const
-        {
-            const auto held = view().value();
-            if (!held.valid()) { return std::nullopt; }
-            return held.template checked_as<TValue>();
-        }
+        /** Borrow the nullable value. No payload copy or owning wrapper. */
+        [[nodiscard]] OptionalView value() const { return TSInputView::value().as_optional(); }
+        [[nodiscard]] OptionalView view() const { return value(); }
 
-        /** The current value as an erased view, for any payload: it says
-            whether a payload is held and gives it. */
-        [[nodiscard]] OptionalView view() const { return TSInputView::value().as_optional(); }
+        /** Borrow the payload, or an empty view for invalid/null input. */
+        [[nodiscard]] const ValueView try_value() const
+        {
+            if (!valid()) { return {}; }
+            return value().value();
+        }
 
         /** The underlying erased input view. */
         [[nodiscard]] const TSInputView &base() const noexcept { return *this; }
@@ -1334,16 +1331,16 @@ namespace hgraph
         }
     };
 
-    /** ``TS<std::optional<T>>`` output (RFC 0050). A node ticks a value
+    /** ``TS<Optional<T>>`` output (RFC 0050). A node ticks a value
         that holds a payload by setting the payload, ticks a value that holds
-        nothing by setting ``std::nullopt``, and does not tick by writing
+        nothing by setting ``Null``, and does not tick by writing
         nothing. */
     template <typename TValue>
-    class Out<TS<std::optional<TValue>>> : public TSOutputView
+    class Out<TS<Optional<TValue>>> : public TSOutputView
     {
       public:
-        using schema     = TS<std::optional<TValue>>;
-        using value_type = std::optional<TValue>;
+        using schema     = TS<Optional<TValue>>;
+        using value_type = OptionalView;
 
         Out(TSOutputView view, DateTime /*evaluation_time*/, const PreparedOutputRoute * /*route*/ = nullptr) noexcept
             : TSOutputView(std::move(view))
@@ -1362,28 +1359,25 @@ namespace hgraph
         template <typename U>
             requires(!std::derived_from<std::remove_cvref_t<U>, ValueView> &&
                      !std::same_as<std::remove_cvref_t<U>, Value> &&
-                     !std::same_as<std::remove_cvref_t<U>, std::nullopt_t> &&
-                     !std::same_as<std::remove_cvref_t<U>, std::optional<TValue>> &&
+                     !std::same_as<std::remove_cvref_t<U>, null_t> &&
                      std::constructible_from<TValue, U &&>)
         void set(U &&payload) const
         {
-            const TValue resolved{std::forward<U>(payload)};
-            write([&resolved](const MutableOptionalView &optional) {
-                optional.emplace(ValueView{optional.payload_binding(), static_cast<const void *>(&resolved)});
-            });
+            const auto assign = [this](const TValue &resolved) {
+                write([&resolved](const MutableOptionalView &optional) {
+                    optional.emplace(ValueView{optional.payload_binding(), static_cast<const void *>(&resolved)});
+                });
+            };
+            if constexpr (std::same_as<std::remove_cvref_t<U>, TValue>) { assign(payload); }
+            else { assign(TValue{std::forward<U>(payload)}); }
         }
 
-        /** Tick ``value`` as it is: a value that holds ``*value``, or one
-            that holds nothing. */
-        void set(const std::optional<TValue> &value) const
-        {
-            if (value.has_value()) { set(*value); }
-            else { set(std::nullopt); }
-        }
+        /** Publish the borrowed nullable value, copying only at the output. */
+        void set(const OptionalView &value) const { apply(value); }
 
         /** Tick a value that holds nothing: a tick that is valid and has no
             payload. Writing nothing is what does not tick. */
-        void set(std::nullopt_t) const
+        void set(null_t) const
         {
             write([](const MutableOptionalView &optional) { optional.reset(); });
         }
@@ -1394,7 +1388,7 @@ namespace hgraph
         {
             if (!value.is_optional())
             {
-                throw std::invalid_argument("Out<TS<std::optional<T>>>::apply requires an Optional value");
+                throw std::invalid_argument("Out<TS<Optional<T>>>::apply requires an Optional value");
             }
             auto mutation = TSOutputView::begin_mutation(evaluation_time());
             static_cast<void>(mutation.copy_value_from(value));
@@ -1419,7 +1413,7 @@ namespace hgraph
             change(held.view().as_optional().begin_mutation());
             if (!mutation.move_value_from(std::move(held)))
             {
-                throw std::logic_error("Out<TS<std::optional<T>>>: failed to move the value into the output");
+                throw std::logic_error("Out<TS<Optional<T>>>: failed to move the value into the output");
             }
         }
     };

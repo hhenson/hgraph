@@ -535,14 +535,14 @@ TEST_CASE("component checkpoint store: an Optional value keeps its type and both
     // and the payload's schema, so the value comes back an Optional, whether
     // it holds a payload or nothing.
     const ComponentCheckpointStore checkpoints;
-    const auto *schema = scalar_descriptor<std::optional<Int>>::value_meta();
+    const auto *schema = scalar_descriptor<Optional<Int>>::value_meta();
     const auto  binding = ValuePlanFactory::instance().type_for(schema);
     Value held{binding};
     held.view().as_optional().begin_mutation().emplace(Value{Int{5}}.view());
 
     auto checkpoint = fixture();
     checkpoint.graph.nodes.front().custom.payload = Value{binding};
-    checkpoint.graph.nodes.front().output->schema = schema_descriptor<TS<std::optional<Int>>>::ts_meta();
+    checkpoint.graph.nodes.front().output->schema = schema_descriptor<TS<Optional<Int>>>::ts_meta();
     checkpoint.graph.nodes.front().output->payload = held;
     const bool verify = GENERATE(false, true);
     const auto key = verify ? "verified-optional" : "plain-optional";

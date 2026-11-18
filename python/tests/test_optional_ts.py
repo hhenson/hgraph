@@ -325,3 +325,100 @@ def test_an_optional_series_does_not_bind_to_a_plain_input():
     # An Optional may be unset, and a plain input has no value for that.
     with pytest.raises(hg.IncorrectTypeBinding):
         eval_node(app, [1])
+
+
+@pytest.mark.parametrize("nullable", [False, True])
+def test_borrowed_input_preserves_invalidation_silence_and_recovery(nullable):
+    @compute_node
+    def plain(command: TS[int], _output: hg.TS_OUT[int] = None) -> TS[int]:
+        if command.value == -2:
+            _output.value = None
+        elif command.value >= 0:
+            return command.value
+
+    @compute_node
+    def optional(command: TS[int], _output: hg.TS_OUT[Optional[int]] = None) -> TS[Optional[int]]:
+        if command.value == -2:
+            _output.value = None
+        elif command.value == 0:
+            return Null
+        elif command.value > 0:
+            return command.value
+
+    @compute_node(valid=())
+    def sample(value: TS[Optional[int]], clock: TS[int]) -> TS[str]:
+        if not value.valid:
+            return "invalid"
+        return f"{value.value!r}:{'tick' if value.modified else 'held'}"
+
+    @graph
+    def app(command: TS[int]) -> TS[str]:
+        return sample((optional if nullable else plain)(command), command)
+
+    assert eval_node(app, [7, 0, -1, -2, -1, 9]) == [
+        "7:tick", "None:tick" if nullable else "0:tick",
+        "None:held" if nullable else "0:held", "invalid", "invalid", "9:tick",
+    ]
+
+
+def test_nullable_overload_widens_and_exact_overload_wins():
+    @hg.operator
+    def read(value: hg.TIME_SERIES_TYPE) -> TS[int]: ...
+
+    @compute_node(overloads=read)
+    def nullable(value: TS[Optional[int]]) -> TS[int]:
+        return -1 if value.value is None else value.value
+
+    @graph
+    def app(value: TS[int]) -> TS[int]:
+        return read(value)
+
+    assert eval_node(app, [5, None, 7]) == [5, None, 7]
+
+    @compute_node(overloads=read)
+    def exact(value: TS[int]) -> TS[int]:
+        return value.value + 100
+
+    assert eval_node(app, [5, None, 7]) == [105, None, 107]
+    @graph
+    def optional_app(value: TS[Optional[int]]) -> TS[int]:
+        return read(value)
+
+    assert eval_node(optional_app, [5, Null, 7]) == [5, -1, 7]
+
+
+def test_borrowed_graph_output_keeps_recordings_after_later_writes():
+    @graph
+    def widened(value: TS[int]) -> TS[Optional[int]]:
+        return value
+
+    assert eval_node(widened, [5, None, 7, 11]) == [5, None, 7, 11]
+    # The result is read after the producer has recovered and the graph stopped.
+    assert eval_node(cleared, [5, 0, -1, 7]) == [5, Null, None, 7]
+
+
+def test_borrowed_composite_payload_and_reference_retarget():
+    class Quote(CompoundScalar):
+        bid: int
+
+    @compute_node
+    def seen(value: TS[Optional[Quote]]) -> TS[int]:
+        return -1 if value.value is None else value.value.bid
+
+    @graph
+    def borrowed(value: TS[Quote]) -> TS[int]:
+        return seen(value)
+
+    assert eval_node(borrowed, [Quote(bid=5), None, Quote(bid=7)]) == [5, None, 7]
+
+    @compute_node
+    def read(value: TS[Optional[int]]) -> TS[int]:
+        return -1 if value.value is None else value.value
+
+    @graph
+    def selected(select: TS[bool], a: TS[int], b: TS[int]) -> TS[int]:
+        return read(hg.if_then_else(select, a, b))
+
+    result = eval_node(selected, [True, None, False, None], [5, None, None, None], [7, None, None, 9])
+    assert result[0] == 5
+    assert result[2:] == [7, 9]

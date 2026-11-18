@@ -2011,17 +2011,15 @@ namespace hgraph
         {
         };
 
-        /** RFC 0050: a ``TS<T>`` output binds to a ``TS<std::optional<T>>`` input,
-            through the adaptation binding adds. The reverse does not. Every
-            use of ``statically_accepts_output_v`` goes on to
-            ``adapt_source_for_input``, which is what makes this sound. */
+        /** Read-only nullable widening. The runtime endpoint borrows the
+            producer's payload and tracking; no conversion node is needed. */
         template <typename InputSchema, typename OutputSchema>
         struct statically_adapts_to_optional : std::false_type
         {
         };
 
         template <typename TValue>
-        struct statically_adapts_to_optional<TS<std::optional<TValue>>, TS<TValue>> : std::true_type
+        struct statically_adapts_to_optional<TS<Optional<TValue>>, TS<TValue>> : std::true_type
         {
         };
 
@@ -2030,7 +2028,7 @@ namespace hgraph
             std::is_same_v<InputSchema, SIGNAL> ||
             static_schema_equivalent<dereferenced_static_schema_t<InputSchema>,
                                      dereferenced_static_schema_t<OutputSchema>>::value ||
-            statically_adapts_to_optional<dereferenced_static_schema_t<InputSchema>,
+            statically_adapts_to_optional<InputSchema,
                                           dereferenced_static_schema_t<OutputSchema>>::value;
 
         [[nodiscard]] inline bool input_accepts_output_schema(const TSValueTypeMetaData *input_schema,
@@ -2052,6 +2050,11 @@ namespace hgraph
             {
                 const auto *input_element = input_schema->element_ts();
                 const auto *output_element = output_schema->element_ts();
+                // Nullable widening is an endpoint view, not collection covariance.
+                if (input_element != nullptr && output_element != nullptr &&
+                    input_element->kind == TSTypeKind::TS && output_element->kind == TSTypeKind::TS &&
+                    input_element->value_schema != output_element->value_schema &&
+                    input_element->value_schema->is_optional()) { return false; }
                 return input_element != nullptr && output_element != nullptr &&
                        input_element->kind == TSTypeKind::TS &&
                        output_element->kind == TSTypeKind::TS &&
@@ -2084,16 +2087,8 @@ namespace hgraph
                    registry.value_is_a(produced, expected);
         }
 
-        /**
-         * RFC 0050: true where ``output_schema`` is a ``TS[T]`` and
-         * ``input_schema`` a ``TS[Optional[T]]`` of the same ``T``.
-         *
-         * Such a source does not bind as it is: a ``T`` is stored as a ``T``
-         * and an ``Optional[T]`` as a payload and an engaged bit.
-         * ``adapt_source_for_input`` wires the conversion that publishes
-         * each tick as a value that holds it. The reverse is never true: an
-         * Optional may hold nothing, and a ``T`` may not.
-         */
+        /** True for the scalar TS[T] -> TS[Optional[T]] widening.
+            The payload type is exact; the reverse is never accepted. */
         [[nodiscard]] inline bool binding_adapts_to_optional(const TSValueTypeMetaData *input_schema,
                                                              const TSValueTypeMetaData *output_schema)
         {
@@ -2109,15 +2104,7 @@ namespace hgraph
                    !produced->is_optional() && expected->element_type == produced;
         }
 
-        /**
-         * What a site that goes on to adapt its source asks: the source
-         * binds as it is (``input_accepts_output_schema``), or binds once
-         * ``adapt_source_for_input`` has converted it.
-         *
-         * A site that binds, casts or compares without adapting asks
-         * ``input_accepts_output_schema``. A source this alone accepts must
-         * not reach an input unconverted.
-         */
+        /** Input binding includes runtime alternatives and wiring conversions. */
         [[nodiscard]] inline bool input_binds_output_schema(const TSValueTypeMetaData *input_schema,
                                                             const TSValueTypeMetaData *output_schema)
         {

@@ -740,16 +740,20 @@ namespace hgraph
         }
     };
 
-    /**
-     * ``Optional[T]`` (RFC 0050) is spelled with the C++ type that means it:
-     * ``std::optional<TValue>``, a value that holds one ``TValue`` or holds
-     * nothing. ``TS<std::optional<Int>>`` is the time series whose tick may
-     * be a null: a tick that is valid, wakes its consumers, and holds no
-     * payload. ``TValue`` is any value schema other than ``any`` and another
-     * optional.
-     */
+    /** Schema-only nullable marker. Runtime access uses OptionalView. */
     template <typename TValue>
-    struct scalar_descriptor<std::optional<TValue>>
+    struct Optional
+    {
+        using payload_type = TValue;
+        Optional() = delete;
+    };
+
+    /** Publish a valid null value; doing nothing remains a silent tick. */
+    struct null_t {};
+    inline constexpr null_t Null{};
+
+    template <typename TValue>
+    struct scalar_descriptor<Optional<TValue>>
     {
         [[nodiscard]] static constexpr bool is_concrete() noexcept
         {

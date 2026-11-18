@@ -207,7 +207,7 @@ typed-null value still means there is no value at all.
   reader leaves a ``null`` to the Optional, so the field or the entry is
   read as set, holding a value that holds nothing.
 - A schema table writes the kind and the payload's schema.
-- ``Out<TS<std::optional<T>>>`` writes in place where the output's storage
+- ``Out<TS<Optional<T>>>`` writes in place where the output's storage
   is the value's own: a tick costs the payload's copy and one engaged bit,
   and allocates nothing for a payload that needs nothing.
 
@@ -446,3 +446,9 @@ the interned schema. Its forms:
   cache is also the admission set -- after 4096 distinct forms a new one is
   refused before it is parsed, so decoding interns a bounded number of
   schemas.
+
+A plain ``TS[T]`` may expose a read-only ``TS[Optional[T]]`` output alternative.
+Its nullable value ops borrow the source's value and its TS ops share tracking.
+The strategy is selected at binding time; reads allocate no owning Optional.
+Capturing a view selects the ordinary owning representation. Timestamp packing
+is not part of this representation.

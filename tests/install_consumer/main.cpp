@@ -438,17 +438,18 @@ void check_typed_outcome() {
     if (!error.context || error.context->node != "owned") { throw std::runtime_error("installed error provenance lifetime was lost"); }
 }
 // RFC 0050: a node of the installed SDK publishes a tick whose value is
-// nothing, and one that holds a payload, through ``std::optional<T>``.
+// nothing, and one that holds a payload, through ``Optional<T>``.
 struct ConsumerOptional {
-    static void eval(In<"ts", TS<Int>> ts, Out<TS<std::optional<Int>>> out) {
-        if (ts.value() == 0) { out.set(std::nullopt); }
+    static void eval(In<"ts", TS<Int>> ts, Out<TS<Optional<Int>>> out) {
+        if (ts.value() == 0) { out.set(Null); }
         else { out.set(ts.value()); }
     }
 };
 struct ConsumerOptionalRead {
-    static void eval(In<"ts", TS<std::optional<Int>>> ts, Out<TS<Int>> out) {
-        const std::optional<Int> held = ts.value();
-        out.set(held.has_value() ? *held : Int{-1});
+    static void eval(In<"ts", TS<Optional<Int>>> ts, Out<TS<Int>> out) {
+        const auto held = ts.value();
+        const auto *payload = held.try_value<Int>();
+        out.set(payload ? *payload : Int{-1});
     }
 };
 struct ConsumerOptionalGraph {
@@ -456,10 +457,19 @@ struct ConsumerOptionalGraph {
         return wire<ConsumerOptionalRead>(w, wire<ConsumerOptional>(w, input));
     }
 };
+struct ConsumerBorrowedOptionalGraph {
+    static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> input) {
+        return wire<ConsumerOptionalRead>(w, input);
+    }
+};
 void check_optional() {
     const auto result = testing::eval_node<ConsumerOptionalGraph>(std::vector<std::optional<Int>>{5, 0, std::nullopt, 7});
     if (result != std::vector<std::optional<Int>>{5, -1, std::nullopt, 7})
-        throw std::runtime_error("installed std::optional<T> node API is unusable");
+        throw std::runtime_error("installed Optional<T> node API is unusable");
+    const auto widened = testing::eval_node<ConsumerBorrowedOptionalGraph>(
+        std::vector<std::optional<Int>>{5, 0, std::nullopt, 7});
+    if (widened != std::vector<std::optional<Int>>{5, 0, std::nullopt, 7})
+        throw std::runtime_error("installed borrowed nullable binding is unusable");
 }
 void check_mixed_state() {
     const auto result = testing::eval_node<ConsumerMixedState>(std::vector<std::optional<Int>>{1, 2});

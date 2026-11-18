@@ -182,13 +182,13 @@ ticks the output at the current evaluation time. A node has **at most one**
 In Python you ``return`` the value; in C++ you call ``out.set(...)``. Not calling
 ``set`` (Python: returning ``None``) leaves the output unticked for that cycle.
 
-A tick that is null — ``TS<std::optional<T>>``
+A tick that is null — ``TS<Optional<T>>``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 **Available.** A ``TS<T>`` either ticks a ``T`` or does not tick. Where a
 node must also be able to say "there is a value now, and it is nothing", declare
-the output ``TS<std::optional<T>>`` (Python: ``TS[Optional[T]]``). The value type
-is ``Optional[T]``, and C++ spells it with the type that means it. Such a tick is a
+the output ``TS<Optional<T>>`` (Python: ``TS[Optional[T]]``). The value type
+is ``Optional[T]``; ``Optional<T>`` is a schema marker with no owned value. Such a tick is a
 tick like any other: the output is valid, it is modified, and it wakes its
 consumers; its value holds no payload.
 
@@ -198,9 +198,9 @@ consumers; its value holds no payload.
    {
        static constexpr auto name = "cleared";
 
-       static void eval(In<"command", TS<Int>> command, Out<TS<std::optional<Int>>> out)
+       static void eval(In<"command", TS<Int>> command, Out<TS<Optional<Int>>> out)
        {
-           if (command.value() == 0) { out.set(std::nullopt); return; }  // a tick whose value is null
+           if (command.value() == 0) { out.set(Null); return; }  // a tick whose value is null
            if (command.value() < 0) { return; }                          // no tick
            out.set(command.value());                                     // a tick that holds the value
        }
@@ -210,10 +210,10 @@ consumers; its value holds no payload.
    {
        static constexpr auto name = "or_minus_one";
 
-       static void eval(In<"value", TS<std::optional<Int>>> value, Out<TS<Int>> out)
+       static void eval(In<"value", TS<Optional<Int>>> value, Out<TS<Int>> out)
        {
-           const std::optional<Int> held = value.value();
-           out.set(held.has_value() ? *held : Int{-1});
+           const Int *held = value.value().try_value<Int>();
+           out.set(held != nullptr ? *held : Int{-1});
        }
    };
 
@@ -235,22 +235,21 @@ In Python a value that holds nothing is the sentinel ``Null``: a node returns it
 ``eval_node`` vector spells it, and ``delta_value`` reads it. ``value`` reads
 ``None`` for a tick whose value holds nothing.
 
-``In<..., TS<std::optional<T>>>::value()`` is the ``std::optional<T>`` itself, for a
-payload that is a C++ scalar. ``view()`` is an ``OptionalView``, for any payload:
-``has_value()`` says whether a payload is held and ``value()`` gives it as a
-``ValueView``. ``Out<TS<std::optional<T>>>::set`` takes a payload, a
-``std::optional<T>``, or ``std::nullopt``; the erased ``apply(value)`` takes an
-``Optional`` value whatever it holds.
+``value()`` and ``view()`` return a borrowed ``OptionalView``.
+``has_value()`` tests presence; ``value()`` borrows the payload as a ``ValueView``;
+``try_value<T>()`` returns a native pointer or ``nullptr``. For unchecked inputs,
+``input.try_value()`` safely returns an empty view for invalid or null input;
+``input.valid()`` distinguishes the two.
 
-In a test, ``none`` is still no tick, and a tick is an ``Optional`` value, holding
-its payload or nothing: ``eval_node`` tells the three apart.
+``out.set(payload)`` publishes a value, ``out.set(Null)`` publishes null, and
+``out.set(optional_view)`` publishes a borrowed nullable value. In test vectors,
+``none`` remains silence. Use ``Value{view}`` to retain a snapshot beyond the
+producer's next write or lifetime.
 
-A ``TS<T>`` source may be wired to a ``TS<std::optional<T>>`` input: binding adds a
-conversion, and the node sees each tick as a value that holds it. The reverse is
-a wiring error, since an ``Optional`` may hold nothing and a ``T`` may not. This
-is for a node or graph wired by its own name. An operator's overloads are chosen
-by the types as given, so a ``TS<T>`` argument does not select an overload that
-declares ``TS<std::optional<T>>``; convert it first.
+A ``TS<T>`` source binds to ``TS<Optional<T>>`` through a read-only view over
+its existing payload and tracking. No conversion node is inserted. Overloads
+accept this widening and prefer an exact ``TS<T>`` match. The reverse binding
+is rejected.
 
 No arithmetic or container operator applies to an ``Optional``: it is no tuple and no
 number. A table does not record one yet, and refuses it where the table is wired.

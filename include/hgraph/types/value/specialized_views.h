@@ -1104,6 +1104,11 @@ namespace hgraph
             return ValueView{payload_binding(), ops_->element_at(ops_->context, data(), 0)};
         }
 
+        /** Native payload pointer, or null when absent or of another type.
+            The pointer borrows the producer and must not outlive the view's source. */
+        template <typename T>
+        [[nodiscard]] const T *try_value() const { return value().template try_as<T>(); }
+
         /** The payload's type, held or not. */
         [[nodiscard]] ValueTypeRef payload_binding() const noexcept
         {

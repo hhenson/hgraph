@@ -19,8 +19,8 @@ the ``None`` of the union is dropped where the value type is made, a node
 that returns ``None`` does not tick, and ``output.value = None`` invalidates.
 Part 1 of issue #1797 asks for the missing tick.
 
-This RFC adds one value type, ``Optional[T]``, and nothing to the
-time-series layer.
+This RFC adds ``Optional[T]`` and a borrowed time-series binding.
+Existing owning storage and timestamp representation remain unchanged.
 
 Ownership
 ---------
@@ -58,20 +58,21 @@ No arithmetic or other operator is defined on ``Optional[T]``. Operators that
 take any scalar (pass-through, ``const``, equality, selection, collection of
 values) take it as they take any other value.
 
-In C++ a signature spells it with the type that means it,
-``std::optional<T>``: ``In<"x", TS<std::optional<Int>>>`` and
-``Out<TS<std::optional<Int>>>``. The erased views are named as that type's
-members are:
+C++ signatures use the schema-only marker ``Optional<T>``:
+``In<"x", TS<Optional<Int>>>`` and ``Out<TS<Optional<Int>>>``.
+The marker owns no payload and cannot be constructed.
 
-* ``ValueView::as_optional()`` gives an ``OptionalView`` with ``has_value()``,
-  ``operator bool`` and ``value()``; its ``begin_mutation()`` gives a
-  ``MutableOptionalView`` with ``emplace(payload)`` and ``reset()``.
-* ``In<"x", TS<std::optional<T>>>::value()`` is the ``std::optional<T>``,
-  for a payload that is a C++ scalar, and ``view()`` the ``OptionalView``,
-  for any payload.
-* ``Out<TS<std::optional<T>>>::set`` takes a payload, a ``std::optional<T>``
-  or ``std::nullopt``; the erased ``apply(value)`` takes an ``Optional``
-  value.
+* ``value()`` and ``view()`` on the input return a borrowed ``OptionalView``.
+* ``has_value()`` tests presence. ``value()`` on that view borrows the payload
+  as a ``ValueView``; it is empty for null. ``try_value<T>()`` returns a native
+  payload pointer, or ``nullptr`` when absent or of another type.
+* ``input.try_value()`` also handles invalid inputs, returning an empty view.
+  Check ``input.valid()`` to distinguish invalidity from valid-null.
+* ``out.set(payload)`` publishes a value; ``out.set(Null)`` publishes null.
+  ``out.set(optional_view)`` or ``out.apply(erased_optional)`` copies a nullable
+  value into the output. Writing nothing remains silence.
+* Borrowed views and pointers are live observations, valid only within the
+  producer's lifetime. ``Value{view}`` makes an owning capture.
 
 In Python, ``TS[Optional[T]]`` and ``TS[T | None]`` are the time series of
 ``Optional[T]``. A sentinel ``Null`` stands beside ``REMOVE`` in
@@ -118,38 +119,19 @@ compared by identity.
 |                                   | as today                              |
 +-----------------------------------+---------------------------------------+
 
-A ``TS[T]`` source bound to a ``TS[Optional[T]]`` input is accepted: binding
-adds the adaptation that publishes each tick as a held payload. The reverse
-is a wiring error.
+A ``TS[T]`` source binds directly to a ``TS[Optional[T]]`` input through a
+read-only output alternative. The view shares the producer's payload, tracking
+and notifications. Binding creates no conversion node and copies no payload.
+An invalid source stays invalid; it does not become a valid null.
 
-The adaptation is the ``convert`` overload ``convert_to_optional``, wired by
-``adapt_source_for_input`` as a nominal upcast is. ``T`` is the payload's own
-type: a subtype of it is not adapted.
+``T`` must be the exact payload type. The reverse binding is rejected.
+Overload matching admits the widening and prefers an exact ``TS[T]`` match.
+Python uses the same C++ matcher and runtime binding.
 
-A ``T`` and an ``Optional[T]`` are stored differently, so such a source
-never binds as it is. Two questions are therefore kept apart:
-
-* ``input_accepts_output_schema`` is whether a source binds as it is. It
-  says no here. Whatever binds, casts or compares without adapting its
-  source asks it: a port cast, ``TSL.from_ts``, a service's endpoint, a
-  mapped child, a type variable's second binding.
-* ``input_binds_output_schema`` adds the adaptation
-  (``binding_adapts_to_optional``). Only a site that goes on to
-  ``adapt_source_for_input`` asks it: the inputs and context inputs of a
-  node, a sub-graph call and ``lift``, and the declared output of a wired
-  function, a dispatch branch and a Python graph function.
-
-Overload selection does not consider the adaptation. An operator's
-candidates are matched by type pattern, and a ``TS[T]`` argument matches no
-candidate that declares ``TS[Optional[T]]``: the call is converted first,
-``convert[TS[Optional[T]]](ts)``, or the candidate is wired by its own name.
-Selecting through the adaptation needs a rank for it beside the nominal
-distance, so that a candidate on ``TS[T]`` is still preferred, and is left
-for a later change.
-
-In Python, ``binding_matches`` has the same widening as its last case. A
-Python node needs no conversion node: its input reads through the source's
-own schema, and so reads each tick as the payload it is.
+The logical optional kind remains distinct from ``T``. A plain source's borrowed
+representation has no engaged word; its valid values are always present.
+Captures use the existing owning Optional representation, so later writes,
+invalidation or graph teardown cannot change earlier recordings.
 
 Only the scalar directly under ``TS[...]`` changes. An ``Optional[X]`` field
 of a ``CompoundScalar`` stays a field of ``X`` that may be unset, and an
@@ -208,7 +190,7 @@ change to ``hgraph_spec``.
 Performance
 -----------
 
-No existing path changes. A tick of ``Optional[T]`` costs the payload's copy
+A published tick of ``Optional[T]`` costs the payload's copy
 and one validity-word write, with no allocation for a payload that needs
 none. The Python fast compute path stays for the atomic kinds it covers
 today; an ``Optional`` output uses the erased apply.
@@ -239,8 +221,7 @@ The three questions this RFC left open were built as it proposed.
 
 Left for later changes: table recording through the presence column of
 RFC 0019; ``TS[Optional[T]]`` over a type variable in Python; a payload
-that is a subtype of the declared one at the binding adaptation; and the
-adaptation in an operator's overload selection.
+that is a subtype of the declared one at the binding adaptation; and structural collection widening. Timestamp packing is deferred.
 
 Acceptance criteria and test plan
 ---------------------------------
@@ -250,7 +231,7 @@ Acceptance criteria and test plan
   native node publishes a held payload, the unset state and no tick, and
   ``eval_node`` tells the three apart; the binary and JSON codecs round-trip
   both states; an installed-SDK consumer builds a node that uses
-  ``std::optional<T>``.
+  ``Optional<T>`` and borrowed value access.
 * Python: the node above; ``Null`` refused on an output that is not
   ``Optional``; ``value`` and ``delta_value`` in the three cases;
   ``eval_node`` vectors and results; a ``TS[T]`` source bound to an

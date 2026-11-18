@@ -32,6 +32,8 @@ namespace hgraph::detail
     class TSOutputAlternativeStore
     {
       public:
+        struct NullableAlternativeState;
+        struct NullableAlternativeDelete { void operator()(NullableAlternativeState *) const noexcept; };
         struct ToRefAlternativeState;
         struct RefLinkAlternativeState;
         struct InteriorFromRefAlternativeState;
@@ -117,6 +119,11 @@ namespace hgraph::detail
         [[nodiscard]] TSOutputHandle from_ref_interior_binding(const AlternativeKey &key,
                                                                const TSOutputView &source,
                                                                const TSValueTypeMetaData &requested_schema);
+
+        [[nodiscard]] TSOutputHandle nullable_binding(const AlternativeKey &key,
+            const TSOutputView &source, const TSValueTypeMetaData &requested_schema);
+        SmallDensePtrMap<AlternativeKey, NullableAlternativeState,
+                         NullableAlternativeDelete, AlternativeKeyHash> nullable_alternatives_{};
 
         SmallDensePtrMap<AlternativeKey, ToRefAlternativeState,
                          ToRefAlternativeDelete, AlternativeKeyHash> to_ref_alternatives_{};

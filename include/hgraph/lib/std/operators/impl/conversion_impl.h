@@ -444,8 +444,8 @@ namespace hgraph::stdlib
 
     /** RFC 0050: a ``TS[T]`` as a ``TS[Optional[T]]``. Each tick is
         published as a value that holds it; the output is never unset. This
-        is the adaptation binding adds where a ``TS[T]`` source meets a
-        ``TS[Optional[T]]`` input. */
+        explicit conversion materializes a nullable output; ordinary binding
+        uses a borrowed view instead. */
     struct convert_to_optional_impl
     {
         static constexpr auto name = "convert_to_optional";
@@ -467,7 +467,7 @@ namespace hgraph::stdlib
             const auto &erased = static_cast<const TSOutputView &>(out);
             auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
             // In place where the output's storage is the value's own, as
-            // ``Out<TS<std::optional<T>>>::set`` writes.
+            // ``Out<TS<Optional<T>>>::set`` writes.
             if (auto destination = mutation.mutable_value(); destination.valid())
             {
                 destination.as_mutable_optional().emplace(ts.base().value());

@@ -45,7 +45,7 @@ namespace
     /** An ``Optional[int]`` that holds ``payload``. */
     [[nodiscard]] Value held(Int payload)
     {
-        const auto *schema = scalar_descriptor<std::optional<Int>>::value_meta();
+        const auto *schema = scalar_descriptor<Optional<Int>>::value_meta();
         Value       value{ValuePlanFactory::instance().type_for(schema)};
         value.view().as_optional().begin_mutation().emplace(Value{payload}.view());
         return value;
@@ -54,7 +54,7 @@ namespace
     /** An ``Optional[int]`` in the unset state. */
     [[nodiscard]] Value unset()
     {
-        const auto *schema = scalar_descriptor<std::optional<Int>>::value_meta();
+        const auto *schema = scalar_descriptor<Optional<Int>>::value_meta();
         return Value{ValuePlanFactory::instance().type_for(schema)};
     }
 }  // namespace
@@ -114,15 +114,16 @@ TEST_CASE("Optional: its name reads back to the schema, and its descriptor is it
     CHECK(manifest::value_descriptor(optional_int) == manifest::value_descriptor(registry.optional(int_meta)));
 }
 
-TEST_CASE("Optional: the static schema spells it std::optional<T>")
+TEST_CASE("Optional: the static schema marker carries no value")
 {
     auto       &registry = TypeRegistry::instance();
     const auto *int_meta = scalar_descriptor<Int>::value_meta();
 
-    REQUIRE(scalar_descriptor<std::optional<Int>>::is_concrete());
-    CHECK(scalar_descriptor<std::optional<Int>>::value_meta() == registry.optional(int_meta));
-    CHECK(schema_descriptor<TS<std::optional<Int>>>::ts_meta() == registry.ts(registry.optional(int_meta)));
-    CHECK(scalar_descriptor<std::optional<Tuple<Int, Str>>>::value_meta() ==
+    STATIC_REQUIRE_FALSE(std::is_default_constructible_v<Optional<Int>>);
+    REQUIRE(scalar_descriptor<Optional<Int>>::is_concrete());
+    CHECK(scalar_descriptor<Optional<Int>>::value_meta() == registry.optional(int_meta));
+    CHECK(schema_descriptor<TS<Optional<Int>>>::ts_meta() == registry.ts(registry.optional(int_meta)));
+    CHECK(scalar_descriptor<Optional<Tuple<Int, Str>>>::value_meta() ==
           registry.optional(scalar_descriptor<Tuple<Int, Str>>::value_meta()));
 }
 
@@ -270,7 +271,7 @@ TEST_CASE("Optional: a payload may be a composite")
 
 TEST_CASE("Optional: the binary form is a presence tag and then the payload")
 {
-    const auto *schema = scalar_descriptor<std::optional<Int>>::value_meta();
+    const auto *schema = scalar_descriptor<Optional<Int>>::value_meta();
 
     const Value none = unset();
     const auto  none_bytes = to_binary_string(none.view());
@@ -297,7 +298,7 @@ TEST_CASE("Optional: the binary form is a presence tag and then the payload")
 TEST_CASE("Optional: the JSON form is null, or the payload's own")
 {
     auto       &registry = TypeRegistry::instance();
-    const auto *schema = scalar_descriptor<std::optional<Int>>::value_meta();
+    const auto *schema = scalar_descriptor<Optional<Int>>::value_meta();
 
     CHECK(to_json_string(unset().view()) == "null");
     CHECK(to_json_string(held(5).view()) == "5");
@@ -326,7 +327,7 @@ TEST_CASE("Optional: the JSON form is null, or the payload's own")
 TEST_CASE("Optional: nested in a composite or a map it reads its own JSON null")
 {
     auto       &registry = TypeRegistry::instance();
-    const auto *optional_int = scalar_descriptor<std::optional<Int>>::value_meta();
+    const auto *optional_int = scalar_descriptor<Optional<Int>>::value_meta();
 
     // A tuple's field: `[null]` is a field that holds an unset Optional.
     const auto *tuple = registry.tuple({optional_int, optional_int});
@@ -479,7 +480,7 @@ TEST_CASE("Optional: two realizations of one schema compare as one")
 {
     // The same schema, realized with its canonical binding and with one
     // made from its payload's binding.
-    const auto *schema = scalar_descriptor<std::optional<Int>>::value_meta();
+    const auto *schema = scalar_descriptor<Optional<Int>>::value_meta();
     auto       &factory = ValuePlanFactory::instance();
     const auto  canonical = factory.type_for(schema);
     const std::array<ValueTypeRef, 1> payload{factory.type_for(scalar_descriptor<Int>::value_meta())};
@@ -517,7 +518,7 @@ TEST_CASE("Optional: a manifest encodes whether it holds a payload, and then the
         manifest::encode_manifest_scalar(writer, value.view());
         return writer.take();
     };
-    const auto *schema = scalar_descriptor<std::optional<Int>>::value_meta();
+    const auto *schema = scalar_descriptor<Optional<Int>>::value_meta();
     std::string reason;
     REQUIRE(manifest::manifest_scalar_encodable(schema, &reason));
 

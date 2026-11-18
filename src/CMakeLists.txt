@@ -89,6 +89,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/time_series/ts_input/window_view.cpp
     hgraph/types/time_series/ts_output.cpp
     hgraph/types/time_series/ts_output/alternative.cpp
+    hgraph/types/time_series/ts_output/impl/nullable.cpp
     hgraph/types/time_series/ts_output/base_view.cpp
     hgraph/types/time_series/ts_output/bundle_view.cpp
     hgraph/types/time_series/ts_output/dict_view.cpp

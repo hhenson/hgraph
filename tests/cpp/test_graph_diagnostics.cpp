@@ -88,7 +88,7 @@ namespace
         static constexpr auto name = "diagnostics_optional_source";
         static constexpr bool schedule_on_start = true;
 
-        static void eval(Out<TS<std::optional<Int>>> out) { out.set(Int{42}); }
+        static void eval(Out<TS<Optional<Int>>> out) { out.set(Int{42}); }
     };
 
     struct DiagnosticsNullSource
@@ -96,7 +96,7 @@ namespace
         static constexpr auto name = "diagnostics_null_source";
         static constexpr bool schedule_on_start = true;
 
-        static void eval(Out<TS<std::optional<Int>>> out) { out.set(std::nullopt); }
+        static void eval(Out<TS<Optional<Int>>> out) { out.set(Null); }
     };
 
     struct DiagnosticsOptionalGraph
