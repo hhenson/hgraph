@@ -176,6 +176,7 @@ namespace hgraph
         ValueSlotStore                values_{};
         std::vector<DateTime>         built_times_{};
         ankerl::unordered_dense::set<std::size_t> pending_builds_{};
+        ankerl::unordered_dense::set<std::size_t> pending_rechecks_{};
         DateTime                      updated_window_{MIN_DT};   // lazy delta-window roll
         // The bitmap has no set bit in [updated_search_begin_, updated_search_next_).
         // Child records maintain this interval; window/structural changes discard it.

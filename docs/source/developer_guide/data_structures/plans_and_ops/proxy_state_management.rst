@@ -712,7 +712,10 @@ same evaluation time remain visible, including after restarting iteration.
 
 Structural callbacks index pending builds by slot. A source wake retries
 only those pending live slots and visits the source's modified slots. A
-successful build removes its pending entry; a failure retains it. Removal,
+successful build removes its pending entry; a failure retains it. Eager
+resurrection retains an identity recheck until the next source wake, since a
+reference rewrite can follow insertion after the current wake was consumed.
+This separate recheck index survives intervening projected reads. Removal,
 erase, clear and source replacement discard obsolete entries. Initial bind
 and full source replacement still synchronise the whole collection.
 

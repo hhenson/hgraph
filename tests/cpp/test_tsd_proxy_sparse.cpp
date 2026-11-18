@@ -347,3 +347,34 @@ TEST_CASE("Dense mixed proxy changes never repeatedly search a distant source bi
     REQUIRE(CountedDict<0>::seek_span <= 2 * n);
     REQUIRE(CountedDict<0>::visits < 10 * n);
 }
+
+TEST_CASE("Proxy resurrection rechecks its slot after source delta rollover", "[proxy][sparse]") {
+    using namespace hgraph;
+    FlatFixture f(4096);
+    auto        source_data = f.source.view();
+    auto        source      = source_data.as_dict();
+    auto        proxy_data  = f.proxy.view();
+    auto       &storage     = *static_cast<TSDProxy *>(const_cast<void *>(proxy_data.data()));
+    Value       key{std::int32_t{2048}}, added{std::int32_t{4096}};
+    const auto  slot = source.find_slot(key.view());
+    {
+        auto m = source.begin_mutation(MIN_ST + TimeDelta{1});
+        REQUIRE(m.erase(key.view()));
+        m.set(key.view(), f.one.view());
+    }
+    SECTION("before any projected read") {}
+    SECTION("after a projected read followed by another same-time rewrite") {
+        REQUIRE(proxy_data.as_dict().at(key.view()).value().checked_as<std::int32_t>() == 1);
+    }
+    Value latest{std::int32_t{2}};
+    static_cast<void>(source.at(key.view()).begin_mutation(MIN_ST + TimeDelta{1}).copy_value_from(latest.view()));
+    CountedDict<0>::reset();
+    {
+        auto m = source.begin_mutation(MIN_ST + TimeDelta{2});
+        m.set(added.view(), f.one.view());
+    }
+    // Inspect storage without a projected read, which would reconcile lazily.
+    auto child = TSDataView{storage.element_type(), storage.owned_child_memory(slot)};
+    REQUIRE(child.value().checked_as<std::int32_t>() == 2);
+    REQUIRE(CountedDict<0>::visits < 100);
+}
