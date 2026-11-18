@@ -230,16 +230,24 @@ def _shown(delta) -> str:
     return repr(delta)
 
 
-def test_a_sampled_list_in_a_dictionary_keeps_an_unset_child_as_null():
+@pytest.mark.parametrize("shape", ["list", "bundle"])
+def test_a_sampled_aggregate_in_a_dictionary_keeps_an_unset_child_as_null(shape):
     # A sampled rebind gives an aggregate's current value where its delta
     # is asked for. Each child is given in the form a delta of it has, all
     # the way down, so a child whose value is unset reads ``Null`` and not
     # ``None``, which an output would take for "this child did not tick".
-    Pairs = hg.TSD[str, hg.TSL[TS[Optional[int]], hg.Size[2]]]
+    class Pair(hg.TimeSeriesSchema):
+        left: TS[Optional[int]]
+        right: TS[Optional[int]]
+
+    Child = hg.TSL[TS[Optional[int]], hg.Size[2]] if shape == "list" else hg.TSB[Pair]
+    Pairs = hg.TSD[str, Child]
 
     @compute_node
     def keyed(command: TS[int]) -> Pairs:
-        return {"x": (Null if command.value == 0 else command.value, 7)}
+        left = Null if command.value == 0 else command.value
+        payload = (left, 7) if shape == "list" else {"left": left, "right": 7}
+        return {"x": payload}
 
     @compute_node
     def seen(value: Pairs) -> TS[str]:
@@ -250,31 +258,6 @@ def test_a_sampled_list_in_a_dictionary_keeps_an_unset_child_as_null():
         return seen(hg.if_then_else(select, keyed(a), keyed(b)))
 
     # The dictionary switched to was valid already, and holds the unset child.
-    result = eval_node(app, [True, None, False], [5, None, None], [0, None, None])
-    assert "Null" in result[2]
-    assert "7" in result[2]
-    assert "None" not in result[2]
-
-
-def test_a_sampled_bundle_in_a_dictionary_keeps_an_unset_child_as_null():
-    class Pair(hg.TimeSeriesSchema):
-        left: TS[Optional[int]]
-        right: TS[Optional[int]]
-
-    Pairs = hg.TSD[str, hg.TSB[Pair]]
-
-    @compute_node
-    def keyed(command: TS[int]) -> Pairs:
-        return {"x": {"left": Null if command.value == 0 else command.value, "right": 7}}
-
-    @compute_node
-    def seen(value: Pairs) -> TS[str]:
-        return _shown(value.delta_value)
-
-    @graph
-    def app(select: TS[bool], a: TS[int], b: TS[int]) -> TS[str]:
-        return seen(hg.if_then_else(select, keyed(a), keyed(b)))
-
     result = eval_node(app, [True, None, False], [5, None, None], [0, None, None])
     assert "Null" in result[2]
     assert "7" in result[2]
