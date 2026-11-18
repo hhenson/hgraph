@@ -28,6 +28,14 @@ Ordinary source child value ticks are not structural events. For the
 to-``REF`` alternative they do not rebuild or tick the proxy, because
 the reference identity remains the same.
 
+For from-``REF`` proxies, ``SourceChildNotifier`` observes each live source
+child and notifies only lookups for that key. Binding refresh stays lazy until
+the lookup reads the slot. This preserves later reference publications
+in a cycle after the source root has already notified. Removal detaches the
+observer before stopping the child; insertion reattaches it. Whole-source
+replacement and teardown detach all child observers. To-``REF`` proxies do not
+allocate these observers.
+
 There are two distinct to-``REF`` shapes involving ``TSD``:
 
 .. code-block:: text

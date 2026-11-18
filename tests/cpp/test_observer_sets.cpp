@@ -1,5 +1,6 @@
 #include <hgraph/types/time_series/ts_data/types.h>
 #include <hgraph/types/utils/slot_observer.h>
+#include <hgraph/types/value/value.h>
 
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -241,4 +242,58 @@ TEST_CASE("indexed TSData invalidation detaches registrations during notificatio
         registry.unsubscribe(&observers[i - 1]);
     }
     REQUIRE(registry.empty());
+}
+
+TEST_CASE("keyed observers isolate notifications and permit callback teardown", "[observers][keyed]")
+{
+    TSDataObserverSet registry;
+    Observer first, second, unrelated, whole;
+    const Value key{Int{1}}, other{Int{2}};
+    registry.subscribe(&whole);
+    registry.subscribe_key(key.view(), &first);
+    registry.subscribe_key(key.view(), &second);
+    registry.subscribe_key(other.view(), &unrelated);
+    first.callback = [&] { registry.unsubscribe_key(key.view(), &first); };
+    registry.notify_key(key.view(), MIN_ST);
+    CHECK(first.calls == 1);
+    CHECK(second.calls == 1);
+    CHECK(unrelated.calls == 0);
+    CHECK(whole.calls == 0);
+    registry.notify_key(key.view(), MIN_ST);
+    CHECK(second.calls == 1);
+    registry.notify(MIN_ST);
+    CHECK(whole.calls == 1);
+    CHECK(second.calls == 1);
+    registry.notify_keys(MIN_ST + MIN_TD);
+    CHECK(second.calls == 2);
+    CHECK(unrelated.calls == 1);
+    TSDataTracking source;
+    registry.invalidate(&source);
+    CHECK(second.invalidations == 1);
+    CHECK(unrelated.invalidations == 1);
+    CHECK(whole.invalidations == 1);
+    CHECK(first.invalidations == 0);
+    CHECK(registry.empty());
+}
+
+TEST_CASE("keyed observer dispatch survives clearing and exceptions", "[observers][keyed]")
+{
+    TSDataObserverSet registry;
+    Observer first, second;
+    const Value key{Int{1}};
+    registry.subscribe_key(key.view(), &first);
+    registry.subscribe_key(key.view(), &second);
+    first.callback = [&] { registry.clear(); };
+    registry.notify_key(key.view(), MIN_ST);
+    CHECK(first.calls == 1);
+    CHECK(second.calls == 0);
+    CHECK(registry.empty());
+    CHECK(registry.dynamic_storage_metrics().reserved_bytes == 0);
+
+    first.callback = [] { throw std::runtime_error("callback failure"); };
+    registry.subscribe_key(key.view(), &first);
+    CHECK_THROWS_AS(registry.notify_key(key.view(), MIN_ST + MIN_TD), std::runtime_error);
+    registry.unsubscribe_key(key.view(), &first);
+    CHECK(registry.empty());
+    CHECK(registry.dynamic_storage_metrics().reserved_bytes == 0);
 }

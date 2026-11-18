@@ -2697,7 +2697,7 @@ namespace hgraph
 
         DynamicStorageMetrics TSInputActiveTarget::dynamic_storage_metrics() const noexcept
         {
-            DynamicStorageMetrics result = children.dynamic_storage_metrics();
+            DynamicStorageMetrics result = children.dynamic_storage_metrics() + key.dynamic_storage_metrics();
             children.for_each([&](std::size_t, const TSInputActiveTarget &child) {
                 result.live_bytes += sizeof(TSInputActiveTarget);
                 result.reserved_bytes += sizeof(TSInputActiveTarget);
@@ -2711,10 +2711,13 @@ namespace hgraph
             return children.ensure(slot_, [&] { return std::make_unique<TSInputActiveTarget>(this, slot_); });
         }
 
-        void TSInputActiveTarget::subscribe(const TSDataView &observed_, Notifiable *target_notifier)
+        void TSInputActiveTarget::subscribe(const TSDataView &observed_, Notifiable *target_notifier,
+                                          const ValueView *selected_key)
         {
             if (observed_.valid() && observed.valid() && observed_.data() == observed.data() &&
-                observed_.storage_type() == observed.storage_type())
+                observed_.storage_type() == observed.storage_type() &&
+                keyed_subscribed == (selected_key != nullptr) &&
+                (selected_key == nullptr || key.view().equals(*selected_key)))
             {
                 notifier.target = target_notifier;
                 return;
@@ -2725,7 +2728,13 @@ namespace hgraph
             if (target_notifier == nullptr || !observed_.valid()) { return; }
             const auto observed_ref = observed_.storage_ref();
             TSDataView observed_view{observed_ref};
-            observed_view.subscribe(&notifier);
+            if (selected_key)
+            {
+                key = Value{*selected_key};
+                observed_view.subscribe_key(key.view(), &notifier);
+            }
+            else { observed_view.subscribe(&notifier); }
+            keyed_subscribed = selected_key != nullptr;
             observed = observed_ref;
         }
 
@@ -2738,7 +2747,12 @@ namespace hgraph
                 notifier.target = nullptr;
             });
             [[maybe_unused]] auto unsubscribe_observer =
-                make_scope_exit<true>([&] { observed_view.unsubscribe(&notifier); });
+                make_scope_exit<true>([&] {
+                    if (keyed_subscribed)
+                        observed_view.unsubscribe_key(key.view(), &notifier);
+                    else { observed_view.unsubscribe(&notifier); }
+                    keyed_subscribed = false;
+                });
         }
 
     }  // namespace detail
@@ -3011,6 +3025,17 @@ namespace hgraph
     {
     }
 
+    void TSInput::make_key_active(std::vector<std::size_t> path, TSDataView observed,
+                                  const ValueView &key, Notifiable *target_notifier)
+    {
+        if (!active_root_) { active_root_ = std::make_unique<detail::TSInputActiveTarget>(); }
+        auto *active = active_root_.get();
+        for (const auto slot : path) { active = &active->ensure_child(slot); }
+        active->active = true;
+        active->mode = TSInputActivityMode::Key;
+        active->subscribe(observed, target_notifier, &key);
+    }
+
     void TSInput::make_active(std::vector<std::size_t> path, TSDataView observed, Notifiable *target_notifier,
                               TSInputActivityMode mode)
     {
@@ -3072,7 +3097,7 @@ namespace hgraph
         void capture_owned_activity(const detail::TSInputActiveTarget &node, std::vector<std::size_t> &path,
                                     std::vector<TSInputActivityEntry> &result)
         {
-            if (node.active) { result.push_back({path, node.mode}); }
+            if (node.active) { result.push_back({path, node.mode, node.mode == TSInputActivityMode::Key ? node.key : Value{}}); }
             node.children.for_each([&](std::size_t slot, const detail::TSInputActiveTarget &child) {
                 path.push_back(slot);
                 capture_owned_activity(child, path, result);
@@ -3113,8 +3138,10 @@ namespace hgraph
             }
             if (active->locally_active)
             {
-                result.push_back({active_path, active->observation_kind == detail::TSInputObservationKind::Value
-                    ? TSInputActivityMode::Value : TSInputActivityMode::Structural});
+                const auto mode = active->observation_kind == detail::TSInputObservationKind::Value
+                    ? TSInputActivityMode::Value : active->observation_kind == detail::TSInputObservationKind::Key
+                    ? TSInputActivityMode::Key : TSInputActivityMode::Structural;
+                result.push_back({active_path, mode, mode == TSInputActivityMode::Key ? active->key : Value{}});
             }
         });
         std::sort(result.begin(), result.end(), [](const auto &left, const auto &right) { return left.path < right.path; });
@@ -3135,7 +3162,8 @@ namespace hgraph
         const TSInputActivityEntry *previous = nullptr;
         for (const auto &entry : activity)
         {
-            if ((entry.mode != TSInputActivityMode::Value && entry.mode != TSInputActivityMode::Structural) ||
+            if ((entry.mode != TSInputActivityMode::Value && entry.mode != TSInputActivityMode::Structural &&
+                 entry.mode != TSInputActivityMode::Key) ||
                 (previous != nullptr && !(previous->path < entry.path)))
             {
                 throw std::invalid_argument("input checkpoint activity has an invalid mode, duplicate, or unordered path");
@@ -3148,6 +3176,10 @@ namespace hgraph
             {
                 throw std::invalid_argument("input checkpoint structural activity is unsupported for this shape");
             }
+            if (entry.mode == TSInputActivityMode::Key &&
+                (schema->kind != TSTypeKind::TSD || !entry.key.has_value() ||
+                 !TypeRegistry::instance().value_is_a(entry.key.schema(), schema->key_type())))
+                throw std::invalid_argument("input checkpoint key activity requires a dictionary and matching key");
             previous = &entry;
         }
     }
@@ -3174,7 +3206,8 @@ namespace hgraph
             }
             else
             {
-                projection.make_structural_active();
+                if (entry.mode == TSInputActivityMode::Key) { projection.make_key_active(entry.key.view()); }
+                else { projection.make_structural_active(); }
                 const auto &value = projection.data_view();
                 if (value.valid())
                 {

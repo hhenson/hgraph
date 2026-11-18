@@ -15,8 +15,9 @@ namespace hgraph
     struct TSDataOps;
     struct TSParentLink;
 
-    // 25: TSDataOps adds value_as_delta_to_python_impl before to_string_impl.
-    inline constexpr std::uint16_t TS_DATA_OPS_ABI_VERSION = 25;
+    // 27: keyed observer spill storage and input activation/checkpoint records.
+    // 26 is reserved by the independent sparse-proxy delta change.
+    inline constexpr std::uint16_t TS_DATA_OPS_ABI_VERSION = 27;
 
     class HGRAPH_CLASS_EXPORT TSRoleTypeRef
     {

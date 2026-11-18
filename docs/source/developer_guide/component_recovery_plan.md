@@ -273,8 +273,9 @@ endpoint images whose owner does not supply reference-aware checkpointing.
 Ordinary node recordable-state endpoints do receive the reference context.
 Owner-specific forwarding-terminal restrictions still apply. A full graph
 image, schedule-operator progress, online snapshot/suspend, and input journal
-replay remain future work. Images use format version 4, adding independent
-pending node scheduler data to the profile/compression framing from version 3.
-Core reads versions 2 and 3; the persistence extension also reads the version 1
+replay remain future work. Images use format version 5, recording keyed input
+activity and its selected key. Version 4 added independent pending node scheduler
+data to the profile/compression framing from version 3.
+Core reads versions 2, 3 and 4; the persistence extension also reads the version 1
 envelope published by hgraph 0.8.25-0.8.27. Older images have no scheduler data.
 Unknown versions are rejected rather than migrated.

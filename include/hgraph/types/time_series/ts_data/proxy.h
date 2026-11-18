@@ -25,7 +25,7 @@ namespace hgraph
     };
 
     /** Slot-event adapter that drives one proxy storage from its source TSD. */
-    class TSDProxySlotSync final : public SlotObserver, public Notifiable
+    class TSDProxySlotSync final : public SlotObserver, public KeyedNotifiable
     {
       public:
         explicit TSDProxySlotSync(TSDProxy &owner) noexcept;
@@ -41,6 +41,8 @@ namespace hgraph
         void on_erase(std::size_t slot) override;
         void on_clear() override;
         void notify(DateTime modified_time) override;
+        void keys_replaced(DateTime modified_time) override;
+        void key_modified(const ValueView &key, DateTime modified_time) override;
         void source_invalidated(const TSDataTracking *source) noexcept override;
 
       private:
@@ -140,6 +142,8 @@ namespace hgraph
 
       private:
         friend class TSDProxySlotSync;
+        struct SourceChildNotifier;
+        void subscribe_source_child(std::size_t slot);
 
         /** Source slot lifecycle callbacks, invoked by ``TSDProxySlotSync``. */
         void on_slot_capacity(std::size_t old_capacity, std::size_t new_capacity);
@@ -171,6 +175,7 @@ namespace hgraph
         const void                   *value_builder_context_{nullptr};
         ValueSlotStore                values_{};
         std::vector<DateTime>         built_times_{};
+        std::vector<std::unique_ptr<SourceChildNotifier>> source_children_{};
         DateTime                      updated_window_{MIN_DT};   // lazy delta-window roll
         // The bitmap has no set bit in [updated_search_begin_, updated_search_next_).
         // Child records maintain this interval; window/structural changes discard it.

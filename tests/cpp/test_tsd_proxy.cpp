@@ -1801,3 +1801,52 @@ TEST_CASE("TSDProxy retained map materializes graph-local keys into their owning
     CHECK(copied_key.equals(*observed.as_map().keys().begin()));
     CHECK(observed.hash() == retained.view().hash());
 }
+
+TEST_CASE("TSDProxy forwards key notifications without unrelated lookup wakeups", "[proxy][keyed]")
+{
+    using namespace hgraph;
+    struct Counter : Notifiable {
+        std::size_t calls{0};
+        void notify(DateTime) override { ++calls; }
+    };
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<Int>("int");
+    const auto *ts = registry.ts(integer);
+    const auto *tsd = registry.tsd(integer, ts);
+    const auto source_type = TSDataPlanFactory::instance().data_type_for(tsd);
+    const auto element_type = TSDataPlanFactory::instance().data_type_for(ts);
+    const TSDProxyValueOps idempotent_ops{
+        +[](TSDProxy &proxy, std::size_t slot, const TSDataView &target,
+            const TSDataView &, DateTime time, const void *) {
+            auto mutation = target.begin_mutation(time);
+            static_cast<void>(mutation.copy_value_from(proxy.source_dict().key_at_slot(slot)));
+        }, nullptr};
+    // Keep counters alive during exception unwinding as well as normal cleanup.
+    std::vector<Counter> counters(128);
+    TSData source{source_type};
+    TSData proxy{proxy_data_type_for(*tsd, TSRoleTypeRef{element_type.as_role()})};
+    auto proxy_view = proxy.view();
+    auto source_view = source.view();
+    bind_tsd_proxy(proxy_view, source_view.as_dict(), &idempotent_ops, nullptr, MIN_ST);
+    TSData outer{proxy_data_type_for(*tsd, TSRoleTypeRef{element_type.as_role()})};
+    auto outer_view = outer.view();
+    bind_tsd_proxy(outer_view, proxy_view.as_dict(), &idempotent_ops, nullptr, MIN_ST);
+    auto keys = outer_view.as_dict().key_set().base();
+    for (std::size_t i = 0; i < counters.size(); ++i)
+        keys.subscribe_key(Value{static_cast<Int>(i)}.view(), &counters[i]);
+    {
+        auto mutation = source_view.as_dict().begin_mutation(MIN_ST);
+        static_cast<void>(mutation.at(Value{Int{7}}.view()));
+        static_cast<void>(mutation.at(Value{Int{9}}.view()));
+    }
+    for (std::size_t i = 0; i < counters.size(); ++i)
+        CHECK(counters[i].calls == ((i == 7 || i == 9) ? 1 : 0));
+    {
+        auto mutation = source_view.as_dict().begin_mutation(MIN_ST + MIN_TD);
+        CHECK(mutation.erase(Value{Int{7}}.view()));
+    }
+    CHECK(counters[7].calls == 2);
+    CHECK(counters[9].calls == 1);
+    for (std::size_t i = 0; i < counters.size(); ++i)
+        keys.unsubscribe_key(Value{static_cast<Int>(i)}.view(), &counters[i]);
+}

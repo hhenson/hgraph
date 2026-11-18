@@ -559,7 +559,7 @@ int main(int argc, char **argv)
     // ABI 6 adds external_start/step/stop for the ExternallyDriven mode.
     static_assert(EXECUTOR_OPS_ABI_VERSION == 7);
     // Nullable publication export and indexed element clearing change ops tables.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 25);
+    static_assert(TS_DATA_OPS_ABI_VERSION == 27);
     static_assert(VALUE_OPS_ABI_VERSION == 10);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));
     static_assert(std::is_standard_layout_v<PolymorphicValueType>);

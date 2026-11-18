@@ -90,8 +90,8 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     // family (python_family, ABI 14) and the bridge maps it to the table.
     // ABI 13 made the Python slots unconditional and opaque.
     // ABI 24 distinguishes explicit empty sparse publications from child notifications.
-    // ABI 25 adds current-value export in delta form for nullable sampled binds.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 25);
+    // ABI 27 adds keyed observer ownership and input activity records.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 27);
     static_assert(sizeof(TSDataOps) == 288,
                   "TSDataOps changed shape: bump TS_DATA_OPS_ABI_VERSION and this size");
     static_assert(std::is_same_v<decltype(TSDataLayout::canonical_delta_binding), ValueTypeRef>);
@@ -188,11 +188,11 @@ TEST_CASE("time-series type boundaries reject pre-nullable ops ABI records")
         auto stale = *type.record();
         stale.ops_abi_version = 24;
         REQUIRE_THROWS_WITH(TSRoleTypeRef::checked(AnyPtr::typed_null(stale)),
-                            "TSRoleTypeRef requires TSData ops ABI version 25");
+                            "TSRoleTypeRef requires TSData ops ABI version 27");
         // Its layout operation throws: reject the ABI before calling it.
         const TSDataOps unusable_ops{};
         REQUIRE_THROWS_WITH(intern_ts_type(*schema, type.role(), type.checked_plan(), unusable_ops, {}, 24),
-                            "intern_ts_type requires TSData ops ABI version 25");
+                            "intern_ts_type requires TSData ops ABI version 27");
     }
 }
 

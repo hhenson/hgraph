@@ -1011,3 +1011,15 @@ def test_filter_by_tsd():
         [{"1": 1, "2": 2, "3": 3}, None, {"1": REMOVE}],
         [2, 0],
     ) == [{"3": 3}, {"1": 1, "2": 2}, {"1": REMOVE}]
+
+
+def test_getitem_missing_changing_and_recovered_key():
+    @graph
+    def lookup(ts: TSD[int, TS[int]], key: TS[int]) -> TS[int]:
+        return ts[key]
+
+    assert eval_node(
+        lookup,
+        [{2: 20}, {3: 30}, {1: 10}, {1: 11}, {1: REMOVE}, {1: 12}, {4: 40}, {5: 50}],
+        [1, None, None, None, None, None, 5, None],
+    ) == [None, None, 10, 11, None, 12, None, 50]

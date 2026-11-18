@@ -405,10 +405,17 @@ namespace hgraph
                         for (const auto &activity : node.input_activity)
                         {
                             if (activity.mode != TSInputActivityMode::Value &&
-                                activity.mode != TSInputActivityMode::Structural)
+                                activity.mode != TSInputActivityMode::Structural &&
+                                activity.mode != TSInputActivityMode::Key)
                                 malformed("unsupported input activity mode");
                             path(activity.path);
                             write_varint(static_cast<std::uint8_t>(activity.mode), body);
+                            if (activity.mode == TSInputActivityMode::Key)
+                            {
+                                const auto index = value_ref(activity.key.schema());
+                                write_varint(index, body);
+                                value(activity.key, index);
+                            }
                         }
                     }
                     if (flags & node_custom_payload)
@@ -806,9 +813,12 @@ namespace hgraph
                             entry.path = path();
                             const auto mode = number();
                             if (mode != static_cast<std::uint8_t>(TSInputActivityMode::Value) &&
-                                mode != static_cast<std::uint8_t>(TSInputActivityMode::Structural))
+                                mode != static_cast<std::uint8_t>(TSInputActivityMode::Structural) &&
+                                mode != static_cast<std::uint8_t>(TSInputActivityMode::Key))
                                 malformed("unsupported input activity mode");
                             entry.mode = static_cast<TSInputActivityMode>(mode);
+                            if (entry.mode == TSInputActivityMode::Key)
+                                entry.key = session.converter_at(value_index()).read(reader);
                             node.input_activity.push_back(std::move(entry));
                         }
                     }
@@ -905,7 +915,7 @@ namespace hgraph
             Decoder probe{reader};
             if (probe.text() != image_marker) { malformed("unsupported format"); }
             const auto version = probe.number();
-            if (version != 2 && version != 3 && version != checkpoint_image_format_version) { malformed("unsupported image version"); }
+            if (version != 2 && version != 3 && version != 4 && version != checkpoint_image_format_version) { malformed("unsupported image version"); }
             if (stored != checksum(content)) { malformed("checksum mismatch"); }
             if (probe.number() != static_cast<std::uint8_t>(expected)) { malformed("unexpected image kind"); }
             const auto base_time = from_ticks(read_fixed(reader));

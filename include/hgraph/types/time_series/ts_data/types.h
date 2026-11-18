@@ -4,6 +4,7 @@
 #include <hgraph/runtime/node_fwd.h>
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
 #include <hgraph/types/notifiable.h>
+#include <hgraph/types/keyed_notifiable.h>
 #include <hgraph/types/storage_metrics.h>
 #include <hgraph/types/utils/impl/observer_list.h>
 #include <hgraph/types/time_series/endpoint_owner.h>
@@ -20,6 +21,7 @@
 namespace hgraph
 {
     struct TSDataOps;
+    namespace detail { struct KeyedObserverIndex; }
 
     class GraphView;
     struct TSDataTracking;
@@ -280,6 +282,18 @@ namespace hgraph
             notify_many(modified_time);
         }
 
+        /** Indexed membership subscriptions; keys may be absent from the set.
+            Ordinary notify() does not visit these observers. */
+        void subscribe_key(const ValueView &key, Notifiable *observer);
+        void unsubscribe_key(const ValueView &key, Notifiable *observer);
+        void replace_key_observer(const ValueView &key, Notifiable *observer,
+                                  Notifiable *replacement) noexcept;
+        void notify_key(const ValueView &key, DateTime modified_time) const;
+        /** A replacement of the whole source can affect every watched key. */
+        void notify_keys(DateTime modified_time) const;
+        void subscribe_key_relay(KeyedNotifiable *observer);
+        void unsubscribe_key_relay(KeyedNotifiable *observer);
+
         /** Detach and invalidate every observer before ``source`` is destroyed. */
         void invalidate(const TSDataTracking *source) noexcept;
 
@@ -289,7 +303,11 @@ namespace hgraph
       private:
         struct ObserverList : detail::ObserverListStorage<Notifiable>
         {
+            ObserverList();
+            ~ObserverList();
+            std::unique_ptr<detail::KeyedObserverIndex> keyed{};
         };
+        ObserverList &ensure_keyed();
         using ObserverStorage = discriminated_ptr<Notifiable, ObserverList>;
 
         [[nodiscard]] Notifiable *single() const noexcept;

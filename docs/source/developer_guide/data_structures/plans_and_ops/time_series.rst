@@ -168,7 +168,9 @@ TSW intentionally uses ``all_valid`` for minimum-window readiness instead.
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 25. ABI 25 adds
+    ``TS_DATA_OPS_ABI_VERSION`` is 27. ABI 27 changes keyed observer spill
+    ownership and input activation/checkpoint records; native extensions must
+    be rebuilt. ABI 25 adds
     ``value_as_delta_to_python_impl`` for nullable sampled binds, shifting the
     later operations slots; native extensions must be rebuilt.
     ABI 24 adds an explicit empty-publication

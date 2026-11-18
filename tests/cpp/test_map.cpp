@@ -3989,3 +3989,27 @@ TEST_CASE("partitioned TSL map rejects invalid worker assignments", "[map][parti
     REQUIRE_THROWS_WITH((eval_node<PartitionDynamicCounter<2, 2>>(input)),
                         Catch::Matchers::ContainsSubstring("invalid list partition"));
 }
+
+namespace {
+    struct PublishSelectedReference {
+        static void eval(In<"ts", TS<Int>, InputActivity::Passive> ts,
+                         In<"publish", TS<Bool>> publish, Out<REF<TS<Int>>> out) {
+            if (publish.value()) { out.set(ts.base().reference()); }
+        }
+    };
+    struct TwoLateReferenceLookups {
+        static Port<TS<Int>> compose(Wiring &w, Port<TSD<Int, TS<Int>>> ts, Port<TS<Bool>> publish) {
+            auto mapped = wire<stdlib::map_>(w, fn<PublishSelectedReference>(), ts, publish)
+                              .as<TSD<Int, TS<Int>>>();
+            return wire<stdlib::add_>(w, wire<stdlib::getitem_>(w, mapped, Int{0}),
+                                        wire<stdlib::getitem_>(w, mapped, Int{1})).as<TS<Int>>();
+        }
+    };
+}
+TEST_CASE("map_: keyed lookups observe every late reference binding in one tick", "[map][keyed]") {
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<TwoLateReferenceLookups>(
+        values<Value>(dict_delta<Int, TS<Int>>({{0, 1}, {1, 10}}),
+                      dict_delta<Int, TS<Int>>({{0, 2}, {1, 20}})),
+        values<Bool>(false, true)), values<Int>(none, 22));
+}
