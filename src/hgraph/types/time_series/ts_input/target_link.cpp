@@ -18,7 +18,7 @@ namespace hgraph::detail
 {
     struct TSInputTargetLinkStructuralStorage::StructuralTransition
     {
-        struct KeySetNotifier final : Notifiable
+        struct KeySetNotifier final : KeyedNotifiable
         {
             explicit KeySetNotifier(TSInputTargetLinkStorage &owner_) noexcept : owner(&owner_) {}
 
@@ -27,6 +27,14 @@ namespace hgraph::detail
                 if (owner != nullptr) { owner->record_key_set_modified(modified_time); }
             }
 
+            void keys_replaced(DateTime time) override
+            {
+                if (owner) { owner->mutable_key_set_tracking().observers.notify_keys(time); }
+            }
+            void key_modified(const ValueView &key, DateTime time) override
+            {
+                if (owner) { owner->mutable_key_set_tracking().observers.notify_key(key, time); }
+            }
             void source_invalidated(const TSDataTracking *source) noexcept override
             {
                 if (owner != nullptr) { owner->key_set_source_invalidated(source); }
@@ -127,6 +135,11 @@ namespace hgraph::detail
             });
             if (!node.scheduling_subscribed) { return; }
             auto view = node.observed.data_view();
+            if (node.observation_kind == TSInputObservationKind::Key)
+            {
+                view.unsubscribe_key(node.key.view(), &notifier);
+                return;
+            }
             if (view.valid() && view.tracking().observers.contains(&notifier))
             {
                 [[maybe_unused]] auto unsubscribe_observer =
@@ -162,7 +175,7 @@ namespace hgraph::detail
         void unsubscribe_tree_noexcept(TSInputTargetActiveNode &node,
                                        TSInputTargetLinkState::SchedulingNotifier &notifier) noexcept
         {
-            if (node.scheduling_subscribed) { unsubscribe_handle_noexcept(node.observed, &notifier); }
+            if (node.scheduling_subscribed) { unsubscribe_node(node, notifier); }
             else { node.observed.reset(); }
             node.resolved = {};
             node.scheduling_subscribed = false;
@@ -188,7 +201,10 @@ namespace hgraph::detail
         {
             if (node.scheduling_subscribed)
             {
-                replace_observer(node.observed, &previous, &replacement);
+                if (node.observation_kind == TSInputObservationKind::Key)
+                    node.observed.data_view().replace_key_observer(
+                        node.key.view(), &previous, &replacement);
+                else { replace_observer(node.observed, &previous, &replacement); }
             }
             node.children.for_each([&](std::size_t, TSInputTargetActiveNode &child) {
                 replace_tree_observers(child, previous, replacement);
@@ -257,6 +273,7 @@ namespace hgraph::detail
             if (!owner.bound() || !transition || transition->key_set_subscribed) { return; }
             auto key_set = target_slot_set(owner);
             key_set.base().subscribe(&transition->key_set_notifier);
+            key_set.base().subscribe_key_relay(&transition->key_set_notifier);
             transition->key_set_subscribed = true;
             const auto modified_time = key_set.last_modified_time();
             if (modified_time != MIN_DT) { structural_record_key_set_modified(owner, modified_time); }
@@ -268,7 +285,9 @@ namespace hgraph::detail
             if (!owner.bound() || !transition || !transition->key_set_subscribed) { return; }
             auto clear_subscribed = make_scope_exit([&] { transition->key_set_subscribed = false; });
             static_cast<void>(fallback_on_exception(false, [&] {
-                target_slot_set(owner).base().unsubscribe(&transition->key_set_notifier);
+                auto keys = target_slot_set(owner).base();
+                keys.unsubscribe_key_relay(&transition->key_set_notifier);
+                keys.unsubscribe(&transition->key_set_notifier);
                 return true;
             }));
         }
@@ -286,7 +305,9 @@ namespace hgraph::detail
             transition.key_set_tracking.last_modified_time = time;
             if (owner.bound() && !transition.key_set_subscribed)
             {
-                target_slot_set(owner).base().subscribe(&transition.key_set_notifier);
+                auto keys = target_slot_set(owner).base();
+                keys.subscribe(&transition.key_set_notifier);
+                keys.subscribe_key_relay(&transition.key_set_notifier);
                 transition.key_set_subscribed = true;
             }
         }
@@ -337,6 +358,7 @@ namespace hgraph::detail
             transition.modified_time = modified_time;
             transition.sampled_current = true;
             structural_record_key_set_modified(owner, modified_time);
+            transition.key_set_tracking.observers.notify_keys(modified_time);
         }
 
         void structural_detach_target(TSInputTargetLinkStorage &owner,
@@ -609,7 +631,13 @@ namespace hgraph::detail
                 return;
             }
 
-            node.observed.data_view().subscribe(&state.scheduling_notifier);
+            if (node.observation_kind == TSInputObservationKind::Key)
+            {
+                if (state.active_root() == &node) { return; }
+                node.observed.data_view().subscribe_key(
+                    node.key.view(), &state.scheduling_notifier);
+            }
+            else { node.observed.data_view().subscribe(&state.scheduling_notifier); }
             node.scheduling_subscribed = true;
         }
 
@@ -719,7 +747,7 @@ namespace hgraph::detail
 
     DynamicStorageMetrics TSInputTargetActiveNode::dynamic_storage_metrics() const noexcept
     {
-        DynamicStorageMetrics result = children.dynamic_storage_metrics();
+        DynamicStorageMetrics result = children.dynamic_storage_metrics() + key.dynamic_storage_metrics();
         children.for_each([&](std::size_t, const TSInputTargetActiveNode &child) {
             result.live_bytes += sizeof(TSInputTargetActiveNode);
             result.reserved_bytes += sizeof(TSInputTargetActiveNode);
@@ -837,9 +865,13 @@ namespace hgraph::detail
         target_is_reference = std::exchange(other.target_is_reference, false);
         tracks_structure = std::exchange(other.tracks_structure, false);
         scalar_target_link = std::exchange(other.scalar_target_link, nullptr);
+        tracks_key = std::exchange(other.tracks_key, false);
         if (target.bound())
         {
-            replace_observer(tracking_source(), &other, this);
+            if (tracks_key)
+                tracking_source().data_view().replace_key_observer(
+                    other.active_root()->key.view(), &other, this);
+            else { replace_observer(tracking_source(), &other, this); }
             other.target.reset();
         }
 
@@ -860,9 +892,9 @@ namespace hgraph::detail
         }
         const auto *root = active_root();
         if (root != nullptr && root->locally_active &&
-            root->observation_kind == TSInputObservationKind::Value &&
             !root->scheduling_subscribed &&
-            root->observed.same_as(target))
+            ((root->observation_kind == TSInputObservationKind::Value && root->observed.same_as(target)) ||
+             root->observation_kind == TSInputObservationKind::Key))
         {
             scheduling_notifier.notify(modified_time);
         }
@@ -884,20 +916,36 @@ namespace hgraph::detail
         // still need every child change to maintain their aggregate delta.
         const bool node_argument = outer.has_node_endpoint_parent() &&
                                    outer.port() == TSEndpointOwnerPort::Input;
-        const bool structural = target.bound() && !target_is_reference &&
+        const bool keyed = target.bound() && root != nullptr && root->locally_active &&
+                           root->observation_kind == TSInputObservationKind::Key;
+        const bool structural = keyed || (target.bound() && !target_is_reference &&
                                 (!parent.has_ts_data_parent() || node_argument) &&
                                 root != nullptr && root->locally_active &&
-                                root->observation_kind == TSInputObservationKind::Structural;
-        if (structural == tracks_structure) { return; }
+                                root->observation_kind == TSInputObservationKind::Structural);
+        if (structural == tracks_structure && keyed == tracks_key) { return; }
         auto previous = tracking_source();
         const auto next = structural
                               ? TSOutputHandle{target.output(), structural_observation_for(target.data_view())}
                               : target;
-        if (previous.same_as(next)) { tracks_structure = structural; return; }
+        if (previous.same_as(next) && keyed == tracks_key) { tracks_structure = structural; return; }
         // Install first so a failed allocation leaves the old route intact.
-        if (next.bound()) { next.data_view().subscribe(this); }
-        if (previous.bound()) { previous.data_view().unsubscribe(this); }
+        if (next.bound())
+        {
+            if (keyed) { next.data_view().subscribe_key(root->key.view(), this); }
+            else { next.data_view().subscribe(this); }
+        }
+        unsubscribe_tracking();
         tracks_structure = structural;
+        tracks_key = keyed;
+    }
+
+    void TSInputTargetLinkState::unsubscribe_tracking()
+    {
+        auto previous = tracking_source();
+        if (!previous.bound()) { return; }
+        if (tracks_key)
+            previous.data_view().unsubscribe_key(active_root()->key.view(), this);
+        else { previous.data_view().unsubscribe(this); }
     }
 
     void TSInputTargetLinkState::source_invalidated(const TSDataTracking *source) noexcept
@@ -1268,9 +1316,10 @@ namespace hgraph::detail
         last_sample_time = MIN_DT;
         structural_ops_->detach_target(*this, retain_structural_target, modified_time);
         unsubscribe_active_target();
-        if (state_.target.bound()) { state_.tracking_source().data_view().unsubscribe(&state_); }
+        state_.unsubscribe_tracking();
         state_.target.reset();
         state_.tracks_structure = false;
+        state_.tracks_key = false;
         state_.target_is_reference = false;
         state_.scalar_target_link = nullptr;
     }
@@ -1282,10 +1331,18 @@ namespace hgraph::detail
         state_.scalar_target_link = nullptr;
         structural_ops_->unbind_noexcept(*this);
         if (state_.active_root_node) { unsubscribe_tree_noexcept(*state_.active_root_node, state_.scheduling_notifier); }
-        auto observed = state_.tracking_source();
-        unsubscribe_handle_noexcept(observed, &state_);
+        if (state_.tracks_key)
+        {
+            static_cast<void>(fallback_on_exception(false, [&] { state_.unsubscribe_tracking(); return true; }));
+        }
+        else
+        {
+            auto observed = state_.tracking_source();
+            unsubscribe_handle_noexcept(observed, &state_);
+        }
         state_.target.reset();
         state_.tracks_structure = false;
+        state_.tracks_key = false;
     }
 
     void TSInputTargetLinkStorage::source_invalidated(const TSDataTracking *source) noexcept
@@ -1296,6 +1353,7 @@ namespace hgraph::detail
         state_.clear_active_observed();
         state_.target.reset();
         state_.tracks_structure = false;
+        state_.tracks_key = false;
         state_.target_is_reference = false;
         state_.scalar_target_link = nullptr;
         structural_ops_->source_invalidated(*this);
@@ -1373,6 +1431,20 @@ namespace hgraph::detail
         active_node.refresh_resolved();
         subscribe_scheduling_notifier(state, active_node);
         state.refresh_tracking_subscription();
+    }
+
+    void TSInputTargetLinkStorage::make_key_active(TSInputTargetActiveNode *node,
+                                                  const TSDataView &observed,
+                                                  const ValueView &key,
+                                                  Notifiable *target_notifier)
+    {
+        auto &active = node != nullptr ? *node : root_node();
+        if (active.locally_active && active.observation_kind == TSInputObservationKind::Key &&
+            active.key.view().equals(key)) { return; }
+        Value retained{key};
+        make_passive(&active); // detach the old key before replacing its owned value
+        active.key = std::move(retained);
+        make_active(&active, observed, TSInputObservationKind::Key, target_notifier);
     }
 
     void TSInputTargetLinkStorage::make_passive(TSInputTargetActiveNode *node)

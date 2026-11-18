@@ -25,7 +25,7 @@ namespace hgraph
     };
 
     /** Slot-event adapter that drives one proxy storage from its source TSD. */
-    class TSDProxySlotSync final : public SlotObserver, public Notifiable
+    class TSDProxySlotSync final : public SlotObserver, public KeyedNotifiable
     {
       public:
         explicit TSDProxySlotSync(TSDProxy &owner) noexcept;
@@ -41,6 +41,8 @@ namespace hgraph
         void on_erase(std::size_t slot) override;
         void on_clear() override;
         void notify(DateTime modified_time) override;
+        void keys_replaced(DateTime modified_time) override;
+        void key_modified(const ValueView &key, DateTime modified_time) override;
         void source_invalidated(const TSDataTracking *source) noexcept override;
 
       private:

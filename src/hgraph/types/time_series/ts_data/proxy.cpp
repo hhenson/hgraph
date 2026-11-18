@@ -1428,6 +1428,16 @@ namespace hgraph
         owner_->on_slots_cleared();
     }
 
+    void TSDProxySlotSync::keys_replaced(DateTime modified_time)
+    {
+        owner_->key_set_tracking().observers.notify_keys(modified_time);
+    }
+
+    void TSDProxySlotSync::key_modified(const ValueView &key, DateTime modified_time)
+    {
+        owner_->key_set_tracking().observers.notify_key(key, modified_time);
+    }
+
     void TSDProxySlotSync::notify(DateTime modified_time)
     {
         owner_->on_source_modified(modified_time);
@@ -1525,6 +1535,7 @@ namespace hgraph
         // actually ticked - binding over a never-ticked source must not
         // fabricate an empty first tick for the alternative's consumers.
         sync_from_source(modified_time, source_view().has_current_value());
+        if (modified_time != MIN_DT) { key_set_tracking_.observers.notify_keys(modified_time); }
         subscribe_source();
     }
 
@@ -1803,6 +1814,9 @@ namespace hgraph
             source_dict().key_set().unsubscribe_slot_observer(&source_sync_);
         });
         source_view().subscribe(&source_sync_);
+        auto rollback_source = make_scope_exit<true>([&] { source_view().unsubscribe(&source_sync_); });
+        source_dict().key_set().base().subscribe_key_relay(&source_sync_);
+        rollback_source.release();
         rollback_slot_observer.release();
         subscribed_ = true;
     }
@@ -1821,6 +1835,7 @@ namespace hgraph
             if (strict || (source.valid() && source.tracking().observers.contains(&source_sync_)))
                 cleanup_errors.capture([&] { source.unsubscribe(&source_sync_); });
             cleanup_errors.capture([&] {
+                source.as_dict().key_set().base().unsubscribe_key_relay(&source_sync_);
                 source.as_dict().key_set().unsubscribe_slot_observer(&source_sync_);
             });
         }
@@ -1839,6 +1854,7 @@ namespace hgraph
         auto restore_refresh = make_scope_exit([&]() noexcept { child_refresh_ = prior_refresh; });
         subscribed_ = false;
         static_cast<void>(fallback_on_exception(false, [&] {
+            current.as_dict().key_set().base().unsubscribe_key_relay(&source_sync_);
             current.as_dict().key_set().unsubscribe_slot_observer(&source_sync_);
             return true;
         }));

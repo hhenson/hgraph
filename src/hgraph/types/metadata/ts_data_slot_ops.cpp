@@ -562,6 +562,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     value_published_.set(result.slot);
                     added_.set(result.slot);
                 }
+                key_set_tracking_.observers.notify_key(
+                    ValueView{key_binding_, keys_.key_memory(result.slot)}, modified_time);
                 (void)key_set_tracking_.record_modified(modified_time);
                 return mutation_result(result.slot, result.constructed);
             }
@@ -591,6 +593,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     value_published_.set(result.slot);
                     added_.set(result.slot);
                 }
+                key_set_tracking_.observers.notify_key(
+                    ValueView{key_binding_, keys_.key_memory(result.slot)}, modified_time);
                 (void)key_set_tracking_.record_modified(modified_time);
                 return mutation_result(result.slot, result.constructed);
             }
@@ -615,6 +619,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     value_published_.reset(slot);
                 }
                 modified_.reset(slot);
+                key_set_tracking_.observers.notify_key(
+                    ValueView{key_binding_, keys_.key_memory(slot)}, modified_time);
                 (void)key_set_tracking_.record_modified(modified_time);
                 return mutation_result(slot);
             }
@@ -641,6 +647,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     value_published_.reset(slot);
                 }
                 modified_.reset(slot);
+                key_set_tracking_.observers.notify_key(
+                    ValueView{key_binding_, keys_.key_memory(slot)}, modified_time);
                 (void)key_set_tracking_.record_modified(modified_time);
                 return mutation_result(slot);
             }

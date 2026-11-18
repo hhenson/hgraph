@@ -5503,3 +5503,19 @@ TEST_CASE("std operators: decimal rounding preserves magnitude and rounds negati
     CHECK(std::isnan(special[4]->view().checked_as<Float>()));
     CHECK_THROWS(eval_node<stdlib::round_>(values<Float>(1.7e308), values<Int>(-308)));
 }
+
+TEST_CASE("std operators: dictionary lookup follows missing changing and recovered keys", "[keyed]")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<DynamicTsdGetitemGraph>(
+        values<Value>(dict_delta<Int, TS<Int>>({{2, 20}}),
+                      dict_delta<Int, TS<Int>>({{3, 30}}),
+                      dict_delta<Int, TS<Int>>({{1, 10}}),
+                      dict_delta<Int, TS<Int>>({{1, 11}}),
+                      dict_delta<Int, TS<Int>>({}, {1}),
+                      dict_delta<Int, TS<Int>>({{1, 12}}),
+                      dict_delta<Int, TS<Int>>({{4, 40}}),
+                      dict_delta<Int, TS<Int>>({{5, 50}})),
+        values<Int>(1, none, none, none, none, none, 5, none)),
+        values<Int>(none, none, 10, 11, none, 12, none, 50));
+}

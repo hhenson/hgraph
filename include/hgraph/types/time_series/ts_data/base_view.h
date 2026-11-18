@@ -253,6 +253,13 @@ namespace hgraph
         /** Register / remove a per-level modification observer. */
         void subscribe(Notifiable *observer) const;
         void unsubscribe(Notifiable *observer) const;
+        /** Key-set membership observation. The source must publish keyed events. */
+        void subscribe_key(const ValueView &key, Notifiable *observer) const;
+        void unsubscribe_key(const ValueView &key, Notifiable *observer) const;
+        void replace_key_observer(const ValueView &key, Notifiable *observer, Notifiable *replacement) const;
+        void subscribe_key_relay(KeyedNotifiable *observer) const;
+        void unsubscribe_key_relay(KeyedNotifiable *observer) const;
+
         void replace_observer(Notifiable *observer, Notifiable *replacement) const;
 
         /** True when this level currently has one or more observers. */

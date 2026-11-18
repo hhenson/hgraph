@@ -3148,3 +3148,98 @@ TEST_CASE("TSInput sampled identity follows bindings through copy move and detac
     CHECK_FALSE(assigned.bound());
     CHECK(assigned.last_sample_time == MIN_DT);
 }
+
+TEST_CASE("TSInput keyed readers receive only matching membership notifications", "[input][keyed]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *dict = registry.tsd(registry.register_scalar<Int>("int"),
+                                    registry.ts(registry.register_scalar<Int>("int")));
+    TSOutput output{*dict};
+    std::vector<RecordingNotifiable> notifications(128);
+    std::vector<TSInput> inputs;
+    inputs.reserve(notifications.size());
+    for (std::size_t i = 0; i < notifications.size(); ++i)
+    {
+        inputs.emplace_back(TSInputBuilderFactory::checked_builder_for(*dict, TSEndpointSchema::peered(dict)));
+        auto input = inputs.back().view(&notifications[i], MIN_ST);
+        input.bind_output(output.view(MIN_ST));
+        input.make_key_active(Value{static_cast<Int>(i)}.view());
+    }
+    CHECK(output.data_view().observer_count() == 0);
+    const auto publish = [&](Int key, Int value, DateTime time) {
+        auto view = output.view(time);
+        auto mutation = view.as_dict().begin_mutation(time);
+        auto child = mutation.at(Value{key}.view());
+        auto child_mutation = child.begin_mutation(time);
+        static_cast<void>(child_mutation.copy_value_from(Value{value}.view()));
+    };
+    // Every key initially is absent. Later writes in the SAME cycle must
+    // notify their own bucket even though the key-set root already ticked.
+    publish(7, 70, MIN_ST);
+    publish(9, 90, MIN_ST);
+    publish(7, 71, MIN_ST);
+    for (std::size_t i = 0; i < notifications.size(); ++i)
+        CHECK(notifications[i].notified.size() == ((i == 7 || i == 9) ? 1 : 0));
+    publish(7, 72, MIN_ST + MIN_TD);
+    CHECK(notifications[7].notified.size() == 1); // membership did not change
+    {
+        auto view = output.view(MIN_ST + 2 * MIN_TD);
+        auto mutation = view.as_dict().begin_mutation(MIN_ST + 2 * MIN_TD);
+        CHECK(mutation.erase(Value{Int{7}}.view()));
+    }
+    CHECK(notifications[7].notified.size() == 2);
+    publish(7, 73, MIN_ST + 3 * MIN_TD);
+    CHECK(notifications[7].notified.size() == 3);
+
+    // Change the watched key; the old bucket must detach immediately.
+    inputs[7].view(&notifications[7], MIN_ST + 4 * MIN_TD).make_key_active(Value{Int{200}}.view());
+    publish(200, 1, MIN_ST + 4 * MIN_TD);
+    CHECK(notifications[7].notified.size() == 4);
+    inputs[7].view(&notifications[7], MIN_ST + 4 * MIN_TD).make_passive();
+    {
+        auto view = output.view(MIN_ST + 5 * MIN_TD);
+        auto mutation = view.as_dict().begin_mutation(MIN_ST + 5 * MIN_TD);
+        CHECK(mutation.erase(Value{Int{200}}.view()));
+    }
+    CHECK(notifications[7].notified.size() == 4);
+    for (std::size_t i = 0; i < notifications.size(); ++i)
+        if (i != 7 && i != 9) { CHECK(notifications[i].notified.empty()); }
+}
+
+TEST_CASE("TSInput key activity survives binding checkpoint and source teardown", "[input][keyed]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *dict = registry.tsd(registry.register_scalar<Int>("int"),
+                                    registry.ts(registry.register_scalar<Int>("int")));
+    RecordingNotifiable notifications;
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*dict, TSEndpointSchema::peered(dict))};
+    auto view = input.view(&notifications, MIN_ST);
+    view.make_key_active(Value{Int{7}}.view());
+    const auto activity = view.checkpoint_activity();
+    REQUIRE(activity.size() == 1);
+    CHECK(activity[0].mode == TSInputActivityMode::Key);
+    CHECK(activity[0].key == Value{Int{7}});
+    view.make_passive();
+    static_cast<void>(view.restore_checkpoint_activity(activity));
+    {
+        TSOutput transient{*dict};
+        view.bind_output(transient.view(MIN_ST));
+        auto out = transient.view(MIN_ST);
+        auto mutation = out.as_dict().begin_mutation(MIN_ST);
+        static_cast<void>(mutation.at(Value{Int{8}}.view()));
+        CHECK(notifications.notified.empty());
+        static_cast<void>(mutation.at(Value{Int{7}}.view()));
+        CHECK(notifications.notified.size() == 1);
+    }
+    CHECK_FALSE(view.bound());
+    TSOutput replacement{*dict};
+    view.bind_output(replacement.view(MIN_ST + MIN_TD));
+    {
+        auto out = replacement.view(MIN_ST + MIN_TD);
+        auto mutation = out.as_dict().begin_mutation(MIN_ST + MIN_TD);
+        static_cast<void>(mutation.at(Value{Int{7}}.view()));
+    }
+    CHECK(notifications.notified.size() == 2);
+}

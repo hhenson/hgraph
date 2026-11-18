@@ -224,6 +224,8 @@ namespace hgraph
         void make_active();
         /** Subscribe this input to structural changes rather than child value ticks. */
         void make_structural_active();
+        /** Observe membership of one key, including while that key is absent. */
+        void make_key_active(const ValueView &key);
         void make_passive();
         [[nodiscard]] bool active() const;
 

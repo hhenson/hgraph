@@ -1,5 +1,6 @@
 #include <hgraph/types/time_series/ts_data/types.h>
 #include <hgraph/types/utils/slot_observer.h>
+#include <hgraph/types/value/value.h>
 
 #include <algorithm>
 #include <chrono>
@@ -141,8 +142,34 @@ void operator delete[](void *memory) noexcept { std::free(memory); }
 void operator delete(void *memory, std::size_t) noexcept { std::free(memory); }
 void operator delete[](void *memory, std::size_t) noexcept { std::free(memory); }
 
+void measure_keyed(std::size_t count)
+{
+    using namespace hgraph;
+    TSDataObserverSet registry;
+    std::vector<Observer> observers(count);
+    std::vector<Value> keys;
+    keys.reserve(count);
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        keys.emplace_back(static_cast<Int>(i));
+        registry.subscribe_key(keys.back().view(), &observers[i]);
+    }
+    const auto start = std::chrono::steady_clock::now();
+    for (std::size_t i = 0; i < count; ++i)
+        registry.notify_key(keys[i].view(), MIN_ST);
+    const auto elapsed = std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - start).count();
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        require(observers[i].calls == 1);
+        registry.unsubscribe_key(keys[i].view(), &observers[i]);
+    }
+    require(registry.empty());
+    std::printf("keyed,%zu,%.3f ns/publication\n", count, elapsed / count);
+}
+
 int main()
 {
+    for (std::size_t count : {4000, 8000, 16000, 32000}) { measure_keyed(count); }
     check_failed_growth<hgraph::TSDataObserverSet>();
     check_failed_growth<hgraph::SlotObserverList>();
     check_no_allocation_during_replacement_and_compaction();

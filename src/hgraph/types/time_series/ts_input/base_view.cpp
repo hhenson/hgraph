@@ -1122,6 +1122,25 @@ namespace hgraph
         detail::input_view_ops().make_structural_active(*this);
     }
 
+    void TSInputView::make_key_active(const ValueView &key)
+    {
+        if (schema() == nullptr || schema()->kind != TSTypeKind::TSD || !key.has_value() ||
+            !TypeRegistry::instance().value_is_a(key.schema(), schema()->key_type()))
+            throw std::invalid_argument("Key activity requires a dictionary and a matching key");
+        TSDataView observed{};
+        if (data_.value_live()) { observed = detail::structural_observation_for(data_.value_data); }
+        if (data_.is_target_position())
+        {
+            auto *link = detail::mutable_target_link_storage(data_.raw_data);
+            link->make_key_active(data_.target_path_node(), observed, key, scheduling_notifier_);
+        }
+        else if (input_ != nullptr && observed.valid())
+        {
+            input_->make_key_active(data_.value_data.path_from_root(), std::move(observed), key,
+                                    scheduling_notifier_);
+        }
+    }
+
     void TSInputView::make_passive()
     {
         detail::input_view_ops().make_passive(*this);

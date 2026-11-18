@@ -1,6 +1,7 @@
 #ifndef HGRAPH_TS_INPUT_ACTIVITY_H
 #define HGRAPH_TS_INPUT_ACTIVITY_H
 
+#include <hgraph/types/value/value.h>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -11,6 +12,7 @@ namespace hgraph
     {
         Value = 1,
         Structural = 2,
+        Key = 3,
     };
 
     /** One active observation, reached through static owned input prefixes.
@@ -21,6 +23,7 @@ namespace hgraph
     {
         std::vector<std::size_t> path{};
         TSInputActivityMode mode{TSInputActivityMode::Value};
+        Value key{};
 
         bool operator==(const TSInputActivityEntry &) const = default;
     };

@@ -183,7 +183,8 @@ TEST_CASE("checkpoint codec: every optional part of an image survives", "[checkp
     node.custom.children = {first, second};
     node.custom.payload = Value{Int{4}};
     node.input_activity = {{.path = {0, 1}, .mode = TSInputActivityMode::Value},
-                           {.path = {}, .mode = TSInputActivityMode::Structural}};
+                           {.path = {}, .mode = TSInputActivityMode::Structural},
+                           {.path = {2}, .mode = TSInputActivityMode::Key, .key = Value{Str{"selected"}}}};
 
     const auto restored = decode_component_checkpoint(encoded(component(node)));
     CHECK(restored.component_id == "codec");

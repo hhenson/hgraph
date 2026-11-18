@@ -1348,6 +1348,7 @@ struct getitem_tsd_by_key {
     auto current = state.get();
     TimeSeriesReference reference{current.target};
     auto &dict = static_cast<TSDInputView &>(ts);
+    dict.base().make_key_active(key.base().value());
     const std::size_t slot = dict.find_slot(key.base().value());
 
     const auto release_pending = [&] {

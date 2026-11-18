@@ -75,6 +75,20 @@ workloads and complete native suite every exercised forwarding list had one
 observer, so direct and delegated registration retained the same number of
 pointers. Delegation would only add a callback hop in that measured shape.
 
+Single-key dictionary lookups use ``make_key_active(key)`` after their first
+valid key. The key-set tracking record owns a lazy hash index of watched keys,
+including absent keys. Insert/remove notifies only that key's bucket, once per
+evaluation time; ordinary value ticks and other keys do not visit its subscribers.
+The compact observer handle remains one word, with no allocation for unused key
+subscriptions. Removing the last subscriber releases the retained key.
+
+Proxies and structural target-link projections relay each membership change,
+including later changes at the same timestamp. Replacing the entire source
+notifies all watched keys. Source invalidation follows the existing observer
+lifetime protocol. Key activity is saved with its owned key in checkpoints.
+The lookup still observes a selected pending forwarding child until its reference
+binds, and downstream consumers follow the selected child for value ticks.
+
 A subtle point: a peered input terminal carries **two** notification paths:
 
 - **Target-modified path.** Subscribed to the target's modification

@@ -133,7 +133,7 @@ namespace hgraph::detail
         [[nodiscard]] bool has_any_active() const noexcept;
         [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
         TSInputActiveTarget &ensure_child(std::size_t slot);
-        void subscribe(const TSDataView &observed_, Notifiable *target_notifier);
+        void subscribe(const TSDataView &observed_, Notifiable *target_notifier, const ValueView *key = nullptr);
         void unsubscribe() noexcept;
 
         TSInputActiveTarget *parent{nullptr};
@@ -141,6 +141,8 @@ namespace hgraph::detail
         bool                 active{false};
         TSInputActivityMode mode{TSInputActivityMode::Value};
         TSDataStorageRef<>   observed{};
+        Value key{};
+        bool keyed_subscribed{false};
         TSInputSchedulingNotifier notifier{};
         SmallDensePtrMap<std::size_t, TSInputActiveTarget> children{};
     };

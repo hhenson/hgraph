@@ -164,6 +164,22 @@ bool TSDataView::modified(DateTime evaluation_time) const {
          tracking().last_modified_time == evaluation_time;
 }
 
+void TSDataView::subscribe_key(const ValueView &key, Notifiable *observer) const {
+  mutable_tracking().observers.subscribe_key(key, observer);
+}
+void TSDataView::unsubscribe_key(const ValueView &key, Notifiable *observer) const {
+  mutable_tracking().observers.unsubscribe_key(key, observer);
+}
+void TSDataView::replace_key_observer(const ValueView &key, Notifiable *observer, Notifiable *replacement) const {
+  mutable_tracking().observers.replace_key_observer(key, observer, replacement);
+}
+void TSDataView::subscribe_key_relay(KeyedNotifiable *observer) const {
+  mutable_tracking().observers.subscribe_key_relay(observer);
+}
+void TSDataView::unsubscribe_key_relay(KeyedNotifiable *observer) const {
+  mutable_tracking().observers.unsubscribe_key_relay(observer);
+}
+
 void TSDataView::subscribe(Notifiable *observer) const {
   require_live("TSDataView::subscribe");
   mutable_tracking().observers.subscribe(observer);
