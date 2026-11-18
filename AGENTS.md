@@ -64,12 +64,21 @@ callables to that path rather than become a second runtime implementation.
 
 ## Definition Of Done
 
-Focused tests are useful while iterating but are not completion evidence. For
-every code change, completion requires both of these local gates to pass:
+Before pushing any code change, run both local gates below on **Windows,
+macOS, and Linux**, using the user-provided development/test machines whenever
+available. All hosts must test the source revision being pushed. Focused tests
+are useful while iterating but do not replace either full suite:
 
 1. The complete native C++ test suite.
 2. The complete non-WIP Python compatibility suite using the newest supported
    Python version (currently Python 3.14).
+
+Consult the private host configuration and attempt to connect to each provided
+host before treating it as unavailable. If a host is unavailable, run the gates
+on the remaining available platforms and record the skipped platform and reason
+in the PR. Record each platform's tested revision and suite results. A build or
+test failure on an available host must be fixed before pushing; it is not an
+availability exception. CI results do not replace these local gates.
 
 Run the native acceptance preset with `--fresh` rather than relying on a stale
 IDE build. The preset selects `.venv/bin/python` for PyArrow discovery; do not
@@ -95,25 +104,18 @@ uv pip install --python "$test_env/bin/python" "${wheel_path}[test]"
 "$test_env/bin/python" -m pytest python/tests -q -m "not wip"
 ```
 
-For large changes, especially runtime, ownership, memory-layout, type-erasure,
-or cross-language changes, run the same full C++ and Python validation in the
-Linux environment before reporting completion. Use a privately configured
-native Linux validation host when one is available; use the Ubuntu/OrbStack VM
-only as a fallback. Follow the workflow in
+Use the provided native Linux validation host when available; use the
+Ubuntu/OrbStack VM only as a fallback. Follow the workflow in
 `docs/source/developer_guide/debugging.rst`; add ASan when lifetime or memory
-safety is involved. macOS is the normal local gate. Windows remains a
-best-effort CI platform, but portable code should still be maintained.
+safety is involved.
 
-When a privately configured Windows build host is reachable, use it as the
-preferred local environment for reproducing Windows-specific failures and
-validating Windows builds, wheel installation, and runtime imports. The host is
-not guaranteed to be available, so inability to connect does not make this
-opportunistic Windows validation a completion blocker. Use the current stable
-Visual Studio 2026 Build Tools installation (MSVC 19.51 or newer), initialize
-it explicitly through its `vcvars64.bat`, and verify `cl.exe` before building;
-do not assume the newest compiler or CMake is already on `PATH`. Use parallel
-build workers appropriate to the host unless a specific diagnostic requires
-serial execution.
+On the provided Windows host, run the same complete native and Python suites,
+including the stable-ABI wheel build and fresh-environment installation. Use
+the current stable Visual Studio 2026 Build Tools installation (MSVC 19.51 or
+newer), initialize it explicitly through its `vcvars64.bat`, and verify
+`cl.exe` before building; do not assume the newest compiler or CMake is already
+on `PATH`. Use parallel build workers appropriate to the host unless a
+specific diagnostic requires serial execution.
 
 Keep developer-local hostnames, machine login names, addresses, credentials,
 and absolute home or workspace paths out of tracked files and pull-request
