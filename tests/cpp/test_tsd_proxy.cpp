@@ -721,6 +721,175 @@ TEST_CASE("TSDProxy same-time identity reconciliation builds once and repeat rea
     REQUIRE(counts.matches == matches_after_reconcile + 2);
 }
 
+TEST_CASE("TSDProxy sparse value ticks do not check unrelated child identities")
+{
+    using namespace hgraph;
+
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts = registry.ts(integer);
+    const auto *tsd = registry.tsd(integer, ts);
+    const auto source_type = TSDataPlanFactory::instance().data_type_for(tsd);
+    const auto element_type = TSDataPlanFactory::instance().data_type_for(ts);
+    TSData source{source_type};
+    TSData proxy{proxy_data_type_for(*tsd, TSRoleTypeRef{element_type.as_role()})};
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+    constexpr std::int32_t key_count = 512;
+    auto source_view = source.view();
+    auto proxy_view = proxy.view();
+    {
+        auto mutation = source_view.as_dict().begin_mutation(t1);
+        for (std::int32_t i = 0; i < key_count; ++i)
+        {
+            Value key{i};
+            Value value{i};
+            REQUIRE(mutation.at(key.view()).begin_mutation(t1).copy_value_from(value.view()));
+        }
+    }
+
+    IdentityCountingContext counts;
+    bind_tsd_proxy(proxy_view, source_view.as_dict(), &identity_counting_ops, &counts, t1,
+                   TSDProxyChildRefresh::OnChildTick);
+    REQUIRE(counts.builds == key_count);
+    counts = {};
+
+    Value key{key_count / 2};
+    const auto slot = source_view.as_dict().find_slot(key.view());
+    Value value{900};
+    REQUIRE(source_view.as_dict().at(key.view()).begin_mutation(t2).copy_value_from(value.view()));
+
+    SECTION("source notification only refreshes the changed slot")
+    {
+        REQUIRE(counts.builds == 1);
+        REQUIRE(counts.matches == 0);
+    }
+    SECTION("modified-slot traversal only checks changed candidates")
+    {
+        counts = {};
+        auto dict = proxy_view.as_dict();
+        REQUIRE(dict.next_modified_slot() == slot);
+        REQUIRE(dict.next_modified_slot(slot) == TS_DATA_NO_CHILD_ID);
+        REQUIRE(counts.builds == 0);
+        REQUIRE(counts.matches <= 1);
+    }
+    SECTION("later writes in the same cycle are reconciled during delta traversal")
+    {
+        Value second_key{key_count - 1};
+        const auto second_slot = source_view.as_dict().find_slot(second_key.view());
+        Value second_value{901};
+        REQUIRE(source_view.as_dict().at(second_key.view()).begin_mutation(t2).copy_value_from(second_value.view()));
+        counts = {};
+        auto dict = proxy_view.as_dict();
+        const auto first = std::min(slot, second_slot);
+        const auto last = std::max(slot, second_slot);
+        REQUIRE(dict.next_modified_slot() == first);
+        REQUIRE(dict.next_modified_slot(first) == last);
+        REQUIRE(dict.next_modified_slot(last) == TS_DATA_NO_CHILD_ID);
+        REQUIRE(counts.builds == 1);
+        REQUIRE(counts.matches <= 1);
+        REQUIRE(dict.at(second_key.view()).value().checked_as<std::int32_t>() == 901);
+    }
+    SECTION("modified-value ranges do not reconcile unrelated bindings")
+    {
+        counts = {};
+        auto dict = proxy_view.as_dict();
+        REQUIRE(range_count(dict.modified_values(t2)) == 1);
+        REQUIRE(counts.builds == 0);
+        REQUIRE(counts.matches <= 1);
+    }
+    SECTION("a child tick without a source write does not inspect stale source deltas")
+    {
+        const auto t3 = t2 + TimeDelta{1};
+        Value third_key{key_count - 1};
+        const auto third_slot = source_view.as_dict().find_slot(third_key.view());
+        auto &storage = *static_cast<TSDProxy *>(const_cast<void *>(proxy_view.data()));
+        auto child = TSDataView{TSRoleTypeRef{element_type.as_role()}, storage.owned_child_memory(third_slot)};
+        Value third_value{902};
+        REQUIRE(child.begin_mutation(t3).copy_value_from(third_value.view()));
+        counts = {};
+        auto dict = proxy_view.as_dict();
+        REQUIRE(dict.modified(t3));
+        REQUIRE(dict.next_modified_slot() == third_slot);
+        REQUIRE(dict.next_modified_slot(third_slot) == TS_DATA_NO_CHILD_ID);
+        REQUIRE(counts.builds == 0);
+        REQUIRE(counts.matches == 0);
+    }
+    SECTION("source and child-only ticks merge in slot order")
+    {
+        auto &storage = *static_cast<TSDProxy *>(const_cast<void *>(proxy_view.data()));
+        std::vector<std::size_t> expected;
+        for (std::int32_t i = 0; i < key_count; i += 2)
+        {
+            Value child_key{i};
+            const auto child_slot = source_view.as_dict().find_slot(child_key.view());
+            auto child = TSDataView{TSRoleTypeRef{element_type.as_role()}, storage.owned_child_memory(child_slot)};
+            Value child_value{i + 1000};
+            static_cast<void>(child.begin_mutation(t2).copy_value_from(child_value.view()));
+            REQUIRE(child.value().checked_as<std::int32_t>() == i + 1000);
+            expected.push_back(child_slot);
+        }
+        std::ranges::sort(expected);
+        counts = {};
+        auto dict = proxy_view.as_dict();
+        std::vector<std::size_t> actual;
+        for (auto current = dict.next_modified_slot(); current != TS_DATA_NO_CHILD_ID;
+             current = dict.next_modified_slot(current))
+        {
+            actual.push_back(current);
+        }
+        REQUIRE(actual == expected);
+        REQUIRE(counts.builds == 0);
+        REQUIRE(counts.matches == 0);
+    }
+    SECTION("new child records shorten a cached search gap and survive rewinding")
+    {
+        auto &storage = *static_cast<TSDProxy *>(const_cast<void *>(proxy_view.data()));
+        auto dict = proxy_view.as_dict();
+        auto write_child = [&](std::int32_t key_value, DateTime time) {
+            Value child_key{key_value};
+            const auto child_slot = source_view.as_dict().find_slot(child_key.view());
+            auto child = TSDataView{TSRoleTypeRef{element_type.as_role()}, storage.owned_child_memory(child_slot)};
+            Value child_value{key_value + 1000};
+            REQUIRE(child.begin_mutation(time).copy_value_from(child_value.view()));
+            return child_slot;
+        };
+        const auto far_slot = write_child(key_count - 1, t2);
+        Value second_key{key_count / 2 + 1};
+        Value second_value{901};
+        const auto second_slot = source_view.as_dict().find_slot(second_key.view());
+        REQUIRE(source_view.as_dict().at(second_key.view()).begin_mutation(t2).copy_value_from(second_value.view()));
+        REQUIRE(dict.next_modified_slot(slot) == second_slot);
+        const auto middle_slot = write_child(key_count / 2 + 2, t2);
+        REQUIRE(slot < middle_slot);
+        REQUIRE(middle_slot < far_slot);
+        REQUIRE(dict.next_modified_slot(second_slot) == middle_slot);
+        REQUIRE(dict.next_modified_slot(middle_slot) == far_slot);
+        REQUIRE(dict.next_modified_slot(far_slot) == TS_DATA_NO_CHILD_ID);
+        REQUIRE(dict.next_modified_slot() == slot);
+        REQUIRE(dict.next_modified_slot(slot) == second_slot);
+        REQUIRE(dict.next_modified_slot(second_slot) == middle_slot);
+
+        const auto first_slot = write_child(0, t2 + TimeDelta{1});
+        REQUIRE(dict.next_modified_slot() == first_slot);
+        REQUIRE(dict.next_modified_slot(first_slot) == TS_DATA_NO_CHILD_ID);
+    }
+    SECTION("a child record after an exhausted search is visible in the same cycle")
+    {
+        auto dict = proxy_view.as_dict();
+        REQUIRE(dict.next_modified_slot(slot) == TS_DATA_NO_CHILD_ID);
+        Value child_key{key_count - 1};
+        const auto child_slot = source_view.as_dict().find_slot(child_key.view());
+        REQUIRE(slot < child_slot);
+        auto &storage = *static_cast<TSDProxy *>(const_cast<void *>(proxy_view.data()));
+        auto child = TSDataView{TSRoleTypeRef{element_type.as_role()}, storage.owned_child_memory(child_slot)};
+        Value child_value{999};
+        REQUIRE(child.begin_mutation(t2).copy_value_from(child_value.view()));
+        REQUIRE(dict.next_modified_slot(slot) == child_slot);
+        REQUIRE(dict.next_modified_slot(child_slot) == TS_DATA_NO_CHILD_ID);
+    }
+}
+
 TEST_CASE("TSDProxy stale child records join the current updated window")
 {
     using namespace hgraph;

@@ -471,6 +471,11 @@ add_executable(hgraph_observer_perf observer_perf.cpp)
 target_link_libraries(hgraph_observer_perf PRIVATE hgraph::core)
 hgraph_enable_private_pch(hgraph_observer_perf)
 
+# Manual sparse/dense dictionary-reference proxy benchmark with value checks.
+add_executable(hgraph_tsd_proxy_perf tsd_proxy_perf.cpp)
+target_link_libraries(hgraph_tsd_proxy_perf PRIVATE hgraph::core)
+hgraph_enable_private_pch(hgraph_tsd_proxy_perf)
+
 # What dmap_ costs (RFC 0037 criterion 9). Its own worker program, so it needs
 # no companion executable -- which is also the shape a host application has.
 add_executable(hgraph_distributed_perf distributed_perf.cpp)

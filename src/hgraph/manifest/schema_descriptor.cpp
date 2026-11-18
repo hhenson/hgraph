@@ -138,7 +138,7 @@ namespace hgraph::manifest
         scope.tag(k_tag_kind);
         scope.varint(static_cast<std::uint64_t>(kind));
         scope.tag(k_tag_flags);
-        scope.varint(static_cast<std::uint64_t>(meta->flags));
+        scope.varint(descriptor_flags(meta->flags));
 
         if (kind == ValueTypeKind::Atomic)
         {
@@ -177,7 +177,11 @@ namespace hgraph::manifest
             scope.tag(k_tag_key);
             append_value_descriptor(scope, meta->key_type);
         }
-        if (meta->is_fixed_size())
+        // A typed frame has no fixed size, and its descriptor writes one of
+        // zero: while ``Frame`` shared ``FixedEmpty``'s bit a frame read here
+        // as a fixed empty List, and stored descriptors hold that. See
+        // ``descriptor_flags``.
+        if (meta->is_fixed_size() || has_flag(meta->flags, ValueTypeFlags::Frame))
         {
             scope.tag(k_tag_fixed_size);
             scope.varint(meta->fixed_size);
