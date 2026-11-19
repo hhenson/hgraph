@@ -17,6 +17,22 @@ namespace hgraph
 
 namespace hgraph::persistence
 {
+    Value frame_seed_resolver(GlobalStateView state, std::string_view fq_key,
+                              const TSValueTypeMetaData *schema, DateTime start_time)
+    {
+        if (schema == nullptr)
+        {
+            return {};
+        }
+        if (schema->contains_window())
+        {
+            const auto history = record_replay_frame_detail::recorded_window_state(state, fq_key, schema, start_time);
+            return history ? Value{history->view().value()} : Value{};
+        }
+        return replay_const_value(state, fq_key, schema->value_schema, start_time,
+                                  table::config(state).as_of.value_or(MAX_DT));
+    }
+
     void register_record_replay_frame_operators()
     {
         register_overload<stdlib::record, record_frame_impl>();

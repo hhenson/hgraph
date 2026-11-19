@@ -6,6 +6,7 @@
 // out of the graph's GlobalState.
 
 #include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
+#include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/runtime.h>
@@ -73,7 +74,46 @@ namespace
             wire<stdlib::dense_record_impl>(w, src, std::string{"out"});
         }
     };
+
+    struct RecordDurationWindow
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> samples)
+        {
+            const auto window = wire<stdlib::to_window>(w, samples, 2 * MIN_TD, TimeDelta{});
+            wire<stdlib::record>(w, window, Str{"samples"}, arg<"recordable_id">(Str{"memory_window"}));
+            return samples;
+        }
+    };
 }  // namespace
+
+TEST_CASE("memory recovery seeds a window at the inclusive cutoff with original sample times")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    using Window = TSWDuration<Int, 2, 0>;
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    const auto state = context.state().view();
+    record_replay::set_config(state, {.backend = std::string{record_replay::MEMORY}});
+    (void)eval_node<RecordDurationWindow>(std::vector<std::optional<Int>>{7, 7});
+
+    // Both samples have the same value. The first departs at offset 3,
+    // and the second at offset 4. Each recovery is a fresh output.
+    const auto times_at = [&](int offset) {
+        TSOutput target{schema_descriptor<Window>::ts_meta()};
+        const auto output = target.view(MIN_ST + offset * MIN_TD);
+        record_replay::publish_recorded_seed(state, "memory_window.samples", output);
+        REQUIRE(output.valid());
+        REQUIRE(output.modified());
+        const auto window = output.as_window();
+        std::vector<DateTime> times;
+        for (std::size_t i = 0; i < window.size(); ++i) { times.push_back(window.time_at(i)); }
+        return times;
+    };
+    CHECK(times_at(2) == std::vector<DateTime>{MIN_ST, MIN_ST + MIN_TD});
+    CHECK(times_at(3) == std::vector<DateTime>{MIN_ST + MIN_TD});
+    CHECK(times_at(4).empty());
+}
 
 TEST_CASE("testing helpers: set_replay_values / get_recorded_values round-trip")
 {

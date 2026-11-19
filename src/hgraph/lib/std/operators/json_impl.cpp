@@ -6,9 +6,12 @@
 #include <fmt/format.h>
 #include <simdjson.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <ostream>
+#include <span>
 #include <stdexcept>
 
 namespace hgraph::stdlib::json_tree
@@ -694,12 +697,33 @@ namespace hgraph::stdlib
 {
     namespace json_ts_detail
     {
+        static void write_friendly(const TSInputView &, const TsJsonPlan &, std::string &);
+        static void read_friendly(const TSOutputView &, const TsJsonPlan &, json_fragment::Cursor &);
+        static void write_window_event(const TSInputView &, const TsJsonPlan &, std::string &);
+        static void read_window_event(const TSOutputView &, const TsJsonPlan &, json_fragment::Cursor &);
+
         /** One node per TS-shape level: every converter the walkers need,
             resolved once at start (converter lookup takes the counted
             converter-interning mutex). ``children``: TSD/TSL hold the single
             (uniform) element plan; TSB holds one per field. */
         struct TsJsonPlan
         {
+            decltype(&write_friendly) write{write_friendly};
+            decltype(&read_friendly) read{read_friendly};
+            struct WindowRecord
+            {
+                std::string marker;
+                BoundJsonConverter version;
+            };
+            struct LegacyList
+            {
+                // Before RFC 0007 the patch had the same indices and removals,
+                // but a modified window child was encoded as its scalar arrival.
+                BoundJsonConverter patch;
+                BoundJsonConverter indices;
+            };
+            std::unique_ptr<WindowRecord> window_record;
+            std::unique_ptr<LegacyList> legacy_list;
             BoundJsonConverter        value{};    // leaf / whole-value
             BoundJsonConverter        element{};  // TSS element
             BoundJsonConverter        delta{};    // TSL positional delta
@@ -709,7 +733,70 @@ namespace hgraph::stdlib
             std::vector<std::unique_ptr<TsJsonPlan>> children{};
         };
 
-        TsJsonPlan *build_ts_json_plan(const TSValueTypeMetaData *schema)
+        // Preserve the observed structural fields (including lenient TSD
+        // removals) while substituting the former TSW scalar delta at leaves.
+        // Called at plan construction only for historical positional records.
+        static const ValueTypeMetaData *legacy_window_delta_schema(const TSValueTypeMetaData &schema)
+        {
+            if (schema.kind == TSTypeKind::TSW) { return schema.value_type; }
+            const auto *current = schema.delta_value_schema;
+            if (!schema.contains_window()) { return current; }
+            std::vector<std::pair<std::string, const ValueTypeMetaData *>> fields;
+            auto &registry = TypeRegistry::instance();
+            for (std::size_t i = 0; i < current->field_count; ++i)
+            {
+                const auto &field = current->fields[i];
+                const auto *type = field.type;
+                if (schema.kind == TSTypeKind::TSB)
+                {
+                    type = legacy_window_delta_schema(*schema.fields()[i].type);
+                }
+                else if (std::string_view{field.name} == "modified")
+                {
+                    type = registry.map(type->key_type, legacy_window_delta_schema(*schema.element_ts()));
+                }
+                fields.emplace_back(field.name, type);
+            }
+            return registry.un_named_bundle(fields);
+        }
+
+        // The JSON bundle converter accepts partial objects. A historical
+        // compound-scalar arrival might therefore parse as an empty *modern*
+        // window delta. Check window leaves before choosing that interpretation.
+        static bool has_window_event_fields(const TSValueTypeMetaData &schema, const ValueView &delta)
+        {
+            if (!delta.has_value()) { return true; }  // an unchanged structural child
+            if (schema.kind == TSTypeKind::TSW)
+            {
+                const auto fields = delta.as_bundle();
+                return fields.element_valid(0) && fields.element_valid(1) && fields.element_valid(2);
+            }
+            if (schema.kind == TSTypeKind::TSB)
+            {
+                const auto fields = delta.as_bundle();
+                for (std::size_t i = 0; i < fields.size(); ++i)
+                {
+                    if (!has_window_event_fields(*schema.fields()[i].type, fields.at(i))) { return false; }
+                }
+            }
+            if (schema.kind == TSTypeKind::TSL || schema.kind == TSTypeKind::TSD)
+            {
+                // Pre-1815 fixed lists used a bare index map.
+                const auto visit_changes = [&](const ValueView &changes) {
+                    if (!changes.has_value()) { return true; }
+                    for (const auto &[key, value] : changes.as_map())
+                    {
+                        if (!has_window_event_fields(*schema.element_ts(), value)) { return false; }
+                    }
+                    return true;
+                };
+                return delta.schema()->value_kind() == ValueTypeKind::Map
+                           ? visit_changes(delta) : visit_changes(delta.as_bundle().at(1));
+            }
+            return true;
+        }
+
+        static std::unique_ptr<TsJsonPlan> build_friendly_plan(const TSValueTypeMetaData *schema)
         {
             auto plan = std::make_unique<TsJsonPlan>();
             switch (schema->kind)
@@ -718,7 +805,7 @@ namespace hgraph::stdlib
                     const auto *dict = time_series_schema_as<AnyTSD>(schema);
                     plan->key_meta   = dict->key_type();
                     plan->key        = bind_json_converter(plan->key_meta);
-                    plan->children.emplace_back(build_ts_json_plan(dict->element_ts()));
+                    plan->children.emplace_back(build_friendly_plan(dict->element_ts()));
                     break;
                 }
                 case TSTypeKind::TSS: {
@@ -727,13 +814,23 @@ namespace hgraph::stdlib
                         schema->value_schema->element_type);
                     break;
                 }
+                case TSTypeKind::TSW:
+                    plan->element = bind_json_converter(schema->value_type);
+                    plan->value = bind_json_converter(schema->value_schema);
+                    break;
                 case TSTypeKind::TSL: {
                     const auto *list = time_series_schema_as<AnyTSL>(schema);
                     plan->value      = bind_json_converter(schema->value_schema);
                     plan->delta      = bind_json_converter(
                         schema->delta_value_schema);
                     plan->list_indices = bind_json_converter(schema->delta_value_schema->fields[1].type);
-                    plan->children.emplace_back(build_ts_json_plan(list->element_ts()));
+                    if (list->element_ts()->contains_window())
+                    {
+                        const auto *legacy = legacy_window_delta_schema(*schema);
+                        plan->legacy_list = std::make_unique<TsJsonPlan::LegacyList>(
+                            bind_json_converter(legacy), bind_json_converter(legacy->fields[1].type));
+                    }
+                    plan->children.emplace_back(build_friendly_plan(list->element_ts()));
                     break;
                 }
                 case TSTypeKind::TSB: {
@@ -744,7 +841,7 @@ namespace hgraph::stdlib
                     for (std::size_t index = 0; index < bundle->field_count(); ++index)
                     {
                         plan->children.emplace_back(
-                            build_ts_json_plan(bundle->fields()[index].type));
+                            build_friendly_plan(bundle->fields()[index].type));
                     }
                     break;
                 }
@@ -752,6 +849,29 @@ namespace hgraph::stdlib
                     plan->value = bind_json_converter(schema->value_schema);
                     break;
                 }
+            }
+            return plan;
+        }
+
+        TsJsonPlan *build_ts_json_plan(const TSValueTypeMetaData *schema)
+        {
+            auto plan = build_friendly_plan(schema);
+            if (schema->contains_window())
+            {
+                // A named bundle can legitimately use any field name. Choose
+                // an unused marker once so the old writer's rows stay readable.
+                std::string key = "$hgraph.window";
+                while (schema->kind == TSTypeKind::TSB &&
+                       std::ranges::any_of(std::span{schema->fields(), schema->field_count()},
+                                         [&](const auto &field) { return key == field.name; }))
+                {
+                    key += '$';
+                }
+                plan->window_record = std::make_unique<TsJsonPlan::WindowRecord>(
+                    std::move(key), bind_json_converter(scalar_descriptor<Int>::value_meta()));
+                plan->delta = bind_json_converter(schema->delta_value_schema);
+                plan->write = write_window_event;
+                plan->read = read_window_event;
             }
             return plan.release();
         }
@@ -784,7 +904,7 @@ namespace hgraph::stdlib
             }
         }  // namespace
 
-        void write_ts_delta(const TSInputView &ts, const TsJsonPlan &plan, std::string &out)
+        static void write_friendly(const TSInputView &ts, const TsJsonPlan &plan, std::string &out)
         {
             visit(
                 ts,
@@ -802,7 +922,7 @@ namespace hgraph::stdlib
                         write_separator(first, out);
                         write_json_key(plan.key, key, out);
                         out += ": ";
-                        write_ts_delta(child, *plan.children[0], out);
+                        write_friendly(child, *plan.children[0], out);
                     }
                     out.push_back('}');
                 },
@@ -857,14 +977,14 @@ namespace hgraph::stdlib
                         if (!child.modified()) { continue; }
                         write_separator(first, out);
                         out += fmt::format("\"{}\": ", bundle.schema()->fields()[index].name);
-                        write_ts_delta(child, *plan.children[index], out);
+                        write_friendly(child, *plan.children[index], out);
                     }
                     out.push_back('}');
                 },
                 [&](TSInputView leaf) { plan.value.write(leaf.value(), out); });
         }
 
-        void apply_ts_json(const TSOutputView &out, const TsJsonPlan &plan,
+        static void read_friendly(const TSOutputView &out, const TsJsonPlan &plan,
                            json_fragment::Cursor &cursor)
         {
             visit(
@@ -892,7 +1012,7 @@ namespace hgraph::stdlib
                         else
                         {
                             auto element = mutation.at(key.view());
-                            apply_ts_json(
+                            read_friendly(
                                 TSOutputView{dict.base().output(), element, dict.evaluation_time()},
                                 *plan.children[0], cursor);
                         }
@@ -980,7 +1100,7 @@ namespace hgraph::stdlib
                             }
                             if (!json_fragment::consume_null(cursor))
                             {
-                                apply_ts_json(list.at(index), *plan.children[0], cursor);
+                                read_friendly(list.at(index), *plan.children[0], cursor);
                             }
                             else if (dynamic && index >= list.size())
                             {
@@ -1003,14 +1123,128 @@ namespace hgraph::stdlib
                         const auto key = json_fragment::parse_string(probe);
                         positional     = !key.empty() && key.front() >= '0' && key.front() <= '9';
                     }
-                    const Value parsed = json_fragment::parse_value(positional ? plan.list_indices : plan.delta, cursor);
+                    const auto &current = positional ? plan.list_indices : plan.delta;
+                    Value parsed;
+                    if (!plan.legacy_list)
+                    {
+                        parsed = json_fragment::parse_value(current, cursor);
+                    }
+                    else
+                    {
+                        // Before RFC 0007 modified children carried bare
+                        // arrivals. Stage 1/2 writers emitted canonical deltas
+                        // in the same untagged list patch. Decode fully before
+                        // applying anything to the output.
+                        auto candidate = cursor;
+                        try
+                        {
+                            parsed = json_fragment::parse_value(current, candidate);
+                        }
+                        catch (const std::invalid_argument &)
+                        {
+                            // Scalar arrivals can have a different JSON token type.
+                        }
+                        if (parsed.has_value() && has_window_event_fields(*list.schema(), parsed.view()))
+                        {
+                            cursor = candidate;
+                        }
+                        else
+                        {
+                            const auto &legacy = positional ? plan.legacy_list->indices : plan.legacy_list->patch;
+                            parsed = json_fragment::parse_value(legacy, cursor);
+                        }
+                    }
                     apply_delta(list.base(), parsed.view());
+                },
+                [&](TSWOutputView window) {
+                    // The old JSON writer emitted its held list on each recorded
+                    // tick. Bare scalar arrival records use prune-on-push.
+                    if (json_fragment::peek(cursor) == '[')
+                    {
+                        const Value held = json_fragment::parse_value(plan.value, cursor);
+                        apply_current_value(window.base(), held.view());
+                    }
+                    else
+                    {
+                        const Value arrival = json_fragment::parse_value(plan.element, cursor);
+                        apply_delta(window.base(), arrival.view());
+                    }
                 },
                 [&](TSOutputView leaf) {
                     const Value parsed = json_fragment::parse_value(
                         plan.value, cursor);
                     apply_current_value(leaf, parsed.view());
                 });
+        }
+        static void write_window_event(const TSInputView &ts, const TsJsonPlan &plan, std::string &out)
+        {
+            out += fmt::format("{{\"{}\": 1, \"event\": ", plan.window_record->marker);
+            const Value event = capture_delta(ts);
+            plan.delta.write(event.view(), out);
+            out += '}';
+        }
+
+        static void read_window_event(const TSOutputView &out, const TsJsonPlan &plan, json_fragment::Cursor &cursor)
+        {
+            // An untagged dictionary or window element can have a numeric key
+            // named "$hgraph.window". Only the marker and an event form a record.
+            auto scan = cursor;
+            std::optional<json_fragment::Cursor> version, event;
+            Value decoded;
+            auto decode_event = [&](json_fragment::Cursor &at) {
+                auto tag = *version;
+                const auto number = json_fragment::parse_value(plan.window_record->version, tag);
+                if (number.view().checked_as<Int>() != 1)
+                {
+                    json_fragment::fail(tag, "unsupported window recording version");
+                }
+                decoded = json_fragment::parse_value(plan.delta, at);
+            };
+            if (json_fragment::consume(scan, '{') && json_fragment::peek(scan) != '}')
+            {
+                do
+                {
+                    const auto key = json_fragment::parse_string(scan);
+                    if (!json_fragment::consume(scan, ':')) { json_fragment::fail(scan, "expected ':'"); }
+                    const char token = json_fragment::peek(scan);
+                    if (key == plan.window_record->marker && ((token >= '0' && token <= '9') || token == '-'))
+                    {
+                        if (version) { json_fragment::fail(scan, "duplicate window recording version"); }
+                        version = scan;
+                    }
+                    if (key == "event")
+                    {
+                        if (event) { json_fragment::fail(scan, "duplicate recording event"); }
+                        event = scan;
+                        // The writer emits the version first. Parse its payload
+                        // once. An out-of-order event is decoded after its tag.
+                        if (version) { decode_event(scan); continue; }
+                    }
+                    json_fragment::skip_value(scan);
+                } while (json_fragment::consume(scan, ','));
+                if (version && event)
+                {
+                    if (!json_fragment::consume(scan, '}') || json_fragment::peek(scan))
+                    {
+                        json_fragment::fail(scan, "trailing window recording data");
+                    }
+                    if (!decoded.has_value()) { decode_event(*event); }
+                    apply_delta(out, decoded.view());
+                    cursor = scan;
+                    return;
+                }
+            }
+            read_friendly(out, plan, cursor);
+        }
+
+        void write_ts_delta(const TSInputView &ts, const TsJsonPlan &plan, std::string &out)
+        {
+            plan.write(ts, plan, out);
+        }
+
+        void apply_ts_json(const TSOutputView &out, const TsJsonPlan &plan, json_fragment::Cursor &cursor)
+        {
+            plan.read(out, plan, cursor);
         }
     }  // namespace json_ts_detail
 

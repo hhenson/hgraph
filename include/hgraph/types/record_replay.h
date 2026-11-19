@@ -10,6 +10,12 @@
 #include <string>
 #include <string_view>
 
+namespace hgraph
+{
+    class TSDataView;
+    class TSOutputView;
+}
+
 namespace hgraph::record_replay
 {
     /**
@@ -160,6 +166,21 @@ namespace hgraph::record_replay
 
     HGRAPH_EXPORT void register_seed_resolver(std::string_view backend, SeedResolver resolver);
 
+    /** An output-aware recovery seed preserves metadata absent from a current
+        value, including each window sample's original observation time. */
+    enum class SeedPublication
+    {
+        AtStart,     ///< Publish the history through the restart time once.
+        BeforeLive,  ///< Quietly restore earlier history before applying the live restart tick.
+    };
+    /** Backends implementing this callback can restore original sample times
+        even when a simultaneous live tick supplies the first publication. */
+    using SeedPublisher = void (*)(GlobalStateView, std::string_view, const TSOutputView &, SeedPublication);
+    HGRAPH_EXPORT void register_seed_resolver(std::string_view backend, SeedResolver resolver, SeedPublisher publisher);
+    HGRAPH_EXPORT void publish_recorded_seed(GlobalStateView state, std::string_view fq_key, const TSOutputView &target,
+                                             SeedPublication mode = SeedPublication::AtStart);
+    HGRAPH_EXPORT void publish_window_history(const TSOutputView &target, const TSDataView &history, SeedPublication mode);
+
     /** Reset transient wiring scopes (mode stack, seed-resolver registry —
         the latter replayed by the registration installers). */
     HGRAPH_EXPORT void reset() noexcept;
@@ -203,6 +224,11 @@ namespace hgraph
                                                                  std::string_view           fq_key,
                                                                  const TSValueTypeMetaData *schema,
                                                                  DateTime start_time);
+
+        /** Rebuild a window-bearing sparse recording up to, and excluding, the
+         * replay start without publishing. Return the first unread row index. */
+        [[nodiscard]] HGRAPH_EXPORT std::size_t restore_window_replay_prefix(
+            const ValueView &buffer, const TSOutputView &target);
 
         /**
          * Comparison-result summary: (rows compared, mismatches) for a

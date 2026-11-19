@@ -708,6 +708,58 @@ precedent): layout synthesis + row emission in ``lib/std/operators/impl``
 per the plan-registries rule); the value-level ``TableConverter`` is
 unchanged underneath.
 
+.. _durable-window-records:
+
+Durable window events (RFC 0007)
+--------------------------------
+
+A recording has two kinds of time. The row's evaluation time determines
+when replay publishes. A sample's arrival time identifies the observation
+in a removal or replacement. For example, the departure of 7 at offset 3 µs
+can carry the sample ``7@0``. An explicit clear of the resulting empty window
+is a separate observable publication.
+
+* ``to_json(window, delta=True)`` writes an object with
+  ``"$hgraph.window": 1`` and ``"event"``. The event uses the time-series
+  delta schema. A nested window is encoded as part of its parent's event.
+  If a root bundle already has a field with the marker name, the writer and
+  reader append ``$`` to the marker until the name is free. The enclosing
+  log owns the evaluation time. The JSON event owns the times of removed
+  or replaced samples.
+* The data-frame recorder writes ``hgraph.window_delta.version=1`` in the
+  Arrow schema metadata of window-bearing frames, including each segment.
+  A window cell is an Arrow struct with ``cleared``, ``added``, ``removed``
+  and nullable ``replacement``. A null replacement denotes an incremental
+  event. An empty replacement list installs an empty history. Each member
+  of ``removed`` or ``replacement`` contains a typed ``value`` and ``time``.
+  Window elements use the table codec's supported Arrow scalar, list,
+  variadic tuple and compound-scalar representations. An element without a
+  registered physical representation raises an unsupported-type error.
+* A historical untagged root-window Arrow value is an arrival. The JSON
+  reader accepts historical held arrays as snapshots, stamping their
+  elements with the row time since the old array stored only values. A
+  bare JSON scalar is an arrival. The reader also accepts historical
+  positional list patches with scalar arrivals or structured window deltas
+  nested inside a modified position. Historical arrivals prune at the next
+  recorded arrival, and gaps remain silent. In untagged window JSON an
+  array always has its historical snapshot meaning. A versioned addition
+  can unambiguously carry a list-valued element. In bare object input the
+  numeric marker paired with an ``event`` member selects the recording
+  envelope. Store a literal map with both names inside the versioned
+  ``added`` list. Historical held arrays containing such a map remain
+  readable.
+
+A sparse replay starting on a departure folds earlier rows into private
+state. Only visible rows publish. When component recovery seeds a quiet
+window input, it publishes the saved history through the restart time as
+one timestamped replacement. With a simultaneous live edit, it restores
+the earlier history silently and applies the live edit once.
+
+Deploy readers before enabling the new writers. A reader rejects an unknown
+recording version. Whole-value JSON (``delta=False``) still represents the
+currently held values. Use delta recording to preserve a departure, clear
+or original sample time across runs.
+
 Step 7 — native segmented recordings
 ------------------------------------
 

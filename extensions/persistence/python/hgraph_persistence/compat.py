@@ -212,6 +212,14 @@ class BaseDataFrameStorage(DataFrameStorage, ABC):
         super().__init__()
         self._schema = {}
 
+    def load(self, path):
+        # Replay consumes the stored Arrow schema, including format/version
+        # metadata. The user-facing Polars representation drops this metadata.
+        try:
+            return self._read(path)
+        except (FileNotFoundError, KeyError):
+            return None
+
     def read_frame(self, path, start_time=None, end_time=None, as_of=None):
         from hgraph._frame import as_user_frame
 
@@ -230,8 +238,8 @@ class BaseDataFrameStorage(DataFrameStorage, ABC):
             as_of_mask = pc.less_equal(frame[as_of_col], pa.scalar(as_of))
             mask = as_of_mask if mask is None else pc.and_(mask, as_of_mask)
         # A framework surface: user code reads recordings through this, so
-        # the result presents in the user-facing form (issue #80); internal
-        # replay normalizes back through _as_arrow.
+        # the result presents in the user-facing form (issue #80). Replay
+        # uses load() to retain the stored Arrow metadata.
         return as_user_frame(frame.filter(mask) if mask is not None else frame)
 
     def write_frame(

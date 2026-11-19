@@ -2687,6 +2687,13 @@ namespace hgraph
             return result;
         }
 
+        void skip_value(Cursor &cursor)
+        {
+            json_detail::Reader reader{cursor.text, cursor.offset};
+            reader.skip_value();
+            cursor.offset = reader.pos;
+        }
+
         Value parse_value(const JsonConverter &converter, Cursor &cursor)
         {
             json_detail::Reader reader{cursor.text, cursor.offset};

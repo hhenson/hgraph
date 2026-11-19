@@ -63,6 +63,23 @@ namespace
         }
     };
 
+    struct DurableWindowLength
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"ts", TS<Int>> input)
+        {
+            auto window = wire<stdlib::to_window>(w, input, 2 * MIN_TD, MIN_TD);
+            return wire<stdlib::len_>(w, window).as<TS<Int>>();
+        }
+    };
+
+    struct WindowLengthComponent
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> input)
+        {
+            return stdlib::component<DurableWindowLength>(w, "length", input);
+        }
+    };
+
     EvalNodeRunOptions interval(Int begin, Int end)
     {
         return {.start_time = MIN_ST + MIN_TD * begin, .end_time = MIN_ST + MIN_TD * end};
@@ -118,6 +135,41 @@ namespace
         node.custom.endpoints.push_back(*node.output);
         checkpoint.graph.nodes.push_back(std::move(node));
         return checkpoint;
+    }
+}
+
+TEST_CASE("component checkpoint store: quiet duration window departures survive a cold restart")
+{
+    stdlib::register_standard_operators();
+    const Int resume = GENERATE(2, 3, 5);
+    CAPTURE(resume);
+    const auto continuous = eval_node_with_options<WindowLengthComponent>(
+        interval(0, 7), values<Int>(7, 2, none, none, none, none, none));
+    CHECK_OUTPUT(continuous, values<Int>(1, 2, none, 1, 0, none, none));
+
+    WindowCheckpointDirectory directory;
+    {
+        GlobalContext context;
+        const ComponentCheckpointStore store{directory.config()};
+        persistence::configure_component_recovery(context.state().view(), store, "length", "before");
+        CHECK_OUTPUT(eval_node_with_options<WindowLengthComponent>(interval(0, 2), values<Int>(7, 2)),
+                     values<Int>(1, 2));
+    }
+    {
+        GlobalContext context;
+        const ComponentCheckpointStore reopened{directory.config()};
+        persistence::configure_component_recovery(context.state().view(), reopened, "length", "after", "before");
+        const std::vector<std::optional<Int>> quiet(static_cast<std::size_t>(7 - resume));
+        const auto recovered = eval_node_with_options<WindowLengthComponent>(interval(resume, 7), quiet);
+        if (resume <= 3)
+        {
+            CHECK_OUTPUT(recovered, (std::vector<std::optional<Int>>{continuous.begin() + resume, continuous.end()}));
+        }
+        else
+        {
+            // Both samples expired while stopped. The single restart tick sees an empty window.
+            CHECK_OUTPUT(recovered, values<Int>(0, none));
+        }
     }
 }
 

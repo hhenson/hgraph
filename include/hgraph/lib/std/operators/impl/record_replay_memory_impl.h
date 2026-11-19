@@ -308,13 +308,17 @@ namespace hgraph::stdlib
         // ``tp`` at the 0.5 position (RFC 0033): ``replay(key, tp=AUTO_RESOLVE, ...)``.
         static void start(Scalar<"key", Str>           key, TypeArg<"tp", TsVar<"S">, AutoResolve>,
                           Scalar<"recordable_id", Str> recordable_id, Scalar<"model", Str>, TraitsView traits, GlobalStateView gs,
-                          State<record_replay_memory_detail::ReplayCursorState> cursor) {
+                          State<record_replay_memory_detail::ReplayCursorState> cursor, Out<TsVar<"S">> out) {
             // The sparse fq key is wiring-fixed; build the string once.
             auto current = cursor.get();
             if (!recordable_id.value().empty())
             {
                 current.fq_key = record_replay_memory_detail::memory_recording_key(
                     traits, recordable_id.value(), key.value());
+                if (static_cast<const TSOutputView &>(out).schema()->contains_window())
+                {
+                    current.index = static_cast<Int>(record_replay::restore_window_replay_prefix(gs.get(current.fq_key), out));
+                }
             } else {
                 const auto buffer    = gs.get(key.value());
                 current.dense_reader = testing::dense_entry_reader(buffer.binding());

@@ -183,6 +183,8 @@ namespace hgraph
         HGRAPH_EXPORT bool consume_null(Cursor &cursor);
         /** Peek the next non-whitespace char (0 at end). */
         HGRAPH_EXPORT char peek(Cursor &cursor);
+        /** Skip one complete JSON value, including nested objects and arrays. */
+        HGRAPH_EXPORT void skip_value(Cursor &cursor);
         /** Parse a JSON string token. */
         HGRAPH_EXPORT std::string parse_string(Cursor &cursor);
         /** Parse one meta-directed value at the cursor. */

@@ -2276,7 +2276,7 @@ from_data_frame_batches: _from_data_frame_batches_Operator
 class _from_json_Operator(_Protocol):
     """Parse JSON text directly into an explicitly selected time-series schema. Each parsed value is applied as that tick's delta, so collection removals and structural updates follow the target type's normal delta semantics.
 
-    Being a delta, an absent member is UNCHANGED rather than removed: a bare ``[..]`` for a ``TSS`` adds its members, and removal needs the explicit ``{"added": [..], "removed": [..]}`` form. A ``null`` element of a ``TSL`` array means that element does not tick. A growing list takes its length from the array. Both kinds accept a delta object with a ``modified`` index map and ``removed`` indices. Supply ``size_modified`` to resize a growing list.
+    Being a delta, an absent member is UNCHANGED rather than removed: a bare ``[..]`` for a ``TSS`` adds its members, and removal needs the explicit ``{"added": [..], "removed": [..]}`` form. A ``null`` element of a ``TSL`` array means that element does not tick. A growing list takes its length from the array. Both kinds accept a delta object with a ``modified`` index map and ``removed`` indices. Supply ``size_modified`` to resize a growing list. A window recording publishes only at its recorded rows. Versioned events retain sample timestamps. Historical held arrays use the row time, and untagged scalar arrivals prune the window when the next arrival is read.
 
     Parameters
     ~~~~~~~~~~
@@ -7771,7 +7771,7 @@ class _to_instant_Operator(_Protocol):
 to_instant: _to_instant_Operator
 
 class _to_json_Operator(_Protocol):
-    """Serialize each time-series tick as JSON text. Full-value mode encodes the current value; delta mode encodes the canonical per-tick delta used by record/replay and preserves removals explicitly.
+    """Serialize each time-series tick as JSON text. Full-value mode encodes the current value; delta mode encodes the canonical per-tick delta used by record/replay and preserves removals explicitly. If the time series contains a window, delta mode wraps the event in a versioned object. Removed and replaced samples retain their original times.
 
     Parameters
     ~~~~~~~~~~

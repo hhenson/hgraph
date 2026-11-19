@@ -251,3 +251,65 @@ def test_stored_replay_filters_start_time_and_selects_the_visible_revision(store
             assert hg.eval_node(
                 rep, __start_time__=hg.MIN_ST + hg.MIN_TD
             ) == [40]
+
+
+def test_unmarked_window_rows_are_literal_struct_arrivals(store):
+    """An old struct-valued arrival can have field names used by newer window events."""
+    class Quote(hg.CompoundScalar):
+        added: int
+        removed: int
+
+    window = hg.TSW[Quote, hg.WindowSize[2 * hg.MIN_TD], hg.WindowSize[0 * hg.MIN_TD]]
+
+    @hg.compute_node
+    def read(ts: window) -> hg.TS[int]:
+        return sum(item.added - item.removed for item in ts.value)
+
+    @hg.graph
+    def replayed() -> hg.TS[int]:
+        return read(hg.replay("old", window, recordable_id="book"))
+
+    store.frames["book.old"] = pa.table({
+        "__date_time__": pa.array([hg.MIN_ST, hg.MIN_ST + 4 * hg.MIN_TD], type=pa.timestamp("us")),
+        "value": pa.array([{"added": 9, "removed": 2}, {"added": 4, "removed": 1}],
+                          type=pa.struct([("added", pa.int64()), ("removed", pa.int64())])),
+    })
+    with _using(store):
+        # Historical scalar windows pruned on a new arrival; the old stream
+        # has no independent clock row for a quiet departure.
+        assert hg.eval_node(replayed) == [7, None, None, None, 3]
+
+
+@pytest.mark.parametrize("version", [b"1", b"2"])
+def test_versioned_window_rejects_wrong_nested_timestamp_or_unknown_version(store, version):
+    window = hg.TSW[int, hg.Size[2], hg.Size[1]]
+    entry = pa.struct([("value", pa.int64()), ("time", pa.string())])
+    schema = pa.schema([
+        ("__date_time__", pa.timestamp("us")),
+        ("value", pa.struct([("cleared", pa.bool_()), ("added", pa.list_(pa.int64())),
+                             ("removed", pa.list_(entry)), ("replacement", pa.list_(entry))])),
+    ], metadata={b"hgraph.window_delta.version": version})
+    store.frames["book.bad"] = pa.Table.from_pylist([{
+        "__date_time__": hg.MIN_ST,
+        "value": {"cleared": True, "added": [], "removed": [{"value": 1, "time": "bad"}]},
+    }], schema=schema)
+    message = "has Arrow type" if version == b"1" else "unsupported window recording version"
+    with _using(store), pytest.raises(RuntimeError, match=message):
+        hg.eval_node(hg.replay[window], key="bad", recordable_id="book")
+
+
+def test_window_preserves_and_validates_the_time_zone_version_of_its_samples(store):
+    from datetime import datetime
+
+    window = hg.TSW[hg.ZonedDateTime, hg.Size[2], hg.Size[1]]
+    with _using(store):
+        hg.set_time_zone_provider()
+        moment = hg.eval_node(hg.at_zone, [datetime(2025, 1, 15, 12)], [hg.ZoneId("America/New_York")])[0]
+        _record(store, [moment], window)
+        frame = store.frames["py.out"]
+        assert frame.schema.metadata[b"hgraph.tzdb.version"]
+        assert hg.eval_node(hg.replay[window], key="out", recordable_id="py") == [moment]
+        store.frames["py.out"] = frame.replace_schema_metadata(
+            frame.schema.metadata | {b"hgraph.tzdb.version": b"another-version"})
+        with pytest.raises(RuntimeError, match="uses TZDB version"):
+            hg.eval_node(hg.replay[window], key="out", recordable_id="py")

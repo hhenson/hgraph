@@ -25,8 +25,8 @@ multiple evictions, reset-only ticks, and removal-only scheduled ticks.
 Stage 1 introduced the window delta and its in-memory and distributed
 representations. Stage 2 adds a native root expiry service for duration windows
 at fixed owned output paths, including paths inside nested graph instances.
-Durable recording migration and dynamic collection attachment follow in later
-stages.
+Stage 3 adds versioned durable window events and restores live deadlines from
+checkpointed sample times. Stage 4 covers dynamic collection attachment.
 
 Problem statement
 -----------------
@@ -64,8 +64,8 @@ Nested owners borrow a weak forward reference to that root service. Copying
 the configuration copies no deadlines or endpoint references. Roots without
 live duration owners allocate no service.
 
-Start subscribes each fixed-path owner before its node's start hook. The
-service contributes its earliest deadline to the root's next scheduled time.
+Start subscribes each fixed-path owner after the node start hooks and
+checkpoint callbacks have restored their outputs. The service contributes its earliest deadline to the root's next scheduled time.
 When the root runs, it pulls due windows in the phase immediately after push
 sources and before ordinary nodes. This gives each consumer the final state for
 the cycle while preserving public node indices, edges and observer identities.
@@ -196,24 +196,26 @@ time under the original prune-on-push behaviour. Gaps in its historical trace
 stay silent. A recorded structured removal supplies its own timestamped samples.
 The distributed boundary marks its new window payload explicitly and still
 reads the earlier clear/push encoding. Deploy compatible readers before new
-writers. The Arrow/JSON format migration and its recovery tests belong to
-Stage 3.
+writers.
 
-A checkpoint for a duration TSW must preserve retained values and their
-original evaluation timestamps.  Replaying values without timestamps changes
-their future expiry and is not recovery.
+Stage 3 writes window-bearing JSON deltas as an object containing a numeric
+format version and the canonical event. Arrow frames carry the version in
+schema metadata and store the window delta as a typed struct. The storage
+formats, legacy reads and deployment order are described in
+:ref:`durable-window-records`.
 
-The expiry heap, subscription handles, and root deadline are derived
-execution state. Recovery rebuilds them from window storage.  Start-time subscription reads the
-restored TSW and derives its next alarm from the oldest value.  If recovery
-seeding occurs during the owning node's start hook, attachment must happen
-first so the seed mutation updates the source.  A start-completion invariant
-check must prove that every non-empty owned duration TSW has one live source
-entry.
+A live checkpoint already stores sample values, their original timestamps
+and window validity. A restored owner attaches to the root expiry service.
+Each graph attaches its fixed-path owners after its node start hooks and
+checkpoint callbacks have run, before the graph-started notification.
+Attachment reads each owner's final oldest sample once. This also arms an
+independently started nested graph. Empty windows contribute no deadline. The checkpoint contains no scheduler
+handles or heap entries.
 
-Recovery conformance is defined by comparing uninterrupted and recovered runs:
-they must emit the same append, reset, and scheduled-removal cycles at the same
-evaluation times.
+Resuming before the next deadline preserves the uninterrupted departure
+times. Resuming exactly on the deadline publishes the departure in the first
+cycle. Resuming later removes every overdue sample in one publication at the
+resumed time. Its removal list still carries each original arrival time.
 
 Runtime and performance goals
 -----------------------------
@@ -286,8 +288,6 @@ Native and Python tests must cover:
 Unresolved questions
 --------------------
 
-* How to version durable Arrow/JSON recording metadata for structured window
-  events and migrate older durable formats.
 * The exact output-tree hook used to attach dynamic duration TSW children
   without a full-tree scan.
 * Whether scheduler lateness should expose the scheduled expiry time in

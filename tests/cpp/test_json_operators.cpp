@@ -51,6 +51,47 @@ namespace
         }
     };
 
+    using RecordedWindow = TSWDuration<Int, 2, 0>;
+
+    struct ReadWindowJson
+    {
+        static Port<RecordedWindow> compose(Wiring &w, Port<TS<Str>> events)
+        {
+            return wire<stdlib::from_json, RecordedWindow>(w, events).as<RecordedWindow>();
+        }
+    };
+
+    using WindowPositions = TSL<RecordedWindow, 2>;
+
+    struct ReadWindowPositions
+    {
+        static Port<WindowPositions> compose(Wiring &w, Port<TS<Str>> records)
+        {
+            return wire<stdlib::from_json, WindowPositions>(w, records).as<WindowPositions>();
+        }
+    };
+
+    using WindowBundle = TSB<"WindowJsonBundle", Field<"$hgraph.window", TS<Int>>, Field<"prices", RecordedWindow>>;
+
+    struct WindowBundleJsonRoundTrip
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Str>> records)
+        {
+            auto bundle = wire<stdlib::from_json, WindowBundle>(w, records).as<WindowBundle>();
+            return wire<stdlib::to_json>(w, bundle, true).as<TS<Str>>();
+        }
+    };
+
+    struct WindowJsonRoundTrip
+    {
+        static Port<RecordedWindow> compose(Wiring &w, Port<TS<Int>> samples, Port<SIGNAL> reset)
+        {
+            auto live = wire<stdlib::to_window>(w, samples, 2 * MIN_TD, TimeDelta{}, reset).as<RecordedWindow>();
+            auto record = wire<stdlib::to_json>(w, live, true).as<TS<Str>>();
+            return ReadWindowJson::compose(w, record);
+        }
+    };
+
     struct FromJsonDateTimeGraph
     {
         [[maybe_unused]] static constexpr auto name =
@@ -512,4 +553,59 @@ TEST_CASE("dynamic json operators: equality is independent of lazy or eager stor
     CHECK_OUTPUT(eval_node<JsonDynamicLazyEagerCompareGraph>(
                      values<Str>(Str{"{\"target\":{\"answer\":41}}"})),
                  values<stdlib::CmpResult>(stdlib::CmpResult::EQ));
+}
+
+
+TEST_CASE("recorded window JSON round-trips mixed, empty-clear and quiet departure ticks")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<WindowJsonRoundTrip>(values<Int>(7, none, none, 8),
+                                                values<Bool>(none, none, none, none, none, none, none, true)),
+                 values<Value>(window_delta<Int>(7), none, none, window_delta<Int>(8, {{7, MIN_ST}}),
+                               none, none, window_delta<Int>(std::nullopt, {{8, MIN_ST + 3 * MIN_TD}}),
+                               window_delta<Int>(std::nullopt, {}, true)));
+}
+
+TEST_CASE("legacy scalar window JSON only publishes at recorded times")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<ReadWindowJson>(values<Str>("7", none, none, none, none, "8")),
+                 values<Value>(window_delta<Int>(7), none, none, none, none, window_delta<Int>(8, {{7, MIN_ST}})));
+}
+
+TEST_CASE("window JSON checks the recording version before decoding the event")
+{
+    stdlib::register_standard_operators();
+    REQUIRE_THROWS_WITH(eval_node<ReadWindowJson>(values<Str>(
+                            R"({"event":"future encoding","$hgraph.window":2})")),
+                        Catch::Matchers::ContainsSubstring("unsupported window recording version"));
+}
+
+TEST_CASE("window JSON preserves a user bundle field with the recording marker name")
+{
+    stdlib::register_standard_operators();
+    // The historical writer emitted a held array for this child. The numeric
+    // sibling was a user field and survives conversion to a versioned record.
+    const auto rows = eval_node<WindowBundleJsonRoundTrip>(
+        values<Str>(R"({"$hgraph.window":9,"prices":[4,4]})"));
+    REQUIRE(rows.size() == 1);
+    REQUIRE(rows[0].has_value());
+    CHECK(rows[0]->find(R"("$hgraph.window$": 1)") != Str::npos);
+    CHECK(rows[0]->find(R"("$hgraph.window": 9)") != Str::npos);
+    CHECK(rows[0]->find(R"("replacement": [{"value": 4)") != Str::npos);
+}
+
+TEST_CASE("historical fixed-list JSON replays indexed scalar window arrivals")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<ReadWindowPositions>(values<Str>(
+                     R"({"removed":[],"modified":{"0":7,"1":7}})", none, none, none,
+                     R"({"0":8})")),
+                 values<Value>(list_delta<RecordedWindow>({{0, window_delta<Int>(7)}, {1, window_delta<Int>(7)}}),
+                               none, none, none,
+                               list_delta<RecordedWindow>({{0, window_delta<Int>(8, {{7, MIN_ST}})}})));
 }

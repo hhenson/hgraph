@@ -146,14 +146,13 @@ namespace hgraph::stdlib
 
             static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                              Scalar<"fq_key", Str> fq_key, GlobalStateView gs,
-                             DateTime now, State<Bool> initialized, Out<TsVar<"S">> out)
+                             State<Bool> initialized, Out<TsVar<"S">> out)
             {
                 if (!initialized.get())
                 {
                     const auto &erased = static_cast<const TSOutputView &>(out);
-                    Value recovered = record_replay::recorded_seed_resolver(
-                        gs, fq_key.value(), erased.schema(), now);
-                    if (recovered.has_value()) { out.apply(recovered.view()); }
+                    record_replay::publish_recorded_seed(gs, fq_key.value(), erased,
+                        ts.modified() ? record_replay::SeedPublication::BeforeLive : record_replay::SeedPublication::AtStart);
                     initialized.set(true);
                 }
                 if (ts.modified())

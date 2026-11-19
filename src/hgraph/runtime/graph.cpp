@@ -1065,8 +1065,6 @@ void start_impl(const void *context, const GraphView &graph,
       auto target = input_at_path(graph_node_view(runtime, graph.data(), edge.target_node).input(start_time), edge.target_path);
       target.bind_output_sampled(source, start_time);
   }
-  state.window_subscriptions = attach_window_expiry(graph, runtime.window_expiry_paths, start_time);
-  auto detach_windows_on_failure = UnwindCleanupGuard([&] { state.window_subscriptions.reset(); });
   std::size_t started_nodes = 0;
   auto rollback = UnwindCleanupGuard([&] {
     for (std::size_t index = started_nodes; index > 0; --index) {
@@ -1146,6 +1144,11 @@ void start_impl(const void *context, const GraphView &graph,
       state.next_scheduled_time = scheduled;
     }
   }
+  // A start hook can silently restore its owned history. Register against
+  // the final state before observers see this graph as started, including
+  // when a nested graph starts between root evaluations.
+  state.window_subscriptions = attach_window_expiry(graph, runtime.window_expiry_paths, start_time);
+  auto detach_windows_on_failure = UnwindCleanupGuard([&] { state.window_subscriptions.reset(); });
   state.started = true;
   state.lifecycle_observers->notify_after_start_graph(graph);
   if constexpr (std::is_same_v<Storage, RootGraphRuntimeStorage>) {
