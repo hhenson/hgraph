@@ -30,6 +30,7 @@
 #include <hgraph/types/wired_fn.h>
 
 #include "../../src/hgraph/runtime/mapped_key_source.h"
+#include "../../src/hgraph/runtime/retired_map_generation.h"
 #include "nested_lifecycle_test_support.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -2203,6 +2204,29 @@ namespace
         }
     };
 
+    struct MapGenerationCounts
+    {
+        std::vector<std::size_t> active;
+        std::vector<std::size_t> constructed;
+    };
+
+    struct MapWithReplacingKeys
+    {
+        static constexpr auto name = "map_with_replacing_keys";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TS<Bool>> select, Port<TS<Int>> pulse,
+                                                Scalar<"counts", MapGenerationCounts *> counts)
+        {
+            auto keys = wire<stdlib::if_then_else>(w, select, ConstABKeys::compose(w), ConstCKeys::compose(w))
+                            .as<TSS<Str>>();
+            auto mapped = wire<stdlib::map_>(w, fn<AddOneG>(), pulse, arg<"__keys__">(keys)).as<TSD<Str, TS<Int>>>();
+            const std::array triggers{pulse.erased()};
+            wire_map_active_count_recorder(w, mapped.erased(), triggers, counts.value()->active,
+                                           &counts.value()->constructed);
+            return mapped;
+        }
+    };
+
     struct NeverKeysNode
     {
         static constexpr auto name = "never_keys";
@@ -2260,6 +2284,43 @@ TEST_CASE("map_: __keys__ source repoint rebuilds children from the new slot lay
                                dict_delta<Str, TS<Int>>({{"c"s, 6}})));
     CHECK(counts == std::vector<std::size_t>{2, 1, 1, 1});
     CHECK(constructed_counts == std::vector<std::size_t>{2, 3, 3, 3});
+}
+
+TEST_CASE("map_: a replaced key source retains its children only through the replacement cycle")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    MapGenerationCounts counts;
+    (void)eval_node<MapWithReplacingKeys>(values<Bool>(true, false, none, none, true, none),
+                                          values<Int>(0, 1, 2, 3, 4, 5), arg<"counts">(&counts));
+
+    CHECK(counts.active == std::vector<std::size_t>{2, 1, 1, 1, 2, 2});
+    CHECK(counts.constructed == std::vector<std::size_t>{2, 3, 1, 1, 3, 2});
+}
+
+TEST_CASE("map_: a drained generation receives no further slot queries")
+{
+    using namespace hgraph;
+    struct CountingBank
+    {
+        std::size_t queries{}, drains{};
+        bool has_entries() noexcept { ++queries; return true; }
+        void destroy_all() noexcept { ++drains; }
+    } bank;
+    std::optional<DateTime> retired_at;
+    const auto tick = [&](DateTime now) {
+        runtime_detail::destroy_retired_map_entries_before(bank, retired_at, now);
+    };
+
+    tick(MIN_ST);
+    retired_at = MIN_ST;
+    tick(MIN_ST);
+    CHECK(bank.drains == 0);
+    tick(MIN_ST + MIN_TD);
+    for (int cycle = 2; cycle < 100; ++cycle) { tick(MIN_ST + MIN_TD * cycle); }
+    CHECK(bank.drains == 1);
+    CHECK(bank.queries == 0);
+    CHECK_FALSE(retired_at.has_value());
 }
 
 TEST_CASE("map_: invalid __keys__ source clears children and output")
