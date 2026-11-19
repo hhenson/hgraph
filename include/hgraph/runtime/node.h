@@ -36,6 +36,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace hgraph
@@ -649,15 +650,23 @@ namespace hgraph
         [[nodiscard]] std::shared_ptr<const ResolvedOutputTypes> resolved_output_types() const;
 
       private:
-        /** The published record and its lock. Copies and moves of a builder
-            start with no record: the cache describes one builder object. */
+        /** Moving transfers the cache with its recipe. Copying starts empty
+            so it never reads a record another constructor may be publishing. */
         struct ResolvedOutputCache
         {
             ResolvedOutputCache() = default;
             ResolvedOutputCache(const ResolvedOutputCache &) noexcept {}
-            ResolvedOutputCache(ResolvedOutputCache &&) noexcept {}
-            ResolvedOutputCache &operator=(const ResolvedOutputCache &) noexcept { return *this; }
-            ResolvedOutputCache &operator=(ResolvedOutputCache &&) noexcept { return *this; }
+            ResolvedOutputCache(ResolvedOutputCache &&other) noexcept : record(std::move(other.record)) {}
+            ResolvedOutputCache &operator=(const ResolvedOutputCache &) noexcept
+            {
+                record.reset();
+                return *this;
+            }
+            ResolvedOutputCache &operator=(ResolvedOutputCache &&other) noexcept
+            {
+                record = std::move(other.record);
+                return *this;
+            }
             std::mutex                                 mutex{};
             std::shared_ptr<const ResolvedOutputTypes> record{};
         };

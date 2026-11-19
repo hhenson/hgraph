@@ -1,6 +1,7 @@
 #include <hgraph/lib/testing/mock_runtime.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/metadata/type_realization.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -202,4 +203,77 @@ TEST_CASE("error and recordable endpoints report their owner ports")
     CHECK(recordable_state.owner_port() == TSEndpointOwnerPort::RecordableState);
     REQUIRE(recordable_state.owner_node().valid());
     CHECK(recordable_state.owner_node().node_index() == 0);
+}
+
+TEST_CASE("node construction honors the declared output endpoint after output overrides and builder assignment",
+          "[node][builder][output]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *ts = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    const auto forwarded = TSEndpointSchema::peered(ts);
+    NodeTypeMetaData schema;
+    schema.output_schema = ts;
+    schema.output_endpoint_schema = forwarded;
+    auto builder = NodeBuilder::native(std::move(schema));
+
+    const auto check_output = [&](const NodeBuilder &current, const TSEndpointSchema &endpoint) {
+        const auto expected = TSOutput{endpoint}.type_ref();
+        const auto resolved = current.resolved_output_types();
+        auto node = current.make_node();
+        CHECK(resolved->output == expected);
+        CHECK(node.view().output(MIN_DT).type_ref() == expected);
+        CHECK(node.view().owns_output() == endpoint.is_local());
+    };
+    check_output(builder, forwarded);
+
+    const auto local = TSEndpointSchema::local(ts);
+    builder.output_endpoint(local);
+    check_output(builder, local);
+
+    SECTION("removing the override restores the declaration") {
+        builder.output_endpoint({});
+    }
+    SECTION("copy assignment replaces the destination's warmed output") {
+        auto replacement = source_node(ts);
+        replacement.output_endpoint(forwarded);
+        check_output(replacement, forwarded);
+        builder = replacement;
+    }
+    SECTION("move assignment replaces the destination's warmed output") {
+        auto replacement = source_node(ts);
+        replacement.output_endpoint(forwarded);
+        check_output(replacement, forwarded);
+        builder = std::move(replacement);
+    }
+    check_output(builder, forwarded);
+}
+
+TEST_CASE("a forwarding dictionary's cached key type follows the active realization",
+          "[node][builder][output][realization]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *key = registry.bundle("tests.node", "CachedEndpointKey", {{"id", integer}});
+    registry.bundle("tests.node", "CachedEndpointDerivedKey", {{"id", integer}, {"version", integer}}, {key});
+    const auto *ts = registry.ts(integer);
+    const auto *dict = registry.tsd(key, ts);
+
+    auto builder = source_node(dict);
+    builder.output_endpoint(TSEndpointSchema::non_peered_dict(dict, TSEndpointSchema::peered(ts)));
+    const auto key_type = [&] {
+        auto node = builder.make_node();
+        return node.view().output(MIN_DT).data_view().as_dict().layout().key_binding;
+    };
+    const auto plain = key_type();
+    const auto snapshot = TypeRealizationSnapshot::capture(registry);
+    {
+        TypeRealizationScope scope{snapshot.get()};
+        REQUIRE(snapshot->type_for(key) != plain);
+        CHECK(key_type() == snapshot->type_for(key));
+        GraphValueRealizationScope graph_value_scope;
+        CHECK(key_type() == snapshot->graph_type_for(key));
+    }
+    CHECK(key_type() == plain);
 }

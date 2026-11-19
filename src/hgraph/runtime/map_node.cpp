@@ -746,6 +746,12 @@ namespace hgraph
                 }
             }
 
+            auto keys_input = root_input.indexed_child_at(keys_index);
+            auto keys_source = keys_input.bound_output();
+            const bool keys_handle_changed = !keys_source.handle().same_as(storage.observed_keys_source);
+            const bool keys_source_replaced = keys_handle_changed || source_status.keys_repointed ||
+                                              storage.keys_source_cleared;
+
             // Value ticks keep their stable element endpoint and must not
             // rebind every child. Only structural membership changes need a
             // per-key refresh (for example, one input of a multi-TSD map loses
@@ -760,13 +766,27 @@ namespace hgraph
                 auto dict = checked_dict_view(std::move(source_data), "membership source", mux_index);
                 if (!dict.modified(evaluation_time)) { continue; }
 
-                for (std::size_t slot = dict.next_added_slot(); slot != TS_DATA_NO_CHILD_ID;
+                const auto first_added_slot = dict.next_added_slot();
+                const auto first_removed_slot = dict.next_removed_slot();
+                if (first_added_slot == TS_DATA_NO_CHILD_ID && first_removed_slot == TS_DATA_NO_CHILD_ID) { continue; }
+
+                // If this dictionary owns the lifecycle keys, creating a child
+                // already binds it and removing a child stops it. A replacement
+                // source can still require rebinding a surviving child.
+                if (spec.multiplexed_inputs.size() == 1 && !source_status.mux_repointed &&
+                    keys_input.valid() && (!storage.primed || (!keys_source_replaced && keys_input.modified())))
+                {
+                    const auto dict_keys = dict.key_set().base().storage_ref();
+                    const auto map_keys = keys_input.data_view().storage_ref();
+                    if (dict_keys.data() == map_keys.data() && dict_keys.type_ref() == map_keys.type_ref()) { continue; }
+                }
+
+                for (std::size_t slot = first_added_slot; slot != TS_DATA_NO_CHILD_ID;
                      slot = dict.next_added_slot(slot))
                 {
                     storage.membership_changed_keys.push_back(
                         value_impl::graph_local_value(dict.key_at_slot(slot)));
                 }
-                const std::size_t first_removed_slot = dict.next_removed_slot();
                 if (first_removed_slot != TS_DATA_NO_CHILD_ID && dict.slot_removed(first_removed_slot))
                 {
                     for (std::size_t slot = first_removed_slot; slot != TS_DATA_NO_CHILD_ID;
@@ -794,11 +814,6 @@ namespace hgraph
             // children exist exactly for its members. The multiplexed dicts
             // only feed elements; their membership changes re-bind surviving
             // entries through ``bindings_need_refresh`` above.
-            auto keys_input = root_input.indexed_child_at(keys_index);
-            auto keys_source = keys_input.bound_output();
-            const bool keys_handle_changed = !keys_source.handle().same_as(storage.observed_keys_source);
-            const bool keys_source_replaced = keys_handle_changed || source_status.keys_repointed ||
-                                              storage.keys_source_cleared;
             bool preserve_compatible_entries = false;
             if (keys_source_replaced && storage.entries.has_entries() && keys_input.valid())
             {

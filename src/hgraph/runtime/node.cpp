@@ -11,6 +11,7 @@
 #include <hgraph/types/metadata/type_record_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/notifiable.h>
+#include <hgraph/types/time_series/ts_input/detail.h>
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/util/scope.h>
 
@@ -506,9 +507,7 @@ namespace hgraph
         void construct_node_storage_impl(const NodeRuntimeContext &context,
                                          const NodeTypeMetaData   &schema,
                                          const TSInputBuilder     *input_builder,
-                                         TSEndpointSchema          output_endpoint_override,
-                                         ValueStorageVariant       output_value_storage,
-                                         const NodeBuilder::ResolvedOutputTypes *resolved_outputs,
+                                         const NodeBuilder::ResolvedOutputTypes &resolved_outputs,
                                          std::shared_ptr<const node_runtime_detail::NodeRuntimeMetadata> runtime_metadata,
                                          std::uint8_t              metadata_fields,
                                          const Value              &scalars,
@@ -549,26 +548,8 @@ namespace hgraph
             if (context.layout.has_output())
             {
                 const auto *component = &require_component(layout.output_component, "output");
-                const TSEndpointSchema &output_endpoint =
-                    !output_endpoint_override.empty() ? output_endpoint_override : schema.output_endpoint_schema;
-                if (output_endpoint.empty())
-                {
-                    auto *output_memory = MemoryUtils::cast<TSOutput>(MemoryUtils::advance(memory, component->offset));
-                    if (resolved_outputs != nullptr && resolved_outputs->output)
-                    {
-                        std::construct_at(output_memory, resolved_outputs->output);
-                    }
-                    else
-                    {
-                        std::construct_at(output_memory, *schema.output_schema, output_value_storage);
-                    }
-                }
-                else
-                {
-                    std::construct_at(MemoryUtils::cast<TSOutput>(
-                                          MemoryUtils::advance(memory, component->offset)),
-                                      output_endpoint);
-                }
+                std::construct_at(MemoryUtils::cast<TSOutput>(MemoryUtils::advance(memory, component->offset)),
+                                  resolved_outputs.output);
                 constructed.push_back(component);
             }
 
@@ -622,11 +603,7 @@ namespace hgraph
             {
                 const auto *component = &require_component(layout.error_output_component, "error_output");
                 auto *output_memory = MemoryUtils::cast<TSOutput>(MemoryUtils::advance(memory, component->offset));
-                if (resolved_outputs != nullptr && resolved_outputs->error_output)
-                {
-                    std::construct_at(output_memory, resolved_outputs->error_output);
-                }
-                else { std::construct_at(output_memory, *schema.error_output_schema); }
+                std::construct_at(output_memory, resolved_outputs.error_output);
                 constructed.push_back(component);
             }
 
@@ -634,11 +611,7 @@ namespace hgraph
             {
                 const auto *component = &require_component(layout.recordable_state_component, "recordable_state");
                 auto *output_memory = MemoryUtils::cast<TSOutput>(MemoryUtils::advance(memory, component->offset));
-                if (resolved_outputs != nullptr && resolved_outputs->recordable_state)
-                {
-                    std::construct_at(output_memory, resolved_outputs->recordable_state);
-                }
-                else { std::construct_at(output_memory, *schema.recordable_state_schema); }
+                std::construct_at(output_memory, resolved_outputs.recordable_state);
                 constructed.push_back(component);
             }
 
@@ -2399,6 +2372,7 @@ namespace hgraph
             throw std::invalid_argument("NodeBuilder output endpoint schema does not match node output schema");
         }
         output_endpoint_ = std::move(endpoint);
+        resolved_outputs_.record.reset();
         return *this;
     }
 
@@ -2434,11 +2408,12 @@ namespace hgraph
         record->storage     = output_value_storage_;
         if (const auto *schema = type_.schema(); schema != nullptr)
         {
-            // The plain output only: an endpoint-shaped output (nested graph
-            // forwarding, map elements) keeps its endpoint constructor.
-            if (schema->output_schema != nullptr && schema->output_endpoint_schema.empty() && output_endpoint_.empty())
+            if (schema->output_schema != nullptr)
             {
-                record->output = TSOutput::resolved_type_for(schema->output_schema, output_value_storage_);
+                const auto &endpoint = output_endpoint_.empty() ? schema->output_endpoint_schema : output_endpoint_;
+                record->output = endpoint.empty()
+                    ? TSOutput::resolved_type_for(schema->output_schema, output_value_storage_)
+                    : detail::resolved_endpoint_output_type(endpoint);
             }
             if (schema->error_output_schema != nullptr)
             {
@@ -2481,9 +2456,7 @@ namespace hgraph
         construct_node_storage_impl(runtime,
                                     *type.schema(),
                                     input_builder,
-                                    output_endpoint(),
-                                    output_value_storage(),
-                                    resolved_outputs.get(),
+                                    *resolved_outputs,
                                     metadata_,
                                     metadata_fields_,
                                     scalars(),

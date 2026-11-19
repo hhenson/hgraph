@@ -1810,6 +1810,23 @@ TEST_CASE("map_: __keys__ additions and removals drive the lifecycle, not the di
                                dict_delta<Str, TS<Int>>({}, {"a"s})));
 }
 
+TEST_CASE("map_: an independent key set keeps child state when its dictionary element is replaced")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    // Both inputs begin with key a. Only the dictionary removes it. When a
+    // returns the same child must bind the new element and advance its counter.
+    const auto source = values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 10}}),
+                                      dict_delta<Str, TS<Int>>({}, {"a"s}),
+                                      dict_delta<Str, TS<Int>>({{"a"s, 20}}));
+    const auto keys = values<Value>(set_delta<Str>({"a"s}, {}), none, none);
+    CHECK_OUTPUT((eval_node<stdlib::map_, TSD<Str, TS<Int>>, TSS<Str>>(
+                     fn<CounterNode>(), source, arg<"__keys__">(keys))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}}), none,
+                               dict_delta<Str, TS<Int>>({{"a"s, 2}})));
+}
+
 TEST_CASE("map_: explicit keys do not publish an uninitialized collection child")
 {
     using namespace hgraph;

@@ -55,6 +55,8 @@ namespace hgraph::detail
     [[nodiscard]] bool has_published_structural_state(const TSDataView &source,
                                                        DateTime transition_time);
     [[nodiscard]] TSRoleTypeRef output_data_storage_type_for(const TSEndpointSchema &endpoint_schema);
+    /** Resolve the same physical type for direct endpoint construction and reusable node builders. */
+    [[nodiscard]] TSOutputTypeRef resolved_endpoint_output_type(const TSEndpointSchema &endpoint_schema);
 
     [[nodiscard]] TSInputChildProjection input_child_projection(const TSDataView &parent, std::size_t index);
 

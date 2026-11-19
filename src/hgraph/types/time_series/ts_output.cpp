@@ -308,21 +308,25 @@ TSData TSOutput::checked_data_for(const TSValueTypeMetaData *schema,
   return TSData{resolved_type_for(schema, value_storage)};
 }
 
-TSData TSOutput::checked_data_for(const TSEndpointSchema &endpoint_schema) {
+TSOutputTypeRef detail::resolved_endpoint_output_type(const TSEndpointSchema &endpoint_schema) {
   if (endpoint_schema.empty() || endpoint_schema.schema() == nullptr) {
     throw std::invalid_argument(
         "TSOutput requires a non-empty output endpoint schema");
   }
   if (const auto *schema = endpoint_schema.schema();
       endpoint_schema.is_local()) {
-    return checked_data_for(schema);
+    return TSOutput::resolved_type_for(schema, ValueStorageVariant::Native);
   }
   const auto type = detail::output_data_storage_type_for(endpoint_schema);
   if (!type) {
     throw std::logic_error(
         "TSOutput could not resolve output endpoint storage");
   }
-  return TSData{type};
+  return TSOutputTypeRef::checked(type);
+}
+
+TSData TSOutput::checked_data_for(const TSEndpointSchema &endpoint_schema) {
+  return TSData{detail::resolved_endpoint_output_type(endpoint_schema)};
 }
 
 const TSData &TSOutput::copyable_data(const TSOutput &other) {
