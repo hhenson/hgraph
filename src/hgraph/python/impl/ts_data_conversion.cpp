@@ -610,7 +610,8 @@ namespace hgraph::python_bridge
         {
             const auto fields = delta.as_bundle();
             nb::dict modified;
-            for (const auto &[key, value] : fields.at("modified").as_map())
+            const auto entries = fields.at("modified");
+            for (const auto &[key, value] : entries.as_map())
             {
                 modified[to_python(key)] = present_recorded_child(child, value);
             }
