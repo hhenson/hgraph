@@ -530,7 +530,7 @@ TEST_CASE("full current-state reconciliation truncates a dynamic TSL to the sour
           std::vector<std::size_t>{1});
 }
 
-TEST_CASE("observable-delta policy rejects scheduling-only fixed-list invalidation") {
+TEST_CASE("observable-delta policy reports fixed-list invalidation") {
   (void)TypeRegistry::instance().register_scalar<Int>("int");
   using One = TSL<TS<Int>, 1>;
   const auto *schema = schema_descriptor<One>::ts_meta();
@@ -553,8 +553,9 @@ TEST_CASE("observable-delta policy rejects scheduling-only fixed-list invalidati
   auto source_input = input.view(nullptr, t2);
   REQUIRE(source_input.modified());
   Value delta = capture_delta(source_input);
-  REQUIRE(delta.view().as_map().empty());
-  REQUIRE_FALSE(delta_is_observable(source_input, delta.view()));
+  REQUIRE(delta.view().as_bundle().at("modified").as_map().empty());
+  REQUIRE(delta.view().as_bundle().at("removed").as_set().contains(Value{Int{0}}.view()));
+  REQUIRE(delta_is_observable(source_input, delta.view()));
 }
 
 TEST_CASE(
@@ -699,8 +700,8 @@ TEST_CASE(
   auto rt = run_graph<RoundTripGraph<TSL<TS<Int>>>>(
       [&](const GlobalStateView &gs) { set_replay_deltas(gs, "in", deltas); });
   CHECK_OUTPUT(get_recorded_deltas(rt.view().graph().global_state(), "out"),
-               {dynamic_list_delta<TS<Int>>({{0, 1}}),
-                dynamic_list_delta<TS<Int>>({{0, 5}, {1, 9}}),
+               {dynamic_list_delta<TS<Int>>({{0, 1}}, {}, 1),
+                dynamic_list_delta<TS<Int>>({{0, 5}, {1, 9}}, {}, 2),
                 dynamic_list_delta<TS<Int>>({{1, 11}})});
 }
 
@@ -711,16 +712,16 @@ TEST_CASE(
   // back. A captured truncation must replay to the same length (RFC 0031).
   const std::vector<std::optional<Value>> deltas{
       dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}),
-      dynamic_list_delta<TS<Int>>({{0, 7}}, {1, 2}),
+      dynamic_list_delta<TS<Int>>({{0, 7}}, {1, 2}, 1),
       dynamic_list_delta<TS<Int>>({{1, 8}}),
   };
 
   auto rt = run_graph<RoundTripGraph<TSL<TS<Int>>>>(
       [&](const GlobalStateView &gs) { set_replay_deltas(gs, "in", deltas); });
   CHECK_OUTPUT(get_recorded_deltas(rt.view().graph().global_state(), "out"),
-               {dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}),
-                dynamic_list_delta<TS<Int>>({{0, 7}}, {1, 2}),
-                dynamic_list_delta<TS<Int>>({{1, 8}})});
+               {dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}, {}, 3),
+                dynamic_list_delta<TS<Int>>({{0, 7}}, {1, 2}, 1),
+                dynamic_list_delta<TS<Int>>({{1, 8}}, {}, 2)});
 }
 
 TEST_CASE("ts_delta: capture/apply round-trip a TSD-of-scalar dict delta") {
@@ -1297,7 +1298,7 @@ TEST_CASE("ts_delta: nested empty patches publish only effective children", "[em
   verify(schema_descriptor<Bundle>::ts_meta(), tsb_delta<Bundle>(Value{empty.view()}, std::nullopt));
   verify(schema_descriptor<TSD<Int, Child>>::ts_meta(), dict_delta<Int, Child>({{7, empty}}));
   verify(schema_descriptor<TSL<Child, 2>>::ts_meta(), list_delta<Child>({{0, empty}}));
-  verify(schema_descriptor<TSL<Child>>::ts_meta(), dynamic_list_delta<Child>({{0, empty}}));
+  verify(schema_descriptor<TSL<Child>>::ts_meta(), dynamic_list_delta<Child>({{0, empty}}, {}, 1));
 }
 
 TEST_CASE("ts_delta: cancelled producer tick is applied by consumer validity", "[empty-delta]") {
@@ -1329,7 +1330,7 @@ TEST_CASE("ts_delta: cancelled producer tick is applied by consumer validity", "
   CHECK(held_view.as_set().contains(Value{Int{9}}.view()));
 }
 
-TEST_CASE("ts_delta: empty publication markers preserve same-cycle ticks without exposing invalidations", "[empty-delta]") {
+TEST_CASE("ts_delta: empty publication markers preserve same-cycle ticks and list invalidations", "[empty-delta]") {
   const auto verify = [&](const TSValueTypeMetaData *schema, const Value &patch) {
     TSOutput output{schema};
     TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
@@ -1345,16 +1346,16 @@ TEST_CASE("ts_delta: empty publication markers preserve same-cycle ticks without
     };
     invalidate_child(MIN_ST);
     auto delta = capture_delta(input.view(nullptr, MIN_ST));
-    CHECK((delta.view() == empty.view()));
+    CHECK((delta.view() == (schema->kind == TSTypeKind::TSL ? list_delta<TS<Int>>({}, {0}) : empty).view()));
     CHECK(delta_is_observable(input.view(nullptr, MIN_ST), delta.view()));
     const auto later = MIN_ST + MIN_TD;
     apply_delta(output.view(later), patch.view());
     invalidate_child(later);
     delta = capture_delta(input.view(nullptr, later));
-    CHECK((delta.view() == empty.view()));
-    CHECK_FALSE(delta_is_observable(input.view(nullptr, later), delta.view()));
+    CHECK((delta.view() == (schema->kind == TSTypeKind::TSL ? list_delta<TS<Int>>({}, {0}) : empty).view()));
+    CHECK(delta_is_observable(input.view(nullptr, later), delta.view()) == (schema->kind == TSTypeKind::TSL));
     apply_delta(output.view(later), empty.view());
-    CHECK_FALSE(delta_is_observable(input.view(nullptr, later), delta.view()));
+    CHECK(delta_is_observable(input.view(nullptr, later), delta.view()) == (schema->kind == TSTypeKind::TSL));
   };
   verify(schema_descriptor<TSL<TS<Int>, 1>>::ts_meta(), list_delta<TS<Int>>({{0, 1}}));
   verify(schema_descriptor<Quote>::ts_meta(), tsb_delta<Quote>(Int{1}, std::nullopt));
@@ -1412,7 +1413,7 @@ TEST_CASE("ts_delta: sampling an invalidated child notification publishes the va
     REQUIRE(producer.modified());
     auto direct = ordinary.view(nullptr, now);
     const auto empty = capture_delta(direct);
-    CHECK_FALSE(delta_is_observable(direct, empty.view()));
+    CHECK(delta_is_observable(direct, empty.view()) == (schema->kind == TSTypeKind::TSL));
     sample.view(nullptr, now).bind_output_sampled(producer, now);
     auto sampled = sample.view(nullptr, now);
     REQUIRE(sampled.valid());
@@ -1422,15 +1423,83 @@ TEST_CASE("ts_delta: sampling an invalidated child notification publishes the va
     const auto captured = capture_delta(sampled);
     CHECK((captured.view() == empty.view()));
     CHECK(delta_is_observable(sampled, captured.view()));
-    CHECK_FALSE(delta_is_observable(direct, empty.view()));
+    CHECK(delta_is_observable(direct, empty.view()) == (schema->kind == TSTypeKind::TSL));
     apply_delta(output.view(now), patch.view());
     REQUIRE(child.begin_mutation(now).invalidate());
     const auto after_update = capture_delta(sampled);
     CHECK((after_update.view() == empty.view()));
     CHECK(delta_is_observable(sampled, after_update.view()));
-    CHECK_FALSE(delta_is_observable(direct, empty.view()));
+    CHECK(delta_is_observable(direct, empty.view()) == (schema->kind == TSTypeKind::TSL));
     CHECK_FALSE(delta_is_observable(sample.view(nullptr, now + MIN_TD), captured.view()));
   };
   verify(schema_descriptor<TSL<TS<Int>, 1>>::ts_meta(), list_delta<TS<Int>>({{0, 1}}));
   verify(schema_descriptor<Quote>::ts_meta(), tsb_delta<Quote>(Int{1}, std::nullopt));
+}
+
+TEST_CASE("TSL positional deltas survive capture and replay independently of length") {
+  using namespace hgraph;
+  for (bool growing : {false, true}) {
+    CAPTURE(growing);
+    const auto *schema = growing ? schema_descriptor<TSL<TS<Int>>>::ts_meta()
+                                 : schema_descriptor<TSL<TS<Int>, 3>>::ts_meta();
+    TSOutput original{schema}, replay{schema};
+    TSInput observer{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+    TSInput replay_observer{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+    observer.view(nullptr, MIN_ST).bind_output(original.view(MIN_ST));
+    replay_observer.view(nullptr, MIN_ST).bind_output(replay.view(MIN_ST));
+    std::vector<Value> recording;
+    auto now = MIN_ST;
+    auto tick = [&](const Value &authored, const Value &expected) {
+      apply_delta(original.view(now), authored.view());
+      const auto in = observer.view(nullptr,now);
+      REQUIRE(in.modified());
+      recording.push_back(capture_delta(in));
+      CHECK(recording.back().equals(expected));
+      CHECK(Value{original.view(now).delta_value()}.equals(expected));
+      now += MIN_TD;
+    };
+    const auto initial = list_delta<TS<Int>>({{0,10},{1,20},{2,30}});
+    tick(initial, growing ? list_delta<TS<Int>>({{0,10},{1,20},{2,30}}, {}, 3) : initial);
+    const auto clear = list_delta<TS<Int>>({}, {1});
+    tick(clear,clear);
+    auto held_output = original.view(now);
+    auto held = held_output.as_list();
+    CHECK(held.size() == 3);
+    CHECK_FALSE(held.at(1).valid());
+    CHECK(held.at(2).value().checked_as<Int>() == 30);
+    if (growing) {
+      tick(list_delta<TS<Int>>({}, {}, 1), list_delta<TS<Int>>({}, {1,2}, 1));
+      auto grow = list_delta<TS<Int>>({}, {}, 3);
+      tick(grow,grow);
+      const auto update = list_delta<TS<Int>>({{2,31}});
+      tick(update,update);
+      tick(list_delta<TS<Int>>({}, {}, 0), list_delta<TS<Int>>({}, {0,1,2}, 0));
+    }
+    now = MIN_ST;
+    for (const auto &captured : recording) {
+      apply_delta(replay.view(now), captured.view());
+      REQUIRE(capture_delta(replay_observer.view(nullptr,now)).equals(captured));
+      now += MIN_TD;
+    }
+  }
+}
+
+TEST_CASE("TSL replay reads the positional maps and two-field deltas from earlier recordings") {
+  const auto *schema = schema_descriptor<TSL<TS<Int>>>::ts_meta();
+  TSOutput output{schema};
+  auto first = list_delta<TS<Int>>({{0,10},{1,20},{2,30}});
+  apply_delta(output.view(MIN_ST),first.view().as_bundle().at("modified"));
+  const auto clear = list_delta<TS<Int>>({}, {1,2});
+  const auto parts = clear.view().as_bundle();
+  const auto *old_type = TypeRegistry::instance().un_named_bundle({
+      {"removed",parts.at("removed").schema()}, {"modified",parts.at("modified").schema()}});
+  BundleBuilder old{ValuePlanFactory::instance().type_for(old_type)};
+  old.set("removed",parts.at("removed"));
+  old.set("modified",parts.at("modified"));
+  const auto retained = old.build();
+  auto later = output.view(MIN_ST + MIN_TD);
+  apply_delta(later,retained.view());
+  CHECK(later.as_list().size_modified() == 1);
+  auto after = later.as_list();
+  CHECK(after.at(0).value().checked_as<Int>() == 10);
 }

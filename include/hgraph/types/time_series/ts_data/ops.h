@@ -584,6 +584,8 @@ namespace hgraph
         /** Grow or truncate the live list at ``modified_time``. */
         void (*resize_impl)(const void *context, void *memory, std::size_t size,
                             DateTime modified_time) = nullptr;
+        /** Positions invalidated in place or truncated in the current cycle. */
+        Range<std::size_t> (*removed_positions_impl)(const void *, const void *) = nullptr;
     };
 
     struct TSWDataOps : TSDataOps

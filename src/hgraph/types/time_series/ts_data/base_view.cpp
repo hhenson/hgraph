@@ -574,10 +574,9 @@ bool TSDataMutationView::invalidate() {
   state.observers.notify(mutation_time_);
   state.parent.notify_child_modified(mutation_time_);
   state.last_modified_time = MIN_DT;
-  // Only owned scalar storage retains this edge. Target links track their
-  // notifications separately. Invalidation clears the structural empty-delta clock.
-  state.last_empty_delta_time = table.kind == TSTypeKind::TS && !table.is_target_link
-                                    ? mutation_time_ : MIN_DT;
+  // An invalid owned child retains its clear time for the parent list.
+  // Target links track their own transitions.
+  state.last_empty_delta_time = !table.is_target_link ? mutation_time_ : MIN_DT;
   return true;
 }
 

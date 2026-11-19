@@ -2553,28 +2553,12 @@ namespace hgraph
                         element_ts->authored_delta_schema != nullptr ? element_ts->authored_delta_schema
                                                                      : element_delta;
                     const ValueTypeMetaData *delta_map = map(index_type, element_delta);
-                    if (!meta.is_unbounded_tsl())
-                    {
-                        // A fixed TSL has no structural delta: its positions
-                        // always exist, so the index map IS the whole delta.
-                        meta.delta_value_schema = delta_map;
-                        // Only differs when a descendant is a TSD (strict removal).
-                        if (element_authored != element_delta)
-                        {
-                            meta.authored_delta_schema = map(index_type, element_authored);
-                        }
-                        break;
-                    }
-                    // A dynamic TSL can shrink (RFC 0031). "removed" is the
-                    // TSD statement of FACT - those indices existed and no
-                    // longer do - and, list truncation being total, there is
-                    // no strict counterpart: REMOVE and REMOVE_IF_EXISTS
-                    // cannot differ when removal cannot fail.
-                    const ValueTypeMetaData *removed_set = set(index_type);
-                    meta.delta_value_schema =
-                        un_named_bundle({{"removed", removed_set}, {"modified", delta_map}});
+                    const auto *removed = set(index_type);
+                    meta.delta_value_schema = un_named_bundle(
+                        {{"removed", removed}, {"modified", delta_map}, {"size_modified", index_type}});
                     meta.authored_delta_schema = un_named_bundle(
-                        {{"removed", removed_set}, {"modified", map(index_type, element_authored)}});
+                        {{"removed", removed}, {"modified", map(index_type, element_authored)},
+                         {"size_modified", index_type}});
                 }
                 break;
             }

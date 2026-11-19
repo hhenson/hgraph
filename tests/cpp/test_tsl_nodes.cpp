@@ -52,7 +52,7 @@ namespace
         static constexpr auto name = "tsl_modified_count";
         static void           eval(In<"l", TSL<TS<Int>, 2>> l, Out<TS<Int>> out)
         {
-            out.set(static_cast<Int>(l.delta().as_map().size()));
+            out.set(static_cast<Int>(l.delta().as_bundle().at("modified").as_map().size()));
         }
     };
 
@@ -169,7 +169,7 @@ TEST_CASE("tsl: list_delta map and positional forms agree (canonical Value)")
     const Value b = list_delta<TS<Int>>({10, none, 30});  // positional: index 1 skipped
     CHECK(a.equals(b));
 
-    const auto map = a.view().as_map();
+    const auto map = a.view().as_bundle().at("modified").as_map();
     CHECK(map.size() == 2);
     CHECK(map.contains(Value{Int{0}}.view()));
     CHECK_FALSE(map.contains(Value{Int{1}}.view()));
@@ -251,7 +251,7 @@ TEST_CASE("tsl: dynamic replay<TSL> -> record<TSL> round-trips dynamic list delt
     ex.view().run();
 
     CHECK_OUTPUT(testing::get_recorded_deltas(ex.view().graph().global_state(), "out"),
-                 {dynamic_list_delta<TS<Int>>({{0, 1}}), dynamic_list_delta<TS<Int>>({{0, 5}, {1, 9}}),
+                 {dynamic_list_delta<TS<Int>>({{0, 1}}, {}, 1), dynamic_list_delta<TS<Int>>({{0, 5}, {1, 9}}, {}, 2),
                   dynamic_list_delta<TS<Int>>({{1, 11}})});
 }
 
@@ -275,8 +275,8 @@ TEST_CASE("tsl: eval_node drives scalar-child TSL inputs/outputs as canonical de
 
     // Dynamic TSL -> dynamic TSL: the same erased replay/record harness applies
     // to dynamic lists, whose delta additionally carries `removed`.
-    const std::vector<std::optional<Value>> dynamic_in{dynamic_list_delta<TS<Int>>({{0, 1}}),
-                                                       dynamic_list_delta<TS<Int>>({{0, 5}, {1, 9}}),
+    const std::vector<std::optional<Value>> dynamic_in{dynamic_list_delta<TS<Int>>({{0, 1}}, {}, 1),
+                                                       dynamic_list_delta<TS<Int>>({{0, 5}, {1, 9}}, {}, 2),
                                                        dynamic_list_delta<TS<Int>>({{1, 11}})};
     CHECK_OUTPUT(testing::eval_node<DynamicMirrorList>(dynamic_in), dynamic_in);
 }
@@ -291,29 +291,25 @@ TEST_CASE("tsl: recursive - list_delta over container children builds nested can
     CHECK(sd.equals(list_delta<TSS<Int>>({{1, set_delta<Int>({9}, {})}, {0, set_delta<Int>({2, 1}, {})}})));
     CHECK_FALSE(sd.equals(list_delta<TSS<Int>>({{0, set_delta<Int>({1, 2}, {})}})));
     {
-        const auto map    = sd.view().as_map();
+        const auto map    = sd.view().as_bundle().at("modified").as_map();
         const auto child0 = map.at(Value{Int{0}}.view()).as_bundle();  // a Bundle{added,removed}
         CHECK(map.size() == 2);
         CHECK(child0.field("added").as_set().size() == 2);
         CHECK(child0.field("removed").as_set().size() == 0);
     }
 
-    // TSL<TSL<TS<Int>,2>> delta: Map<int, Map<int, int>> — list_delta nested in list_delta.
+    // The outer modified map stores each nested list delta.
     const Value nd = list_delta<TSL<TS<Int>, 2>>({{0, list_delta<TS<Int>>({{0, 7}, {1, 8}})}});
     CHECK(nd.equals(list_delta<TSL<TS<Int>, 2>>({{0, list_delta<TS<Int>>({{1, 8}, {0, 7}})}})));
-    CHECK(nd.view().as_map().at(Value{Int{0}}.view()).as_map().size() == 2);
+    CHECK(nd.view().as_bundle().at("modified").as_map().at(Value{Int{0}}.view()).as_bundle().at("modified").as_map().size() == 2);
 
-    // TSData storage supports fixed and dynamic TSL over every implemented non-REF
-    // child kind. A dynamic TSL additionally carries a removal surface, so its
-    // delta is Bundle{removed, modified} rather than the bare index map
-    // (RFC 0031); see ``dynamic_list_delta``.
 }
 
 TEST_CASE("tsl: a TSL<TSS> executes end-to-end (replay -> record round-trips list-of-set deltas)")
 {
     (void)TypeRegistry::instance().register_scalar<Int>("int");
 
-    // Each cycle's delta is Map<int, Bundle{added,removed}> (list_delta over set_delta).
+    // Each updated position carries a set delta.
     // The second cycle modifies ONLY element 1, exercising a non-root child slot
     // storage object owned by the fixed list.
     const std::vector<std::optional<Value>> deltas{

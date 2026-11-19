@@ -341,3 +341,31 @@ Finally, the ``last_modified_time`` represents the time this time-series
 value was last modified. This can be useful for a number of reasons, but
 a simple use-case is to deal with staleness checking of a value.
 
+.. _list-delta-examples:
+
+List deltas
+-----------
+
+For a bounded list, Python's ``delta_value`` is a plain ``dict``. Updated
+indices map to child deltas and cleared indices map to ``hg.REMOVE``.
+For a growing list it is an ``hg.TSLDelta`` on every tick, including ticks
+that keep the same length. Read ``delta.modified``, ``delta.removed``,
+and ``delta.size_modified``. The last is the new length on a resize
+(including zero) and ``None`` otherwise. ``eval_node`` returns the same
+Python types for recorded ticks.
+
+A producer of ``hg.TSL[hg.TS[int], hg.Size[-1]]`` can return these updates:
+
+.. code-block:: python
+
+   (10, 20, 30)                       # publish three values
+   {1: hg.REMOVE}                     # (10, None, 30), length 3
+   hg.TSLDelta(size_modified=1)       # (10,), removed positions 1 and 2
+   hg.TSLDelta(size_modified=3)       # (10, None, None), no child values published
+   hg.TSLDelta({2: 31})               # (10, None, 31), length 3
+
+Bounded lists accept positional updates and clears. A growing list also
+accepts a shorter sequence, an explicit length, or ``_output.resize(n)``.
+To truncate old producer code that returned ``{n: hg.REMOVE}``, return
+``hg.TSLDelta(size_modified=n)``. Pass the captured ``TSLDelta`` itself
+to replay so size-only changes survive.

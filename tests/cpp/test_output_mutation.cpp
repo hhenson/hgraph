@@ -194,8 +194,8 @@ TEST_CASE("dictionary insertion stages a converted value before publishing its k
 
 TEST_CASE("functional unbounded TSL mutations provide stack operations") {
     CHECK_OUTPUT(eval_node<FunctionalDynamicListMutation>(values<Int>(1, 2, 3)),
-                 values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}), dynamic_list_delta<TS<Int>>({{0, 4}, {1, 3}}),
-                               dynamic_list_delta<TS<Int>>({}, {0, 1})));
+                 values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}, {}, 2), dynamic_list_delta<TS<Int>>({{0, 4}, {1, 3}}),
+                               dynamic_list_delta<TS<Int>>({}, {0, 1}, 0)));
 }
 
 TEST_CASE("list push stages a converted value before growing the output") {

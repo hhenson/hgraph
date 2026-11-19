@@ -1372,10 +1372,24 @@ TEST_CASE("reduce over dynamic TSL: associative trees follow the runtime length 
 
     CHECK_OUTPUT((eval_node<stdlib::reduce_, TSL<TS<Int>>>(
                      fn<stdlib::add_>(),
-                     values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}}),
-                                   dynamic_list_delta<TS<Int>>({{1, 2}, {2, 3}}),
+                     values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}}, {}, 1),
+                                   dynamic_list_delta<TS<Int>>({{1, 2}, {2, 3}}, {}, 3),
                                    dynamic_list_delta<TS<Int>>({{0, 10}})))),
                  values<Int>(1, 6, 15));
+}
+
+TEST_CASE("reduce over dynamic TSL: clearing an interior slot removes only its contribution")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<stdlib::reduce_, TSL<TS<Int>>>(
+                     fn<stdlib::add_>(),
+                     values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}, {}, 3),
+                                   dynamic_list_delta<TS<Int>>({}, {1}),
+                                   dynamic_list_delta<TS<Int>>({{2, 7}}),
+                                   dynamic_list_delta<TS<Int>>({{1, 5}})))),
+                 values<Int>(6, 4, 8, 13));
 }
 
 TEST_CASE("reduce over dynamic TSL: truncation retires the removed leaves")
@@ -1387,9 +1401,9 @@ TEST_CASE("reduce over dynamic TSL: truncation retires the removed leaves")
     // the list grows again to 1 + 5 = 6 (RFC 0031).
     CHECK_OUTPUT((eval_node<stdlib::reduce_, TSL<TS<Int>>>(
                      fn<stdlib::add_>(),
-                     values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}),
-                                   dynamic_list_delta<TS<Int>>({}, {1, 2}),
-                                   dynamic_list_delta<TS<Int>>({{1, 5}})))),
+                     values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}, {}, 3),
+                                   dynamic_list_delta<TS<Int>>({}, {1, 2}, 1),
+                                   dynamic_list_delta<TS<Int>>({{1, 5}}, {}, 2)))),
                  values<Int>(6, 1, 6));
 }
 
@@ -1399,9 +1413,9 @@ TEST_CASE("reduce over dynamic TSL: ordered reduction retains left-to-right sema
     stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<OrderedSubtractDynamicTslGraph>(
-                     values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}}),
-                                   dynamic_list_delta<TS<Int>>({{1, 2}}),
-                                   dynamic_list_delta<TS<Int>>({{2, 3}})),
+                     values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}}, {}, 1),
+                                   dynamic_list_delta<TS<Int>>({{1, 2}}, {}, 2),
+                                   dynamic_list_delta<TS<Int>>({{2, 3}}, {}, 3)),
                      values<Int>(100)),
                  values<Int>(99, 97, 94));
 }

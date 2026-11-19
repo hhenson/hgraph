@@ -68,6 +68,8 @@ namespace
     });
     static_assert(requires(const hgraph::Out<hgraph::TSL<hgraph::TS<hgraph::Int>>> &out) {
         hgraph::push(out, hgraph::Int{1});
+        out.removed_positions();
+        out.size_modified();
     });
 
     struct ConsumerExtensionScalar
@@ -558,8 +560,8 @@ int main(int argc, char **argv)
     static_assert(GRAPH_OPS_ABI_VERSION == 10);
     // ABI 6 adds external_start/step/stop for the ExternallyDriven mode.
     static_assert(EXECUTOR_OPS_ABI_VERSION == 7);
-    // Sparse range and bounded slot cursors change the native extension ABI.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 28);
+    // ABI 29 adds the list range for invalidated and truncated positions.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 29);
     static_assert(VALUE_OPS_ABI_VERSION == 11);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));
     static_assert(std::is_standard_layout_v<PolymorphicValueType>);

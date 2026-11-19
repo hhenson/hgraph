@@ -7,6 +7,13 @@ RFC 0031: Dynamic TSL Added and Removed
 :Target: ``TSL<C>`` delta contract, ``DynamicTSLStorage``, TSL views, Python bridge
 :Related: RFC 0017 (binary value codec), RFC 0019 (native table recording)
 
+.. note::
+
+   Issue 1815 revises the original delta format below. Fixed and growing
+   lists now share ``{removed, modified, size_modified}``. An in-range
+   ``REMOVE`` clears one position. A producer truncates by supplying the
+   new size. See :ref:`the list delta examples <list-delta-examples>`.
+
 Summary
 -------
 

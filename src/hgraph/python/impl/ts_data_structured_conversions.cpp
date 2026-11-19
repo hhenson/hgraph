@@ -1,4 +1,6 @@
 #include "python_ops_families.h"
+#include "list_delta_source.h"
+#include <hgraph/types/time_series/ts_data/base_view.h>
 
 #include "../../types/metadata/detail/ts_data_seams.h"
 
@@ -150,7 +152,7 @@ namespace hgraph::python_bridge
 
         [[nodiscard]] nb::object fixed_delta_map_to_python(const void *context, const void *memory)
         {
-            return to_python(Value{ValueView{seams::fixed_layout(context).delta_binding, memory}});
+            return to_python(Value{ValueView{seams::fixed_modified_map_binding(context), memory}});
         }
 
         [[nodiscard]] nb::object fixed_delta_key_set_to_python(const void *context, const void *memory)
@@ -197,6 +199,11 @@ namespace hgraph::python_bridge
         template <ValueForm Form>
         [[nodiscard]] nb::object fixed_list_to_python(const void *context, const void *memory)
         {
+            if constexpr (Form == ValueForm::Delta) {
+                return python_list_snapshot(seams::fixed_element_count(context), false, [&](std::size_t index) {
+                    return fixed_child_value_to_python(context, memory, index, Form);
+                });
+            }
             nb::list result;
             for (std::size_t index = 0, count = seams::fixed_element_count(context); index < count; ++index)
             {
@@ -241,7 +248,8 @@ namespace hgraph::python_bridge
                 nb::object value = fixed_child_delta_to_python(context, memory, index, evaluation_time);
                 if (!value.is_none()) { result[nb::int_{index}] = std::move(value); }
             }
-            return result;
+            const auto bundle = ValueView{seams::fixed_layout(context).delta_binding,memory}.as_bundle();
+            return python_list_delta(std::move(result),to_python(bundle.at(0).binding(),memory),nb::none());
         }
 
         [[nodiscard]] std::size_t fixed_field_index_by_name(const void *context, std::string_view name) noexcept
@@ -327,18 +335,6 @@ namespace hgraph::python_bridge
             return touched;
         }
 
-        [[nodiscard]] bool fixed_from_python_list_mapping(const void *context, void *memory, nb::handle source,
-                                                          DateTime modified_time)
-        {
-            bool touched = false;
-            for_each_python_mapping_item(source, "fixed TSL from_python", [&](nb::handle key, nb::handle value) {
-                const auto index = nb::cast<std::size_t>(key);
-                if (index >= seams::fixed_element_count(context)) { throw std::out_of_range("fixed TSL from_python index out of range"); }
-                touched |= fixed_child_update_from_python(context, memory, index, value, modified_time);
-            });
-            return touched;
-        }
-
         [[nodiscard]] bool fixed_bundle_from_python(const void *context, void *memory, nb::handle source,
                                                     DateTime modified_time)
         {
@@ -352,25 +348,23 @@ namespace hgraph::python_bridge
                                                   DateTime modified_time)
         {
             require_source(memory, source, modified_time, "fixed TSData from_python");
-            const bool first_for_parent = seams::fixed_tracking(context, memory).last_modified_time != modified_time;
-            const bool touched = python_has_items(source)
-                                     ? fixed_from_python_list_mapping(context, memory, source, modified_time)
-                                     : fixed_from_python_sequence(context, memory, source, modified_time,
-                                                                  "fixed TSL from_python");
-            return first_for_parent && touched;
+            const auto count = seams::fixed_element_count(context);
+            if (is_python_sequence(source) && nb::len(source) != count)
+                throw std::invalid_argument("fixed TSL replacement has the wrong length");
+            const ListDeltaSource delta{source, false, count};
+            const bool            first   = seams::fixed_tracking(context, memory).last_modified_time != modified_time;
+            bool                  touched = false;
+            for (auto key : delta.removed) {
+                const auto i = nb::cast<std::size_t>(key);
+                TSDataView child{seams::fixed_element_type(context, i), seams::fixed_mutable_child_data(context, memory, i)};
+                static_cast<void>(child.begin_mutation(modified_time).invalidate());
+            }
+            for (auto [key, item] : delta.modified)
+                touched |= fixed_child_update_from_python(context, memory, nb::cast<std::size_t>(key), item, modified_time);
+            return first && touched && seams::fixed_tracking(context, memory).last_modified_time != modified_time;
         }
 
         // -- dynamic TSL ---------------------------------------------------------------------
-        /** Either REMOVE sentinel. Truncation is total, so hgraph's strict /
-            lenient distinction has nothing to express for a list. */
-        [[nodiscard]] bool is_removal_sentinel(nb::handle item) noexcept
-        {
-            const auto &strict = removed_sentinel_slot();
-            if (strict.is_valid() && item.is(strict)) { return true; }
-            const auto &lenient = remove_if_exists_sentinel_slot();
-            return lenient.is_valid() && item.is(lenient);
-        }
-
         [[nodiscard]] nb::object dynamic_value_projection_to_python(const void *context, const void *memory)
         {
             return to_python(Value{ValueView{seams::dynamic_layout(context).value_binding, memory}});
@@ -378,7 +372,7 @@ namespace hgraph::python_bridge
 
         [[nodiscard]] nb::object dynamic_delta_projection_to_python(const void *context, const void *memory)
         {
-            return to_python(Value{ValueView{seams::dynamic_layout(context).delta_binding, memory}});
+            return to_python(Value{ValueView{seams::dynamic_modified_map_binding(context), memory}});
         }
 
         [[nodiscard]] nb::object dynamic_delta_key_set_projection_to_python(const void *context, const void *memory)
@@ -393,10 +387,7 @@ namespace hgraph::python_bridge
 
         [[nodiscard]] nb::object dynamic_delta_bundle_to_python(const void *context, const void *memory)
         {
-            nb::dict result;
-            result[nb::str{"removed"}]  = to_python(seams::dynamic_removed_set_binding(context), memory);
-            result[nb::str{"modified"}] = to_python(seams::dynamic_modified_map_binding(context), memory);
-            return result;
+            return to_python(Value{ValueView{seams::dynamic_layout(context).delta_binding,memory}});
         }
 
         /** Dynamic TSL Python export is a TSData strategy. It deliberately
@@ -406,6 +397,11 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::object dynamic_to_python(const void *context, const void *memory)
         {
             const auto &ops = seams::dynamic_element_type(context).ops_ref();
+            if constexpr (Form == ValueForm::Delta) {
+                return python_list_snapshot(seams::dynamic_size(memory), true, [&](std::size_t index) {
+                    return current_value_to_python(ops, seams::dynamic_child_memory(memory, index), Form);
+                });
+            }
             nb::list    result;
             for (std::size_t index = 0; index < seams::dynamic_size(memory); ++index)
             {
@@ -423,23 +419,16 @@ namespace hgraph::python_bridge
             {
                 const auto  index = seams::dynamic_modified_index_at(memory, ordinal);
                 const auto *child = seams::dynamic_child_memory(memory, index);
+                if (ops.tracking_impl(ops.context,child)->last_modified_time != evaluation_time) continue;
                 nb::object  value = take(ops.delta_to_python_impl(ops.context, child, evaluation_time));
                 if (!value.is_none()) { modified[nb::int_{index}] = std::move(value); }
             }
-            // RFC 0031: the canonical {removed, modified} shape, which
-            // hgraph's _simplify_delta rewrites into the friendly
-            // {index: delta, removed_index: REMOVE} form.
-            nb::dict result;
-            result[nb::str{"removed"}]  = to_python(seams::dynamic_removed_set_binding(context), memory);
-            result[nb::str{"modified"}] = std::move(modified);
-            return result;
+            const auto bundle = ValueView{seams::dynamic_layout(context).delta_binding, memory}.as_bundle();
+            auto       length = bundle.element_valid(2) ? nb::object(nb::int_(bundle.at(2).checked_as<Int>())) : nb::none();
+            return python_list_delta(std::move(modified), to_python(seams::dynamic_removed_set_binding(context), memory),
+                                     std::move(length));
         }
 
-        /** Import current/replacement values through the child strategies.
-            A sequence IS the list: it covers consecutive indices and
-            resizes, so a shorter sequence truncates (RFC 0031). A mapping
-            is a sparse replacement/update in which a ``REMOVE`` sentinel
-            truncates to the lowest removed index. */
         [[nodiscard]] bool dynamic_from_python(const void *context, void *memory, nb::handle source, DateTime modified_time)
         {
             require_source(memory, source, modified_time, "dynamic TSL from_python");
@@ -460,50 +449,20 @@ namespace hgraph::python_bridge
                 touched = true;
             };
 
-            if (nb::isinstance<nb::dict>(source))
-            {
-                // Removal is resolved FIRST so a same-cycle re-grow through
-                // `modified` behaves exactly as apply_delta does.
-                auto truncate_to = static_cast<std::size_t>(-1);
-                for (auto [key, item] : nb::cast<nb::dict>(source))
-                {
-                    if (item.is_none() || !is_removal_sentinel(item)) { continue; }
-                    const auto index = nb::cast<std::int64_t>(key);
-                    if (index < 0) { throw std::out_of_range("dynamic TSL from_python index must be non-negative"); }
-                    truncate_to = std::min(truncate_to, static_cast<std::size_t>(index));
-                }
-                if (truncate_to < seams::dynamic_size(memory))
-                {
-                    seams::dynamic_resize(context, memory, truncate_to, modified_time);
-                    touched = true;
-                }
-                for (auto [key, item] : nb::cast<nb::dict>(source))
-                {
-                    if (item.is_none() || is_removal_sentinel(item)) { continue; }
-                    const auto index = nb::cast<std::int64_t>(key);
-                    if (index < 0) { throw std::out_of_range("dynamic TSL from_python index must be non-negative"); }
-                    update(static_cast<std::size_t>(index), item);
-                }
-                return first_for_parent && touched;
-            }
-
-            if (nb::isinstance<nb::str>(source) || !nb::isinstance<nb::sequence>(source))
-            {
-                throw std::invalid_argument("dynamic TSL from_python expects a mapping or sequence");
-            }
-            const auto source_size = static_cast<std::size_t>(nb::len(source));
-            if (source_size != seams::dynamic_size(memory))
-            {
-                seams::dynamic_resize(context, memory, source_size, modified_time);
+            const ListDeltaSource delta{source,true,0};
+            if (delta.size && *delta.size != seams::dynamic_size(memory)) {
+                seams::dynamic_resize(context,memory,*delta.size,modified_time);
                 touched = true;
             }
-            std::size_t index = 0;
-            for (nb::handle item : source)
-            {
-                if (!item.is_none()) { update(index, item); }
-                ++index;
+            for (auto key : delta.removed) {
+                const auto i = nb::cast<std::size_t>(key);
+                if (i < seams::dynamic_size(memory)) {
+                    TSDataView child{seams::dynamic_element_type(context), seams::dynamic_mutable_child_memory(memory, i)};
+                    static_cast<void>(child.begin_mutation(modified_time).invalidate());
+                }
             }
-            return first_for_parent && touched;
+            for (auto [key,item] : delta.modified) update(nb::cast<std::size_t>(key),item);
+            return first_for_parent && touched && seams::dynamic_tracking(memory).last_modified_time != modified_time;
         }
 
         // -- slot-backed TSS -----------------------------------------------------------------
@@ -607,6 +566,12 @@ namespace hgraph::python_bridge
                 if (!seams::tsd_slot_in_surface(memory, slot, seams::MapSurface::live)) { continue; }
                 result[to_python(key_ops, seams::tsd_key_at_slot(memory, slot))] =
                     current_value_to_python(child_ops, seams::tsd_child_at_slot(memory, slot), Form);
+            }
+            if constexpr (Form == ValueForm::Delta) {
+                nb::dict delta;
+                delta["modified"] = std::move(result);
+                delta["removed"]  = nb::set();
+                return delta;
             }
             return result;
         }
@@ -789,6 +754,12 @@ namespace hgraph::python_bridge
                 const auto key = seams::proxy_key_at_slot(memory, slot);
                 result[to_python(key.binding(), key.data())] =
                     current_value_to_python(child_ops, seams::proxy_child_at_slot(memory, slot), Form);
+            }
+            if constexpr (Form == ValueForm::Delta) {
+                nb::dict delta;
+                delta["modified"] = std::move(result);
+                delta["removed"]  = nb::set();
+                return delta;
             }
             return result;
         }

@@ -18,7 +18,7 @@ public operator they implement rather than listed as top-level operators.
    * - Surface
      - Names
    * - ``hgraph.__all__``
-     - 221
+     - 222
    * - Public operator groups
      - 189
    * - Public submodules
@@ -120,6 +120,7 @@ Top-level wildcard exports
    * - ``TSD``
    * - ``TSD_OUT``
    * - ``TSL``
+   * - ``TSLDelta``
    * - ``TSS``
    * - ``TSS_OUT``
    * - ``TSW``

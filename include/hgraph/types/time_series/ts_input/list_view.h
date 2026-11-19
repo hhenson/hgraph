@@ -1,6 +1,8 @@
 #ifndef HGRAPH_CPP_ROOT_TS_INPUT_LIST_VIEW_H
 #define HGRAPH_CPP_ROOT_TS_INPUT_LIST_VIEW_H
 
+#include <optional>
+
 #include <hgraph/types/time_series/ts_input/typed_view.h>
 
 namespace hgraph
@@ -19,6 +21,8 @@ namespace hgraph
         explicit TSLInputView(TSInputView view);
 
         [[nodiscard]] std::size_t size() const;
+        /** New list length when it changed in this cycle, including zero. */
+        [[nodiscard]] std::optional<std::size_t> size_modified() const;
         [[nodiscard]] bool empty() const;
         [[nodiscard]] TSLDataView data_view() const;
 
@@ -39,6 +43,10 @@ namespace hgraph
         KeyValueRange<std::size_t, TSInputView> valid_items() && = delete;
         [[nodiscard]] KeyValueRange<std::size_t, TSInputView> modified_items() const &;
         KeyValueRange<std::size_t, TSInputView> modified_items() && = delete;
+
+        /** In-place invalidations and truncated positions in the observed delta. */
+        [[nodiscard]] Range<std::size_t> removed_positions() const &;
+        Range<std::size_t>               removed_positions() && = delete;
 
         /** Structural delta for this cycle (RFC 0031). A fixed TSL reports
             empty ranges rather than throwing. */

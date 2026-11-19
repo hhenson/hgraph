@@ -280,12 +280,23 @@ TEST_CASE("reduce checkpoint preserves dynamic list shrink growth and partial le
 {
     stdlib::register_standard_operators();
     compare_every_cut<ReduceComponent<TSL<TS<Int>>>>(
-        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}),
-                      dynamic_list_delta<TS<Int>>({}, {1, 2}), none,
-                      dynamic_list_delta<TS<Int>>({{1, 5}}),
-                      dynamic_list_delta<TS<Int>>({{2, 7}, {3, 9}}),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}, {}, 3),
+                      dynamic_list_delta<TS<Int>>({}, {1, 2}, 1), none,
+                      dynamic_list_delta<TS<Int>>({{1, 5}}, {}, 2),
+                      dynamic_list_delta<TS<Int>>({{2, 7}, {3, 9}}, {}, 4),
                       dynamic_list_delta<TS<Int>>({{0, 4}})),
         values<Int>(0, none, none, none, none, none));
+}
+
+TEST_CASE("reduce checkpoint preserves cleared dynamic list positions across the component boundary", "[checkpoint][reduce]")
+{
+    stdlib::register_standard_operators();
+    compare_every_cut<ReduceComponent<TSL<TS<Int>>>>(
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}, {}, 3),
+                      dynamic_list_delta<TS<Int>>({}, {1}),
+                      dynamic_list_delta<TS<Int>>({{2, 7}}),
+                      dynamic_list_delta<TS<Int>>({{1, 5}})),
+        values<Int>(0, none, none, none));
 }
 
 TEST_CASE("reduce checkpoint keeps empty and singleton no-zero behavior", "[checkpoint][reduce]")
@@ -315,10 +326,10 @@ TEST_CASE("ordered reduce checkpoint preserves dynamic list chain history", "[ch
 {
     stdlib::register_standard_operators();
     compare_every_cut<ReduceComponent<TSL<TS<Int>>, true>>(
-        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}), none,
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}, {}, 2), none,
                       dynamic_list_delta<TS<Int>>({{0, 5}}),
-                      dynamic_list_delta<TS<Int>>({}, {1}),
-                      dynamic_list_delta<TS<Int>>({{1, 8}, {2, 9}})),
+                      dynamic_list_delta<TS<Int>>({}, {1}, 1),
+                      dynamic_list_delta<TS<Int>>({{1, 8}, {2, 9}}, {}, 3)),
         values<Int>(0, none, none, none, none));
 }
 

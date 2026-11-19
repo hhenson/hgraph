@@ -13,6 +13,7 @@
 #include <hgraph/types/python_ops.h>
 
 #include "detail/ts_data_seams.h"
+#include "detail/list_delta_projection.h"
 
 namespace hgraph::ts_data_seams
 {
@@ -61,6 +62,9 @@ namespace hgraph::ts_data_plan_factory_detail
         IndexedValueOps                 delta_bundle_ops{};
         MapValueOps                     delta_map_ops{};
         SetValueOps                     delta_key_set_ops{};
+        IndexedValueOps list_delta_bundle_ops{};
+        SetValueOps removed_set_ops{};
+        ValueTypeRef modified_map_binding{}, removed_set_binding{}, removed_owned_binding{};
         ValueTypeRef ordinal_key_binding{nullptr};
         ValueTypeRef delta_map_value_binding{nullptr};
         ValueTypeRef delta_key_set_binding{nullptr};
@@ -147,6 +151,19 @@ namespace hgraph::ts_data_plan_factory_detail
             configure_value_ops();
         }
 
+        ValueTypeRef        canonical_delta() const { return list_layout.canonical_delta_binding; }
+        std::size_t         candidate_count(const void *) const { return element_count(); }
+        std::size_t         candidate(const void *, std::size_t i) const { return i; }
+        const std::int64_t &index_key(const void *, std::size_t i) const { return ordinal_keys.at(i); }
+        const std::int64_t *changed_size(const void *) const { return nullptr; }
+        bool                is_removed(const void *m, std::size_t i) const {
+            if (i >= element_count()) return false;
+            const auto &o    = child_ops(element_type(i));
+            const auto &t    = *o.tracking_impl(o.context, child_data(this, m, i));
+            const auto  time = fixed_tracking(this, m)->last_modified_time;
+            return time != MIN_DT && t.last_modified_time == MIN_DT && t.last_empty_delta_time == time;
+        }
+
         void bind_surfaces()
         {
             const auto *value_schema = schema->value_schema;
@@ -212,17 +229,22 @@ namespace hgraph::ts_data_plan_factory_detail
                 return;
             }
 
-            ordinal_key_binding     = ValuePlanFactory::instance().type_for(delta_schema->key_type);
+            const auto *map_schema = delta_schema->fields[1].type;
+            ordinal_key_binding     = ValuePlanFactory::instance().type_for(map_schema->key_type);
             delta_map_value_binding = element_count() == 0
-                                          ? ValuePlanFactory::instance().type_for(delta_schema->element_type)
+                                          ? ValuePlanFactory::instance().type_for(map_schema->element_type)
                                           : element_delta_binding(0);
             if (ordinal_key_binding == nullptr || delta_map_value_binding == nullptr)
             {
                 throw std::logic_error("TSDataPlanFactory: fixed TSL delta bindings are not resolved");
             }
-            const auto *key_set_schema = TypeRegistry::instance().set(delta_schema->key_type);
+            const auto *key_set_schema = TypeRegistry::instance().set(map_schema->key_type);
             delta_key_set_binding      = intern_value_type(*key_set_schema, *plan, delta_key_set_ops);
-            active_layout().delta_binding = intern_value_type(*delta_schema, *plan, delta_map_ops);
+            modified_map_binding          = intern_value_type(*map_schema, *plan, delta_map_ops);
+            const auto *removed           = delta_schema->fields[0].type;
+            removed_owned_binding         = ValuePlanFactory::instance().type_for(removed);
+            removed_set_binding           = intern_value_type(*removed, *plan, removed_set_ops);
+            active_layout().delta_binding = intern_value_type(*delta_schema, *plan, list_delta_bundle_ops);
         }
 
         [[nodiscard]] const TSDataLayout *layout_ptr() const noexcept
@@ -396,6 +418,7 @@ namespace hgraph::ts_data_plan_factory_detail
                         ? &python_ops_detail::forwarder<&PythonOps::TSData::fixed_bundle_value_as_delta_to_python>::call
                         : &python_ops_detail::forwarder<&PythonOps::TSData::fixed_list_value_as_delta_to_python>::call,
             };
+            if (!bundle) ops.removed_positions_impl = &ListDeltaProjection<FixedTSDataContext>::removed_indices;
             ops.size_impl                   = &fixed_indexed_size;
             ops.element_binding_impl        = &fixed_indexed_element_binding;
             ops.element_memory_impl         = &fixed_indexed_element_memory;
@@ -488,6 +511,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 &fixed_delta_map_contains,
             };
             delta_key_set_ops.owning_type_impl      = &fixed_owning_binding;
+            if (schema->kind == TSTypeKind::TSL) ListDeltaProjection<FixedTSDataContext>::configure(*this);
             delta_key_set_ops.copy_construct_view_impl = &fixed_delta_key_set_copy_construct_view;
             delta_key_set_ops.copy_assign_view_impl    = &fixed_delta_key_set_copy_assign_view;
         }
@@ -1313,7 +1337,7 @@ namespace hgraph::ts_data_plan_factory_detail
                                                                       const void *memory)
         {
             const auto *state = ctx(context);
-            if (binding.schema() != state->schema->delta_value_schema ||
+            if (binding.schema() != state->schema->delta_value_schema->fields[1].type ||
                 binding.schema() == nullptr || binding.schema()->value_kind() != ValueTypeKind::Map)
             {
                 throw std::logic_error("fixed TSL delta copy requires the canonical parent delta map schema");
@@ -1727,6 +1751,7 @@ namespace hgraph::ts_data_seams
         return *FixedSeamAccess::fixed(context).schema;
     }
 
+    ValueTypeRef fixed_modified_map_binding(const void *context) noexcept { return FixedSeamAccess::fixed(context).modified_map_binding; }
     const TSDataLayout &fixed_layout(const void *context) noexcept
     {
         return *FixedSeamAccess::fixed(context).layout_ptr();

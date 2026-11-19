@@ -2276,7 +2276,7 @@ from_data_frame_batches: _from_data_frame_batches_Operator
 class _from_json_Operator(_Protocol):
     """Parse JSON text directly into an explicitly selected time-series schema. Each parsed value is applied as that tick's delta, so collection removals and structural updates follow the target type's normal delta semantics.
 
-    Being a delta, an absent member is UNCHANGED rather than removed: a bare ``[..]`` for a ``TSS`` adds its members, and removal needs the explicit ``{"added": [..], "removed": [..]}`` form. A ``null`` element of a ``TSL`` array means that element does not tick. A DYNAMIC ``TSL`` is the exception to "absent means unchanged": the array IS the list, so its length sets the list length and a shorter array truncates; its object form is the canonical ``{"removed": [..], "modified": {..}}`` delta (RFC 0031), while a fixed ``TSL`` keeps the bare index-map object.
+    Being a delta, an absent member is UNCHANGED rather than removed: a bare ``[..]`` for a ``TSS`` adds its members, and removal needs the explicit ``{"added": [..], "removed": [..]}`` form. A ``null`` element of a ``TSL`` array means that element does not tick. A growing list takes its length from the array. Both kinds accept a delta object with a ``modified`` index map and ``removed`` indices. Supply ``size_modified`` to resize a growing list.
 
     Parameters
     ~~~~~~~~~~

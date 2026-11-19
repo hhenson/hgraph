@@ -295,8 +295,8 @@ TEST_CASE("component recovery schema matrix matches uninterrupted output at ever
     SECTION("fixed list") { every_cut<CopyComponent<TSL<TS<Int>, 3>>>(values<Value>(none, list_delta<TS<Int>>({{0, 1}}),
         list_delta<TS<Int>>({{2, 3}}), none, list_delta<TS<Int>>({{1, 2}}), list_delta<TS<Int>>({{0, -1}, {2, 0}}), list_delta<TS<Int>>({{1, 7}}), none)); }
     SECTION("dynamic list") { every_cut<CopyComponent<TSL<TS<Int>>>>(values<Value>(none,
-        dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}), dynamic_list_delta<TS<Int>>({}, {1, 2}), none,
-        dynamic_list_delta<TS<Int>>({{1, 4}, {2, 5}}), dynamic_list_delta<TS<Int>>({}, {0, 1, 2}), dynamic_list_delta<TS<Int>>({{0, 7}}), none)); }
+        dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}, {}, 3), dynamic_list_delta<TS<Int>>({}, {1, 2}, 1), none,
+        dynamic_list_delta<TS<Int>>({{1, 4}, {2, 5}}, {}, 3), dynamic_list_delta<TS<Int>>({}, {0, 1, 2}, 0), dynamic_list_delta<TS<Int>>({{0, 7}}, {}, 1), none)); }
     SECTION("dictionary") { every_cut<CopyComponent<TSD<Str, TS<Int>>>>(values<Value>(none,
         dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 2}}), dict_delta<Str, TS<Int>>({}, {"a"}), none,
         dict_delta<Str, TS<Int>>({{"c", 3}}), dict_delta<Str, TS<Int>>({}, {"b", "c"}), dict_delta<Str, TS<Int>>({{"a", 7}}), none)); }
@@ -334,7 +334,7 @@ TEST_CASE("composite children and whole references recover values deltas and val
     SECTION("signal") { composite_shape<SIGNAL>(true, true); }
     SECTION("set") { composite_shape<TSS<Str>>(set_delta<Str>({"a", "b"}, {}), set_delta<Str>({}, {"a"})); }
     SECTION("fixed list") { composite_shape<TSL<TS<Int>, 3>>(list_delta<TS<Int>>({{0, 1}}), list_delta<TS<Int>>({{2, 3}})); }
-    SECTION("dynamic list") { composite_shape<TSL<TS<Int>>>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}), dynamic_list_delta<TS<Int>>({}, {1})); }
+    SECTION("dynamic list") { composite_shape<TSL<TS<Int>>>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}), dynamic_list_delta<TS<Int>>({}, {1}, 1)); }
     SECTION("dictionary") { composite_shape<TSD<Str, TS<Int>>>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 2}}), dict_delta<Str, TS<Int>>({}, {"a"})); }
     SECTION("partial bundle") { composite_shape<Quote>(tsb_delta<Quote>(1.5, none), tsb_delta<Quote>(none, Int{2})); }
     SECTION("dictionary of bundles") { composite_shape<TSD<Str, Quote>>(

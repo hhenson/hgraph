@@ -99,7 +99,7 @@ TEST_CASE("ts_schemas: TSD<K, V>.value_schema is Map<K, V.value_schema>, delta i
     REQUIRE(ts_int->authored_delta_schema == ts_int->delta_value_schema);
 }
 
-TEST_CASE("ts_schemas: TSL<T>.value_schema is List<T.value>; fixed delta is Map<int, T.delta>, dynamic adds removed")
+TEST_CASE("ts_schemas: TSL<T>.value_schema is List<T.value>; fixed and growing lists share a positional delta")
 {
     using namespace hgraph;
     auto       &registry    = TypeRegistry::instance();
@@ -117,11 +117,12 @@ TEST_CASE("ts_schemas: TSL<T>.value_schema is List<T.value>; fixed delta is Map<
         REQUIRE(tsl->value_schema->element_type == double_meta);
         REQUIRE(tsl->value_schema->fixed_size == 4);
 
-        // delta_value_schema = Map<int, double>
+        // The shared delta contains an indexed map of child deltas.
         const auto *int_meta           = registry.value_type("int");
         REQUIRE(int_meta != nullptr);
         const auto *expected_delta_map = registry.map(int_meta, double_meta);
-        REQUIRE(tsl->delta_value_schema == expected_delta_map);
+        REQUIRE(tsl->delta_value_schema == registry.tsl(ts_double)->delta_value_schema);
+        REQUIRE(tsl->delta_value_schema->fields[1].type == expected_delta_map);
     }
 
     SECTION("dynamic TSL")
@@ -133,13 +134,14 @@ TEST_CASE("ts_schemas: TSL<T>.value_schema is List<T.value>; fixed delta is Map<
         REQUIRE(tsl->value_schema == expected_value);
         REQUIRE(tsl->value_schema->fixed_size == 0);
 
-        // A dynamic TSL can shrink, so its delta carries the TSD-shaped
-        // Bundle{removed: Set<int>, modified: Map<int, double>} (RFC 0031).
+        // A size change is independent of positional updates and removals.
         const auto *int_meta           = registry.value_type("int");
         const auto *expected_delta_map = registry.map(int_meta, double_meta);
         const auto *delta              = tsl->delta_value_schema;
         REQUIRE(delta->value_kind() == ValueTypeKind::Bundle);
-        REQUIRE(delta->field_count == 2);
+        REQUIRE(delta->field_count == 3);
+        REQUIRE(std::string_view{delta->fields[2].name} == "size_modified");
+        REQUIRE(delta->fields[2].type == int_meta);
         REQUIRE(std::string_view{delta->fields[0].name} == "removed");
         REQUIRE(delta->fields[0].type == registry.set(int_meta));
         REQUIRE(std::string_view{delta->fields[1].name} == "modified");
@@ -226,7 +228,7 @@ TEST_CASE("ts_schemas: collection value schemas compose from child value_schema"
     const auto *list = registry.tsl(window, 2);
     REQUIRE(list->value_schema == registry.list(window->value_schema, 2));
     REQUIRE(list->value_schema->element_type == window->value_schema);
-    REQUIRE(list->delta_value_schema == registry.map(registry.value_type("int"), window->delta_value_schema));
+    REQUIRE(list->delta_value_schema->fields[1].type == registry.map(registry.value_type("int"), window->delta_value_schema));
 
     const auto *dict = registry.tsd(str_meta, window);
     REQUIRE(dict->value_schema == registry.map(str_meta, window->value_schema));
@@ -286,13 +288,12 @@ TEST_CASE("ts_schemas: nested compositions resolve recursively")
     REQUIRE(tsd->value_schema == expected_value);
 
     // tsd.delta_value_schema = Bundle{removed, modified} where the
-    // modified-map values are Map<int, double> (TSL's delta).
+    // modified-map values are the child TSL deltas.
     REQUIRE(tsd->delta_value_schema != nullptr);
     REQUIRE(tsd->delta_value_schema->value_kind() == ValueTypeKind::Bundle);
     REQUIRE(tsd->delta_value_schema->field_count == 2);
 
-    const auto *int_meta               = registry.value_type("int");
-    const auto *expected_inner_delta   = registry.map(int_meta, double_meta);  // tsl's delta
+    const auto *expected_inner_delta   = tsd->element_ts()->delta_value_schema;
     const auto *expected_modified_map  = registry.map(str_meta, expected_inner_delta);
     REQUIRE(tsd->delta_value_schema->fields[1].type == expected_modified_map);
 }

@@ -92,8 +92,8 @@ TEST_CASE("spawn: collection boundaries preserve values deltas and membership", 
     { boundary_oracle<TSL<TS<Int>, 2>>(values<Value>(list_delta<TS<Int>>({1, std::nullopt}),
         list_delta<TS<Int>>({std::nullopt, 2}), list_delta<TS<Int>>({3, 4}))); }
     SECTION("dynamic list")
-    { boundary_oracle<TSL<TS<Int>>>(values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {3, 4}}),
-        dynamic_list_delta<TS<Int>>({}, {3}), dynamic_list_delta<TS<Int>>({{3, 5}}))); }
+    { boundary_oracle<TSL<TS<Int>>>(values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {3, 4}}, {}, 4),
+        dynamic_list_delta<TS<Int>>({}, {3}, 3), dynamic_list_delta<TS<Int>>({{3, 5}}, {}, 4))); }
     SECTION("partial nested bundle")
     {
         using Row = TSB<"SpawnTestRow", Field<"value", TS<Int>>, Field<"label", TS<Str>>>;
