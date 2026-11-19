@@ -288,6 +288,17 @@ TEST_CASE("reduce checkpoint preserves dynamic list shrink growth and partial le
         values<Int>(0, none, none, none, none, none));
 }
 
+TEST_CASE("reduce checkpoint preserves cleared dynamic list positions across the component boundary", "[checkpoint][reduce]")
+{
+    stdlib::register_standard_operators();
+    compare_every_cut<ReduceComponent<TSL<TS<Int>>>>(
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}, {}, 3),
+                      dynamic_list_delta<TS<Int>>({}, {1}),
+                      dynamic_list_delta<TS<Int>>({{2, 7}}),
+                      dynamic_list_delta<TS<Int>>({{1, 5}})),
+        values<Int>(0, none, none, none));
+}
+
 TEST_CASE("reduce checkpoint keeps empty and singleton no-zero behavior", "[checkpoint][reduce]")
 {
     stdlib::register_standard_operators();
