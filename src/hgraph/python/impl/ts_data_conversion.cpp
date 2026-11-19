@@ -583,6 +583,72 @@ namespace hgraph::python_bridge
             return layout.element_type;
         }
 
+        // Read canonical records without reconstructing graph state. Collection
+        // positions use their declared child strategies, so a map-valued sample
+        // remains a payload even when its keys match the window change schema.
+        nb::object present_recorded_child(TSRoleTypeRef type, const ValueView &delta)
+        {
+            const auto project = python_ops_for(type).present_recorded_impl;
+            if (!delta.has_value()) { return nb::none(); }
+            return project ? take(project(type, delta)) : to_python(delta);
+        }
+
+        PyNewRef present_recorded_window(TSRoleTypeRef, const ValueView &delta)
+        {
+            const auto fields = delta.as_bundle();
+            if (const auto replacement = fields.at("replacement"); replacement.has_value())
+            {
+                const auto samples = replacement.as_indexed_view();
+                if (!samples.size()) { return give(nb::none()); }
+                return give(to_python(samples.at(samples.size() - 1).as_bundle().at("value")));
+            }
+            const auto added = fields.at("added").as_indexed_view();
+            return give(added.size() ? to_python(added.at(0)) : nb::none());
+        }
+
+        nb::dict present_modified_map(TSRoleTypeRef child, const ValueView &delta)
+        {
+            const auto fields = delta.as_bundle();
+            nb::dict modified;
+            for (const auto &[key, value] : fields.at("modified").as_map())
+            {
+                modified[to_python(key)] = present_recorded_child(child, value);
+            }
+            nb::dict result;
+            result["removed"] = to_python(fields.at("removed"));
+            result["modified"] = std::move(modified);
+            return result;
+        }
+
+        PyNewRef present_recorded_dict(TSRoleTypeRef type, const ValueView &delta)
+        {
+            const auto &layout = static_cast<const TSDDataLayout &>(layout_of(type, "TSD recording"));
+            return give(present_modified_map(layout.element_type, delta));
+        }
+
+        PyNewRef present_recorded_list(TSRoleTypeRef type, const ValueView &delta)
+        {
+            auto result = present_modified_map(list_element_type(type, "TSL recording"), delta);
+            const auto size = delta.as_bundle().at("size_modified");
+            result["size_modified"] = size.has_value() ? to_python(size) : nb::none();
+            return give(std::move(result));
+        }
+
+        PyNewRef present_recorded_bundle(TSRoleTypeRef type, const ValueView &delta)
+        {
+            const auto &schema = schema_of(type, "TSB recording");
+            const auto &layout = static_cast<const FixedTSBDataLayout &>(layout_of(type, "TSB recording"));
+            const auto fields = delta.as_bundle();
+            nb::dict result;
+            for (std::size_t index = 0; index < schema.field_count(); ++index)
+            {
+                if (!fields.element_valid(index)) { continue; }
+                const nb::str name{schema.fields()[index].name};
+                result[name] = present_recorded_child(layout.field(index).type, fields.at(index));
+            }
+            return give(std::move(result));
+        }
+
         [[nodiscard]] bool list_requires_authored(TSRoleTypeRef type, nb::handle source)
         {
             const auto           &schema = schema_of(type, "TSL authored-delta query");
@@ -830,6 +896,7 @@ namespace hgraph::python_bridge
             .requires_authored_delta_impl = &ts_requires_authored_slot<&dict_requires_authored>,
             .delta_from_python_impl = &ts_delta_from_python_slot<&dict_delta_from_python>,
             .apply_result_impl = &ts_apply_result_slot<&apply_dict_result>,
+            .present_recorded_impl = &present_recorded_dict,
         };
         return ops;
     }
@@ -840,6 +907,7 @@ namespace hgraph::python_bridge
             .requires_authored_delta_impl = &ts_requires_authored_slot<&list_requires_authored>,
             .delta_from_python_impl = &ts_delta_from_python_slot<&list_delta_from_python>,
             .apply_result_impl = &ts_apply_result_slot<&apply_list_result>,
+            .present_recorded_impl = &present_recorded_list,
         };
         return ops;
     }
@@ -850,6 +918,7 @@ namespace hgraph::python_bridge
             .requires_authored_delta_impl = &ts_requires_authored_slot<&bundle_requires_authored>,
             .delta_from_python_impl = &ts_delta_from_python_slot<&bundle_delta_from_python>,
             .apply_result_impl = &ts_apply_result_slot<&apply_bundle_result>,
+            .present_recorded_impl = &present_recorded_bundle,
         };
         return ops;
     }
@@ -860,6 +929,7 @@ namespace hgraph::python_bridge
             .requires_authored_delta_impl = &ts_requires_authored_slot<&window_requires_authored>,
             .delta_from_python_impl = &ts_delta_from_python_slot<&window_delta_from_python>,
             .apply_result_impl = &ts_apply_result_slot<&apply_delta_result>,
+            .present_recorded_impl = &present_recorded_window,
         };
         return ops;
     }

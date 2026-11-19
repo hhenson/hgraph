@@ -35,8 +35,8 @@ namespace hgraph::ts_data_seams
     [[nodiscard]] const TSWDataLayout &window_layout(const void *context) noexcept;
     [[nodiscard]] const TSDataTracking &window_tracking(const void *context, const void *memory) noexcept;
     [[nodiscard]] const void *window_value_memory(const void *context, const void *memory) noexcept;
-    /** The canonical window change for the current cycle, or null when none. */
-    [[nodiscard]] const void *window_delta_memory(const void *context, const void *memory);
+    /** The public arrival or newest replacement sample. A departure-only change has no sample. */
+    [[nodiscard]] ValueView window_arrival(const void *context, const void *memory, DateTime time);
     /** Over the window STORAGE (the value memory), the shape the value ops see. */
     [[nodiscard]] std::size_t window_storage_size(const void *context, const void *storage) noexcept;
     [[nodiscard]] const void *window_storage_element_at(const void *context, const void *storage,

@@ -82,6 +82,9 @@ namespace hgraph
         /** Build the delta in the schema selected by the preceding query. */
         Value (*delta_from_python_impl)(TSRoleTypeRef type, PyRef source, bool authored);
         void (*apply_result_impl)(const TSOutputView &output, PyRef result);
+        /** Optional public projection for a recorded canonical change. The default
+            uses the value's normal Python conversion. */
+        PyNewRef (*present_recorded_impl)(TSRoleTypeRef, const ValueView &) = nullptr;
     };
 
     namespace ts_data_detail

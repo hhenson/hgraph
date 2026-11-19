@@ -9,6 +9,7 @@
 
 #include "py_runtime.h"
 #include <hgraph/python/ts_data_conversion.h>
+#include <hgraph/types/metadata/ts_data_plan_factory.h>
 
 namespace hgraph::python_bridge
 {
@@ -42,21 +43,27 @@ namespace hgraph::python_bridge
         /** Recorded read-back. DENSE (default): per-cycle values, None = no
             tick. SPARSE (recordings made with sparse=True, the harness's
             __elide__): (cycle_offset, delta) pairs in time order. */
-        [[nodiscard]] nb::list recorded(const std::string &key, bool sparse)
+        [[nodiscard]] nb::list recorded(const std::string &key, bool sparse, const TSValueTypeMetaData *public_type = nullptr)
         {
+            const auto type = public_type ? TSDataPlanFactory::instance().data_type_for(public_type).as_role()
+                                          : TSRoleTypeRef{};
+            const auto project = type ? python_ts_data_ops_for(type.ops_ref()).present_recorded_impl : nullptr;
+            const auto convert = [&](const ValueView &delta) {
+                return project && delta.has_value() ? take(project(type, delta)) : value_to_py(delta);
+            };
             nb::list result;
             if (sparse)
             {
                 for (const auto &[offset, delta] :
                      testing::get_recorded_sparse(executor.view().graph().global_state(), key))
                 {
-                    result.append(nb::make_tuple(offset, value_to_py(delta.view())));
+                    result.append(nb::make_tuple(offset, convert(delta.view())));
                 }
                 return result;
             }
             for (const auto &delta : testing::get_recorded_deltas(executor.view().graph().global_state(), key))
             {
-                result.append(delta.has_value() ? value_to_py(delta->view()) : nb::none());
+                result.append(delta.has_value() ? convert(delta->view()) : nb::none());
             }
             return result;
         }

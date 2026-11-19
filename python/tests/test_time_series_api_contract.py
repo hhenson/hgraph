@@ -1065,6 +1065,29 @@ def test_sampled_window_reports_held_history_with_original_times():
         ]
 
 
+class _DurationWindowRow(TimeSeriesSchema):
+    samples: TSL[TSW[int, WindowSize[MIN_TD], WindowSize[0 * MIN_TD]], Size[1]]
+
+
+def test_nested_public_window_delta_keeps_the_position_on_departure_only_ticks():
+    observed = []
+
+    @compute_node
+    def publish(operation: TS[str], _output: TSB_OUT[_DurationWindowRow] = None) -> TSB[_DurationWindowRow]:
+        window = _output.samples[0]
+        if operation.value == "replace":
+            window.replace_samples([3, 5])
+        else:
+            assert window.expire()
+        observed.append((_output.delta_value, window.delta_value))
+
+    operations = ["replace", None, "expire"]
+    replacement, departure = {"samples": {0: 5}}, {"samples": {0: None}}
+    assert eval_node(publish, operations) == [replacement, None, departure]
+    assert observed == [(replacement, 5), (departure, None)]
+    assert eval_node(publish, operations, __elide__=True) == [replacement, departure]
+
+
 class _NestedWindowRow(TimeSeriesSchema):
     prices: TSL[TSW[frozendict[str, int], WindowSize[1], WindowSize[1]], Size[1]]
 
@@ -1084,6 +1107,12 @@ def test_nested_window_recording_and_public_arrival_with_map_samples():
     assert [list(change["added"]) for change in changes] == [[first], [second]]
     assert changes[0]["removed"] == []
     assert changes[1]["removed"] == [{"value": first, "time": MIN_ST}]
+
+    @graph
+    def as_output(rows: TSD[str, TSB[_NestedWindowRow]]) -> TSD[str, TSB[_NestedWindowRow]]:
+        return rows
+
+    assert eval_node(as_output, ticks) == ticks
 
     observations = []
 

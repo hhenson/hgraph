@@ -1014,7 +1014,12 @@ namespace hgraph::python_bridge
         "The completed result of a native graph execution.\n\n"
         "Use recorded() to retrieve values captured through the runner's "
         "record/replay support.")
-        .def("recorded", &PyRun::recorded, nb::arg("key"),
+        .def("_eval_recorded", [](PyRun &run, const std::string &key, PyTsType type, bool sparse) {
+            return run.recorded(key, sparse, type.meta);
+        }, nb::arg("key"), nb::arg("type"), nb::arg("sparse") = false)
+        .def("recorded", [](PyRun &run, const std::string &key, bool sparse) {
+            return run.recorded(key, sparse);
+        }, nb::arg("key"),
              nb::arg("sparse") = false,
              "Return values recorded under key. Sparse mode preserves only "
              "ticks; dense mode aligns values to evaluation cycles.");

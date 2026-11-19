@@ -2061,10 +2061,10 @@ namespace hgraph::ts_data_seams
         return static_cast<const std::byte *>(memory) + common(context).layout->value_offset;
     }
 
-    const void *window_delta_memory(const void *context, const void *memory)
+    ValueView window_arrival(const void *context, const void *memory, DateTime time)
     {
-        return common(context).time_window ? TimeBase::window_delta_memory(context, memory)
-                                           : SizeBase::window_delta_memory(context, memory);
+        return common(context).time_window ? TimeBase::window_arrival_view(context, memory, time)
+                                           : SizeBase::window_arrival_view(context, memory, time);
     }
 
     std::size_t window_storage_size(const void *context, const void *storage) noexcept

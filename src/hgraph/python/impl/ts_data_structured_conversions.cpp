@@ -1,3 +1,4 @@
+#include "ts_child_delta.h"
 #include "python_ops_families.h"
 #include "list_delta_source.h"
 #include <hgraph/types/time_series/ts_data/base_view.h>
@@ -212,14 +213,14 @@ namespace hgraph::python_bridge
             return nb::tuple(result);
         }
 
-        /** The child's delta for this cycle, or None when it did not tick. */
+        /** The child's public delta for this cycle, or an absent handle when it did not tick. */
         [[nodiscard]] nb::object fixed_child_delta_to_python(const void *context, const void *memory, std::size_t index,
                                                              DateTime evaluation_time)
         {
-            if (!seams::fixed_child_modified_for_parent_time(context, memory, index)) { return nb::none(); }
+            if (!seams::fixed_child_modified_for_parent_time(context, memory, index)) { return {}; }
             const auto &ops   = seams::fixed_element_type(context, index).ops_ref();
             const auto *child = seams::fixed_child_data(context, memory, index);
-            return take(ops.delta_to_python_impl(ops.context, child, evaluation_time));
+            return published_child_delta(ops, child, evaluation_time);
         }
 
         [[nodiscard]] nb::object fixed_bundle_delta_to_python(const void *context, const void *memory,
@@ -233,7 +234,7 @@ namespace hgraph::python_bridge
                 const char *name = schema.fields()[index].name;
                 if (name == nullptr || *name == '\0') { continue; }
                 nb::object value = fixed_child_delta_to_python(context, memory, index, evaluation_time);
-                if (!value.is_none()) { result[nb::str{name}] = std::move(value); }
+                if (value.is_valid()) { result[nb::str{name}] = std::move(value); }
             }
             return result;
         }
@@ -246,7 +247,7 @@ namespace hgraph::python_bridge
             for (std::size_t index = 0, count = seams::fixed_element_count(context); index < count; ++index)
             {
                 nb::object value = fixed_child_delta_to_python(context, memory, index, evaluation_time);
-                if (!value.is_none()) { result[nb::int_{index}] = std::move(value); }
+                if (value.is_valid()) { result[nb::int_{index}] = std::move(value); }
             }
             const auto bundle = ValueView{seams::fixed_layout(context).delta_binding,memory}.as_bundle();
             return python_list_delta(std::move(result),to_python(bundle.at(0).binding(),memory),nb::none());
@@ -420,8 +421,8 @@ namespace hgraph::python_bridge
                 const auto  index = seams::dynamic_modified_index_at(memory, ordinal);
                 const auto *child = seams::dynamic_child_memory(memory, index);
                 if (ops.tracking_impl(ops.context,child)->last_modified_time != evaluation_time) continue;
-                nb::object  value = take(ops.delta_to_python_impl(ops.context, child, evaluation_time));
-                if (!value.is_none()) { modified[nb::int_{index}] = std::move(value); }
+                nb::object  value = published_child_delta(ops, child, evaluation_time);
+                if (value.is_valid()) { modified[nb::int_{index}] = std::move(value); }
             }
             const auto bundle = ValueView{seams::dynamic_layout(context).delta_binding, memory}.as_bundle();
             auto       length = bundle.element_valid(2) ? nb::object(nb::int_(bundle.at(2).checked_as<Int>())) : nb::none();
@@ -587,8 +588,8 @@ namespace hgraph::python_bridge
             {
                 if (!seams::tsd_slot_in_surface(memory, slot, seams::MapSurface::modified)) { continue; }
                 const auto *child = seams::tsd_child_at_slot(memory, slot);
-                nb::object  delta = take(child_ops.delta_to_python_impl(child_ops.context, child, evaluation_time));
-                if (!delta.is_none()) { modified[to_python(key_ops, seams::tsd_key_at_slot(memory, slot))] = std::move(delta); }
+                nb::object  delta = published_child_delta(child_ops, child, evaluation_time);
+                if (delta.is_valid()) { modified[to_python(key_ops, seams::tsd_key_at_slot(memory, slot))] = std::move(delta); }
             }
             nb::dict result;
             result[nb::str{"removed"}]  = to_python(seams::tsd_removed_set_binding(context), memory);
@@ -776,8 +777,8 @@ namespace hgraph::python_bridge
                 if (!seams::proxy_slot_modified(context, memory, slot) || !seams::proxy_has_child(memory, slot)) { continue; }
                 const auto  key   = seams::proxy_key_at_slot(memory, slot);
                 const auto *child = seams::proxy_child_at_slot(memory, slot);
-                nb::object  delta = take(child_ops.delta_to_python_impl(child_ops.context, child, evaluation_time));
-                if (!delta.is_none()) { modified[to_python(key.binding(), key.data())] = std::move(delta); }
+                nb::object  delta = published_child_delta(child_ops, child, evaluation_time);
+                if (delta.is_valid()) { modified[to_python(key.binding(), key.data())] = std::move(delta); }
             }
             nb::dict result;
             result[nb::str{"removed"}]  = proxy_set_to_python<seams::SetSurface::removed>(context, memory);

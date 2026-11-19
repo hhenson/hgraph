@@ -160,10 +160,8 @@ namespace hgraph::python_bridge
 
         [[nodiscard]] nb::object window_delta_to_python(const void *context, const void *memory, DateTime evaluation_time)
         {
-            if (ts_data_seams::window_tracking(context, memory).last_modified_time != evaluation_time) { return nb::none(); }
-            const auto *delta = ts_data_seams::window_delta_memory(context, memory);
-            if (delta == nullptr) { return nb::none(); }
-            return to_python(ts_data_seams::window_layout(context).delta_binding, delta);
+            const auto arrival = ts_data_seams::window_arrival(context, memory, evaluation_time);
+            return arrival.has_value() ? to_python(arrival) : nb::none();
         }
 
         [[nodiscard]] bool window_from_python(const void *context, void *memory, nb::handle source, DateTime modified_time)

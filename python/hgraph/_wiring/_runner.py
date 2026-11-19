@@ -926,13 +926,14 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
         _wiring_stack.pop()
         _gs_scope.__exit__(None, None, None)
     result_type = record_port.ts_type
+    result = run._eval_recorded("eval_node::out", result_type, sparse=bool(__elide__))
     if __elide__:
         # hgraph parity: elide keeps only the ticked cycles, in order (the
         # recording was made SPARSE, so this is just the list). As in the
         # legacy runner, a never-ticking output is reported as None.
-        recorded = [_simplify_delta(v, result_type) for _, v in run.recorded("eval_node::out", sparse=True)]
+        recorded = [_simplify_delta(v, result_type) for _, v in result]
         return recorded or None
-    recorded = [_simplify_delta(v, result_type) for v in run.recorded("eval_node::out")]
+    recorded = [_simplify_delta(v, result_type) for v in result]
     if (not realtime and __start_time__ is not None
             and __start_time__ > _hgraph.MIN_ST):
         # hgraph parity: the result list is aligned to the RUN START (index 0
