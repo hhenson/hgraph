@@ -127,7 +127,7 @@ namespace hgraph::manifest
             if (schema->schedule_on_start) { behaviour |= k_behaviour_schedule_on_start; }
             if (schema->captures_errors) { behaviour |= k_behaviour_captures_errors; }
             if (node.replays_output_events() && schema->output_schema &&
-                schema->output_schema->contains_fixed_duration_window()) { behaviour |= k_behaviour_replays_output_events; }
+                schema->output_schema->contains_duration_window()) { behaviour |= k_behaviour_replays_output_events; }
             scope.tag(k_node_tag_behaviour);
             scope.varint(behaviour);
 

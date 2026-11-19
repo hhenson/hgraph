@@ -5,6 +5,8 @@
 
 #include <cstddef>
 
+namespace hgraph { struct SlotObserver; }
+
 namespace hgraph::detail
 {
     struct TSDataOwnedChild
@@ -46,6 +48,12 @@ namespace hgraph::detail
             [](const void *, const void *, std::size_t, DateTime) noexcept { return true; };
     };
 
+    /** Observe the live child positions of an owned growing list. Callbacks see
+        constructed children on insertion and detach on logical truncation,
+        including a same-cycle revival of retained storage. Removal is teardown
+        and callbacks must not throw. */
+    void subscribe_dynamic_list_slots(const TSDataView &list, SlotObserver *observer);
+    void unsubscribe_dynamic_list_slots(const TSDataView &list, SlotObserver *observer) noexcept;
     [[nodiscard]] bool ts_data_alive_at(TSDataView endpoint, DateTime time) noexcept;
     void attach_owned_ts_data_parents(TSDataView root);
     void attach_owned_ts_data_parent(TSDataView child, const TSDataView &parent, std::size_t child_id);

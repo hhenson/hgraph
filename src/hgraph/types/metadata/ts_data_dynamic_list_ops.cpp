@@ -29,6 +29,7 @@
 #include <mutex>
 
 #include <hgraph/types/utils/counted_mutex.h>
+#include <hgraph/types/utils/slot_observer.h>
 #include <new>
 #include <stdexcept>
 #include <string>
@@ -254,6 +255,17 @@ namespace hgraph::ts_data_plan_factory_detail
                 return &live_size_;
             }
 
+            void subscribe_slots(SlotObserver *observer)
+            {
+                if (!modified_snapshot_) { modified_snapshot_ = std::make_unique<ModifiedSnapshot>(); }
+                modified_snapshot_->slots.add(observer);
+            }
+
+            void unsubscribe_slots(SlotObserver *observer) noexcept
+            {
+                if (modified_snapshot_) { modified_snapshot_->slots.remove(observer); }
+            }
+
             /** Grow the live list, constructing or resurrecting elements. */
             void ensure_size(std::size_t size, TSRoleTypeRef element_type, DateTime modified_time)
             {
@@ -291,6 +303,13 @@ namespace hgraph::ts_data_plan_factory_detail
                     .reserved_bytes = elements_.capacity() * sizeof(TSDataErasedOwner) +
                                       ordinal_keys_.capacity() * sizeof(DynamicTSLIndexEntry),
                 };
+                if (modified_snapshot_)
+                {
+                    const auto &cache = *modified_snapshot_;
+                    result.live_bytes += sizeof(cache) + (cache.visible.size() + cache.published.size()) * sizeof(std::size_t);
+                    result.reserved_bytes += sizeof(cache) + (cache.visible.capacity() + cache.published.capacity()) * sizeof(std::size_t);
+                    result += cache.slots.dynamic_storage_metrics();
+                }
                 const auto *ops = element_type_.ops();
                 for (const auto &element : elements_)
                 {
@@ -323,6 +342,7 @@ namespace hgraph::ts_data_plan_factory_detail
 
             struct ModifiedSnapshot
             {
+                SlotObserverList          slots{};
                 ModifiedSnapshotKey      key{};
                 std::vector<std::size_t> visible{};
                 std::vector<std::size_t> published{};
@@ -334,8 +354,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto &header = ordinal_keys_.front();
                 const ModifiedSnapshotKey key{header.ordinal_key, header.next_modified, this->size(),
                                               tracking_.last_modified_time};
-                // Allocated by the first ordinal read, so a list that is never
-                // read that way carries one null pointer and nothing else.
+                // The first ordinal read or slot subscription allocates this state.
                 if (!modified_snapshot_) { modified_snapshot_ = std::make_unique<ModifiedSnapshot>(); }
                 auto &snapshot = *modified_snapshot_;
                 if (!snapshot.valid || !(snapshot.key == key))
@@ -382,10 +401,17 @@ namespace hgraph::ts_data_plan_factory_detail
                     throw std::logic_error("dynamic TSL element type is not resolved");
                 if (element_type_ && element_type_ != element_type)
                     throw std::logic_error("dynamic TSL element type cannot change after growth");
-                const bool newly_bound = !element_type_ && size > elements_.size();
+                const auto old_extent = elements_.size();
+                const auto old_size = this->size();
+                const bool newly_bound = !element_type_ && size > old_extent;
                 if (newly_bound) { element_type_ = element_type; }
                 auto binding_rollback = UnwindCleanupGuard([&] {
-                    if (newly_bound && elements_.empty()) { element_type_ = {}; }
+                    while (elements_.size() > old_extent)
+                    {
+                        elements_.pop_back();
+                        ordinal_keys_.pop_back();
+                    }
+                    if (newly_bound) { element_type_ = {}; }
                 });
                 // Retained elements below `size` are RESURRECTED: the payload
                 // and its ordinal key are already constructed.
@@ -399,14 +425,26 @@ namespace hgraph::ts_data_plan_factory_detail
                     });
                     rollback.release();
                 }
-                binding_rollback.release();
                 live_size_ = static_cast<std::int64_t>(size);
+                if (modified_snapshot_ && !modified_snapshot_->slots.empty())
+                {
+                    auto &slots = modified_snapshot_->slots;
+                    std::size_t next = old_size;
+                    auto rollback = UnwindCleanupGuard([&] {
+                        while (next > old_size) { slots.notify_remove(--next); }
+                        live_size_ = static_cast<std::int64_t>(old_size);
+                    });
+                    while (next < size) { slots.notify_insert(next++); }
+                    rollback.release();
+                }
+                binding_rollback.release();
             }
 
             void truncate_to(std::size_t size) noexcept
             {
                 for (std::size_t index = size; index < this->size(); ++index)
                 {
+                    if (modified_snapshot_) { modified_snapshot_->slots.notify_remove(index); }
                     detail::stop_owned_ts_data_tree(TSDataView{element_type_, elements_[index].data()});
                 }
                 live_size_ = static_cast<std::int64_t>(size);
@@ -433,7 +471,7 @@ namespace hgraph::ts_data_plan_factory_detail
             std::vector<DynamicTSLIndexEntry> ordinal_keys_{};
             std::int64_t                    live_size_{0};
             std::size_t                     previous_size_{0};
-            // Derived from the ring on demand; never part of the list's state.
+            // Transient slot subscriptions and a snapshot derived from the modified ring.
             mutable std::unique_ptr<ModifiedSnapshot> modified_snapshot_{};
         };
 
@@ -1819,6 +1857,23 @@ namespace hgraph::ts_data_plan_factory_detail
 }  // namespace hgraph::ts_data_plan_factory_detail
 
 // -- RFC 0035 seams: dynamic TSL for ts_data_structured_conversions.cpp ------
+namespace hgraph::detail
+{
+    void subscribe_dynamic_list_slots(const TSDataView &list, SlotObserver *observer)
+    {
+        const auto *plan = list.storage_type().plan();
+        if (plan == nullptr || plan->lifecycle.destroy != &ts_data_plan_factory_detail::dynamic_list_storage_destroy)
+            throw std::logic_error("duration window expiry requires native growing-list slot notifications");
+        ts_data_plan_factory_detail::storage(list.mutable_data()).subscribe_slots(observer);
+    }
+
+    void unsubscribe_dynamic_list_slots(const TSDataView &list, SlotObserver *observer) noexcept
+    {
+        // Only paired with a successful subscription on this same endpoint.
+        ts_data_plan_factory_detail::storage(list.mutable_data()).unsubscribe_slots(observer);
+    }
+}
+
 namespace hgraph::ts_data_seams
 {
     namespace

@@ -312,6 +312,7 @@ namespace hgraph
             {
                 Detect,
                 Known,
+                PreserveRaw,  // An absent raw link denotes a detached retained-item view.
             };
 
             InputDataCursor() noexcept = default;
@@ -383,6 +384,7 @@ namespace hgraph
                         InputDataCursor::Classification::Detect) noexcept;
 
         [[nodiscard]] bool is_target_position() const noexcept;
+        [[nodiscard]] bool is_retained_position() const noexcept { return !data_.raw_data.valid() && data_.value_data.valid(); }
         [[nodiscard]] bool inherited_sampled_transition() const noexcept;
         [[nodiscard]] bool sampled_structural_transition() const noexcept;
         [[nodiscard]] const TSValueTypeMetaData *target_path_schema() const noexcept;

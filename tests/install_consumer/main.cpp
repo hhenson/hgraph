@@ -439,6 +439,23 @@ struct ConsumerWindowRecordingGraph {
         return wire<ConsumerRecordedDepartures>(w, replayed);
     }
 };
+using ConsumerWindowBook = TSL<TSD<Str, ConsumerDuration>>;
+
+struct ConsumerDynamicWindowOwner {
+    static void eval(In<"value", TS<Int>> value, Out<ConsumerWindowBook> out) {
+        out[2]["live"].begin_mutation(out.evaluation_time()).push(value.base().value());
+    }
+};
+struct ConsumerDynamicWindowSize {
+    static void eval(In<"book", ConsumerWindowBook> book, Out<TS<Int>> out) {
+        out.set(static_cast<Int>(book[2]["live"].size()));
+    }
+};
+struct ConsumerDynamicWindowGraph {
+    static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value) {
+        return wire<ConsumerDynamicWindowSize>(w, wire<ConsumerDynamicWindowOwner>(w, value));
+    }
+};
 void check_scheduled_window() {
     const auto result = testing::eval_node<ConsumerWindowGraph>(std::vector<std::optional<Int>>{41});
     if (result != std::vector<std::optional<Int>>{1, std::nullopt, std::nullopt, 0})
@@ -446,6 +463,9 @@ void check_scheduled_window() {
     const auto times = testing::eval_node<ConsumerWindowRecordingGraph>(std::vector<std::optional<Int>>{41});
     if (times != std::vector<std::optional<DateTime>>{std::nullopt, std::nullopt, std::nullopt, MIN_ST})
         throw std::runtime_error("installed SDK replay lost the original time of a nested window sample");
+    const auto dynamic = testing::eval_node<ConsumerDynamicWindowGraph>(std::vector<std::optional<Int>>{41});
+    if (dynamic != std::vector<std::optional<Int>>{1, std::nullopt, std::nullopt, 0})
+        throw std::runtime_error("installed SDK missed a departure in a dictionary inside a growing list");
 }
 
 struct ConsumerMixedState {

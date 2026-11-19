@@ -313,3 +313,27 @@ def test_window_departures_after_durable_restart_keep_their_original_times(tmp_p
     _run(scenario, schema, sample_times, ([7, 2],), 0, store)
     reopened = persistence.ComponentCheckpointStore(tmp_path / "overdue")
     assert _run(scenario, schema, sample_times, ([None, None],), 5, reopened, "cut-2") == [(0, 1), None]
+
+
+def test_dynamic_window_departures_resume_from_the_saved_key_and_list_position(tmp_path):
+    window = hg.TSW[int, hg.WindowSize[2 * hg.MIN_TD], hg.WindowSize[0 * hg.MIN_TD]]
+    groups = hg.TSD[str, hg.TSL[window, hg.Size[-1]]]
+    times = hg.TS[tuple[int, ...]]
+
+    @hg.compute_node
+    def accumulate(value: hg.TS[int]) -> groups:
+        return {"desk": {0: value.value}}
+
+    @hg.compute_node
+    def departed(data: groups) -> times:
+        samples = data["desk"][0].window_delta["removed"]
+        return tuple((s["time"] - hg.MIN_ST) // hg.MIN_TD for s in samples)
+
+    @hg.component
+    def scenario(value: hg.TS[int]) -> times:
+        return departed(accumulate(value))
+
+    # Both live samples and the containing key/list are reconstructed. After
+    # the cut there is no producer activity to rediscover their deadlines.
+    assert compare_restarts(tmp_path, scenario, (hg.TS[int],), times,
+                            ([4, 5, None, None, None, None],), (2,)) == [(), (), None, (0,), (1,), None]

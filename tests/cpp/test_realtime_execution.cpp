@@ -1,3 +1,6 @@
+#include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/testing/check_output.h>
+#include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
@@ -31,6 +34,40 @@ namespace
 {
     using namespace hgraph;
     using namespace hgraph::testing;
+
+    using KeyedWindow = TSD<Str, TSWDuration<Int, 2, 0>>;
+
+    struct AppendKeyedSample
+    {
+        static void eval(In<"value", TS<Int>> value, Out<KeyedWindow> out)
+        {
+            out["live"].begin_mutation(out.evaluation_time()).push(value.base().value());
+        }
+    };
+
+    struct KeyedWindowSize
+    {
+        static void eval(In<"windows", KeyedWindow> windows, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(windows["live"].size()));
+        }
+    };
+
+    struct KeyedWindowGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value)
+        {
+            return wire<KeyedWindowSize>(w, wire<AppendKeyedSample>(w, value));
+        }
+    };
+
+    struct MappedWindowGraph
+    {
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> values)
+        {
+            return wire<stdlib::map_>(w, fn<KeyedWindowGraph>(), values).as<TSD<Str, TS<Int>>>();
+        }
+    };
 
     NodeBuilder delayed_source(TimeDelta delay,
                                std::atomic_int *eval_count,
@@ -1537,4 +1574,29 @@ TEST_CASE("push source nodes require a real-time root graph executor")
     CHECK_THROWS_AS(nested_builder.make_nested_graph(parent_view.pointer()),
                     std::invalid_argument);
 
+}
+
+TEST_CASE("a late real-time executor delivers dynamic window departures at their distinct logical deadlines")
+{
+    stdlib::register_standard_operators();
+    // Both deadlines are already in the wall clock's past. The real-time
+    // executor must drain them at offsets 3 and 4 without relying on sleeps.
+    const DateTime start = MIN_ST + 20 * MIN_TD;
+    const EvalNodeRunOptions bounds{.start_time = start, .end_time = start + 6 * MIN_TD,
+                                    .mode = GraphExecutorMode::RealTime};
+    CHECK_OUTPUT(eval_node_with_options<KeyedWindowGraph>(bounds, values<Int>(7, 2)),
+                 values<Int>(1, 2, none, 1, 0));
+}
+
+TEST_CASE("removing and recreating a mapped graph cancels its dynamic window deadline")
+{
+    stdlib::register_standard_operators();
+    const auto first = dict_delta<Str, TS<Int>>({{"desk", 1}});
+    const auto remove = dict_delta<Str, TS<Int>>({}, {"desk"});
+    const auto last = dict_delta<Str, TS<Int>>({{"desk", 0}});
+    // The first child stops at 1. The new child starts at 2. Only the
+    // replacement owner's own deadline at 5 reaches the consumer.
+    CHECK_OUTPUT(eval_node<MappedWindowGraph>(values<Value>(dict_delta<Str, TS<Int>>({{"desk", 7}}),
+                                                            remove, dict_delta<Str, TS<Int>>({{"desk", 9}}))),
+                 values<Value>(first, remove, first, none, none, last));
 }

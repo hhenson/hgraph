@@ -26,7 +26,8 @@ Stage 1 introduced the window delta and its in-memory and distributed
 representations. Stage 2 adds a native root expiry service for duration windows
 at fixed owned output paths, including paths inside nested graph instances.
 Stage 3 adds versioned durable window events and restores live deadlines from
-checkpointed sample times. Stage 4 covers dynamic collection attachment.
+checkpointed sample times. Stage 4 extends the service to dictionary entries
+and growing list positions, including nested and recovered children.
 
 Problem statement
 -----------------
@@ -54,9 +55,9 @@ must be usable in values, tests, record/replay materialisation, and extension
 code without requiring a graph.  A standalone duration window continues to
 prune on explicit mutation; scheduled eviction is an execution-layer service.
 
-Each graph definition plans its duration-window paths once. Both public wiring
-and direct C++ graph builders use that plan. A fixed-list step represents all
-positions without expanding the schema into one path per element.
+Each graph definition plans the branches that can contain a duration window
+once. Both public wiring and direct C++ graph builders use that plan. A
+collection branch describes its element once, independently of its capacity.
 
 The first eligible owner creates a single pull service in the root's native
 global state. This typed execution slot sits alongside the run configuration.
@@ -64,8 +65,9 @@ Nested owners borrow a weak forward reference to that root service. Copying
 the configuration copies no deadlines or endpoint references. Roots without
 live duration owners allocate no service.
 
-Start subscribes each fixed-path owner after the node start hooks and
-checkpoint callbacks have restored their outputs. The service contributes its earliest deadline to the root's next scheduled time.
+Start subscribes existing owners after the node start hooks and checkpoint
+callbacks have restored their outputs. The service contributes its earliest
+deadline to the root's next scheduled time.
 When the root runs, it pulls due windows in the phase immediately after push
 sources and before ordinary nodes. This gives each consumer the final state for
 the cycle while preserving public node indices, edges and observer identities.
@@ -80,19 +82,29 @@ its implementation. A C++ graph builder can set the same policy on a node
 instance with ``builder.replays_output_events(true)``. An ordinary window
 producer uses the default live policy.
 
+The native wiring manifest now records the replay policy for outputs whose
+only duration windows are inside dynamic collections. Strict comparisons with
+an older manifest for such a replay graph require a new manifest. The
+component checkpoint signature and the recorded event format are unchanged.
+
 Output-tree coverage
 --------------------
 
-The subscription pass must cover owned duration TSWs at any fixed path,
-including fields beneath ``TSB`` and fixed ``TSL`` outputs.  A node with several
-duration windows creates several subscriptions to the same pull source.
+The graph subscribes to eligible leaves below bundles and fixed lists.
+At each dictionary or growing list on the same path it also observes slot
+membership. The initial traversal covers children already present at graph
+start, including restored state. An insertion attaches only that slot's
+planned subtree. Logical removal detaches it immediately so readers can
+inspect the retained payload without keeping its old alarm alive.
 
-Dynamic output trees require incremental attachment.  When a duration TSW is
-created beneath a dynamic ``TSL`` or ``TSD``, the output-tree lifecycle attaches
-it before or as part of publishing that structural change.  Erasure detaches it
-before its storage is destroyed.  This should reuse the existing slot-observer
-and source-invalidation patterns rather than rescan the complete output tree on
-every tick.
+A same-cycle revival reattaches to the retained samples and their original
+deadline. Recreation in a later cycle starts with the new slot's history.
+Removing an outer key, truncating a list, or stopping its graph cancels
+descendant alarms and pending refreshes. Ordinary updates to an existing
+slot do not enumerate sibling windows. A collection stores its subscriptions
+in non-moving blocks indexed by the parent's slot IDs. A direct window is
+constructed in its slot. When the last live slot is removed, the collection
+releases the blocks.
 
 Forwarding outputs and ``REF`` values do not create a second subscription to an
 upstream window: only the output that owns the duration TSW storage registers
@@ -206,11 +218,11 @@ formats, legacy reads and deployment order are described in
 
 A live checkpoint already stores sample values, their original timestamps
 and window validity. A restored owner attaches to the root expiry service.
-Each graph attaches its fixed-path owners after its node start hooks and
+Each graph attaches its live owners after its node start hooks and
 checkpoint callbacks have run, before the graph-started notification.
 Attachment reads each owner's final oldest sample once. This also arms an
-independently started nested graph. Empty windows contribute no deadline. The checkpoint contains no scheduler
-handles or heap entries.
+independently started nested graph. Empty windows contribute no deadline.
+The checkpoint contains no scheduler handles or heap entries.
 
 Resuming before the next deadline preserves the uninterrupted departure
 times. Resuming exactly on the deadline publishes the departure in the first
@@ -285,13 +297,20 @@ Native and Python tests must cover:
 * an installed C++ extension node whose output contains a duration TSW, without
   depending on ``to_window``.
 
-Unresolved questions
---------------------
+Real-time delivery and observation lifetime
+-------------------------------------------
 
-* The exact output-tree hook used to attach dynamic duration TSW children
-  without a full-tree scan.
-* Whether scheduler lateness should expose the scheduled expiry time in
-  addition to the actual evaluation time.
+A late wall clock can have passed several deadlines. The real-time executor
+services those already scheduled deadlines at their distinct logical evaluation
+times. For a window of span two microseconds, samples at offsets 0 and 1 still
+depart at 3 and 4. Recovery first resumed at 5 instead reports both overdue
+samples together at 5. The change records the original sample times in both
+cases. These observations use the existing evaluation clock and window delta.
+
+The current storage retains the last removal payload until the next window
+mutation or teardown. This makes the completed step inspectable, including
+through an externally driven executor. The performance goal of reclaiming
+that storage immediately after observers finish remains open.
 
 Acceptance criteria
 -------------------

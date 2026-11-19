@@ -109,6 +109,7 @@ namespace hgraph
     TSInputView TSDInputView::at_slot(std::size_t slot) const
     {
         auto child = data_view().at_slot(slot);
+        if (view_.is_retained_position()) { return view_.child_from_retained(std::move(child)); }
         return view_.child_from_target(std::move(child), slot);
     }
 

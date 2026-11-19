@@ -235,3 +235,43 @@ def test_buffered_window_releases_one_snapshot_with_the_last_surviving_sample(op
     assert time == hg.MIN_ST + release * hg.MIN_TD
     assert first["replacement"] == [{"value": 7, "time": hg.MIN_ST + 4 * hg.MIN_TD}]
     assert [size for size in result if size is not None] == [1, 0]
+
+
+_TwoMicrosecondWindow = hg.TSW[int, hg.WindowSize[2 * hg.MIN_TD], hg.WindowSize[timedelta(0)]]
+_KeyedWindows = hg.TSD[str, _TwoMicrosecondWindow]
+
+
+@hg.compute_node
+def _append_keyed_sample(value: hg.TS[int]) -> _KeyedWindows:
+    return {"live": value.value}
+
+
+@hg.compute_node
+def _keyed_window_size(windows: _KeyedWindows) -> hg.TS[int]:
+    return len(windows["live"].value)
+
+
+@hg.graph
+def _keyed_window_graph(value: hg.TS[int]) -> hg.TS[int]:
+    return _keyed_window_size(_append_keyed_sample(value))
+
+
+def test_late_realtime_window_evaluates_each_scheduled_departure_at_its_logical_time():
+    # Start in the wall clock's past so the executor is already late for
+    # both departures. No sleeps or wall-clock tolerance enter the assertion.
+    start = hg.MIN_ST
+    trace = hg.eval_node(_keyed_window_graph, [7, 2], __run_mode__=hg.EvaluationMode.REAL_TIME,
+                         __start_time__=start, __end_time__=start + 6 * hg.MIN_TD)
+    assert trace == [1, 2, None, 1, 0]
+
+
+def test_recreating_a_mapped_graph_schedules_only_its_new_dynamic_windows():
+    @hg.graph
+    def desks(values: hg.TSD[str, hg.TS[int]]) -> hg.TSD[str, hg.TS[int]]:
+        return hg.map_(_keyed_window_graph, values)
+
+    # The removed desk's old deadline at 3 is quiet. Its replacement, born
+    # at 2 with a fresh history, delivers its own quiet departure at 5.
+    assert hg.eval_node(desks, [{"desk": 7}, {"desk": hg.REMOVE}, {"desk": 9}]) == [
+        {"desk": 1}, {"desk": hg.REMOVE}, {"desk": 1}, None, None, {"desk": 0},
+    ]
