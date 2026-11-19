@@ -755,11 +755,10 @@ compose recursively:
        }
    };
 
-A fixed ``TSL`` delta is the canonical ``Map<int, delta(C)>`` ``Value``; a
-dynamic one adds the truncated indices as
-``Bundle{removed: Set<int>, modified: Map<int, delta(C)>}`` (RFC 0031). Both are
-recursive in
-``C``); build one for tests with ``list_delta`` (see *Testing Graphs in C++*).
+Fixed and growing lists use the same delta. ``modified`` maps indices to
+child deltas, ``removed`` names cleared or truncated indices, and
+``size_modified`` holds the new length on a resize. Build it with
+``list_delta`` (see *Testing Graphs in C++*).
 
 The selector composition above is recursive over **any** child today, and the TSData
 runtime supports fixed ``TSL`` children across the implemented non-``REF`` kinds:

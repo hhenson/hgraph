@@ -44,6 +44,11 @@ Sparse shared-input coverage includes ``tsd_shared_lookup_py`` and
 one element per cycle, with either one selected consumer or none. Vary
 ``--size-scale`` independently of ``--cycle-scale`` to expose notification or
 scheduling work proportional to unrelated mapped keys. The standalone
+Run `python benchmarks/repro_map_ref_bundle.py --keys 4096` to measure the
+first publication of a mapped, eight-leaf reference projection. Use fresh
+processes for before/after comparisons. The script checks every field after
+recording the time.
+
 ``repro_map_pass_through.py`` reports initialization-inclusive and steady-state
 timings separately; ``--source-size`` holds the source size fixed while map
 cardinality changes. The [shared-map comparison](results/sparse-shared-map-20261116/README.md)

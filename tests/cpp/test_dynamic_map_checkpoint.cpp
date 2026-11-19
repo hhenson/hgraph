@@ -196,14 +196,14 @@ namespace
     std::vector<std::optional<Value>> input_events()
     {
         return values<Value>(
-            dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}),
+            dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}, {}, 3),
             none,
             dynamic_list_delta<TS<Int>>({{1, 4}}),
-            dynamic_list_delta<TS<Int>>({{0, 5}}, {1, 2}),
+            dynamic_list_delta<TS<Int>>({{0, 5}}, {1, 2}, 1),
             none,
-            dynamic_list_delta<TS<Int>>({{1, 6}}),
-            dynamic_list_delta<TS<Int>>({}, {0, 1}),
-            dynamic_list_delta<TS<Int>>({{0, 7}}));
+            dynamic_list_delta<TS<Int>>({{1, 6}}, {}, 2),
+            dynamic_list_delta<TS<Int>>({}, {0, 1}, 0),
+            dynamic_list_delta<TS<Int>>({{0, 7}}, {}, 1));
     }
 
     Value dense_integer_dict(const std::vector<Int> &items)
@@ -255,12 +255,12 @@ TEST_CASE("dynamic map checkpoint: repeated one-cycle runs retire and regrow fre
     stdlib::register_standard_operators();
     const auto input = input_events();
     const auto expected = values<Value>(
-        dynamic_list_delta<TS<Int>>({{0, 1}, {1, 102}, {2, 203}}), none,
+        dynamic_list_delta<TS<Int>>({{0, 1}, {1, 102}, {2, 203}}, {}, 3), none,
         dynamic_list_delta<TS<Int>>({{1, 106}}),
-        dynamic_list_delta<TS<Int>>({{0, 6}}, {1, 2}), none,
-        dynamic_list_delta<TS<Int>>({{1, 106}}),
-        dynamic_list_delta<TS<Int>>({}, {0, 1}),
-        dynamic_list_delta<TS<Int>>({{0, 7}}));
+        dynamic_list_delta<TS<Int>>({{0, 6}}, {1, 2}, 1), none,
+        dynamic_list_delta<TS<Int>>({{1, 106}}, {}, 2),
+        dynamic_list_delta<TS<Int>>({}, {0, 1}, 0),
+        dynamic_list_delta<TS<Int>>({{0, 7}}, {}, 1));
     std::optional<ComponentCheckpoint> checkpoint;
     for (std::size_t index = 0; index < input.size(); ++index)
     {
@@ -277,10 +277,10 @@ TEST_CASE("dynamic map checkpoint: repeated one-cycle runs retire and regrow fre
 TEST_CASE("dynamic map checkpoint: shorter peer list retains phantom bindings until growth", "[checkpoint][map]")
 {
     stdlib::register_standard_operators();
-    const auto lhs = values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}), none,
+    const auto lhs = values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}, {}, 2), none,
                                    dynamic_list_delta<TS<Int>>({{1, 3}}), none);
-    const auto rhs = values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}}), none,
-                                   dynamic_list_delta<TS<Int>>({{1, 20}}),
+    const auto rhs = values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}}, {}, 1), none,
+                                   dynamic_list_delta<TS<Int>>({{1, 20}}, {}, 2),
                                    dynamic_list_delta<TS<Int>>({{0, 30}}));
     const auto split = static_cast<std::size_t>(GENERATE(1, 2, 3));
     std::vector<std::optional<Value>> continuous;
@@ -315,7 +315,7 @@ TEST_CASE("dynamic map checkpoint: failed child stop cannot publish a completed 
     configure_component_recovery(context.state().view(), {
         .component_id = "dynamic-map", .commit = [&](const auto &image) { checkpoint = image; }});
     CHECK_THROWS_WITH(eval_node_with_options<StopFailureComponent>(interval(0, 1),
-        values<Value>(dynamic_list_delta<TS<Int>>({{0, -1}, {1, -2}}))),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, -1}, {1, -2}}, {}, 2))),
         Catch::Matchers::ContainsSubstring("mapped child stop failed"));
     CHECK_FALSE(checkpoint);
 }
@@ -330,14 +330,14 @@ TEST_CASE("dynamic map checkpoint: failed tail retirement finishes cleanup witho
         .component_id = "dynamic-map", .load = [&] { return checkpoint; },
         .commit = [&](const auto &image) { checkpoint = image; ++commits; }});
     CHECK_OUTPUT(eval_node_with_options<StopFailureComponent>(interval(0, 1),
-        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}))),
-        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}})));
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}, {}, 3))),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}, {}, 3)));
     REQUIRE(checkpoint);
     const auto previous_cut = checkpoint->cut;
     stopped_values.clear();
     CHECK_THROWS_WITH(eval_node_with_options<StopFailureComponent>(interval(1, 3),
-        values<Value>(dynamic_list_delta<TS<Int>>({{1, -1}, {2, -2}}),
-                      dynamic_list_delta<TS<Int>>({}, {1, 2}))),
+        values<Value>(dynamic_list_delta<TS<Int>>({{1, -1}, {2, -2}}, {}, 3),
+                      dynamic_list_delta<TS<Int>>({}, {1, 2}, 1))),
         Catch::Matchers::ContainsSubstring("mapped child stop failed"));
     CHECK(commits == 1);
     CHECK(checkpoint->cut == previous_cut);
@@ -354,10 +354,10 @@ TEST_CASE("mapped internal references restore element and synthetic key targets 
     stdlib::register_standard_operators();
     const auto run = []<bool Dynamic>() {
         const auto input = Dynamic
-            ? values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, -1}, {2, 3}}), none,
+            ? values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, -1}, {2, 3}}, {}, 3), none,
                             dynamic_list_delta<TS<Int>>({{0, -1}, {1, 4}}),
-                            dynamic_list_delta<TS<Int>>({}, {1, 2}), none,
-                            dynamic_list_delta<TS<Int>>({{1, -1}, {2, 6}}),
+                            dynamic_list_delta<TS<Int>>({}, {1, 2}, 1), none,
+                            dynamic_list_delta<TS<Int>>({{1, -1}, {2, 6}}, {}, 3),
                             dynamic_list_delta<TS<Int>>({{0, 7}}), none)
             : values<Value>(dict_delta<Int, TS<Int>>({{0, 1}, {1, -1}, {2, 3}}), none,
                             dict_delta<Int, TS<Int>>({{0, -1}, {1, 4}}),
@@ -421,8 +421,8 @@ TEST_CASE("mapped restored references detach before failed child startup rollbac
             // The second path retires restored storage before a later child fails,
             // so startup cleanup must no longer retain the original graph pointers.
             const auto input = during_restore ? values<Value>(none, none)
-                : Dynamic ? values<Value>(dynamic_list_delta<TS<Int>>({}, {0, 1}),
-                                          dynamic_list_delta<TS<Int>>({{0, -1}, {1, -1}, {2, -1}}))
+                : Dynamic ? values<Value>(dynamic_list_delta<TS<Int>>({}, {0, 1}, 0),
+                                          dynamic_list_delta<TS<Int>>({{0, -1}, {1, -1}, {2, -1}}, {}, 3))
                           : values<Value>(dict_delta<Int, TS<Int>>({}, {0}),
                                           dict_delta<Int, TS<Int>>({{2, -1}}));
             CHECK_THROWS_WITH(eval_node_with_options<ReferenceComponent<Dynamic>>(interval(1, 3), input),

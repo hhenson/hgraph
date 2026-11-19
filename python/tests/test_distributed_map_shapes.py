@@ -602,7 +602,7 @@ def test_dynamic_list_truncation_recreates_child_state(mapper):
     @hg.graph
     def app(values: hg.TSL[hg.TS[int], hg.Size[-1]]) -> hg.TSL[hg.TS[int], hg.Size[-1]]:
         return mapper(accumulating_child, values)
-    assert hg.eval_node(app, [{0: 1, 1: 2, 2: 3}, {1: hg.REMOVE}, {1: 4, 2: 5}, {0: 6}]) == [
+    assert hg.eval_node(app, [{0: 1, 1: 2, 2: 3}, hg.TSLDelta(size_modified=1), {1: 4, 2: 5}, {0: 6}]) == [
         {0: 1, 1: 2, 2: 3}, {1: hg.REMOVE, 2: hg.REMOVE}, {1: 4, 2: 5}, {0: 7}]
 
 

@@ -94,6 +94,11 @@ namespace hgraph
         return ops.child_count != nullptr ? ops.child_count(schema()) : 0;
     }
 
+    std::optional<std::size_t> TSLInputView::size_modified() const {
+        if (!view_.is_target_position() || !view_.data_view().valid()) { return std::nullopt; }
+        return data_view().size_modified(evaluation_time());
+    }
+
     bool TSLInputView::empty() const
     {
         return size() == 0;
@@ -157,6 +162,12 @@ namespace hgraph
         const auto &data = view_.data_view();
         if (!data.valid()) { return {}; }
         return data.as_list().added_indices(view_.evaluation_time());
+    }
+
+    Range<std::size_t> TSLInputView::removed_positions() const & {
+        const auto &data = view_.data_view();
+        if (!data.valid()) return {};
+        return data.as_list().removed_positions(evaluation_time());
     }
 
     Range<std::size_t> TSLInputView::removed_indices() const &

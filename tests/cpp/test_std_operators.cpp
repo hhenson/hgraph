@@ -5212,16 +5212,16 @@ TEST_CASE("std operators: the split target's shape chooses its arity contract")
     // element 1, and a shorter input left stale trailing elements behind.
     CHECK_OUTPUT(eval_node<SplitToDynamicListGraph>(
                      values<Str>(Str{"a,b"}, Str{"a,b,c"})),
-                 values<Value>(dynamic_list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b"}}}),
-                               dynamic_list_delta<TS<Str>>({{2, Str{"c"}}})));
+                 values<Value>(dynamic_list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b"}}}, {}, 2),
+                               dynamic_list_delta<TS<Str>>({{2, Str{"c"}}}, {}, 3)));
 
     // Truncating emits the removals, which it never did before: the list used
     // to keep whatever length it had reached.
     CHECK_OUTPUT(eval_node<SplitToDynamicListGraph>(
                      values<Str>(Str{"a,b,c"}, Str{"x"})),
                  values<Value>(
-                     dynamic_list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b"}}, {2, Str{"c"}}}),
-                     dynamic_list_delta<TS<Str>>({{0, Str{"x"}}}, {1, 2})));
+                     dynamic_list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b"}}, {2, Str{"c"}}}, {}, 3),
+                     dynamic_list_delta<TS<Str>>({{0, Str{"x"}}}, {1, 2}, 1)));
 }
 
 namespace

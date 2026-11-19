@@ -680,7 +680,7 @@ TEST_CASE("TSDataView: child modifications propagate through parent view")
         REQUIRE(mutation.copy_value_from(first.view()));
     }
     REQUIRE(parent.last_modified_time() == t1);
-    auto        t1_delta = parent.delta_value(t1).as_map();
+    auto        t1_delta = parent.delta_value(t1).as_bundle().at("modified").as_map();
     Value       key_zero{std::int64_t{0}};
     Value       key_one{std::int64_t{1}};
     const auto  key_zero_view = key_zero.view();
@@ -705,7 +705,7 @@ TEST_CASE("TSDataView: child modifications propagate through parent view")
 
     REQUIRE(parent.last_modified_time() == t2);
     REQUIRE(parent.modified(t2));
-    auto t2_delta = parent.delta_value(t2).as_map();
+    auto t2_delta = parent.delta_value(t2).as_bundle().at("modified").as_map();
     REQUIRE(t2_delta.contains(key_zero_view));
     REQUIRE_FALSE(t2_delta.contains(key_one_view));
 
@@ -715,7 +715,7 @@ TEST_CASE("TSDataView: child modifications propagate through parent view")
     }
     REQUIRE(child.last_modified_time() == t3);
     REQUIRE(parent.last_modified_time() == t3);
-    REQUIRE(parent.delta_value(t3).as_map().contains(key_zero_view));
+    REQUIRE(parent.delta_value(t3).as_bundle().at("modified").as_map().contains(key_zero_view));
 }
 
 TEST_CASE("TSDataView: child parent link is stored in TSData tracking")
@@ -970,7 +970,7 @@ TEST_CASE("TSDataPlanFactory: fixed TSL stores current values as a fixed value-l
         REQUIRE(it == modified_items.end());
     }
 
-    auto        delta = view.delta_value(t1).as_map();
+    auto        delta = view.delta_value(t1).as_bundle().at("modified").as_map();
     Value       key{std::int64_t{2}};
     Value       miss{std::int64_t{1}};
     const auto  key_view  = key.view();
@@ -1669,7 +1669,7 @@ TEST_CASE("TSDataPlanFactory: fixed structured TSData recursively embeds child l
     REQUIRE(list_child.modified(t1));
     REQUIRE(root.value().as_bundle().at("xs").as_list().at(1).checked_as<std::int32_t>() == 23);
 
-    auto  nested_delta = root.delta_value(t1).as_bundle().at("xs").as_map();
+    auto  nested_delta = root.delta_value(t1).as_bundle().at("xs").as_bundle().at("modified").as_map();
     Value key{std::int64_t{1}};
     REQUIRE(nested_delta.size() == 1);
     REQUIRE(nested_delta.at(key.view()).checked_as<std::int32_t>() == 23);

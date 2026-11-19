@@ -243,6 +243,31 @@ invalid field may therefore still contribute live payload bytes if its
 constructed storage retains a value. Neither number includes inline object
 bytes, allocator headers, or fragmentation.
 
+Root reference output adapters
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When an output of type ``REF[S]`` is bound as ``T``, the adapter needs a
+field mapping from ``T`` to ``S`` and a concrete storage type for the result.
+The active ``TypeRealizationSnapshot`` owns one immutable descriptor per
+requested schema, referenced source schema and graph-value storage mode.
+Including the source schema preserves the source field positions for projected
+or reordered bundles. Including the storage mode preserves the chosen value
+representation for that realization.
+
+Each adapter owns its mutable data, forwarding targets, notifier and
+subscriptions. It retains the realization while it uses the descriptor.
+The snapshot registry interns realizations by bundle hierarchy generation and
+realization options. Graphs with the same realization reuse its descriptors
+after other graphs stop. Releasing the registry and the last snapshot owner
+reclaims the cache. A standalone output constructed outside a realization
+allocates its descriptor and mutable adapter state together.
+
+``TypeRealizationSnapshot::from_ref_plan_storage_metrics()`` reports the
+shared descriptors and their index once per realization. Endpoint dynamic
+metrics count each adapter's private storage, including its descriptor when
+constructed outside a realization. These counters exclude allocator overhead
+and shared-pointer control blocks.
+
 Unaccounted dynamic ownership
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

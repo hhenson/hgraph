@@ -480,8 +480,8 @@ A fixed-size ``TSL<C, N>`` is ``N`` child time-series whose schema ``C`` is any
 supported non-``REF`` time-series — ``TS`` / ``SIGNAL`` / ``TSS`` / ``TSD`` /
 fixed or dynamic ``TSL`` / ``TSB`` / ``TSW`` — nested arbitrarily. Author with
 ``In<Name, TSL<C, N>>`` (``size``, ``operator[](i) -> In<"", C>``,
-``modified_items``; ``delta()`` is the canonical ``Map<int, delta(C)>``
-``ValueView``, or ``Bundle{removed, modified}`` for a dynamic list) and
+``modified_items``; ``delta()`` returns the list delta bundle with fields
+``removed``, ``modified``, and ``size_modified``) and
 ``Out<TSL<C, N>>`` (``operator[](i) -> Out<C>``; ``set(i, v)``
 is a scalar-child convenience). Children compose recursively — ``out[i]`` is an
 ``Out<C>``, so a TSL of sets writes via ``out[i].add(...)`` and a TSL of TSL via
@@ -502,23 +502,21 @@ the per-cycle delta ``Value`` from ``list_delta`` (recursive in ``C``).
    };
    CHECK_OUTPUT(testing::eval_node<MirrorList>(deltas), deltas);
 
-The delta builders are **fully recursive** — a TSL-of-sets delta is a ``Map`` whose values
-are themselves ``set_delta`` ``Value``\ s, a TSL-of-TSL delta a ``Map`` of ``Map``\ s — and
-``Value::equals`` is order-independent at every level (map keys, set elements):
+Each entry in the modified map carries the child's own delta. The following
+set and nested-list examples compare by index and set membership.
 
 .. code-block:: cpp
 
-   // TSL<TSS<Int>> delta: Map<int, Bundle{added:Set, removed:Set}>
+   // Each modified index carries a set delta.
    const Value sd = list_delta<TSS<Int>>({{0, set_delta<Int>({Int{1}, Int{2}}, {})}, {1, set_delta<Int>({Int{9}}, {})}});
    CHECK(sd.equals(list_delta<TSS<Int>>({{1, set_delta<Int>({Int{9}}, {})}, {0, set_delta<Int>({Int{2}, Int{1}}, {})}})));
 
-   // TSL<TSL<TS<Int>,2>> delta: Map<int, Map<int, int>>
+   // The modified child at index 0 carries another list delta.
    const Value nd = list_delta<TSL<TS<Int>, 2>>({{0, list_delta<TS<Int>>({{0, Int{7}}, {1, Int{8}}})}});
 
-By hand: ``wire<stdlib::replay_impl, TSL<C, N>>`` re-creates ticks by recursively applying
-each ``index -> child_delta`` of the buffered delta to the matching child output;
-``wire<stdlib::dense_record_impl>`` captures the per-tick delta (only the children that ticked);
-``CHECK_OUTPUT`` renders each delta as the map ``{0: 1, 1: 10}`` on mismatch.
+``wire<stdlib::replay_impl, TSL<C, N>>`` applies the recorded length,
+clears, and child deltas. ``wire<stdlib::dense_record_impl>`` captures
+those same three fields on each tick.
 
 .. note::
 
@@ -528,10 +526,10 @@ each ``index -> child_delta`` of the buffered delta to the matching child output
    ``TSL`` now covers the implemented non-``REF`` child kinds: ``TS``, ``SIGNAL``,
    ``TSS``, ``TSD``, fixed and dynamic ``TSL``, ``TSB``, and ``TSW``. Dynamic
    (``N == unbounded_tsl_size``, the ``-1`` sentinel) ``TSL`` storage grows
-   and truncates, so its delta is
-   ``Bundle{removed, modified}`` rather than the bare index map: build it with
-   ``dynamic_list_delta`` (whose second argument lists the truncated indices)
-   and expect a shorter-list copy to produce that removal delta (RFC 0031).
+   and truncates. The second argument to ``list_delta`` or
+   ``dynamic_list_delta`` lists cleared positions. The third sets the new
+   length. For example, ``dynamic_list_delta<TS<Int>>({}, {}, 3)`` grows a
+   one-element list to three with two invalid slots.
 
 Dict time-series (``TSD``)
 --------------------------

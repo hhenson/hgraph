@@ -229,8 +229,8 @@ TEST_CASE("dmap shapes: fixed and dynamic lists preserve sparse indices")
                                                      list_delta<TS<Int>>({std::nullopt, 3}))),
                  values<Value>(list_delta<TS<Int>>({2, 3}), list_delta<TS<Int>>({std::nullopt, 4})));
     CHECK_OUTPUT(eval_node<ListMap<unbounded_tsl_size>>(values<Value>(
-        dynamic_list_delta<TS<Int>>({{0, 1}}), dynamic_list_delta<TS<Int>>({{2, 3}}))),
-        values<Value>(dynamic_list_delta<TS<Int>>({{0, 2}}), dynamic_list_delta<TS<Int>>({{2, 4}})));
+        dynamic_list_delta<TS<Int>>({{0, 1}}, {}, 1), dynamic_list_delta<TS<Int>>({{2, 3}}, {}, 3))),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 2}}, {}, 1), dynamic_list_delta<TS<Int>>({{2, 4}}, {}, 3)));
 }
 
 TEST_CASE("dmap shapes: a component maps over a fixed list as any graph does")
@@ -454,7 +454,7 @@ namespace
     template <std::size_t N>
     Value list_change(Int left, Int right)
     {
-        if constexpr (N == unbounded_tsl_size) return dynamic_list_delta<TS<Int>>({{0, left}, {1, right}});
+        if constexpr (N == unbounded_tsl_size) return dynamic_list_delta<TS<Int>>({{0, left}, {1, right}}, {}, 2);
         else return list_delta<TS<Int>>({left, right});
     }
     template <std::size_t N>
@@ -610,13 +610,13 @@ TEST_CASE("dmap shapes: dynamic list truncation recreates child state")
 {
     stdlib::register_standard_operators();
     CHECK_OUTPUT((eval_node<ListMap<unbounded_tsl_size, hgraph_test::RunningTotalNode>>(values<Value>(
-        dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}),
-        dynamic_list_delta<TS<Int>>({}, {1, 2}),
-        dynamic_list_delta<TS<Int>>({{1, 4}, {2, 5}}),
+        dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}, {}, 3),
+        dynamic_list_delta<TS<Int>>({}, {1, 2}, 1),
+        dynamic_list_delta<TS<Int>>({{1, 4}, {2, 5}}, {}, 3),
         dynamic_list_delta<TS<Int>>({{0, 6}})))),
-        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}),
-            dynamic_list_delta<TS<Int>>({}, {1, 2}),
-            dynamic_list_delta<TS<Int>>({{1, 4}, {2, 5}}),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}, {}, 3),
+            dynamic_list_delta<TS<Int>>({}, {1, 2}, 1),
+            dynamic_list_delta<TS<Int>>({{1, 4}, {2, 5}}, {}, 3),
             dynamic_list_delta<TS<Int>>({{0, 7}})));
 }
 

@@ -569,7 +569,7 @@ namespace hgraph::python_bridge
             auto view = checked();
             nb::object delta = python_bridge::delta_value_to_python(view.data_view(), now);
             nb::object &shape = delta_shaper_slot();
-            return shape.is_valid() ? shape(delta) : delta;
+            return shape.is_valid() ? shape(delta, PyTsType{view.schema()}) : delta;
         }
 
         [[nodiscard]] bool can_apply_result(nb::handle result) const
@@ -976,17 +976,17 @@ namespace hgraph::python_bridge
 
         /** True when this output is a dynamic ``TSL``, whose keys are indices
             and whose structural delta is tail truncation (RFC 0031). */
-        [[nodiscard]] bool is_dynamic_list() const
+        [[nodiscard]] bool is_list() const
         {
             const auto *schema = checked().schema();
-            return schema != nullptr && schema->is_unbounded_tsl();
+            return schema != nullptr && schema->kind == TSTypeKind::TSL;
         }
 
         [[nodiscard]] nb::list added_keys() const
         {
             nb::list result;
             auto view = checked();
-            if (is_dynamic_list())
+            if (is_list())
             {
                 // The list view is NAMED: the range borrows the ops table and
                 // storage, not the view, but a temporary here trips GCC 14's
@@ -1007,7 +1007,7 @@ namespace hgraph::python_bridge
         {
             nb::list result;
             auto view = checked();
-            if (is_dynamic_list())
+            if (is_list())
             {
                 auto list = view.as_list();
                 for (auto &&[index, child] : list.added_items())
@@ -1030,7 +1030,7 @@ namespace hgraph::python_bridge
         {
             nb::list result;
             auto view = checked();
-            if (is_dynamic_list())
+            if (is_list())
             {
                 auto list = view.as_list();
                 for (auto &&[index, child] : list.added_items())
@@ -1052,14 +1052,24 @@ namespace hgraph::python_bridge
             return result;
         }
 
+        void resize(std::size_t length) const {
+            auto view = checked();
+            view.as_list().resize(length);
+        }
+
+        [[nodiscard]] std::optional<std::size_t> size_modified() const {
+            const auto &view = checked();
+            return view.as_list().size_modified();
+        }
+
         [[nodiscard]] nb::list removed_keys() const
         {
             nb::list result;
             auto     view = checked();
-            if (is_dynamic_list())
+            if (is_list())
             {
                 auto list = view.as_list();
-                for (const std::size_t index : list.removed_indices())
+                for (const std::size_t index : list.removed_positions())
                 {
                     result.append(nb::cast(index));
                 }
@@ -1074,11 +1084,12 @@ namespace hgraph::python_bridge
         {
             nb::list result;
             auto view = checked();
-            if (is_dynamic_list())
+            if (is_list())
             {
                 auto list = view.as_list();
-                for (auto &&[index, child] : list.removed_items())
+                for (const auto index : list.removed_positions())
                 {
+                    auto child = list.retained_at(index);
                     result.append(collection_child(
                         TSOutputHandle{std::move(child)}, nb::cast(index)));
                 }
@@ -1097,11 +1108,12 @@ namespace hgraph::python_bridge
         {
             nb::list result;
             auto view = checked();
-            if (is_dynamic_list())
+            if (is_list())
             {
                 auto list = view.as_list();
-                for (auto &&[index, child] : list.removed_items())
+                for (const auto index : list.removed_positions())
                 {
+                    auto child = list.retained_at(index);
                     nb::object py_key = nb::cast(index);
                     result.append(nb::make_tuple(
                         py_key, collection_child(TSOutputHandle{std::move(child)}, py_key)));
@@ -1439,6 +1451,8 @@ namespace hgraph::python_bridge
         {
             return read_only_items(output.added_items());
         }
+        [[nodiscard]] std::optional<std::size_t> size_modified() const { return output.size_modified(); }
+
         [[nodiscard]] nb::list removed_keys() const
         {
             return output.removed_keys();
@@ -1714,10 +1728,10 @@ namespace hgraph::python_bridge
         {
             if (key_set_projection)
             {
-                nb::object canonical = python_bridge::delta_value_to_python(
-                    projected_dict().data_view().key_set().base(), checked().evaluation_time());
+                const auto keys = projected_dict().data_view().key_set().base();
+                nb::object canonical = python_bridge::delta_value_to_python(keys, checked().evaluation_time());
                 nb::object &shape = delta_shaper_slot();
-                return shape.is_valid() ? shape(canonical) : std::move(canonical);
+                return shape.is_valid() ? shape(canonical, PyTsType{keys.schema()}) : std::move(canonical);
             }
             const auto &ts = checked();
             if (ts.schema() != nullptr && ts.schema()->kind == TSTypeKind::REF)
@@ -1738,7 +1752,7 @@ namespace hgraph::python_bridge
             // erased TSData operation owned below the Python facade.
             nb::object delta = python_bridge::delta_value_to_python(ts);
             nb::object &shape = delta_shaper_slot();
-            return shape.is_valid() ? shape(delta) : delta;
+            return shape.is_valid() ? shape(delta, PyTsType{ts.schema()}) : delta;
         }
 
         [[nodiscard]] bool modified() const
@@ -2242,16 +2256,16 @@ namespace hgraph::python_bridge
 
         /** True when this input is a dynamic ``TSL``, whose keys are indices
             and whose structural delta is tail truncation (RFC 0031). */
-        [[nodiscard]] bool is_dynamic_list() const
+        [[nodiscard]] bool is_list() const
         {
             const auto *schema = checked().schema();
-            return schema != nullptr && schema->is_unbounded_tsl();
+            return schema != nullptr && schema->kind == TSTypeKind::TSL;
         }
 
         [[nodiscard]] nb::list added_keys() const
         {
             nb::list result;
-            if (is_dynamic_list())
+            if (is_list())
             {
                 auto list = checked().as_list();
                 for (const std::size_t index : list.added_indices()) { result.append(nb::cast(index)); }
@@ -2265,7 +2279,7 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::list added_values() const
         {
             nb::list result;
-            if (is_dynamic_list())
+            if (is_list())
             {
                 auto list = checked().as_list();
                 for (auto &&[index, child] : list.added_items())
@@ -2286,7 +2300,7 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::list added_items() const
         {
             nb::list result;
-            if (is_dynamic_list())
+            if (is_list())
             {
                 auto list = checked().as_list();
                 for (auto &&[index, child] : list.added_items())
@@ -2307,13 +2321,17 @@ namespace hgraph::python_bridge
             return result;
         }
 
+        [[nodiscard]] std::optional<std::size_t> size_modified() const {
+            return checked().as_list().size_modified();
+        }
+
         [[nodiscard]] nb::list removed_keys() const
         {
             nb::list result;
-            if (is_dynamic_list())
+            if (is_list())
             {
                 auto list = checked().as_list();
-                for (const std::size_t index : list.removed_indices()) { result.append(nb::cast(index)); }
+                for (const std::size_t index : list.removed_positions()) { result.append(nb::cast(index)); }
                 return result;
             }
             auto dict = checked().as_dict();
@@ -2324,11 +2342,12 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::list removed_values() const
         {
             nb::list result;
-            if (is_dynamic_list())
+            if (is_list())
             {
                 auto list = checked().as_list();
-                for (auto &&[index, child] : list.removed_items())
+                for (const auto index : list.removed_positions())
                 {
+                    auto child = list.retained_at(index);
                     result.append(collection_child(std::move(child), nb::cast(index)));
                 }
                 return result;
@@ -2345,11 +2364,12 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::list removed_items() const
         {
             nb::list result;
-            if (is_dynamic_list())
+            if (is_list())
             {
                 auto list = checked().as_list();
-                for (auto &&[index, child] : list.removed_items())
+                for (const auto index : list.removed_positions())
                 {
+                    auto child = list.retained_at(index);
                     nb::object py_key = nb::cast(index);
                     result.append(nb::make_tuple(
                         py_key, collection_child(std::move(child), py_key)));

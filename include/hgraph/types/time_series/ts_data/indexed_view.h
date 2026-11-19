@@ -1,6 +1,8 @@
 #ifndef HGRAPH_CPP_TS_DATA_INDEXED_VIEW_H
 #define HGRAPH_CPP_TS_DATA_INDEXED_VIEW_H
 
+#include <optional>
+
 #include <hgraph/types/time_series/ts_data/base_view.h>
 #include <hgraph/types/value/value_range.h>
 #include <hgraph/util/date_time.h>
@@ -80,8 +82,13 @@ namespace hgraph
         [[nodiscard]] bool supports_resize() const noexcept;
         /** Live length when the delta window for ``evaluation_time`` opened. */
         [[nodiscard]] std::size_t previous_size(DateTime evaluation_time) const;
+        [[nodiscard]] IndexedStructuralDelta structural_delta(DateTime evaluation_time) const;
+        /** New length on a net resize this cycle. */
+        [[nodiscard]] std::optional<std::size_t> size_modified(DateTime evaluation_time) const;
         /** Indices that came into existence at ``evaluation_time``. */
         [[nodiscard]] Range<std::size_t> added_indices(DateTime evaluation_time) const;
+        /** Indices cleared in place or dropped from the tail. */
+        [[nodiscard]] Range<std::size_t> removed_positions(DateTime evaluation_time) const;
         /** Indices removed at ``evaluation_time``; their children stay readable this cycle. */
         [[nodiscard]] Range<std::size_t> removed_indices(DateTime evaluation_time) const;
         [[nodiscard]] Range<TSDataView> added_values(DateTime evaluation_time) const;
@@ -116,7 +123,6 @@ namespace hgraph
         [[nodiscard]] static bool child_modified_predicate(const void *context, const void *, std::size_t index);
         [[nodiscard]] static std::size_t project_modified_index(const void *context, const void *,
                                                                 std::size_t ordinal);
-        [[nodiscard]] IndexedStructuralDelta structural_delta(DateTime evaluation_time) const;
         [[nodiscard]] static std::size_t project_added_index(const void *context, const void *memory,
                                                              std::size_t ordinal);
         [[nodiscard]] static std::size_t project_removed_index(const void *context, const void *memory,

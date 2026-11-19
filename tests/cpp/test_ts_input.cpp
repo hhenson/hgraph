@@ -1265,14 +1265,14 @@ TEST_CASE("TSInput projected fixed-list and delta snapshots own canonical storag
         auto delta_view = items.delta_value();
         delta = Value{delta_view};
         delta_clone = delta_view.clone();
-        auto delta_map = delta_view.as_map();
+        auto delta_map = delta_view.as_bundle().at("modified").as_map();
         keys = delta_map.key_set().clone();
     }
 
     const auto current_type = ValuePlanFactory::instance().type_for(list->value_schema);
     const auto delta_type = ValuePlanFactory::instance().type_for(list->delta_value_schema);
     const auto key_set_type = ValuePlanFactory::instance().type_for(
-        TypeRegistry::instance().set(list->delta_value_schema->key_type));
+        TypeRegistry::instance().set(list->delta_value_schema->fields[1].type->key_type));
     REQUIRE(current.binding() == current_type);
     REQUIRE(cloned.binding() == current_type);
     REQUIRE(delta.binding() == delta_type);
@@ -1289,14 +1289,14 @@ TEST_CASE("TSInput projected fixed-list and delta snapshots own canonical storag
         REQUIRE(values.at(1).checked_as<std::int32_t>() == 0);
     }
 
-    const auto key_type = ValuePlanFactory::instance().type_for(list->delta_value_schema->key_type);
+    const auto key_type = ValuePlanFactory::instance().type_for(list->delta_value_schema->fields[1].type->key_type);
     Value key_zero{key_type};
     Value key_one{key_type};
     key_zero.begin_mutation().set(Int{0});
     key_one.begin_mutation().set(Int{1});
     for (Value *snapshot : {&delta, &delta_clone})
     {
-        auto map = snapshot->view().as_map();
+        auto map = snapshot->view().as_bundle().at("modified").as_map();
         REQUIRE(map.size() == 1);
         REQUIRE(map.at(key_zero.view()).checked_as<std::int32_t>() == 10);
         REQUIRE_FALSE(map.contains(key_one.view()));
@@ -1587,12 +1587,12 @@ TEST_CASE("TSInput output binding levels expose values and data views from root 
 
     Value key_zero{Int{0}};
     Value key_one{Int{1}};
-    auto  whole_list_delta = whole_list.delta_value().as_map();
+    auto  whole_list_delta = whole_list.delta_value().as_bundle().at("modified").as_map();
     REQUIRE(whole_list_delta.size() == 2);
     REQUIRE(whole_list_delta.at(key_zero.view()).checked_as<std::int32_t>() == 100);
     REQUIRE(whole_list_delta.at(key_one.view()).checked_as<std::int32_t>() == 200);
 
-    auto leaf_list_delta = leaf_list.delta_value().as_map();
+    auto leaf_list_delta = leaf_list.delta_value().as_bundle().at("modified").as_map();
     REQUIRE(leaf_list_delta.size() == 2);
     REQUIRE(leaf_list_delta.at(key_zero.view()).checked_as<std::int32_t>() == 1000);
     REQUIRE(leaf_list_delta.at(key_one.view()).checked_as<std::int32_t>() == 2000);
@@ -1601,14 +1601,14 @@ TEST_CASE("TSInput output binding levels expose values and data views from root 
     REQUIRE(root_delta.at("leaf").checked_as<std::int32_t>() == 7);
     REQUIRE(root_delta.at("bundle").as_bundle().at("x").checked_as<std::int32_t>() == 10);
     REQUIRE(root_delta.at("bundle").as_bundle().at("y").checked_as<std::int32_t>() == 20);
-    REQUIRE(root_delta.at("whole_list").as_map().at(key_zero.view()).checked_as<std::int32_t>() == 100);
-    REQUIRE(root_delta.at("whole_list").as_map().at(key_one.view()).checked_as<std::int32_t>() == 200);
-    REQUIRE(root_delta.at("leaf_list").as_map().at(key_zero.view()).checked_as<std::int32_t>() == 1000);
-    REQUIRE(root_delta.at("leaf_list").as_map().at(key_one.view()).checked_as<std::int32_t>() == 2000);
+    REQUIRE(root_delta.at("whole_list").as_bundle().at("modified").as_map().at(key_zero.view()).checked_as<std::int32_t>() == 100);
+    REQUIRE(root_delta.at("whole_list").as_bundle().at("modified").as_map().at(key_one.view()).checked_as<std::int32_t>() == 200);
+    REQUIRE(root_delta.at("leaf_list").as_bundle().at("modified").as_map().at(key_zero.view()).checked_as<std::int32_t>() == 1000);
+    REQUIRE(root_delta.at("leaf_list").as_bundle().at("modified").as_map().at(key_one.view()).checked_as<std::int32_t>() == 2000);
 
     auto root_data_delta = root_view.data_view().delta_value(t1).as_bundle();
     REQUIRE(root_data_delta.at("leaf").checked_as<std::int32_t>() == 7);
-    REQUIRE(root_data_delta.at("leaf_list").as_map().at(key_one.view()).checked_as<std::int32_t>() == 2000);
+    REQUIRE(root_data_delta.at("leaf_list").as_bundle().at("modified").as_map().at(key_one.view()).checked_as<std::int32_t>() == 2000);
 
     auto root_data = root_view.data_view().borrowed_ref();
     REQUIRE(root_data.valid());
@@ -2578,6 +2578,7 @@ TEST_CASE("dynamic TSL input reports the truncated indices and their retained va
         auto input_view = input.view(nullptr, t1);
         auto view = input_view.as_list();
         REQUIRE(view.size() == 3);
+        REQUIRE(view.size_modified() == 3);
         REQUIRE(std::vector<std::size_t>(view.added_indices().begin(), view.added_indices().end()) ==
                 std::vector<std::size_t>{0, 1, 2});
         REQUIRE(view.removed_indices().begin() == view.removed_indices().end());
@@ -2593,6 +2594,7 @@ TEST_CASE("dynamic TSL input reports the truncated indices and their retained va
     auto input_view = input.view(nullptr, t2);
     auto view = input_view.as_list();
     REQUIRE(view.size() == 1);
+    REQUIRE(view.size_modified() == 1);
     REQUIRE(view.added_indices().begin() == view.added_indices().end());
     REQUIRE(std::vector<std::size_t>(view.removed_indices().begin(), view.removed_indices().end()) ==
             std::vector<std::size_t>{1, 2});
@@ -2603,6 +2605,8 @@ TEST_CASE("dynamic TSL input reports the truncated indices and their retained va
         REQUIRE(child.valid());
         removed.emplace_back(index, child.value().checked_as<std::int32_t>());
     }
+    auto quiet = input.view(nullptr, t2 + MIN_TD);
+    REQUIRE_FALSE(quiet.as_list().size_modified().has_value());
     REQUIRE(removed == std::vector<std::pair<std::size_t, std::int32_t>>{{1, 2}, {2, 3}});
 }
 

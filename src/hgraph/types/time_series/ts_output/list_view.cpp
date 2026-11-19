@@ -92,6 +92,8 @@ namespace hgraph
         return data_view().size();
     }
 
+    std::optional<std::size_t> TSLOutputView::size_modified() const { return data_view().size_modified(evaluation_time()); }
+
     bool TSLOutputView::empty() const
     {
         return data_view().empty();
@@ -148,6 +150,8 @@ namespace hgraph
     {
         return data_view().added_indices(view_.evaluation_time());
     }
+
+    Range<std::size_t> TSLOutputView::removed_positions() const & { return data_view().removed_positions(evaluation_time()); }
 
     Range<std::size_t> TSLOutputView::removed_indices() const
     {
@@ -224,7 +228,7 @@ namespace hgraph
             }
             // Growth is a STRUCTURAL change: it goes through the timed resize
             // so the added indices are attributed to this cycle (RFC 0031).
-            base.as_list().resize(index + 1, view_.evaluation_time());
+            resize(index + 1);
         }
         return view_.indexed_child_at(index);
     }

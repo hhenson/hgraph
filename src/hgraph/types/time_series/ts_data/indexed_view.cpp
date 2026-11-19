@@ -171,6 +171,12 @@ namespace hgraph
         return structural_delta(evaluation_time).previous_size;
     }
 
+    std::optional<std::size_t> IndexedTSDataView::size_modified(DateTime evaluation_time) const {
+        const auto delta = structural_delta(evaluation_time);
+        if (delta.size == delta.previous_size) { return std::nullopt; }
+        return delta.size;
+    }
+
     // The structural-delta ranges bind to the OPS TABLE and storage memory
     // rather than to `this`: the typed input/output list views forward them
     // from a temporary TSLDataView, and both of those outlive any view (the
@@ -186,6 +192,12 @@ namespace hgraph
             .predicate = nullptr,
             .projector = &project_added_index,
         };
+    }
+
+    Range<std::size_t> IndexedTSDataView::removed_positions(DateTime time) const {
+        const auto &ops = indexed_ops();
+        if (!modified(time) || !ops.removed_positions_impl) { return empty_index_range(); }
+        return ops.removed_positions_impl(ops.context, storage_.data());
     }
 
     Range<std::size_t> IndexedTSDataView::removed_indices(DateTime evaluation_time) const

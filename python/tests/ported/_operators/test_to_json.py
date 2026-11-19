@@ -257,14 +257,14 @@ def test_to_json_omits_fractional_seconds_when_zero():
 @pytest.mark.parametrize(
     ["tp", "value", "expected"],
     [
-        [TSL[TS[int], Size[2]], [{0: 1, 1: 2}], ['{"0": 1, "1": 2}']],
+        [TSL[TS[int], Size[2]], [{0: 1, 1: 2}], ['{"removed": [], "modified": {"0": 1, "1": 2}}']],
         [TSB[MyCS], [{"p1": "a", "p2": date(2024, 6, 13)}], ['{"p1": "a", "p2": "2024-06-13"}']],
         [TSS[int], [{1, 2}, {Removed(2)}], ['{"added": [1, 2]}', '{"removed": [2]}']],
         [TSD[int, TS[str]], [{1: "a", 2: "b"}, {1: REMOVE}], ['{"1": "a", "2": "b"}', '{"1": null}']],
         [
             TSD[int, TSL[TS[str], Size[2]]],
             [{1: {0: "a", 1: "b"}, 2: {0: "b", 1: "c"}}, {1: {0: "aa"}}, {2: REMOVE}],
-            ['{"1": {"0": "a", "1": "b"}, "2": {"0": "b", "1": "c"}}', '{"1": {"0": "aa"}}', '{"2": null}'],
+            ['{"1": {"removed": [], "modified": {"0": "a", "1": "b"}}, "2": {"removed": [], "modified": {"0": "b", "1": "c"}}}', '{"1": {"removed": [], "modified": {"0": "aa"}}}', '{"2": null}'],
         ],
     ],
 )

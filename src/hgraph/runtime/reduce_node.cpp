@@ -587,7 +587,10 @@ namespace hgraph
             ValueView cell = storage.lifted_cells[position].view().begin_mutation_trusted();
             context.spec.lifted_kernel->eval_assign(cell, std::span<const ValueView>{args.data(), args.size()});
             storage.lifted_valid[position] = 1;
-            if (position == 0) { storage.lifted_root_dirty = true; }
+            if (storage.lifted_root_kind == Aggregate::Kind::Node && position == storage.lifted_root_index)
+            {
+                storage.lifted_root_dirty = true;
+            }
         }
 
         /** The snapshot's native slot and tracking, resolved once when it is
@@ -1018,9 +1021,9 @@ namespace hgraph
                 return structural;
             }
 
-            // RFC 0031: a truncated index is REMOVED, not modified, so its leaf
-            // is retired here rather than by the modified walk below.
-            for (const std::size_t index : list_input.removed_indices())
+            // Reduction tracks valid children. Both an in-place clear and a
+            // truncated position retire the corresponding leaf.
+            for (const std::size_t index : list_input.removed_positions())
             {
                 const Value key{static_cast<Int>(index)};
                 const auto  found = storage.key_to_leaf.find(key);

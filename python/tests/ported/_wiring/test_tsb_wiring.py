@@ -357,6 +357,28 @@ def test_dereference_materializes_tsb_field_references():
     ]
 
 
+def test_independent_bundle_references_follow_their_own_selection():
+    @compute_node
+    def choose(select: TS[bool], first: REF[TSB[MyTsb]], second: REF[TSB[MyTsb]]) -> REF[TSB[MyTsb]]:
+        return first.value if select.value else second.value
+
+    @compute_node
+    def read_pair(left: TSB[MyTsb], right: TSB[MyTsb]) -> TS[tuple[int, int]]:
+        return left.p1.value, right.p1.value
+
+    @graph
+    def g(select_left: TS[bool], select_right: TS[bool], a: TSB[MyTsb], b: TSB[MyTsb]) -> TS[tuple[int, int]]:
+        return read_pair(choose(select_left, a, b), choose(select_right, a, b))
+
+    assert eval_node(
+        g,
+        [True, None, False, None, None],
+        [False, True, None, None, False],
+        [{"p1": 1}, None, None, {"p1": 2}, None],
+        [{"p1": 10}, None, None, None, {"p1": 20}],
+    ) == [(1, 10), (1, 1), (10, 1), (10, 2), (20, 20)]
+
+
 def test_dereference_direct_tsb_normalizes_nested_reference_fields():
     @graph
     def g(condition: TS[bool], value: TS[int]) -> TS[int]:

@@ -213,7 +213,7 @@ Per-kind mapping:
      - ``Bundle{removed: Set<K>, modified: Map<K, V.delta>}``
    * - ``TSL<T>``
      - ``List<T.value_schema, fixed_size>``
-     - ``Map<int, T.delta_value_schema>``
+     - ``Bundle{removed: Set<int>, modified: Map<int, T.delta_value_schema>, size_modified: int?}``
    * - ``TSW<T>`` (tick)
      - ``List<T, period>``
      - ``T``

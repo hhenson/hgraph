@@ -1140,6 +1140,14 @@ namespace hgraph::detail
             });
         }
 
+        [[nodiscard]] Range<std::size_t> target_link_removed_positions(const void *context, const void *memory)
+        {
+            const auto target = target_link_target_view(context, memory);
+            if (!target.valid()) { return {}; }
+            const auto time = target_link_tracking(context, memory)->last_modified_time;
+            return target.as_list().removed_positions(time);
+        }
+
         [[nodiscard]] const void *target_link_retained_element_memory(const void *context,
                                                                        const void *memory,
                                                                        std::size_t index) noexcept
@@ -1620,6 +1628,10 @@ namespace hgraph::detail
                 &target_link_indexed_mutable_element_memory;
             static_cast<TSDataOps &>(context->ops).indexed_child_growth =
                 schema.is_unbounded_tsl();
+            if (schema.kind == TSTypeKind::TSL)
+            {
+                context->ops.removed_positions_impl = &target_link_removed_positions;
+            }
             if (schema.is_unbounded_tsl())
             {
                 context->ops.structural_delta_impl = &target_link_structural_delta;

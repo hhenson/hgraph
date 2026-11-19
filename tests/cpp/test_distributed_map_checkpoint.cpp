@@ -448,9 +448,9 @@ TEST_CASE("dmap_ recovery: a component hosted over an unbounded list recovers wi
           "[checkpoint][dmap][hosted]")
 {
     stdlib::register_standard_operators();
-    const auto input = values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 10}}), dynamic_list_delta<TS<Int>>({{0, 2}, {2, 100}}),
+    const auto input = values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 10}}, {}, 2), dynamic_list_delta<TS<Int>>({{0, 2}, {2, 100}}, {}, 3),
                                      none, dynamic_list_delta<TS<Int>>({{0, 3}, {1, 30}}));
-    const auto expected = values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 10}}), dynamic_list_delta<TS<Int>>({{0, 3}, {2, 100}}),
+    const auto expected = values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 10}}, {}, 2), dynamic_list_delta<TS<Int>>({{0, 3}, {2, 100}}, {}, 3),
                                         none, dynamic_list_delta<TS<Int>>({{0, 6}, {1, 40}}));
     CHECK_OUTPUT(days<HostedDynamicList<1>>(input, {}, nullptr), expected);
     CHECK_OUTPUT(days<HostedDynamicList<1>>(input, {2}, hgraph_test::dmap_component_id), expected);
