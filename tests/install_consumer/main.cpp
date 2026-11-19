@@ -456,6 +456,36 @@ struct ConsumerDynamicWindowGraph {
         return wire<ConsumerDynamicWindowSize>(w, wire<ConsumerDynamicWindowOwner>(w, value));
     }
 };
+struct ConsumerCompletedWindow {
+    static void eval(Out<ConsumerDuration>) {}
+    static void start(Out<ConsumerDuration> out) {
+        out.begin_mutation(out.evaluation_time()).push(Value{Int{41}}.view());
+    }
+};
+
+void check_completed_window_release() {
+    NodeBuilder node;
+    node.implementation<ConsumerCompletedWindow>();
+    GraphBuilder graph;
+    graph.add_node(node);
+    GraphExecutorBuilder builder;
+    builder.graph_builder(graph).mode(GraphExecutorMode::ExternallyDriven);
+    auto executor = builder.make_executor();
+    auto engine = executor.view();
+    engine.start_external(MIN_ST);
+    const auto due = MIN_ST + 3 * MIN_TD;
+    if (!engine.step(due)) { throw std::runtime_error("installed SDK did not complete the departure"); }
+    auto endpoint = engine.graph().node_at(0).output(due);
+    auto window = endpoint.as_window();
+    auto saved = window.window_delta();
+    engine.stop_external();
+    if (window.removed_values().limit != 1) { throw std::runtime_error("stopping discarded the completed step"); }
+    engine.release_completed_step();
+    if (window.removed_values().limit != 0 || !saved.equals(window_delta<Int>(std::nullopt, {{41, MIN_ST}}))) {
+        throw std::runtime_error("installed SDK completed-step release lost the owned departure or retained a borrowed one");
+    }
+}
+
 void check_scheduled_window() {
     const auto result = testing::eval_node<ConsumerWindowGraph>(std::vector<std::optional<Int>>{41});
     if (result != std::vector<std::optional<Int>>{1, std::nullopt, std::nullopt, 0})
@@ -621,7 +651,7 @@ int main(int argc, char **argv)
     }
     static_assert(std::is_standard_layout_v<ChildGraphInspectionOps>);
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
-    static_assert(GRAPH_OPS_ABI_VERSION == 10);
+    static_assert(GRAPH_OPS_ABI_VERSION == 11);
     // ABI 6 adds external_start/step/stop for the ExternallyDriven mode.
     static_assert(EXECUTOR_OPS_ABI_VERSION == 7);
     // ABI 30 adds window change-set observations and replay.
@@ -943,6 +973,7 @@ int main(int argc, char **argv)
     check_typed_outcome();
     check_mixed_state();
     check_scheduled_window();
+    check_completed_window_release();
     check_optional();
     check_distributed_client();
     check_probe_backend_round_trip();

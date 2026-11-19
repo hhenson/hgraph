@@ -63,7 +63,10 @@ namespace hgraph
         [[nodiscard]] ValueView removed_value(DateTime evaluation_time) const;
 
         /** All removals on this tick in their original order, including those
-         * discarded by clear. The two borrowed ranges have identical indices. */
+         * discarded by clear. The two borrowed ranges have identical indices.
+         * For a graph-owned window, consume these ranges before the root
+         * advances or the caller releases the completed step. An owned
+         * capture_window_delta() survives either boundary. */
         [[nodiscard]] Range<ValueView> removed_values(DateTime evaluation_time) const;
         [[nodiscard]] Range<DateTime> removed_value_times(DateTime evaluation_time) const;
 

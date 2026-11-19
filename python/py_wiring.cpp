@@ -1014,6 +1014,8 @@ namespace hgraph::python_bridge
         "The completed result of a native graph execution.\n\n"
         "Use recorded() to retrieve values captured through the runner's "
         "record/replay support.")
+        .def("release_completed_step", [](PyRun &run) { run.executor.view().release_completed_step(); },
+             "Release the final step's borrowed window removals. Owned snapshots and recordings remain available.")
         .def("_eval_recorded", [](PyRun &run, const std::string &key, PyTsType type, bool sparse) {
             return run.recorded(key, sparse, type.meta);
         }, nb::arg("key"), nb::arg("type"), nb::arg("sparse") = false)

@@ -245,7 +245,8 @@ Runtime and performance goals
   registry.  Standalone TSW value storage remains usable without a source
   subscription.
 * Bound transient removal storage by the number of values evicted in the
-  current evaluation cycle and release it after observers have run.
+  root inspection interval. Release it when the root accepts a later
+  evaluation time or the caller explicitly releases the completed step.
 
 Implementation stages
 ---------------------
@@ -307,10 +308,24 @@ depart at 3 and 4. Recovery first resumed at 5 instead reports both overdue
 samples together at 5. The change records the original sample times in both
 cases. These observations use the existing evaluation clock and window delta.
 
-The current storage retains the last removal payload until the next window
-mutation or teardown. This makes the completed step inspectable, including
-through an externally driven executor. The performance goal of reclaiming
-that storage immediately after observers finish remains open.
+A graph-owned window keeps its removal values and original times available
+after a completed step. Another step at the same time can extend that
+publication. Rejecting a step argument leaves it available. The first
+accepted evaluation at a later time retires the removals before the new
+cycle's observers run, even if the window itself stays quiet.
+
+A caller can close the interval early with
+``GraphExecutorView::release_completed_step()`` or
+``RootGraphView::release_completed_step()``. A Python ``Run`` result exposes
+the same operation. Repeated release is harmless. Evaluating the closed time
+again is an error. The last successful step remains inspectable after the
+executor stops. An owned ``window_delta()`` or recorded event can outlive
+the source graph. Standalone window storage retains its mutation lifetime.
+
+The native root tracks only windows with outstanding removals. A single
+rolling window uses an inline registration. When more windows first remove
+samples together, the root grows a shared array. Automatic advance reuses
+that capacity. An explicit release also frees the empty overflow array.
 
 Acceptance criteria
 -------------------

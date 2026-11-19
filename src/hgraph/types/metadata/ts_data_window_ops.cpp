@@ -13,6 +13,8 @@
 
 #include "detail/ts_data_seams.h"
 #include "detail/window_change.h"
+#include "../../runtime/window_removals.h"
+#include <hgraph/util/tagged_ptr.h>
 
 #include <fmt/format.h>
 
@@ -54,23 +56,65 @@ namespace hgraph::ts_data_plan_factory_detail
             DateTime time{MIN_DT};
         };
 
+        // Registrations are 16-byte aligned. Sharing this word with the four
+        // tick flags keeps idle and standalone windows at their original size.
+        class WindowTickState
+        {
+          public:
+            enum Effect : unsigned { Added = 1, Cleared = 2, Replaced = 4, Applied = 8 };
+            explicit WindowTickState(std::uintptr_t flags = 0) noexcept : state_(nullptr, flags) {}
+            WindowTickState(const WindowTickState &other) noexcept : WindowTickState(other.state_.tag()) {}
+            WindowTickState &operator=(const WindowTickState &other) noexcept
+            {
+                if (this != &other) { cancel(); state_.set_tag(other.state_.tag()); }
+                return *this;
+            }
+            WindowTickState(WindowTickState &&other) noexcept : state_(std::exchange(other.state_, {})) {}
+            WindowTickState &operator=(WindowTickState &&other) noexcept
+            {
+                if (this != &other) { cancel(); state_ = std::exchange(other.state_, {}); }
+                return *this;
+            }
+            ~WindowTickState() { cancel(); }
+
+            bool has(Effect flag) const noexcept { return (state_.tag() & flag) != 0; }
+            void mark(Effect flag) noexcept { state_.set_tag(state_.tag() | flag); }
+            WindowRemovalRegistration *registration() const noexcept { return state_.as<WindowRemovalRegistration>(); }
+            void registration(WindowRemovalRegistration *entry) noexcept { state_.set_ptr(entry); }
+
+          private:
+            void cancel() noexcept
+            {
+                if (auto *entry = registration()) { cancel_window_removals(entry); registration(nullptr); }
+            }
+            erased_tagged_ptr<16, 4> state_{};
+        };
+
         // The first removed sample stays inline: an ordinary fixed-count roll
         // needs no removal-list allocation. Larger clears and duration drops spill.
         struct WindowTick
         {
             DateTime time{MIN_DT};
-            bool added{false};
-            bool cleared{false};
-            bool replaced{false};
-            bool applied{false};
+            WindowTickState state{};
             using Batch = std::vector<RemovedWindowSample>;
-            std::variant<RemovedWindowSample, Batch> removals{};
+            // A retired tick remembers only its timestamp. Even a writable cursor
+            // kept past release cannot turn a prior clear+arrival into a partial delta.
+            std::variant<RemovedWindowSample, Batch, std::monostate> removals{};
+            bool retired() const noexcept { return std::holds_alternative<std::monostate>(removals); }
+
+            void retire() noexcept
+            {
+                state.registration(nullptr);
+                state = WindowTickState{};
+                removals.emplace<std::monostate>();
+            }
 
             std::size_t size() const noexcept
             {
                 if (const auto *single = std::get_if<RemovedWindowSample>(&removals))
                     return single->value.has_value() ? 1 : 0;
-                return std::get<Batch>(removals).size();
+                const auto *batch = std::get_if<Batch>(&removals);
+                return batch ? batch->size() : 0;
             }
 
             const RemovedWindowSample &at(std::size_t index) const
@@ -86,7 +130,7 @@ namespace hgraph::ts_data_plan_factory_detail
             template <typename Read>
             void append(std::size_t count, Read read)
             {
-                if (count == 0) { return; }
+                if (count == 0 || retired()) { return; }
                 if (auto *single = std::get_if<RemovedWindowSample>(&removals))
                 {
                     const bool retain_first = single->value.has_value();
@@ -116,6 +160,7 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 if (const auto *single = std::get_if<RemovedWindowSample>(&removals))
                     return single->value.dynamic_storage_metrics();
+                if (retired()) { return {}; }
                 const auto &batch = std::get<Batch>(removals);
                 DynamicStorageMetrics result{.live_bytes = batch.size() * sizeof(RemovedWindowSample),
                                              .reserved_bytes = batch.capacity() * sizeof(RemovedWindowSample)};
@@ -165,6 +210,7 @@ namespace hgraph::ts_data_plan_factory_detail
                   head_(std::exchange(other.head_, 0)),
                   tick_(std::exchange(other.tick_, {}))
             {
+                if (auto *entry = tick_.state.registration()) { relocate_window_removals(entry, this); }
                 other.invalidate_delta_projection();
                 other.time_binding_    = nullptr;
                 other.element_binding_ = nullptr;
@@ -185,6 +231,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     size_                  = std::exchange(other.size_, 0);
                     head_                  = std::exchange(other.head_, 0);
                     tick_                  = std::exchange(other.tick_, {});
+                    if (auto *entry = tick_.state.registration()) { relocate_window_removals(entry, this); }
                     other.invalidate_delta_projection();
                     other.time_binding_    = nullptr;
                     other.element_binding_ = nullptr;
@@ -255,32 +302,52 @@ namespace hgraph::ts_data_plan_factory_detail
 
             [[nodiscard]] const WindowTick &tick() const noexcept { return tick_; }
 
-            [[nodiscard]] DateTime replaced_time() const noexcept { return tick_.replaced ? tick_.time : MIN_DT; }
+            void track_removals(const TSDataTracking &tracking)
+            {
+                if (!tick_.state.registration() && tick_.size() != 0)
+                {
+                    auto *entry = track_window_removals(tracking.parent, tick_.time, this, [](void *owner, WindowRemovalRegistration *entry) noexcept {
+                        auto &window = *static_cast<TSWindowStorageCore *>(owner);
+                        window.tick_.state.registration(entry);
+                        if (entry) { return; }
+                        // A removal-bearing change is indivisible: dropping the exits
+                        // also retires the old arrival/clear and its borrowed projection.
+                        window.tick_.retire();
+                        window.invalidate_delta_projection();
+                    });
+                    tick_.state.registration(entry);
+                }
+            }
+
+            [[nodiscard]] DateTime replaced_time() const noexcept { return tick_.state.has(WindowTickState::Replaced) ? tick_.time : MIN_DT; }
 
             [[nodiscard]] ValueView evicted_element() const
             {
-                return !tick_.cleared && tick_.size() ? tick_.at(tick_.size() - 1).value.view() : ValueView{};
+                return !tick_.state.has(WindowTickState::Cleared) && tick_.size() ? tick_.at(tick_.size() - 1).value.view() : ValueView{};
             }
-            [[nodiscard]] DateTime evicted_time() const noexcept { return !tick_.cleared && tick_.size() ? tick_.time : MIN_DT; }
-            [[nodiscard]] DateTime cleared_time() const noexcept { return tick_.cleared ? tick_.time : MIN_DT; }
+            [[nodiscard]] DateTime evicted_time() const noexcept { return !tick_.state.has(WindowTickState::Cleared) && tick_.size() ? tick_.time : MIN_DT; }
+            [[nodiscard]] DateTime cleared_time() const noexcept { return tick_.state.has(WindowTickState::Cleared) ? tick_.time : MIN_DT; }
 
             void begin_replacement(DateTime modified_time)
             {
                 invalidate_delta_projection();
                 clear();
-                tick_ = WindowTick{.time = modified_time, .replaced = true};
+                if (tick_.time == modified_time && tick_.retired()) { return; }
+                tick_ = WindowTick{.time = modified_time, .state = WindowTickState{WindowTickState::Replaced}};
             }
 
             void mark_replacement(DateTime modified_time)
             {
                 invalidate_delta_projection();
-                tick_ = WindowTick{.time = modified_time, .added = !empty(), .replaced = true};
+                if (tick_.time == modified_time && tick_.retired()) { return; }
+                tick_ = WindowTick{.time = modified_time, .state = WindowTickState{WindowTickState::Replaced}};
+                if (!empty()) { tick_.state.mark(WindowTickState::Added); }
             }
 
             void clear_values(DateTime modified_time)
             {
                 record_removals(size_, modified_time);
-                tick_.cleared = true;
+                if (!tick_.retired()) { tick_.state.mark(WindowTickState::Cleared); }
                 clear();
             }
 
@@ -364,7 +431,7 @@ namespace hgraph::ts_data_plan_factory_detail
             void note_arrival(DateTime modified_time)
             {
                 begin_tick(modified_time);
-                tick_.added = true;
+                if (!tick_.retired()) { tick_.state.mark(WindowTickState::Added); }
             }
 
             void overwrite_oldest(const ValueView &source, DateTime modified_time)
@@ -409,7 +476,7 @@ namespace hgraph::ts_data_plan_factory_detail
           public:
             void require_unapplied_tick(DateTime now) const
             {
-                if (tick_.time == now && tick_.applied)
+                if (tick_.time == now && tick_.state.has(WindowTickState::Applied))
                     throw std::logic_error("TSW delta can only be applied once per evaluation time");
             }
 
@@ -430,7 +497,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (drop > size_ || (fixed_period && size_ - drop + added.has_value() > fixed_period))
                     throw std::invalid_argument("TSW delta does not match the receiver's retained sample count");
 
-                WindowTick next{.time = modified_time, .added = added.has_value(), .cleared = cleared, .applied = true};
+                WindowTick next{.time = modified_time, .state = WindowTickState{WindowTickState::Applied}};
+                if (added.has_value()) { next.state.mark(WindowTickState::Added); }
+                if (cleared) { next.state.mark(WindowTickState::Cleared); }
                 next.append(removed.size(), [&](std::size_t index) {
                     const auto sample = removed.at(index).as_bundle();
                     const auto value = sample.at(0);
@@ -462,7 +531,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 }
                 else { remove_oldest(drop); }
                 invalidate_delta_projection();
-                tick_ = std::move(next);
+                if (tick_.time != modified_time || !tick_.retired()) { tick_ = std::move(next); }
             }
 
           protected:
@@ -1278,7 +1347,7 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static ValueView window_arrival_view(const void *context, const void *memory, DateTime now)
             {
                 const auto &window = storage<Storage>(window_value_memory(context, memory));
-                const bool arrived = now != MIN_DT && window.tick().added && window.tick().time == now &&
+                const bool arrived = now != MIN_DT && window.tick().state.has(WindowTickState::Added) && window.tick().time == now &&
                                      window_tracking(context, memory)->last_modified_time == now;
                 return {ctx(context)->layout->element_binding, arrived ? window.last_element() : nullptr};
             }
@@ -1289,9 +1358,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto &window = storage<Storage>(window_value_memory(context, memory));
                 const auto binding = ctx(context)->layout->canonical_delta_binding;
                 const auto last = window_tracking(context, memory)->last_modified_time;
-                if (last == MIN_DT || (!snapshot && (last != now || window.tick().time != now)))
+                if (last == MIN_DT || (!snapshot && (last != now || window.tick().time != now || window.tick().retired())))
                     return {binding, nullptr};
-                const bool replacement = snapshot || window.tick().replaced;
+                const bool replacement = snapshot || window.tick().state.has(WindowTickState::Replaced);
                 return window.delta_projection(replacement, [&] {
                     const auto values = replacement
                         ? Range<ValueView>{.context = context, .memory = memory, .limit = window.size(), .projector = &window_element_at}
@@ -1300,7 +1369,7 @@ namespace hgraph::ts_data_plan_factory_detail
                         ? Range<DateTime>{.context = context, .memory = memory, .limit = window.size(), .projector = &window_time_at}
                         : window_removed<DateTime>(context, memory, now);
                     return ts_data_detail::build_window_change(
-                        ctx(context)->layout->canonical_delta_binding, !replacement && window.tick().cleared,
+                        ctx(context)->layout->canonical_delta_binding, !replacement && window.tick().state.has(WindowTickState::Cleared),
                         replacement ? ValueView{} : window_arrival_view(context, memory, now), replacement, values, times);
                 });
             }
@@ -1356,13 +1425,17 @@ namespace hgraph::ts_data_plan_factory_detail
                     window.push(ValueView{window.element_binding(), retained.data()}, modified_time);
                 }
                 else { window.push(source, modified_time); }
+                window.track_removals(*window_tracking(context, memory));
             }
 
             static bool window_expire(const void *context, void *memory, DateTime modified_time)
             {
                 if constexpr (std::is_same_v<Storage, TimeTSWindowStorage>)
                 {
-                    return storage<Storage>(window_mutable_value_memory(context, memory)).expire(modified_time);
+                    auto &window = storage<Storage>(window_mutable_value_memory(context, memory));
+                    if (!window.expire(modified_time)) { return false; }
+                    window.track_removals(*window_tracking(context, memory));
+                    return true;
                 }
                 return false;
             }
@@ -1373,6 +1446,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 auto &window = storage<Storage>(window_mutable_value_memory(context, memory));
                 const auto period = ctx(context)->schema->is_duration_based() ? 0 : ctx(context)->schema->period();
                 window.apply_delta(cleared, added, removed, modified_time, period);
+                window.track_removals(*window_tracking(context, memory));
             }
 
             template <typename T>
@@ -1389,7 +1463,9 @@ namespace hgraph::ts_data_plan_factory_detail
 
             static void window_clear(const void *context, void *memory, DateTime modified_time)
             {
-                storage<Storage>(window_mutable_value_memory(context, memory)).clear_values(modified_time);
+                auto &window = storage<Storage>(window_mutable_value_memory(context, memory));
+                window.clear_values(modified_time);
+                window.track_removals(*window_tracking(context, memory));
             }
 
             static void window_replace_samples(const void *context, void *memory,
@@ -2047,20 +2123,21 @@ namespace hgraph::ts_data_seams
         }
 
         template <typename Storage>
-        void push_window(Storage &window, DateTime modified_time, bool already_modified, FillElementFn fill, void *fill_context)
+        void push_window(Storage &window, DateTime modified_time, const TSDataTracking &tracking, FillElementFn fill, void *fill_context)
         {
-            if (already_modified)
+            if (tracking.last_modified_time == modified_time)
             {
                 const auto &tick = window.tick();
                 // A manual expiry may have published earlier in this evaluation.
                 // Its owner may still supply the single arrival for the same tick.
                 if (!std::is_same_v<Storage, TimeTSWindowStorage> || tick.time != modified_time ||
-                    tick.added || tick.cleared || tick.replaced || tick.size() == 0)
+                    tick.state.has(WindowTickState::Added) || tick.state.has(WindowTickState::Cleared) || tick.state.has(WindowTickState::Replaced) || tick.size() == 0)
                     throw std::logic_error("TSW from_python allows only one window tick per evaluation time");
             }
             Value element{window.element_binding()};
             fill(fill_context, 0, window.element_binding(), const_cast<void *>(element.view().data()));
             window.push(element.view(), modified_time);
+            window.track_removals(tracking);
         }
     }  // namespace
 
@@ -2115,16 +2192,16 @@ namespace hgraph::ts_data_seams
 
     void window_push(const void *context, void *memory, DateTime modified_time, FillElementFn fill, void *fill_context)
     {
-        const bool already_modified = window_tracking(context, memory).last_modified_time == modified_time;
+        const auto &tracking = window_tracking(context, memory);
         if (common(context).time_window)
         {
             push_window(ts_data_plan_factory_detail::storage<TimeTSWindowStorage>(TimeBase::window_mutable_value_memory(context, memory)),
-                        modified_time, already_modified, fill, fill_context);
+                        modified_time, tracking, fill, fill_context);
         }
         else
         {
             push_window(ts_data_plan_factory_detail::storage<SizeTSWindowStorage>(SizeBase::window_mutable_value_memory(context, memory)),
-                        modified_time, already_modified, fill, fill_context);
+                        modified_time, tracking, fill, fill_context);
         }
     }
 }  // namespace hgraph::ts_data_seams

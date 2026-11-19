@@ -179,6 +179,9 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
         /** Cached non-null passive emission policy for the run logger. */
         const LoggerOps *(*logger_ops_impl)(const void *context,
                                             const void *memory) noexcept = nullptr;
+        /** End the caller's inspection interval on a completed root step. */
+        void (*release_completed_step_impl)(const void *, const GraphView &) =
+            [](const void *, const GraphView &) { throw std::logic_error("Graph does not support completed-step release"); };
     };
 
     /** Borrowed type-erased view over graph runtime storage. */
@@ -308,6 +311,9 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
         explicit RootGraphView(GraphView graph);
 
         [[nodiscard]] GraphExecutorView executor() const;
+        /** Release borrowed window removals for the completed root step. See
+            GraphExecutorView::release_completed_step for the lifetime contract. */
+        void release_completed_step() const;
     };
 
     /** Nested-specific graph view. A nested graph has a node parent. */
