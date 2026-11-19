@@ -168,3 +168,19 @@ TEST_CASE("a shared graph type uses the running window owner's replay policy and
         }
     }
 }
+
+TEST_CASE("graph manifests distinguish scheduled and replayed departures below a dynamic collection")
+{
+    struct Owner { static void eval(Out<TSD<Int, TSL<Window>>>) {} };
+    NodeBuilder node;
+    node.implementation<Owner>();
+    GraphBuilder live;
+    live.add_node(node);
+    GraphBuilder replay;
+    replay.add_node(node.replays_output_events(true));
+
+    // The two builders share the endpoint type. Only the live owner schedules
+    // its children's departures, so the stored graph contracts must differ.
+    CHECK(live.type() == replay.type());
+    CHECK(manifest::capture(live).id() != manifest::capture(replay).id());
+}

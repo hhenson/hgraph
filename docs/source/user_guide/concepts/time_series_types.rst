@@ -411,12 +411,18 @@ returns true if that call removes a sample. When the root has already
 processed a departure at the same time, the owner can still append or
 reset the window. Readers observe the resulting change once.
 
-A direct window output, a bundle field, or a fixed-list position uses the
-shared service, including when its producer runs in a nested graph.
+The shared service handles direct outputs and owned windows inside bundles,
+lists and dictionaries, including those produced by a nested graph.
 Operators such as ``lag`` and ``take`` that control the publication of
 captured changes follow their own event stream. A sample delayed by
-``lag`` keeps its source timestamp in the removal event. Window children
-created inside dynamic lists and dictionaries have a later lifecycle stage.
+``lag`` keeps its source timestamp in the removal event.
+
+Removing a key or truncating a list cancels the pending departure for every
+window under the removed entry. If the same position is restored in the
+same cycle, its retained samples keep their original deadlines. A position
+created in a later cycle starts a fresh history. For example, removing a key
+holding ``7@0`` at offset 1 and reinserting it with ``9@2`` in a two-microsecond
+window produces one departure at 5, for ``9@2``.
 
 A recording replays departures at the times they were published. A live
 checkpoint resumes expiry from the original arrival times. For a window

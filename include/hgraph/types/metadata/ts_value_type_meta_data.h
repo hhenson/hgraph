@@ -358,16 +358,7 @@ namespace hgraph
             References carry a designation rather than the target's history. */
         [[nodiscard]] constexpr bool contains_window(bool fixed_duration_only = false) const noexcept
         {
-            if (kind == TSTypeKind::TSW) { return !fixed_duration_only || is_duration_based(); }
-            if (kind == TSTypeKind::TSL && fixed_size() != 0)
-                return (!fixed_duration_only || !is_unbounded_tsl()) && element_ts()->contains_window(fixed_duration_only);
-            if (kind == TSTypeKind::TSD && !fixed_duration_only) { return element_ts()->contains_window(); }
-            if (kind == TSTypeKind::TSB)
-            {
-                for (std::size_t i = 0; i < field_count(); ++i)
-                    if (fields()[i].type->contains_window(fixed_duration_only)) { return true; }
-            }
-            return false;
+            return contains_window_matching(fixed_duration_only, !fixed_duration_only);
         }
 
         /** Whether a fixed owned path can reach a duration window. */
@@ -376,6 +367,29 @@ namespace hgraph
             return contains_window(true);
         }
 
+        /** Whether an owned path, including a dynamic collection child, can reach a duration window. */
+        [[nodiscard]] constexpr bool contains_duration_window() const noexcept
+        {
+            return contains_window_matching(true, true);
+        }
+
+      private:
+        [[nodiscard]] constexpr bool contains_window_matching(bool duration_only, bool include_dynamic) const noexcept
+        {
+            if (kind == TSTypeKind::TSW) { return !duration_only || is_duration_based(); }
+            if (kind == TSTypeKind::TSL && fixed_size() != 0 && (include_dynamic || !is_unbounded_tsl()))
+                return element_ts()->contains_window_matching(duration_only, include_dynamic);
+            if (kind == TSTypeKind::TSD && include_dynamic)
+                return element_ts()->contains_window_matching(duration_only, include_dynamic);
+            if (kind == TSTypeKind::TSB)
+            {
+                for (std::size_t i = 0; i < field_count(); ++i)
+                    if (fields()[i].type->contains_window_matching(duration_only, include_dynamic)) { return true; }
+            }
+            return false;
+        }
+
+      public:
         /** Tick-count window period; zero for duration-based or non-window kinds. */
         [[nodiscard]] constexpr size_t period() const noexcept
         {

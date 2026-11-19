@@ -85,8 +85,10 @@ namespace hgraph
 
     std::size_t TSLInputView::size() const
     {
-        if (view_.is_target_position())
+        if (view_.is_target_position() || view_.is_retained_position())
         {
+            // A removed collection has no live target path. Its retained
+            // storage still owns the current list length.
             const auto &data = view_.data_view();
             if (data.valid()) { return data.as_list().size(); }
         }

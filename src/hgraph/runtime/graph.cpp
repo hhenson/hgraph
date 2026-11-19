@@ -2244,10 +2244,18 @@ void GraphValue::reset() noexcept {
   if (pointer_.has_value()) {
     const GraphView graph = view();
     if (graph.valid() && graph.started()) {
-      static_cast<void>(fallback_on_exception(false, [&] {
-        graph.stop();
-        return true;
-      }));
+      if (!fallback_on_exception(false, [&] {
+            graph.stop();
+            return true;
+          })) {
+        // A before-stop observer can throw before stop_impl detaches the
+        // collection observers. Dispose them while all slot stores are alive.
+        const auto &context = graph_context(graph.type().ops_ref().context);
+        if (graph.is_root())
+          graph_header<RootGraphRuntimeStorage>(context, graph.data()).window_subscriptions.reset();
+        else
+          graph_header<NestedGraphRuntimeStorage>(context, graph.data()).window_subscriptions.reset();
+      }
     }
   }
   if (uses_external_storage()) {

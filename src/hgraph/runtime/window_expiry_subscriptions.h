@@ -7,19 +7,26 @@
 #include <hgraph/types/time_series/ts_output/base_view.h>
 
 #include <deque>
+#include <forward_list>
 #include <memory>
 #include <optional>
 #include <vector>
 
 namespace hgraph
 {
-    /** Planned once per graph definition. A fixed-list step represents every
-        index, so the size of the plan is independent of the list's capacity. */
+    /** A bundle stores only its eligible fields. A list or dictionary stores
+        one element plan shared by every live index or slot. */
+    struct WindowExpiryBranch
+    {
+        std::size_t field{};
+        std::vector<WindowExpiryBranch> children;
+    };
+
     struct WindowExpiryPath
     {
         std::size_t node;
         GraphEdgeSourceKind source;
-        std::vector<std::size_t> steps;
+        WindowExpiryBranch branch;
     };
 
     /** Instance policy of a node constructed by GraphBuilder. */
@@ -30,7 +37,7 @@ namespace hgraph
     class WindowExpirySubscription final : public Notifiable
     {
       public:
-        WindowExpirySubscription(const GraphView &graph, const TSOutputView &window);
+        WindowExpirySubscription(const GraphView &graph, const TSOutputView &window, bool newly_inserted);
         ~WindowExpirySubscription() override;
         WindowExpirySubscription(const WindowExpirySubscription &) = delete;
         WindowExpirySubscription &operator=(const WindowExpirySubscription &) = delete;
@@ -44,9 +51,18 @@ namespace hgraph
         void expire(DateTime now);
     };
 
-    /** Stable subscriber addresses for one graph instance. Only allocated
-        for instances that actually own a statically addressable duration window. */
-    using WindowExpirySubscriptions = std::deque<WindowExpirySubscription>;
+    class WindowCollectionSubscription;
+
+    /** The graph owns static leaves in blocks. Dynamic registrations use
+        stable addresses and release each slot's subtree on logical removal. */
+    struct WindowExpirySubscriptions
+    {
+        WindowExpirySubscriptions();
+        ~WindowExpirySubscriptions();
+        void add_window(const GraphView &root, const TSOutputView &window, bool newly_inserted);
+        std::optional<std::deque<WindowExpirySubscription>> windows;
+        std::forward_list<WindowCollectionSubscription> collections;
+    };
     std::unique_ptr<WindowExpirySubscriptions> attach_window_expiry(
         const GraphView &graph, const std::vector<WindowExpiryPath> &paths, DateTime now);
 }

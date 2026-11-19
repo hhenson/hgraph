@@ -43,7 +43,8 @@ namespace hgraph
                                                   detail::TSInputTargetActiveNode *target_node_,
                                                   Classification classification) noexcept
         : value_data(std::move(value_data_)),
-          raw_data(raw_data_.valid() ? std::move(raw_data_) : value_data.borrowed_ref()),
+          raw_data(raw_data_.valid() || classification == Classification::PreserveRaw
+                       ? std::move(raw_data_) : value_data.borrowed_ref()),
           target_node(target_node_ != nullptr
                           ? target_node_
                           : (classification == Classification::Detect &&
@@ -56,7 +57,7 @@ namespace hgraph
     TSInputView::InputDataCursor TSInputView::InputDataCursor::borrowed_ref() const noexcept
     {
         InputDataCursor cursor{value_data.borrowed_ref(), raw_data.borrowed_ref(), target_node,
-                               Classification::Known};
+                               Classification::PreserveRaw};
         cursor.route_node   = route_node;
         cursor.link_storage_ = link_storage_;
         return cursor;
@@ -346,7 +347,7 @@ namespace hgraph
                            cursor.target_node,
                            scheduling_notifier_,
                            evaluation_time,
-                           InputDataCursor::Classification::Known};
+                           InputDataCursor::Classification::PreserveRaw};
     }
 
     namespace detail
@@ -1293,12 +1294,13 @@ namespace hgraph
         // No raw target-link data: `resolved_value_data` must not re-resolve a
         // path that no longer reaches this child.
         return TSInputView{input_, std::move(child), TSDataView{}, nullptr, scheduling_notifier_,
-                           evaluation_time_, InputDataCursor::Classification::Known};
+                           evaluation_time_, InputDataCursor::Classification::PreserveRaw};
     }
 
     TSInputView TSInputView::child_from_input(std::size_t index) const
     {
         auto parent = data_.value_data.borrowed_ref();
+        if (is_retained_position()) { return child_from_retained(parent.indexed_child_at(index)); }
         auto projection = detail::input_child_projection(parent, index);
         return child_from_projection(std::move(projection), index);
     }

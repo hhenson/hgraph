@@ -67,7 +67,11 @@ checkpoint restoration, before notifying observers that the graph has
 started. The first owner creates the service. Nested owners retain a weak
 reference to that same service. A graph without
 eligible windows allocates no expiry service, subscription or deadline queue.
-Stopping the root releases the service.
+Growing lists and dictionaries observe slot membership on planned
+window-bearing branches. Removing a slot cancels its descendant alarms at
+logical removal, while the ordinary removed-value view is still readable.
+Stopping a nested graph cancels its own registrations. Stopping the root
+releases the service.
 
 For example, start two roots ten microseconds apart and push one sample into a
 two-microsecond window in each at startup. The roots report their own next

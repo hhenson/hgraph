@@ -3,6 +3,7 @@
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/subgraph_wiring.h>
+#include <hgraph/types/time_series/ts_data/checkpoint.h>
 #include <hgraph/types/value/value_builder.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -448,4 +449,287 @@ TEST_CASE("a closed filter holds its captured duration window until it resynchro
     CHECK_OUTPUT(eval_node<FilteredWindow>(values<Bool>(true, false, none, none, none, true),
                                           values<Int>(3, 7), values<Bool>(none, none, none, none, true)),
                  values<Int>(3, none, none, none, 3, 0));
+}
+
+namespace
+{
+    using GrowingWindows = TSL<Window>;
+    using WindowGroups = TSD<Str, GrowingWindows>;
+
+    struct WriteWindowGroup
+    {
+        static void eval(In<"command", TS<Str>> command, Out<WindowGroups> groups)
+        {
+            const auto &op = command.value();
+            if (op == "seed siblings")
+            {
+                const auto now = groups.evaluation_time();
+                groups["desk"][0].begin_mutation(now).push(Value{Int{2}}.view());
+                groups["desk"][1].begin_mutation(now).push(Value{Int{3}}.view());
+                groups["other"][0].begin_mutation(now).push(Value{Int{5}}.view());
+                return;
+            }
+            if (op == "drop siblings")
+            {
+                static_cast<void>(groups.erase("other"));
+                groups["desk"].resize(1);
+                return;
+            }
+            if (op == "drop key" || op == "revive key")
+            {
+                static_cast<void>(groups.erase("desk"));
+                if (op == "revive key") { static_cast<void>(groups["desk"]); }
+                return;
+            }
+            auto lanes = groups["desk"];
+            if (op == "drop lane" || op == "revive lane")
+            {
+                lanes.resize(0);
+                if (op == "revive lane") { lanes.resize(1); }
+                return;
+            }
+            lanes.resize(1);
+            auto window = lanes[0].begin_mutation(groups.evaluation_time());
+            if (op == "reset") { window.clear(); }
+            const Value sample{op == "reset" ? Int{9} : static_cast<Int>(std::stoll(op))};
+            window.push(sample.view());
+        }
+    };
+
+    struct ReadWindowGroup
+    {
+        static void eval(In<"groups", WindowGroups> groups, Out<TS<Int>> out)
+        {
+            out.set(groups.contains("desk") && groups["desk"].size()
+                        ? static_cast<Int>(groups["desk"][0].size()) : Int{-1});
+        }
+    };
+
+    struct WindowGroupGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Str>> commands)
+        {
+            return wire<ReadWindowGroup>(w, wire<WriteWindowGroup>(w, commands));
+        }
+    };
+
+    struct InspectWindowSiblings
+    {
+        static Str retained_sample(const TSWInputView &window)
+        {
+            return std::to_string(window.at(0).checked_as<Int>()) + "@" +
+                   std::to_string((window.time_at(0) - MIN_ST) / MIN_TD);
+        }
+
+        static void eval(In<"groups", WindowGroups> groups, Out<TS<Str>> out)
+        {
+            Int sum{};
+            for (const auto lanes : groups.values())
+            {
+                for (std::size_t i = 0; i < lanes.size(); ++i) { sum += total(lanes[i]); }
+            }
+            Str event = std::to_string(sum);
+            for (const auto &[key, removed] : groups.removed_items())
+            {
+                event += " " + key.checked_as<Str>() + "[0]=" + retained_sample(removed[0]);
+            }
+            auto desk = groups["desk"];
+            for (const auto &[index, removed] : desk.removed_items())
+            {
+                event += " desk[" + std::to_string(index) + "]=" + retained_sample(removed.as_window());
+            }
+            out.set(event);
+        }
+    };
+
+    struct WindowSiblingsGraph
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Str>> commands)
+        {
+            return wire<InspectWindowSiblings>(w, wire<WriteWindowGroup>(w, commands));
+        }
+    };
+
+    struct ReadGroupDepartures
+    {
+        static void eval(In<"groups", WindowGroups> groups, Out<TS<Str>> out)
+        {
+            auto window = groups["desk"][0];
+            Str event;
+            for (auto time : window.removed_value_times())
+            {
+                if (!event.empty()) { event += ","; }
+                event += std::to_string((time - MIN_ST) / MIN_TD);
+            }
+            out.set(event);
+        }
+    };
+
+    struct WindowGroupDepartures
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Str>> commands)
+        {
+            return wire<ReadGroupDepartures>(w, wire<WriteWindowGroup>(w, commands));
+        }
+    };
+
+    struct InspectRecordedWindowGroup
+    {
+        static void eval(In<"groups", WindowGroups> groups, In<"probe", SIGNAL, InputValidity::Unchecked>,
+                         Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(groups["desk"][0].size()));
+        }
+    };
+}
+
+TEST_CASE("dynamic window expiry follows the lifetime of a key and a growing list position")
+{
+    for (const Str drop : {"drop key", "drop lane"})
+    {
+        CAPTURE(drop);
+        CHECK_OUTPUT(eval_node<WindowGroupGraph>(values<Str>("4", drop, "7")),
+                     values<Int>(1, -1, 1, none, none, 0));
+    }
+    for (const Str revive : {"revive key", "revive lane"})
+    {
+        CAPTURE(revive);
+        CHECK_OUTPUT(eval_node<WindowGroupGraph>(values<Str>("4", revive)), values<Int>(1, 1, none, 0));
+    }
+}
+
+TEST_CASE("dynamic window expiry keeps a sibling armed when other keys and positions are removed")
+{
+    CHECK_OUTPUT(eval_node<WindowSiblingsGraph>(values<Str>("seed siblings", "drop siblings", "7")),
+                 values<Str>("10", "2 other[0]=5@0 desk[1]=3@0", "9", "7", none, "0"));
+}
+
+TEST_CASE("dynamic window expiry merges the due departures with a reset and arrival on the same key")
+{
+    // t3 expires the t0 sample, clears the one from t1 and receives 9. The
+    // second sample's former t4 deadline is cancelled. Only 9 leaves at t6.
+    const auto commands = values<Str>("4", "5", none, "reset");
+    CHECK_OUTPUT(eval_node<WindowGroupGraph>(commands), values<Int>(1, 2, none, 1, none, none, 0));
+    CHECK_OUTPUT(eval_node<WindowGroupDepartures>(commands), values<Str>("", "", none, "0,1", none, none, "3"));
+}
+
+TEST_CASE("dynamic window expiry leaves authoritative nested replay on its recorded clock")
+{
+    const auto edit = dict_delta<Str, GrowingWindows>({{"desk", list_delta<Window>({{0, window_delta<Int>(7)}})}});
+    CHECK_OUTPUT(eval_node<InspectRecordedWindowGroup>(values<Value>(edit), values<Bool>(none, none, none, none, true)),
+                 values<Int>(1, none, none, none, 1));
+}
+
+namespace
+{
+    struct RestoreWindowGroup
+    {
+        static void eval(Out<WindowGroups>) {}
+
+        static void start(Out<WindowGroups> target, GlobalStateView state)
+        {
+            if (!state.contains("restore group")) { return; }
+            TSOutput original{schema_descriptor<WindowGroups>::ts_meta()};
+            Out<WindowGroups> groups{original.view(MIN_ST), MIN_ST};
+            groups["desk"][0].begin_mutation(MIN_ST).push(Value{Int{4}}.view());
+            restore_ts_checkpoint(target.base().data_view(), capture_ts_checkpoint(original.data_view()));
+        }
+    };
+
+    struct FailNestedStop final : LifecycleObserver
+    {
+        bool called{false};
+        void on_before_stop_graph(const GraphView &g) override
+        {
+            if (!g.is_root())
+            {
+                called = true;
+                throw std::runtime_error("test observer interrupted child stop");
+            }
+        }
+    };
+}
+
+TEST_CASE("dynamic window expiry restores a nested history and disarms it even if child stop throws")
+{
+    NodeBuilder owner;
+    owner.implementation<RestoreWindowGroup>();
+    GraphBuilder graph;
+    graph.add_node(owner);
+    FailNestedStop observer;
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(graph).mode(GraphExecutorMode::ExternallyDriven).add_lifecycle_observer(&observer);
+    auto executor = executor_builder.make_executor();
+    auto engine = executor.view();
+    auto root = engine.graph();
+    const auto start = MIN_ST + 2 * MIN_TD;
+    const auto due = MIN_ST + 3 * MIN_TD;
+    engine.start_external(start);
+    root.global_state().set("restore group", Value{true});
+    {
+        auto child = graph.make_nested_graph(root.node_at(0).pointer());
+        child.view().start(start);
+        REQUIRE(root.next_scheduled_time() == due);
+
+        SECTION("silent recovery rearms the restored sample with its original time")
+        {
+            REQUIRE(engine.step(due));
+            Out<WindowGroups> groups{child.view().node_at(0).output(due), due};
+            const auto window = groups["desk"][0];
+            REQUIRE(window.empty());
+            auto removed = window.removed_value_times();
+            REQUIRE(removed.limit == 1);
+            CHECK(*removed.begin() == MIN_ST);
+        }
+        SECTION("a failing stop detaches the structural subscription before its nodes are destroyed")
+        {
+            // Leave an armed child for its destructor to stop.
+        }
+    }
+    CHECK(observer.called);
+    CHECK(root.next_scheduled_time() == MAX_DT);
+    engine.stop_external();
+}
+
+namespace
+{
+    using PriceRow = TSB<"ExpiryPriceRow", Field<"prices", TSD<Str, Window>>>;
+    using PriceRows = TSL<PriceRow>;
+
+    struct WritePriceRows
+    {
+        static void eval(In<"seed", TS<Bool>> seed, Out<PriceRows> rows)
+        {
+            if (seed.value())
+                rows[0].field<"prices">()["old"].begin_mutation(rows.evaluation_time()).push(Value{Int{7}}.view());
+            else
+                rows.resize(0);
+        }
+    };
+
+    struct ReadRemovedPrice
+    {
+        static void eval(In<"rows", PriceRows> rows, Out<TS<Str>> out)
+        {
+            for (auto [index, child] : rows.removed_items())
+            {
+                In<"", PriceRow> row{std::move(child)};
+                auto price = row.field<"prices">()["old"];
+                out.set(std::to_string(index) + ":" + InspectWindowSiblings::retained_sample(price));
+            }
+        }
+    };
+
+    struct RemovedPrices
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Bool>> seed)
+        {
+            return wire<ReadRemovedPrice>(w, wire<WritePriceRows>(w, seed));
+        }
+    };
+}
+
+TEST_CASE("dynamic window expiry leaves a removed list element's bundled dictionary readable")
+{
+    CHECK_OUTPUT(eval_node<RemovedPrices>(values<Bool>(true, false)), values<Str>(none, "0:7@0"));
 }
