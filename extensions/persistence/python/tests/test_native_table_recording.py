@@ -541,7 +541,8 @@ def test_timed_window_recording_replays_a_quiet_prefix_and_original_departures()
         frame = hg.frame_store_read("book.window")
         assert frame.schema.metadata[b"hgraph.window_delta.version"] == b"1"
         change = frame.schema.field("value").type
-        assert pa.types.is_struct(change) and pa.types.is_list(change.field("removed").type)
+        assert pa.types.is_struct(change)
+        assert pa.types.is_list(change.field("removed").type)
         with hg.RecordReplayContext(mode=hg.RecordReplayEnum.REPLAY):
             assert hg.eval_node(replay_window, __start_time__=hg.MIN_ST + 2 * hg.MIN_TD) == [None, (5,), ()]
             assert [(when, delta["removed"]) for when, delta in events] == [
@@ -643,7 +644,8 @@ def test_component_recover_accepts_a_live_restart_removal_and_a_recorded_empty_s
             assert seen[0]["removed"] == [{"value": 7, "time": hg.MIN_ST}]
             seen.clear()
             assert hg.eval_node(recover, __start_time__=departure + hg.MIN_TD) == [0]
-            assert len(seen) == 1 and seen[0]["replacement"] == []
+            assert len(seen) == 1
+            assert seen[0]["replacement"] == []
 
 
 def test_window_replacements_round_trip_inside_a_keyed_bundle():
