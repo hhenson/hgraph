@@ -204,6 +204,10 @@ TEST_CASE("a node builder publishes one immutable output type record per realiza
     // and the record it holds must not change under it.
     NodeBuilder builder{};
     builder.label("probe").implementation<ResolvedOutputProbe>();
+    SECTION("owned output") {}
+    SECTION("forwarding output") {
+        builder.output_endpoint(TSEndpointSchema::peered(builder.type().schema()->output_schema));
+    }
     const auto snapshot = TypeRealizationSnapshot::capture(TypeRegistry::instance());
     REQUIRE(snapshot);
 
