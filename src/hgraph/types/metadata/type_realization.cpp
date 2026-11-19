@@ -16,6 +16,7 @@
 #include <hgraph/util/scope.h>
 
 #include "../value/impl/pooled_polymorphic_value_type.h"
+#include "../time_series/ts_output/from_ref_descriptor.h"
 #include "detail/realized_value_seams.h"
 
 #include <algorithm>
@@ -27,9 +28,11 @@
 #include <mutex>
 
 #include <hgraph/types/utils/counted_mutex.h>
+#include <hgraph/types/utils/small_dense_ptr_map.h>
 #include <new>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 
@@ -66,6 +69,22 @@ inline constexpr std::string_view type_realization_options_key{
 }
 
 } // namespace
+
+namespace detail {
+struct FromRefDescriptorCache {
+  using Key = std::tuple<const TSValueTypeMetaData *, const TSValueTypeMetaData *, bool>;
+  struct Entry {
+    std::once_flag ready;
+    std::shared_ptr<const FromRefDescriptor> descriptor;
+  };
+
+  static FromRefDescriptorCache &of(const TypeRealizationSnapshot &snapshot);
+
+  TypeSystemMutex mutex;
+  SmallDensePtrMap<Key, Entry> entries;
+  DynamicStorageMetrics descriptors;
+};
+} // namespace detail
 
 struct TypeRealizationSnapshot::Impl {
   struct UnionEntry {
@@ -598,6 +617,7 @@ struct TypeRealizationSnapshot::Impl {
 
   std::uint64_t generation{0};
   TypeRealizationOptions options{};
+  detail::FromRefDescriptorCache from_ref_descriptors;
   std::vector<const ValueTypeMetaData *> registration_order{};
   std::unordered_map<const ValueTypeMetaData *,
                      std::vector<const ValueTypeMetaData *>>
@@ -1217,6 +1237,43 @@ TypeRealizationSnapshot::capture(TypeRegistry &registry,
       .try_emplace(SnapshotKey{snapshot->generation(), snapshot->options()},
                    snapshot)
       .first->second;
+}
+
+detail::FromRefDescriptorCache &
+detail::FromRefDescriptorCache::of(const TypeRealizationSnapshot &snapshot) {
+  return snapshot.impl_->from_ref_descriptors;
+}
+
+std::shared_ptr<const detail::FromRefDescriptor>
+detail::get_from_ref_descriptor(const TypeRealizationSnapshot &snapshot,
+                                const TSValueTypeMetaData &requested,
+                                const TSValueTypeMetaData *referenced) {
+  auto &cache = FromRefDescriptorCache::of(snapshot);
+  const FromRefDescriptorCache::Key key{&requested, referenced, active_graph_value_realization()};
+  auto &entry = [&]() -> FromRefDescriptorCache::Entry & {
+    std::lock_guard lock(cache.mutex);
+    return cache.entries.ensure(key, [] { return std::make_unique<FromRefDescriptorCache::Entry>(); });
+  }();
+  // Entries have stable addresses. Resolve storage outside the index lock:
+  // resolution enters the type registry and may recursively realize values.
+  std::call_once(entry.ready, [&] {
+    auto descriptor = build_from_ref_descriptor(requested, referenced);
+    const auto bytes = from_ref_descriptor_storage_metrics(*descriptor);
+    std::lock_guard lock(cache.mutex);
+    cache.descriptors += bytes;
+    entry.descriptor = std::move(descriptor);
+  });
+  // An endpoint can outlive its construction scope. The alias retains both
+  // the descriptor and the realization that owns its graph-local value ops.
+  return {snapshot.shared_from_this(), entry.descriptor.get()};
+}
+
+DynamicStorageMetrics TypeRealizationSnapshot::from_ref_plan_storage_metrics() const {
+  auto &cache = impl_->from_ref_descriptors;
+  std::lock_guard lock(cache.mutex);
+  auto bytes = cache.descriptors + cache.entries.dynamic_storage_metrics();
+  const auto entry_bytes = cache.entries.size() * sizeof(detail::FromRefDescriptorCache::Entry);
+  return bytes + DynamicStorageMetrics{entry_bytes, entry_bytes};
 }
 
 std::uint64_t TypeRealizationSnapshot::generation() const noexcept {

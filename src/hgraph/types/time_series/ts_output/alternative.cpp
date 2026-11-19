@@ -1,3 +1,4 @@
+#include "from_ref_descriptor.h"
 #include "nullable.h"
 #include "../ts_data/ownership.h"
 #include <hgraph/types/time_series/ts_output/alternative.h>
@@ -1907,7 +1908,31 @@ namespace hgraph::detail
         }
     };
 
-    struct TSOutputAlternativeStore::RefLinkAlternativeState final
+    struct FromRefDescriptor
+    {
+        FromRefDescriptor(const TSValueTypeMetaData &requested, const TSValueTypeMetaData *referenced_source)
+            : plan{make_from_ref_endpoint_plan(&requested, referenced_source)},
+              storage_type{checked_from_ref_storage_type(plan.schema)}
+        {
+        }
+
+        FromRefEndpointPlan plan;
+        TSRoleTypeRef       storage_type;
+    };
+
+    std::shared_ptr<const FromRefDescriptor> build_from_ref_descriptor(
+        const TSValueTypeMetaData &requested, const TSValueTypeMetaData *referenced_source)
+    {
+        return std::make_shared<const FromRefDescriptor>(requested, referenced_source);
+    }
+
+    DynamicStorageMetrics from_ref_descriptor_storage_metrics(const FromRefDescriptor &descriptor) noexcept
+    {
+        return DynamicStorageMetrics{sizeof(descriptor), sizeof(descriptor)} +
+               from_ref_endpoint_plan_dynamic_storage_metrics(descriptor.plan);
+    }
+
+    struct TSOutputAlternativeStore::RefLinkAlternativeState
     {
         struct SourceNotifier final : Notifiable
         {
@@ -1924,17 +1949,11 @@ namespace hgraph::detail
             RefLinkAlternativeState *owner{nullptr};
         };
 
-        RefLinkAlternativeState(const TSValueTypeMetaData &requested_schema, const TSOutputView &source,
-                                bool initialise = true)
-            : requested_schema{&requested_schema},
-              plan{make_from_ref_endpoint_plan(
-                  &requested_schema,
-                  source.schema() != nullptr ? source.schema()->referenced_ts() : nullptr)},
-              data{checked_from_ref_storage_type(plan.schema)},
-              notifier{*this}
+        RefLinkAlternativeState(const FromRefDescriptor &descriptor,
+                                std::shared_ptr<const FromRefDescriptor> shared_descriptor)
+            : descriptor{descriptor}, shared_descriptor{std::move(shared_descriptor)},
+              data{descriptor.storage_type}, notifier{*this}
         {
-            if (initialise) { rebind(source); }
-            else { this->source = source.handle(); subscribe_source(); }
         }
 
         RefLinkAlternativeState(const RefLinkAlternativeState &) = delete;
@@ -1946,12 +1965,18 @@ namespace hgraph::detail
             unsubscribe_source(false);
         }
 
-        const TSValueTypeMetaData *requested_schema{nullptr};
-        FromRefEndpointPlan        plan{};
-        TSData                     data{};
-        TSOutputHandle             source{};
-        SourceNotifier             notifier;
-        std::vector<TSOutputHandle> reference_sources{};
+        const FromRefDescriptor                 &descriptor;
+        std::shared_ptr<const FromRefDescriptor> shared_descriptor;
+        TSData                                   data{};
+        TSOutputHandle                           source{};
+        SourceNotifier                           notifier;
+        std::vector<TSOutputHandle>              reference_sources{};
+
+        void bind_for_checkpoint(const TSOutputView &new_source)
+        {
+            source = new_source.handle();
+            subscribe_source();
+        }
 
         [[nodiscard]] TSOutputHandle handle(const TSOutput *output) noexcept
         {
@@ -1983,7 +2008,7 @@ namespace hgraph::detail
             source.reset();
             static_cast<void>(fallback_on_exception(false, [&] {
                 auto target = data.view();
-                unbind_from_ref_data(plan, target, release_time, true);
+                unbind_from_ref_data(descriptor.plan, target, release_time, true);
                 return true;
             }));
         }
@@ -1998,10 +2023,10 @@ namespace hgraph::detail
             {
                 const auto value = source_view.value();
                 const auto &reference = value.checked_as<TimeSeriesReference>();
-                restore_from_ref_reference(plan, target, reference, image, time);
+                restore_from_ref_reference(descriptor.plan, target, reference, image, time);
                 collect_forwarding_reference_sources(reference, time, next_reference_sources);
             }
-            else { restore_from_ref_output(plan, target, {}, image); }
+            else { restore_from_ref_output(descriptor.plan, target, {}, image); }
             replace_reference_sources(std::move(next_reference_sources));
         }
 
@@ -2053,13 +2078,13 @@ namespace hgraph::detail
 
         void refresh(DateTime modified_time)
         {
-            if (modified_time == MIN_DT || requested_schema == nullptr || !source.bound()) { return; }
+            if (modified_time == MIN_DT || !source.bound()) { return; }
 
             auto source_view = source.view(modified_time);
             auto target = data.view();
             if (!source_view.valid())
             {
-                unbind_from_ref_data(plan, target, modified_time);
+                unbind_from_ref_data(descriptor.plan, target, modified_time);
                 replace_reference_sources({});
                 return;
             }
@@ -2068,10 +2093,47 @@ namespace hgraph::detail
             const auto &reference = source_value.checked_as<TimeSeriesReference>();
             std::vector<TSOutputHandle> next_reference_sources;
             collect_forwarding_reference_sources(reference, modified_time, next_reference_sources);
-            apply_reference_to_from_ref_data(plan, target, reference, modified_time);
+            apply_reference_to_from_ref_data(descriptor.plan, target, reference, modified_time);
             replace_reference_sources(std::move(next_reference_sources));
         }
     };
+
+    namespace
+    {
+        // Base order keeps the private descriptor alive through endpoint teardown.
+        struct StandaloneRefLinkAlternative final : private FromRefDescriptor,
+                                                    public TSOutputAlternativeStore::RefLinkAlternativeState
+        {
+            StandaloneRefLinkAlternative(const TSValueTypeMetaData &requested, const TSValueTypeMetaData *referenced)
+                : FromRefDescriptor{requested, referenced}, RefLinkAlternativeState{*this, {}}
+            {
+            }
+        };
+
+        using RefLinkAlternativePtr = std::unique_ptr<TSOutputAlternativeStore::RefLinkAlternativeState,
+                                                      TSOutputAlternativeStore::RefLinkAlternativeDelete>;
+
+        [[nodiscard]] RefLinkAlternativePtr make_ref_link_alternative(
+            const TSValueTypeMetaData &requested, const TSOutputView &source, bool initialise)
+        {
+            const auto *referenced = source.schema()->referenced_ts();
+            RefLinkAlternativePtr state;
+            if (const auto *snapshot = active_type_realization())
+            {
+                auto owner = get_from_ref_descriptor(*snapshot, requested, referenced);
+                const auto &descriptor = *owner;
+                state.reset(new TSOutputAlternativeStore::RefLinkAlternativeState{descriptor, std::move(owner)});
+            }
+            else
+            {
+                state.reset(new StandaloneRefLinkAlternative{requested, referenced});
+            }
+            // Own the state before subscribing so partial binding is unwound on failure.
+            if (initialise) { state->rebind(source); }
+            else { state->bind_for_checkpoint(source); }
+            return state;
+        }
+    }
 
     struct TSOutputAlternativeStore::InteriorFromRefAlternativeState final
     {
@@ -2355,7 +2417,8 @@ namespace hgraph::detail
     void TSOutputAlternativeStore::RefLinkAlternativeDelete::operator()(
         RefLinkAlternativeState *p) const noexcept
     {
-        delete p;
+        if (p != nullptr && !p->shared_descriptor) { delete static_cast<StandaloneRefLinkAlternative *>(p); }
+        else { delete p; }
     }
 
     void TSOutputAlternativeStore::InteriorFromRefAlternativeDelete::operator()(
@@ -2406,11 +2469,13 @@ namespace hgraph::detail
             result += input_target_link_dynamic_storage_metrics(view);
         });
         ref_link_alternatives_.for_each([&](const AlternativeKey &, const RefLinkAlternativeState &state) {
-            result.live_bytes += sizeof(RefLinkAlternativeState) +
-                                 state.reference_sources.size() * sizeof(TSOutputHandle);
-            result.reserved_bytes += sizeof(RefLinkAlternativeState) +
-                                     state.reference_sources.capacity() * sizeof(TSOutputHandle);
-            result += from_ref_endpoint_plan_dynamic_storage_metrics(state.plan);
+            const auto state_size = state.shared_descriptor ? sizeof(state) : sizeof(StandaloneRefLinkAlternative);
+            result.live_bytes += state_size + state.reference_sources.size() * sizeof(TSOutputHandle);
+            result.reserved_bytes += state_size + state.reference_sources.capacity() * sizeof(TSOutputHandle);
+            if (!state.shared_descriptor)
+            {
+                result += from_ref_endpoint_plan_dynamic_storage_metrics(state.descriptor.plan);
+            }
             const auto view = state.data.view();
             result += view.dynamic_storage_metrics();
             result += input_target_link_dynamic_storage_metrics(view);
@@ -2528,9 +2593,7 @@ namespace hgraph::detail
             auto *state = ref_link_alternatives_.find(key);
             if (state == nullptr)
             {
-                std::unique_ptr<RefLinkAlternativeState, RefLinkAlternativeDelete> inserted{
-                    new RefLinkAlternativeState(requested_schema, source, false)};
-                state = ref_link_alternatives_.insert(key, std::move(inserted)).first;
+                state = ref_link_alternatives_.insert(key, make_ref_link_alternative(requested_schema, source, false)).first;
             }
             return state->handle(source.output());
         }
@@ -2590,7 +2653,7 @@ namespace hgraph::detail
             std::vector<std::size_t> path;
             if (find_adapter_path(state.handle(key.source_output).data_view(), handle, path))
             {
-                result = TSOutputAlternativeDescriptor{state.source, state.requested_schema, std::move(path)};
+                result = TSOutputAlternativeDescriptor{state.source, key.requested_schema, std::move(path)};
             }
         };
         nullable_alternatives_.for_each(inspect);
@@ -2604,7 +2667,7 @@ namespace hgraph::detail
         const std::function<void(const TSOutputHandle &, const TSOutputAlternativeDescriptor &)> &visitor)
     {
         const auto inspect = [&](const AlternativeKey &key, auto &state) {
-            TSOutputAlternativeDescriptor descriptor{state.source, state.requested_schema, {}};
+            TSOutputAlternativeDescriptor descriptor{state.source, key.requested_schema, {}};
             const auto walk = [&](const auto &self, const TSDataView &data) -> void {
                 visitor(TSOutputHandle{key.source_output, data}, descriptor);
                 if (target_link_storage(data) != nullptr || data.schema()->kind == TSTypeKind::REF) { return; }
@@ -2643,7 +2706,7 @@ namespace hgraph::detail
         std::vector<TSOutputAlternativeCheckpoint> result;
         const auto capture = [&](const AlternativeKey &key, auto &state) {
             if (include_source && !include_source(state.source)) { return; }
-            result.push_back({{state.source, state.requested_schema, {}},
+            result.push_back({{state.source, key.requested_schema, {}},
                               capture_adapter_clocks(state.handle(key.source_output).data_view())});
         };
         to_ref_alternatives_.for_each(capture);
@@ -2711,13 +2774,11 @@ namespace hgraph::detail
         auto *state = ref_link_alternatives_.find(key);
         if (state == nullptr)
         {
-            std::unique_ptr<RefLinkAlternativeState, RefLinkAlternativeDelete> inserted{
-                new RefLinkAlternativeState(requested_schema, source)};
-            state = ref_link_alternatives_.insert(key, std::move(inserted)).first;
+            state = ref_link_alternatives_.insert(key, make_ref_link_alternative(requested_schema, source, true)).first;
         }
         else
         {
-            if (state->requested_schema != &requested_schema)
+            if (state->descriptor.plan.schema.schema() != &requested_schema)
             {
                 throw std::logic_error("TSOutput from-REF alternative cache key resolved to the wrong requested schema");
             }
