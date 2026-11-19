@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -1348,6 +1349,84 @@ TEST_CASE("TSDataPlanFactory: tick TSW stores a fixed cyclic current window")
     REQUIRE(move_window.back().checked_as<MoveAssignableOnlyScalar>().value == 1);
 }
 
+TEST_CASE("duration window expiry retains ordered timestamps and coalesces the owner's later write")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *schema = registry.tsw_duration(registry.register_scalar<std::int32_t>("int32"),
+                                               TimeDelta{3}, MIN_TD);
+    TSData data{TSDataPlanFactory::instance().data_type_for(schema)};
+    auto root = data.view();
+    auto window = root.as_window();
+
+    const auto first = MIN_ST;
+    const auto second = first + MIN_TD;
+    const auto third = first + 2 * MIN_TD;
+    const auto due = first + 5 * MIN_TD;
+    auto original = stdlib::make_list<std::int32_t>({1, 1, 3, 4});
+    const std::array timestamps{first, first, second, third};
+    window.begin_mutation(third).replace_samples(original.view(), timestamps);
+    REQUIRE(window.replaced(third));
+
+    // The oldest sample is still inside the closed interval at age three.
+    REQUIRE_FALSE(window.begin_mutation(first + 3 * MIN_TD).expire());
+    REQUIRE(window.last_modified_time() == third);
+
+    auto observed = [&](DateTime time)
+    {
+        std::vector<std::pair<std::int32_t, DateTime>> samples;
+        const auto times = window.removed_value_times(time);
+        auto ti = times.begin();
+        for (const auto value : window.removed_values(time))
+        {
+            REQUIRE(ti != times.end());
+            samples.emplace_back(value.checked_as<std::int32_t>(), *ti);
+            ++ti;
+        }
+        REQUIRE(ti == times.end());
+        return samples;
+    };
+    const std::vector<std::pair<std::int32_t, DateTime>> expired{{1, first}, {1, first}, {3, second}};
+    REQUIRE(window.begin_mutation(due).expire());
+    REQUIRE_FALSE(window.begin_mutation(due).expire());
+    REQUIRE(window.size() == 1);
+    REQUIRE_FALSE(window.delta_value(due).has_value());
+    REQUIRE(observed(due) == expired);
+    REQUIRE(window.removed_value(due).checked_as<std::int32_t>() == 3);
+
+    SECTION("separate owner append retains the same removals and publishes one arrival")
+    {
+        Value arrival{std::int32_t{5}};
+        auto writer = window.begin_mutation(due);
+        REQUIRE(writer.can_push());
+        writer.push(arrival.view());
+        REQUIRE_FALSE(writer.can_push());
+        REQUIRE(window.size() == 2);
+        REQUIRE(window.delta_value(due).checked_as<std::int32_t>() == 5);
+        REQUIRE(observed(due) == expired);
+        REQUIRE_THROWS_AS(window.begin_mutation(due).push(arrival.view()), std::logic_error);
+    }
+    SECTION("separate owner reset includes the remainder and can append once")
+    {
+        auto owner = window.begin_mutation(due);
+        owner.clear();
+        REQUIRE(window.empty());
+        REQUIRE(window.cleared(due));
+        auto all_removed = expired;
+        all_removed.emplace_back(4, third);
+        REQUIRE(observed(due) == all_removed);
+        Value arrival{std::int32_t{6}};
+        REQUIRE(owner.can_push());
+        owner.push(arrival.view());
+        REQUIRE_FALSE(owner.can_push());
+        REQUIRE(window.cleared(due));
+        REQUIRE(window.delta_value(due).checked_as<std::int32_t>() == 6);
+        REQUIRE(observed(due) == all_removed);
+        REQUIRE_THROWS_AS(window.begin_mutation(due).clear(), std::logic_error);
+    }
+    REQUIRE(observed(due + MIN_TD).empty());
+}
+
 TEST_CASE("TSDataPlanFactory: duration TSW stores a timestamped queue current window")
 {
     using namespace hgraph;
@@ -1479,6 +1558,68 @@ TEST_CASE("TSDataPlanFactory: duration TSW stores a timestamped queue current wi
     REQUIRE(window.capacity() == retained_capacity);
 }
 
+TEST_CASE("window removal storage releases owned payloads on cycle rollover and teardown")
+{
+    using namespace hgraph;
+    using Payload = std::shared_ptr<int>;
+    auto &registry = TypeRegistry::instance();
+    const auto *payload = registry.register_scalar<Payload>("window_removal_lifetime");
+    const auto *schema = registry.tsw_duration(payload, TimeDelta{2});
+    std::array<std::weak_ptr<int>, 2> lifetimes;
+    {
+        TSData data{TSDataPlanFactory::instance().data_type_for(schema)};
+        auto root = data.view();
+        auto window = root.as_window();
+        for (std::size_t i = 0; i < lifetimes.size(); ++i)
+        {
+            auto owner = std::make_shared<int>(17);
+            lifetimes[i] = owner;
+            Value sample{window.layout().element_binding, &owner};
+            window.begin_mutation(MIN_ST + TimeDelta{static_cast<TimeDelta::rep>(i)}).push(sample.view());
+        }
+        SECTION("an expiry followed by a reset promotes the inline removal to an ordered batch")
+        {
+            const auto due = MIN_ST + 3 * MIN_TD;
+            REQUIRE(window.begin_mutation(due).expire());
+            REQUIRE(window.removed_values(due).limit == 1);
+            window.begin_mutation(due).clear();
+            const auto removed = window.removed_values(due);
+            const auto times = window.removed_value_times(due);
+            REQUIRE(removed.limit == 2);
+            REQUIRE(times.limit == 2);
+            auto time = times.begin();
+            std::size_t index = 0;
+            for (const auto value : removed)
+            {
+                CHECK(value.checked_as<Payload>() == lifetimes[index].lock());
+                CHECK(*time++ == MIN_ST + TimeDelta{static_cast<TimeDelta::rep>(index)});
+                ++index;
+            }
+        }
+        SECTION("one expiry removes both samples")
+        {
+            const auto due = MIN_ST + 4 * MIN_TD;
+            REQUIRE(window.begin_mutation(due).expire());
+            REQUIRE(window.empty());
+            REQUIRE_FALSE(lifetimes[0].expired());
+            REQUIRE_FALSE(lifetimes[1].expired());
+
+            SECTION("a later explicit mutation releases the entire removal batch")
+            {
+                REQUIRE_FALSE(window.begin_mutation(due + MIN_TD).expire());
+                REQUIRE(lifetimes[0].expired());
+                REQUIRE(lifetimes[1].expired());
+            }
+            SECTION("a quiet standalone window keeps removals until teardown")
+            {
+                REQUIRE(window.removed_values(due + MIN_TD).limit == 0);
+            }
+        }
+    }
+    REQUIRE(lifetimes[0].expired());
+    REQUIRE(lifetimes[1].expired());
+}
+
 TEST_CASE("TSDataPlanFactory: TSW dynamic storage metrics distinguish live and retained buffers", "[memory]")
 {
     using namespace hgraph;
@@ -1520,6 +1661,12 @@ TEST_CASE("TSDataPlanFactory: TSW dynamic storage metrics distinguish live and r
         CHECK(view.value().dynamic_storage_metrics().live_bytes == 3 * stride);
 
         window.begin_mutation(MIN_ST + TimeDelta{5}).clear();
+        CHECK(window.removed_values(MIN_ST + TimeDelta{5}).limit == 3);
+        const auto removal_bytes = 3 * (sizeof(Value) + sizeof(DateTime));
+        CHECK(view.dynamic_storage_metrics().live_bytes == removal_bytes);
+        CHECK(view.dynamic_storage_metrics().reserved_bytes >= 3 * stride + removal_bytes);
+        // An empty clear on the next cycle releases the multi-removal buffer.
+        window.begin_mutation(MIN_ST + TimeDelta{6}).clear();
         CHECK(view.dynamic_storage_metrics().live_bytes == 0);
         CHECK(view.dynamic_storage_metrics().reserved_bytes == 3 * stride);
     }
@@ -1546,6 +1693,10 @@ TEST_CASE("TSDataPlanFactory: TSW dynamic storage metrics distinguish live and r
 
         Value item{6};
         window.begin_mutation(MIN_ST + TimeDelta{200}).push(item.view());
+        CHECK(window.removed_values(MIN_ST + TimeDelta{200}).limit == 5);
+        CHECK(view.dynamic_storage_metrics().live_bytes > stride);
+        CHECK(view.dynamic_storage_metrics().reserved_bytes > 8 * stride);
+        CHECK_FALSE(window.begin_mutation(MIN_ST + TimeDelta{201}).expire());
         CHECK(view.dynamic_storage_metrics().live_bytes == stride);
         CHECK(view.dynamic_storage_metrics().reserved_bytes == 8 * stride);
 

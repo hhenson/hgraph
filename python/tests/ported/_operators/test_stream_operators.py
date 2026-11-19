@@ -913,6 +913,7 @@ def test_to_window_validity_and_absent_removed_value():
 def test_to_window_delta():
     result = eval_node(to_window[SCALAR:int], [1, 2, 3, 4, 5], 3)
     assert result == [1, 2, 3, 4, 5]
+    assert type(result[0]) is int
 
 
 def test_to_window_delta_min_period():

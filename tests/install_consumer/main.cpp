@@ -560,13 +560,29 @@ int main(int argc, char **argv)
     static_assert(GRAPH_OPS_ABI_VERSION == 10);
     // ABI 6 adds external_start/step/stop for the ExternallyDriven mode.
     static_assert(EXECUTOR_OPS_ABI_VERSION == 7);
-    // ABI 29 adds the list range for invalidated and truncated positions.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 29);
+    // ABI 30 adds window change-set observations and replay.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 30);
     static_assert(VALUE_OPS_ABI_VERSION == 11);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));
     static_assert(std::is_standard_layout_v<PolymorphicValueType>);
     static_assert(!std::is_polymorphic_v<TableTypeOps>);
     static_assert(std::is_standard_layout_v<TableTypeOps>);
+
+    // Exercise the exported expiry and ordered removal views through an installed SDK.
+    {
+        const auto *schema = schema_descriptor<TSWDuration<Int, 2, 0>>::ts_meta();
+        TSOutput owner{schema};
+        auto endpoint = owner.view(MIN_ST);
+        const auto outgoing = endpoint.as_window();
+        outgoing.begin_mutation(MIN_ST).push(Value{Int{41}}.view());
+        const auto due = MIN_ST + 3 * MIN_TD;
+        auto later = owner.view(due);
+        const auto window = later.as_window();
+        if (!window.begin_mutation(due).expire() || window.removed_values().limit != 1 ||
+            (*window.removed_values().begin()).checked_as<Int>() != 41 ||
+            *window.removed_value_times().begin() != MIN_ST)
+            throw std::logic_error("installed duration window did not expose the expired sample");
+    }
 
     const TableTypeOps &empty_table_ops = empty_table_type_ops();
     if (empty_table_ops.describe == nullptr || empty_table_ops.emit == nullptr ||

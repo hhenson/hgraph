@@ -9,7 +9,12 @@
 #include <hgraph/types/time_series/ts_data/ops.h>
 #include <hgraph/types/time_series/ts_type_ref.h>
 
+#include <hgraph/types/value/value.h>
+
 #include <nanobind/nanobind.h>
+
+#include <optional>
+#include <vector>
 
 namespace hgraph
 {
@@ -43,6 +48,10 @@ namespace hgraph
             const TSValueTypeMetaData *schema, nb::handle source);
         [[nodiscard]] HGRAPH_EXPORT Value delta_from_python(
             TSRoleTypeRef type, nb::handle source);
+
+        /** Apply a dense Python replay to a temporary endpoint and capture its canonical deltas. */
+        [[nodiscard]] HGRAPH_EXPORT std::vector<std::optional<Value>> replay_deltas_from_python(
+            const TSValueTypeMetaData &schema, const nb::list &values, DateTime start_time);
 
         /** Apply one non-None Python compute-node result through the output's selected strategy. */
         HGRAPH_EXPORT void apply_python_result(const TSOutputView &output, nb::handle result);

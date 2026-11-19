@@ -227,7 +227,7 @@ namespace hgraph
          * - ``TSS<T>``    — ``Bundle{added: Set<T>, removed: Set<T>}``
          * - ``TSD<K, V>`` — ``Bundle{removed: Set<K>, modified: Map<K, V.delta>}``
          * - ``TSL<T>``    — ``Map<i64, T.delta_value_schema>``
-         * - ``TSW<T>``    — ``T`` (the element added this tick)
+         * - ``TSW<T>``    — ``Bundle{cleared: bool, added: List<T>, removed: List<Sample>, replacement?: List<Sample>}``
          * - ``TSB{f...}`` — ``Bundle{f: f.delta_value_schema...}``
          * - ``REF<T>``    — ``TimeSeriesReference`` (same as
          *                    ``value_schema`` for REFs)
@@ -240,8 +240,8 @@ namespace hgraph
          * time-series — the intent side of the boundary, as against
          * ``delta_value_schema``, which is what an observation produces.
          *
-         * Equal to ``delta_value_schema`` for every kind except ``TSD``,
-         * which adds a third field:
+         * Windows accept a single authored element. Dictionaries additionally
+         * accept strict removals, and composites propagate authored child schemas:
          *
          * - ``TSD<K, V>`` — ``Bundle{removed, modified, removed_strict}``
          *

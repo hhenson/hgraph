@@ -71,6 +71,15 @@ _hgraph\.TimeSeries\.output$:
 # TimeSeries is one native runtime-view class whose collection/window surface
 # dispatches by the schema kind.  Describe the public Python contract rather
 # than leaking nanobind's erased ``object`` return types into editor support.
+_hgraph\.(TimeSeries|OutputView|TimeSeriesOutput)\.window_delta$:
+    @property
+    def window_delta(self) -> dict[str, object] | None:
+        \doc
+
+_hgraph\.(TimeSeries|OutputView|TimeSeriesOutput)\.removed_values$:
+    def removed_values(self) -> list[\1 | object]:
+        \doc
+
 _hgraph\.TimeSeries\.(size|min_size)$:
     @property
     def \1(self) -> int | datetime.timedelta:
@@ -90,7 +99,7 @@ _hgraph\.TimeSeries\.values$:
     def values(self) -> list[TimeSeries | object]:
         \doc
 
-_hgraph\.TimeSeries\.(modified_values|valid_values|added_values|removed_values)$:
+_hgraph\.TimeSeries\.(modified_values|valid_values|added_values)$:
     def \1(self) -> list[TimeSeries]:
         \doc
 
@@ -143,7 +152,7 @@ _hgraph\.OutputView\.values$:
     def values(self) -> list[OutputView | object]:
         \doc
 
-_hgraph\.OutputView\.(modified_values|valid_values|added_values|removed_values)$:
+_hgraph\.OutputView\.(modified_values|valid_values|added_values)$:
     def \1(self) -> list[OutputView]:
         \doc
 
@@ -219,7 +228,7 @@ _hgraph\.TimeSeriesOutput\.values$:
     def values(self) -> list[TimeSeriesOutput | object]:
         \doc
 
-_hgraph\.TimeSeriesOutput\.(modified_values|valid_values|added_values|removed_values)$:
+_hgraph\.TimeSeriesOutput\.(modified_values|valid_values|added_values)$:
     def \1(self) -> list[TimeSeriesOutput]:
         \doc
 

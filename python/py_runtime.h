@@ -9,6 +9,7 @@
 #define HGRAPH_PYTHON_PY_RUNTIME_H
 
 #include "py_carriers.h"
+#include <hgraph/types/time_series/ts_delta.h>
 
 #include <algorithm>
 
@@ -54,6 +55,13 @@ namespace hgraph::python_bridge
             },
         };
         return python_bridge::to_python_buffer(binding.ops_ref(), binding, source);
+    }
+
+    [[nodiscard]] inline nb::list window_removed_values(const TSWDataView &window, DateTime now)
+    {
+        nb::list result;
+        for (const auto &value : window.removed_values(now)) { result.append(value_to_py(value)); }
+        return result;
     }
 
     /**
@@ -574,7 +582,9 @@ namespace hgraph::python_bridge
 
         [[nodiscard]] bool can_apply_result(nb::handle result) const
         {
-            return result.is_none() || !checked().modified();
+            const auto view = checked();
+            if (result.is_none() || !view.modified()) { return true; }
+            return view.schema()->kind == TSTypeKind::TSW && view.as_window().begin_mutation(now).can_push();
         }
 
         [[nodiscard]] PyOutput child(nb::handle key) const
@@ -665,6 +675,27 @@ namespace hgraph::python_bridge
                 nb::borrow<nb::object>(key));
             static_cast<void>(dict.begin_mutation(now).erase(key_value.view()));
             return nb::cast(std::move(removed));
+        }
+
+        [[nodiscard]] bool expire() const
+        {
+            auto view = checked();
+            if (view.schema()->kind != TSTypeKind::TSW) { throw nb::type_error("expire requires a window output"); }
+            return view.as_window().begin_mutation(now).expire();
+        }
+
+        void replace_samples(nb::iterable samples, std::optional<std::vector<DateTime>> times) const
+        {
+            auto view = checked();
+            if (view.schema()->kind != TSTypeKind::TSW)
+                throw nb::type_error("replace_samples requires a window output");
+            auto window = view.as_window();
+            const auto element = window.data_view().layout().element_binding;
+            ListBuilder values{element};
+            for (nb::handle sample : samples) { values.push_back(py_to_value_as(sample, element.schema())); }
+            const auto retained = values.build();
+            if (!times) { times.emplace(retained.as_indexed_view().size(), now); }
+            window.begin_mutation(now).replace_samples(retained.view(), *times);
         }
 
         void clear() const
@@ -1084,6 +1115,10 @@ namespace hgraph::python_bridge
         {
             nb::list result;
             auto view = checked();
+            if (view.schema()->kind == TSTypeKind::TSW)
+            {
+                return window_removed_values(view.as_window().data_view(), now);
+            }
             if (is_list())
             {
                 auto list = view.as_list();
@@ -1261,6 +1296,13 @@ namespace hgraph::python_bridge
             return window.first_modified_time();
         }
 
+        [[nodiscard]] nb::object window_delta() const
+        {
+            auto view = checked();
+            if (view.schema()->kind != TSTypeKind::TSW) { throw nb::attribute_error("window_delta"); }
+            return value_to_py(view.as_window().window_delta().view());
+        }
+
         [[nodiscard]] bool has_removed_value() const
         {
             auto view   = checked();
@@ -1335,6 +1377,7 @@ namespace hgraph::python_bridge
         {
             return output.first_modified_time();
         }
+        [[nodiscard]] nb::object window_delta() const { return output.window_delta(); }
         [[nodiscard]] bool has_removed_value() const
         {
             return output.has_removed_value();
@@ -2342,6 +2385,11 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::list removed_values() const
         {
             nb::list result;
+            const auto &ts = checked();
+            if (ts.schema()->kind == TSTypeKind::TSW)
+            {
+                return window_removed_values(ts.as_window().data_view(), ts.evaluation_time());
+            }
             if (is_list())
             {
                 auto list = checked().as_list();
@@ -2473,6 +2521,13 @@ namespace hgraph::python_bridge
                 throw nb::attribute_error("first_modified_time");
             }
             return ts.as_window().first_modified_time();
+        }
+
+        [[nodiscard]] nb::object window_delta() const
+        {
+            const auto &ts = checked();
+            if (ts.schema()->kind != TSTypeKind::TSW) { throw nb::attribute_error("window_delta"); }
+            return value_to_py(ts.as_window().window_delta().view());
         }
 
         [[nodiscard]] bool has_removed_value() const

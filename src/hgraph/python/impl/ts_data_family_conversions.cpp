@@ -181,9 +181,8 @@ namespace hgraph::python_bridge
                 return newly_modified;
             }
 
-            if (!newly_modified) { throw std::logic_error("TSW from_python allows only one window tick per evaluation time"); }
             ts_data_seams::window_push(context, memory, modified_time, &fill_element_from_handle, &source);
-            return true;
+            return newly_modified;
         }
 
         [[nodiscard]] const void *window_buffer_element_at(const void *owner, std::size_t index)

@@ -1361,7 +1361,13 @@ namespace hgraph
             const auto *state      = static_cast<const InputBindingContext *>(context);
             const auto  child_type = state->children[index].input_type;
             const auto *child_data = input_element_storage_memory(context, memory, index);
-            return TSDataView{child_type, child_data}.delta_value(input_tracking(context, memory)->last_modified_time);
+            const auto now = input_tracking(context, memory)->last_modified_time;
+            if (child_type.schema()->kind == TSTypeKind::TSW)
+            {
+                const auto &ops = static_cast<const TSWDataOps &>(child_type.ops_ref());
+                return ops.change_view_impl(ops.context, child_data, now, false);
+            }
+            return TSDataView{child_type, child_data}.delta_value(now);
         }
 
         [[nodiscard]] std::size_t input_view_hash(ValueView view)

@@ -8,6 +8,8 @@ Define them here once; every other module re-exports."""
 
 from functools import lru_cache
 
+import numpy as np
+
 import _hgraph
 
 
@@ -148,6 +150,16 @@ def _simplify_delta(value, ts_type):
     """Present a native delta using the declared time-series type at each position."""
     if not isinstance(value, dict):
         return value
+    if ts_type.kind == _hgraph.TS_KIND_TSW:
+        # eval_node historically returns the arriving sample. Raw recordings and
+        # window_delta retain the complete change, including departure-only ticks.
+        replacement = value.get("replacement")
+        if replacement is not None and len(replacement):
+            return replacement[-1]["value"]
+        if not len(value["added"]):
+            return None
+        arrival = value["added"][0]
+        return arrival.item() if isinstance(arrival, np.generic) else arrival
     if ts_type.is_tsl:
         child = _hgraph.tsl_element_ts(ts_type)
         modified = {i: _simplify_delta(v, child) for i, v in value["modified"].items()}

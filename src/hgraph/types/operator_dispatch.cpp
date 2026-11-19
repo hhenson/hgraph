@@ -556,6 +556,7 @@ namespace hgraph
                         synthesised.scalar_value = *impl.params[p].default_value;
                         synthesised.scalar_meta  = synthesised.scalar_value.schema();
                     }
+                    synthesised.from_default = true;
                     filled[p] = std::move(synthesised);
                     ++out.defaults_used;
                     continue;
@@ -567,6 +568,7 @@ namespace hgraph
                     WiringArg synthesised;
                     synthesised.kind        = WiringArg::Kind::Scalar;
                     synthesised.scalar_meta = scalar_descriptor<TypeCarrier>::value_meta();
+                    synthesised.from_default = true;
                     filled[p] = std::move(synthesised);
                     ++out.defaults_used;
                     continue;

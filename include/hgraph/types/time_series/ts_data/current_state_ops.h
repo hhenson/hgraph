@@ -79,9 +79,9 @@ namespace hgraph
          * silent: its link holds the removals for every key it had published
          * (``linking_strategies.rst``, keyed structural unbind), and
          * ``delta_is_observable_impl`` already says so. Every other kind has
-         * no value to capture once invalid, and the window policy's capture
-         * throws outright on a removal-only tick, so a container walking its
-         * children must ask before it captures.
+         * no value to capture once invalid. A window that clears or evicts
+         * its last sample stays valid. Containers consult this policy before
+         * capturing an invalid child.
          *
          * Lives here rather than as a ``TSTypeKind`` switch at each caller:
          * the answer is a property of the representation (CLAUDE.md 3(ii)).

@@ -78,7 +78,7 @@ namespace hgraph
     //
     // The per-cycle delta of any time-series is the canonical ``Value`` whose schema
     // is the runtime ``delta_value_schema`` (``TS<T>`` / ``SIGNAL`` /
-    // ``TSW<T,...>`` -> scalar; ``TSS<T>`` ->
+    // ``TSW<T,...>`` -> window change set; ``TSS<T>`` ->
     // ``Bundle{added: Set<T>, removed: Set<T>}``; ``TSD<K,V>`` ->
     // ``Bundle{removed: Set<K>, modified: Map<K, delta(V)>}``; fixed ``TSL<C,N>`` ->
     // ``Map<int, delta(C)>``; unbounded ``TSL<C>`` ->
@@ -96,27 +96,17 @@ namespace hgraph
         /** True when a schema's delta input is a scalar value rather than a child ``Value``. */
         template <typename S> struct is_scalar_ts : std::false_type {};
         template <typename V> struct is_scalar_ts<TS<V>> : std::true_type {};
-        template <typename V, std::size_t P, std::size_t M> struct is_scalar_ts<TSW<V, P, M>> : std::true_type {};
-        template <typename V, std::int64_t P, std::int64_t M> struct is_scalar_ts<TSWDuration<V, P, M>> : std::true_type
-        {};
+
         template <> struct is_scalar_ts<SIGNAL> : std::true_type
         {};
 
         /** The user-supplied per-entry delta input for child schema ``C``: the bare
-         *  scalar for ``TS`` / ``SIGNAL`` / ``TSW``, otherwise a prebuilt child-delta
+         *  scalar for ``TS`` / ``SIGNAL``, otherwise a prebuilt child-delta
          *  ``Value``. */
         template <typename C> struct delta_input { using type = Value; };
         template <typename V> struct delta_input<TS<V>> { using type = V; };
         template <typename V> struct delta_input<TS<SeriesOf<V>>> { using type = Series; };
         template <typename V, typename M> struct delta_input<TS<FrameOf<V, M>>> { using type = Frame; };
-        template <typename V, std::size_t P, std::size_t M> struct delta_input<TSW<V, P, M>>
-        {
-            using type = V;
-        };
-        template <typename V, std::int64_t P, std::int64_t M> struct delta_input<TSWDuration<V, P, M>>
-        {
-            using type = V;
-        };
         template <> struct delta_input<SIGNAL> { using type = bool; };
         template <typename C> using delta_input_t = typename delta_input<C>::type;
 
@@ -203,6 +193,36 @@ namespace hgraph
         const auto binding = ValuePlanFactory::instance().type_for(delta_value_schema<S>());
         if (!binding) { throw std::logic_error("delta_value_binding: unresolved delta schema"); }
         return binding;
+    }
+
+    /** Build a portable window change set. The period and minimum affect
+        window membership, but the delta schema depends only on the element. */
+    template <typename T>
+    [[nodiscard]] Value window_delta(std::optional<T> added,
+                                     const std::vector<std::pair<T, DateTime>> &removed = {},
+                                     bool cleared = false)
+    {
+        BundleBuilder delta{delta_value_binding<TSW<T, 1, 1>>()};
+        delta.set(0, Value{cleared});
+        const auto added_type = delta.field_binding(1);
+        ListBuilder arrival{compact_element_binding(added_type)};
+        if (added) { arrival.push_back(Value{*added}); }
+        auto added_storage = arrival.build_storage();
+        delta.set(1, ValueView{added_type, &added_storage});
+
+        const auto removed_type = delta.field_binding(2);
+        const auto sample_type = compact_element_binding(removed_type);
+        ListBuilder departures{sample_type};
+        for (const auto &[value, time] : removed)
+        {
+            BundleBuilder sample{sample_type};
+            sample.set(0, Value{value});
+            sample.set(1, Value{time});
+            departures.push_back(sample.build());
+        }
+        auto removed_storage = departures.build_storage();
+        delta.set(2, ValueView{removed_type, &removed_storage});
+        return delta.build();
     }
 
     /**
@@ -1860,7 +1880,7 @@ namespace hgraph
 
         void clear() const { TSWOutputView::begin_mutation(evaluation_time()).clear(); }
 
-        void apply(const ValueView &value) const { TSWOutputView::begin_mutation(evaluation_time()).push(value); }
+        void apply(const ValueView &value) const { apply_delta(base(), value); }
     };
 
     template <typename TValue, std::int64_t PeriodMicros, std::int64_t MinPeriodMicros>
@@ -1881,7 +1901,7 @@ namespace hgraph
 
         void clear() const { TSWOutputView::begin_mutation(evaluation_time()).clear(); }
 
-        void apply(const ValueView &value) const { TSWOutputView::begin_mutation(evaluation_time()).push(value); }
+        void apply(const ValueView &value) const { apply_delta(base(), value); }
     };
 
     /**

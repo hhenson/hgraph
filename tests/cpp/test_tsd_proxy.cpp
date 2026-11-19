@@ -1552,7 +1552,11 @@ TEST_CASE("TSDProxy non-atomic maps project child value and delta storage")
     const auto *modified_indexed = modified_ops->value_at_index(modified_ops->context, modified.data(), 0);
     REQUIRE(modified_keyed != nullptr);
     REQUIRE(modified_indexed == modified_keyed);
-    REQUIRE(ValueView{modified_type, modified_keyed}.checked_as<std::int32_t>() == 7);
+    const auto change = ValueView{modified_type, modified_keyed}.as_bundle();
+    REQUIRE_FALSE(change.at("cleared").checked_as<bool>());
+    REQUIRE(change.at("added").as_indexed_view().size() == 1);
+    REQUIRE(change.at("added").as_indexed_view().at(0).checked_as<std::int32_t>() == 7);
+    REQUIRE(change.at("removed").as_indexed_view().size() == 0);
     auto modified_values = modified_ops->make_values_range(modified_ops->context, modified.data());
     auto modified_projected = *modified_values.begin();
     REQUIRE(modified_projected.binding() == modified_type);

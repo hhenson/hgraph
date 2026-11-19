@@ -16,7 +16,7 @@ namespace hgraph
     struct TSParentLink;
 
     // 28: sparse range return layout and bounded dictionary modified cursor.
-    inline constexpr std::uint16_t TS_DATA_OPS_ABI_VERSION = 29;
+    inline constexpr std::uint16_t TS_DATA_OPS_ABI_VERSION = 30;
 
     class HGRAPH_CLASS_EXPORT TSRoleTypeRef
     {

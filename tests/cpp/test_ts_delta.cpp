@@ -22,6 +22,7 @@
 #include <hgraph/types/utils/counted_mutex.h>
 #include <hgraph/types/utils/key_slot_store.h>
 #include <hgraph/types/value/value_builder.h>
+#include <hgraph/types/value/binary_codec.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -1063,71 +1064,118 @@ TEST_CASE("ts_delta: capture_current_delta includes unchanged scalar and collect
        tsb_delta<QuoteWithSet>(set_delta<Int>({1, 2}, {}), 6)});
 }
 
-TEST_CASE("ts_delta: capture/apply round-trip a TSW scalar push delta") {
-  (void)TypeRegistry::instance().register_scalar<Int>("int");
-  const std::vector<std::optional<Value>> deltas{Value{Int{1}}, Value{Int{2}},
-                                                 Value{Int{3}}};
-
-  auto rt = run_graph<RoundTripGraph<TSW<Int, 3, 1>>>(
-      [&](const GlobalStateView &gs) { set_replay_deltas(gs, "in", deltas); });
+TEST_CASE("ts_delta: legacy window arrivals capture as canonical deltas") {
+  const std::vector<std::optional<Value>> samples{Value{Int{1}}, Value{Int{2}}, Value{Int{3}}};
+  auto rt = run_graph<RoundTripGraph<TSW<Int, 2, 1>>>(
+      [&](const GlobalStateView &gs) { set_replay_deltas(gs, "in", samples); });
   CHECK_OUTPUT(get_recorded_deltas(rt.view().graph().global_state(), "out"),
-               {Value{Int{1}}, Value{Int{2}}, Value{Int{3}}});
+               {window_delta<Int>(1), window_delta<Int>(2), window_delta<Int>(3, {{1, MIN_ST}})});
 }
 
-TEST_CASE("ts_delta: legacy TSW delta capture rejects a clear-only tick") {
-  (void)TypeRegistry::instance().register_scalar<Int>("int");
-  const auto *schema = schema_descriptor<TSW<Int, 3, 1>>::ts_meta();
-  TSOutput output{schema};
-  TSInput input{TSInputBuilderFactory::checked_builder_for(
-      *schema, TSEndpointSchema::peered(schema))};
-
-  const auto t1 = MIN_ST;
-  const auto t2 = t1 + MIN_TD;
-  input.view(nullptr, t1).bind_output(output.view(t1));
-
+TEST_CASE("ts_delta: clear and mixed window edits survive codec and delayed apply") {
+  const auto *schema = schema_descriptor<TSWDuration<Int, 2, 0>>::ts_meta();
+  TSOutput source{schema}, target{schema};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+  input.view(nullptr, MIN_ST).bind_output(source.view(MIN_ST));
+  auto replay = [&](Int offset, const Value &expected) {
+    const auto time = MIN_ST + offset * MIN_TD;
+    const auto captured = capture_delta(input.view(nullptr, time));
+    REQUIRE(captured.equals(expected));
+    const auto decoded = from_binary_string(schema->delta_value_schema, to_binary_string(captured.view()));
+    const auto later = time + 100 * MIN_TD;
+    apply_delta(target.view(later), decoded.view());
+    auto data = target.data_view();
+    CHECK(capture_window_delta(data.as_window(), later).equals(expected));
+  };
+  auto data = source.data_view();
+  auto window = data.as_window();
+  window.begin_mutation(MIN_ST).push(Value{Int{10}}.view());
+  replay(0, window_delta<Int>(10));
+  window.begin_mutation(MIN_ST + MIN_TD).push(Value{Int{20}}.view());
+  replay(1, window_delta<Int>(20));
   {
-    auto data = output.data_view();
-    auto window = data.as_window();
-    auto mutation = window.begin_mutation(t1);
-    Value one{Int{1}};
-    mutation.push(one.view());
+    auto mutate = window.begin_mutation(MIN_ST + 2 * MIN_TD);
+    mutate.clear();
+    mutate.push(Value{Int{30}}.view());
   }
-  {
-    auto data = output.data_view();
-    auto window = data.as_window();
-    auto mutation = window.begin_mutation(t2);
-    mutation.clear();
-  }
-
-  auto cleared = input.view(nullptr, t2);
-  REQUIRE(cleared.modified());
-  REQUIRE_FALSE(cleared.delta_value().has_value());
-  REQUIRE_THROWS_AS(capture_delta(cleared), std::logic_error);
+  replay(2, window_delta<Int>(30, {{10, MIN_ST}, {20, MIN_ST + MIN_TD}}, true));
+  window.begin_mutation(MIN_ST + 3 * MIN_TD).clear();
+  replay(3, window_delta<Int>(std::nullopt, {{30, MIN_ST + 2 * MIN_TD}}, true));
+  window.begin_mutation(MIN_ST + 4 * MIN_TD).clear();
+  replay(4, window_delta<Int>(std::nullopt, {}, true));
 }
 
-TEST_CASE("ts_delta: legacy TSW delta capture rejects clear followed by push") {
-  (void)TypeRegistry::instance().register_scalar<Int>("int");
-  const auto *schema = schema_descriptor<TSW<Int, 3, 1>>::ts_meta();
-  TSOutput output{schema};
-  TSInput input{TSInputBuilderFactory::checked_builder_for(
-      *schema, TSEndpointSchema::peered(schema))};
+TEST_CASE("ts_delta: whole-window snapshots retain repeated timestamps and empty replacement") {
+  const auto *schema = schema_descriptor<TSWDuration<Int, 3, 0>>::ts_meta();
+  TSOutput source{schema}, target{schema};
+  auto source_data = source.data_view();
+  auto window = source_data.as_window();
+  const auto apply_snapshot = [&](const std::vector<Int> &samples, Int offset) {
+    ListBuilder list{ValuePlanFactory::instance().type_for(schema->value_type)};
+    for (const Int sample : samples) { list.push_back(sample); }
+    const std::vector<DateTime> times(samples.size(), MIN_ST);
+    const auto time = MIN_ST + offset * MIN_TD;
+    window.begin_mutation(time).replace_samples(list.build().view(), times);
+    const auto delta = capture_window_delta(window, time);
+    const auto fields = delta.view().as_bundle();
+    REQUIRE(fields.at(3).has_value());
+    CHECK(fields.at(3).as_indexed_view().size() == samples.size());
+    CHECK(fields.at(1).as_indexed_view().size() == 0);
+    const auto decoded = from_binary_string(schema->delta_value_schema, to_binary_string(delta.view()));
+    const auto later = time + 10 * MIN_TD;
+    apply_delta(target.view(later), decoded.view());
+    auto target_data = target.data_view();
+    auto result = target_data.as_window();
+    REQUIRE(result.size() == samples.size());
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+      CHECK(result.at(i).checked_as<Int>() == samples[i]);
+      CHECK(result.time_at(i) == MIN_ST);
+    }
+    CHECK(capture_window_delta(result, later).equals(delta));
+  };
+  apply_snapshot({8, 13}, 1);
+  apply_snapshot({}, 2);
+}
 
-  const auto t1 = MIN_ST;
-  input.view(nullptr, t1).bind_output(output.view(t1));
+TEST_CASE("ts_delta: a window-shaped sample remains one authored arrival") {
+  // A window can hold values whose type is itself a window change set.
+  // The declared element schema, not the presence of fields, selects the interpretation.
+  const auto sample = window_delta<Int>(7);
+  const auto *schema = TypeRegistry::instance().tsw(sample.schema(), 2, 1);
+  TSOutput target{schema};
+  apply_delta(target.view(MIN_ST), sample.view());
+  auto data = target.data_view();
+  auto window = data.as_window();
+  REQUIRE(window.size() == 1);
+  CHECK(window.front().equals(sample.view()));
+  const auto change = capture_window_delta(window, MIN_ST);
+  const auto added = change.view().as_bundle().field("added").as_indexed_view();
+  REQUIRE(added.size() == 1);
+  CHECK(added.at(0).equals(sample.view()));
+}
 
-  {
-    auto data = output.data_view();
-    auto window = data.as_window();
-    auto mutation = window.begin_mutation(t1);
-    Value one{Int{1}};
-    mutation.clear();
-    mutation.push(one.view());
-  }
+TEST_CASE("ts_delta: reconciling held window history keeps source times") {
+  const auto *schema = schema_descriptor<TSW<Int, 2, 1>>::ts_meta();
+  TSOutput source{schema}, target{schema};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+  input.view(nullptr, MIN_ST).bind_output(source.view(MIN_ST));
+  auto data = source.data_view();
+  auto window = data.as_window();
+  window.begin_mutation(MIN_ST).push(Value{Int{5}}.view());
+  const auto sampled = MIN_ST + 5 * MIN_TD;
+  reconcile_current_state(target.view(sampled), input.view(nullptr, sampled));
+  auto output = target.data_view();
+  auto result = output.as_window();
+  REQUIRE(result.size() == 1);
+  CHECK(result.time_at(0) == MIN_ST);
 
-  auto reset_and_pushed = input.view(nullptr, t1);
-  REQUIRE(reset_and_pushed.modified());
-  REQUIRE(reset_and_pushed.delta_value().checked_as<Int>() == 1);
-  REQUIRE_THROWS_AS(capture_delta(reset_and_pushed), std::logic_error);
+  const auto next = sampled + MIN_TD;
+  auto edit = window.begin_mutation(next);
+  edit.clear();
+  edit.push(Value{Int{5}}.view());
+  // Same scalar contents, different observation time.
+  reconcile_current_state(target.view(next), data);
+  CHECK(result.time_at(0) == next);
 }
 
 TEST_CASE("ts_delta: capture/apply round-trip a SIGNAL tick delta") {

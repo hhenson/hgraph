@@ -1484,7 +1484,9 @@ namespace hgraph::python_bridge
              nb::arg("sizes") = nb::none(), nb::arg("initial_resolution").none() = nb::none(),
              nb::arg("node_label") = nb::none())
         .def("set_replay", &PyWiring::set_replay, nb::arg("key"), nb::arg("values"),
-             nb::arg("ts_type") = nb::none())
+             nb::arg("ts_type") = nb::none(), nb::arg("start_time") = MIN_ST,
+             "Seed input samples one tick apart. start_time dates the first authored sample "
+             "and any timestamped window removals derived from the sequence.")
         .def("feedback", &PyWiring::feedback, nb::arg("ts_type"), nb::arg("initial") = nb::none())
         .def("feedback_bind", &PyWiring::feedback_bind, nb::arg("feedback"), nb::arg("port"))
         .def("delayed_binding", &PyWiring::delayed_binding, nb::arg("ts_type"))

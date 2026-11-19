@@ -2485,9 +2485,15 @@ namespace hgraph
 
             case TSTypeKind::TSW:
             {
-                const size_t length     = meta.is_duration_based() ? 0 : meta.period();
-                meta.value_schema       = list(meta.value_type, length);
-                meta.delta_value_schema = meta.value_type;
+                const size_t length = meta.is_duration_based() ? 0 : meta.period();
+                meta.value_schema = list(meta.value_type, length);
+                const auto *removed_sample = un_named_bundle({
+                    {"value", meta.value_type}, {"time", register_scalar<DateTime>("datetime")}});
+                meta.delta_value_schema = un_named_bundle({
+                    {"cleared", register_scalar<bool>("bool")},
+                    {"added", list(meta.value_type)}, {"removed", list(removed_sample)},
+                    {"replacement", list(removed_sample)}});
+                meta.authored_delta_schema = meta.value_type;
                 break;
             }
 
@@ -2595,8 +2601,7 @@ namespace hgraph
 
         }
 
-        // Only TSD distinguishes the two directions; for every other kind an
-        // authored delta and an observed one have the same shape.
+        // Reuse the observed schema when this kind has no separate authored form.
         if (meta.authored_delta_schema == nullptr) { meta.authored_delta_schema = meta.delta_value_schema; }
     }
 

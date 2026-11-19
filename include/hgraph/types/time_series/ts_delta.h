@@ -2,11 +2,13 @@
 #define HGRAPH_TYPES_TIME_SERIES_TS_DELTA_H
 
 #include <hgraph/hgraph_export.h>
+#include <hgraph/util/date_time.h>
 #include <hgraph/types/time_series/ts_data/current_state_ops.h>
 
 namespace hgraph
 {
     class TSDataView;
+    class TSWDataView;
     class TSInputView;
     class TSOutputView;
     struct TSValueTypeMetaData;
@@ -29,7 +31,7 @@ namespace hgraph
      * output ticks from such a canonical delta ``Value``.
      *
      * The canonical per-kind delta shape (``type_registry.cpp``):
-     *   ``TS<T>`` / ``SIGNAL`` / ``TSW<T>`` -> scalar; ``TSS<T>`` ->
+     *   ``TS<T>`` / ``SIGNAL`` -> scalar; ``TSW<T>`` -> ``Bundle{cleared, added, removed, replacement?}``; ``TSS<T>`` ->
      *   ``Bundle{added: Set<T>, removed: Set<T>}``; ``TSD<K,V>`` ->
      *   ``Bundle{removed: Set<K>, modified: Map<K, delta(V)>}``;
      *   ``TSL<C,N>`` and ``TSL<C>`` -> ``Bundle{removed: Set<int>, modified:
@@ -41,6 +43,9 @@ namespace hgraph
      * reference-binding surface rather than ordinary value replay.
      */
     [[nodiscard]] HGRAPH_EXPORT Value capture_delta(const TSInputView &in);
+
+    /** Capture the same portable change set directly from owned or bound window storage. */
+    [[nodiscard]] HGRAPH_EXPORT Value capture_window_delta(const TSWDataView &window, DateTime evaluation_time);
 
     /** Accepts or rejects one key of a TSD while its delta is captured. */
     using DeltaKeySelector = bool (*)(const void *context, const ValueView &key);
@@ -73,6 +78,11 @@ namespace hgraph
         events, while excluding scheduling-only empty structural deltas. */
     [[nodiscard]] HGRAPH_EXPORT bool delta_is_observable(
         const TSInputView &in, const ValueView &delta);
+
+    /** Validate the portable window change set before mutating a destination.
+        An arrival is represented by a zero-or-one list. Each removal owns its
+        value and original evaluation time, in oldest-first order. */
+    HGRAPH_EXPORT void validate_window_delta(const TSValueTypeMetaData &schema, const ValueView &delta);
 
     HGRAPH_EXPORT void apply_delta(const TSOutputView &out, const ValueView &delta);
 

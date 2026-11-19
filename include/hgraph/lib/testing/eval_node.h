@@ -80,7 +80,8 @@ namespace hgraph::testing
     template <typename S>
     struct ts_harness
     {
-        using element                       = typename harness_element<S>::type;
+        using element = typename harness_element<S>::type;
+        using recorded_element = element;
         static constexpr bool is_scalar     = static_node_detail::is_scalar_ts<S>::value;
 
         // Source: the output type is supplied explicitly (S), giving a typed Port<S>.
@@ -116,6 +117,7 @@ namespace hgraph::testing
     struct bundle_ts_harness
     {
         using element = Value;
+        using recorded_element = Value;
 
         static auto wire_replay(Wiring &w, const std::string &key)
         {
@@ -140,6 +142,23 @@ namespace hgraph::testing
             return get_recorded_deltas(gs, key, DenseBufferLayout::Typed);
         }
     };
+
+    // Authored samples still accept plain T; recording includes every window
+    // change, including a clear or removal without an arrival.
+    template <typename S, typename T> struct window_ts_harness : bundle_ts_harness<S>
+    {
+        using element = T;
+        using bundle_ts_harness<S>::seed;
+        static void seed(const GlobalStateView &gs, std::string_view key, const std::vector<std::optional<T>> &samples)
+        {
+            set_replay_values<T>(gs, key, samples);
+        }
+    };
+
+    template <typename T, std::size_t N, std::size_t M>
+    struct ts_harness<TSW<T, N, M>> : window_ts_harness<TSW<T, N, M>, T> {};
+    template <typename T, std::int64_t N, std::int64_t M>
+    struct ts_harness<TSWDuration<T, N, M>> : window_ts_harness<TSWDuration<T, N, M>, T> {};
 
     template <> struct ts_harness<TS<AnyValue>> : bundle_ts_harness<TS<AnyValue>>
     {};
@@ -286,7 +305,7 @@ namespace hgraph::testing
             using out_port = std::remove_cvref_t<typename StaticGraphSignature<GraphT>::output_type>;
             using schema   = typename port_schema_or_void<out_port>::type;
             using type     = std::conditional_t<std::is_void_v<schema>, Value,
-                                                typename ts_harness<schema>::element>;
+                                                typename ts_harness<schema>::recorded_element>;
         };
 
         // ``first_input_element_t`` / ``output_element_t`` appear in the *signature* of the
@@ -324,7 +343,7 @@ namespace hgraph::testing
         template <typename NodeT>
         struct output_element_lazy<NodeT, true>
         {
-            using type = typename ts_harness<output_schema_t<NodeT>>::element;
+            using type = typename ts_harness<output_schema_t<NodeT>>::recorded_element;
         };
 
         // Per-cycle harness element of the first input / the output (T, SetDelta<T>, ...).

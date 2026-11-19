@@ -1,6 +1,8 @@
 #include <hgraph/types/time_series/ts_input/window_view.h>
 
 #include <hgraph/types/time_series/ts_input/view_common.h>
+#include <hgraph/types/time_series/ts_delta.h>
+#include <hgraph/types/value/value.h>
 
 #include <stdexcept>
 #include <string>
@@ -49,6 +51,18 @@ namespace hgraph
     ValueView TSWInputView::removed_value() const
     {
         return data_view().removed_value(view_.evaluation_time());
+    }
+    Value TSWInputView::window_delta() const
+    {
+        return view_.modified() ? capture_delta(view_) : Value{};
+    }
+    Range<ValueView> TSWInputView::removed_values() const
+    {
+        return data_view().removed_values(view_.evaluation_time());
+    }
+    Range<DateTime> TSWInputView::removed_value_times() const
+    {
+        return data_view().removed_value_times(view_.evaluation_time());
     }
     DateTime TSWInputView::first_modified_time() const { return data_view().first_modified_time(); }
     DateTime TSWInputView::time_at(std::size_t index) const { return data_view().time_at(index); }

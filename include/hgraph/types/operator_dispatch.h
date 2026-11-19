@@ -78,6 +78,7 @@ namespace hgraph
         Value                    scalar_value{};         ///< ``Scalar``: the owned, self-describing value.
         const ValueTypeMetaData *scalar_meta{nullptr};   ///< ``Scalar``: its interned value schema.
         bool                     from_variadic_tail{false};  ///< TimeSeries: structural TSL packed from VarIn.
+        bool                     from_default{false};  ///< The dispatcher supplied this parameter default.
         /** Keyword-argument name (``arg<"name">(…)``); empty = positional. */
         std::string              name{};
     };

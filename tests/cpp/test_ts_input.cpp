@@ -1173,6 +1173,52 @@ TEST_CASE("TSInput data views project non-peered prefixes")
     REQUIRE(second_child.schema() == ts_int);
 }
 
+TEST_CASE("TSInput assembled bundle projects window arrivals, sampled history and clears")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *window = registry.tsw(registry.register_scalar<std::int32_t>("int32"), 2, 1);
+    const auto *bundle = registry.tsb("TSInputWindowChanges", {{"window", window}});
+    const auto annotation = TSEndpointSchema::non_peered(bundle, {TSEndpointSchema::peered(window)});
+    TSOutput source{window};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*bundle, annotation)};
+    const auto now = MIN_ST;
+    auto producer = source.view(now);
+    Value first{std::int32_t{7}};
+    producer.as_window().begin_mutation(now).push(first.view());
+
+    auto assembled = input.view(nullptr, now);
+    auto assembled_bundle = assembled.as_bundle();
+    assembled_bundle.field("window").bind_output(producer);
+    Value original{assembled.delta_value()};
+    auto change = original.view().as_bundle().at("window").as_bundle();
+    REQUIRE(change.at("added").as_indexed_view().at(0).checked_as<std::int32_t>() == 7);
+    REQUIRE(change.at("removed").as_indexed_view().size() == 0);
+
+    // A newly bound consumer samples the held window with the producer's original clock.
+    TSInput sampled{TSInputBuilderFactory::checked_builder_for(*bundle, annotation)};
+    const auto later = now + MIN_TD;
+    auto held = sampled.view(nullptr, later);
+    auto sampled_bundle = held.as_bundle();
+    sampled_bundle.field("window").bind_output_sampled(source.view(later), later);
+    Value snapshot{held.delta_value()};
+    auto replacement = snapshot.view().as_bundle().at("window").as_bundle().at("replacement").as_indexed_view();
+    REQUIRE(replacement.size() == 1);
+    REQUIRE(replacement.at(0).as_bundle().at("time").checked_as<DateTime>() == now);
+
+    // A clear on that same cycle supersedes the sampled snapshot.
+    auto at_clear = source.view(later);
+    at_clear.as_window().begin_mutation(later).clear();
+    Value cleared{held.delta_value()};
+    auto departure = cleared.view().as_bundle().at("window").as_bundle();
+    REQUIRE(departure.at("cleared").checked_as<bool>());
+    REQUIRE_FALSE(departure.at("replacement").has_value());
+    REQUIRE(departure.at("added").as_indexed_view().size() == 0);
+    auto removed = departure.at("removed").as_indexed_view().at(0).as_bundle();
+    REQUIRE(removed.at("value").checked_as<std::int32_t>() == 7);
+    REQUIRE(removed.at("time").checked_as<DateTime>() == now);
+}
+
 TEST_CASE("TSInput projected bundle snapshots own canonical storage and preserve holes")
 {
     using namespace hgraph;
@@ -2785,6 +2831,12 @@ TEST_CASE("forwarding TSData projections preserve target bindings across realiza
     REQUIRE(window_link.front().binding() == window_target.front().binding());
     REQUIRE(window_link.back().binding() == window_target.back().binding());
     REQUIRE(window_link.time_value_at(0).binding() == window_target.time_value_at(0).binding());
+    const auto removed = window_link.removed_values(t2);
+    const auto times = window_link.removed_value_times(t2);
+    REQUIRE(removed.limit == 1);
+    REQUIRE(times.limit == 1);
+    REQUIRE((*times.begin()) == t1);
+    REQUIRE((*removed.begin()).binding() == window_target.removed_value(t2).binding());
     REQUIRE(window_link.has_removed_value(t2));
     REQUIRE(window_link.removed_value(t2).binding() == window_target.removed_value(t2).binding());
     REQUIRE(window_link.at(0).concrete().schema() == leaf);

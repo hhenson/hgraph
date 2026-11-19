@@ -148,7 +148,7 @@ registration signatures also prevent older unversioned callers from linking.
      - 11
      - ``include/hgraph/types/value/value_type_ref.h``
    * - ``TS_DATA_OPS_ABI_VERSION``
-     - 29
+     - 30
      - ``include/hgraph/types/time_series/ts_type_ref.h``
    * - ``NODE_OPS_ABI_VERSION``
      - 10

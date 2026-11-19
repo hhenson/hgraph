@@ -32,6 +32,10 @@ namespace hgraph
         [[nodiscard]] bool full() const;
         [[nodiscard]] bool has_removed_value() const;
         [[nodiscard]] ValueView removed_value() const;
+        /** Own the current tick's complete window delta. Silent cycles return an empty value. */
+        [[nodiscard]] Value window_delta() const;
+        [[nodiscard]] Range<ValueView> removed_values() const;
+        [[nodiscard]] Range<DateTime> removed_value_times() const;
         [[nodiscard]] DateTime first_modified_time() const;
         [[nodiscard]] DateTime time_at(std::size_t index) const;
         [[nodiscard]] ValueView time_value_at(std::size_t index) const;

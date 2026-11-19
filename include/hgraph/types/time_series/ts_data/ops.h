@@ -164,6 +164,9 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT std::size_t missing_window_capacity(const void *, const void *);
         [[nodiscard]] HGRAPH_EXPORT bool missing_window_full(const void *, const void *);
         HGRAPH_EXPORT void missing_window_push(const void *, void *, const ValueView &, DateTime);
+        [[nodiscard]] HGRAPH_EXPORT bool missing_window_expire(const void *, void *, DateTime);
+        HGRAPH_EXPORT void missing_window_apply_delta(const void *, void *, bool, const ValueView &,
+                                                       const IndexedValueView &, DateTime);
         HGRAPH_EXPORT void missing_window_clear(const void *, void *, DateTime);
         HGRAPH_EXPORT void missing_window_replace_samples(const void *, void *, const ValueView &,
                                                            std::span<const DateTime>, DateTime);
@@ -617,11 +620,23 @@ namespace hgraph
         // fact, and the window views degrade gracefully (no cleared/evicted
         // reporting). Same null-slot idiom as ValueOps optional hooks.
         DateTime (*cleared_time_impl)(const void *context, const void *memory) = nullptr;
-        // The element most recently EVICTED by a push (hgraph's
+        // The element most recently evicted by overflow or expiry (hgraph's
         // removed_value): the time it fell out plus its value memory
         // (nullptr when nothing has been evicted yet).
         DateTime (*evicted_time_impl)(const void *context, const void *memory) = nullptr;
         ValueView (*evicted_element_impl)(const void *context, const void *memory) = nullptr;
+        /** Drop duration samples outside the closed window. Fixed-count windows return false. */
+        bool (*expire_impl)(const void *context, void *memory, DateTime modified_time) =
+            &ts_data_detail::missing_window_expire;
+        DateTime (*replaced_time_impl)(const void *, const void *) = nullptr;
+        // Borrow a canonical child change, including a full snapshot on a sampled bind.
+        ValueView (*change_view_impl)(const void *, const void *, DateTime, bool snapshot) = nullptr;
+        void (*apply_window_delta_impl)(const void *, void *, bool, const ValueView &, const IndexedValueView &,
+                                        DateTime) = &ts_data_detail::missing_window_apply_delta;
+        Range<ValueView> (*removed_values_impl)(const void *, const void *, DateTime) =
+            [](const void *, const void *, DateTime) -> Range<ValueView> { return {}; };
+        Range<DateTime> (*removed_value_times_impl)(const void *, const void *, DateTime) =
+            [](const void *, const void *, DateTime) -> Range<DateTime> { return {}; };
     };
 }  // namespace hgraph
 

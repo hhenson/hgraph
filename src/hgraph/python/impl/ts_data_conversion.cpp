@@ -12,6 +12,7 @@
 #include <hgraph/types/time_series/ts_data/ops.h>
 #include <hgraph/types/time_series/ts_data/set_view.h>
 #include <hgraph/types/time_series/ts_delta.h>
+#include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series_reference.h>
 #include <hgraph/types/value/value.h>
@@ -113,13 +114,19 @@ namespace hgraph::python_bridge
                                          .value_schema);
         }
 
+        [[nodiscard]] bool window_requires_authored(TSRoleTypeRef, nb::handle)
+        {
+            // A Python-authored sample can itself be a bundle or list.
+            return true;
+        }
+
         [[nodiscard]] Value window_delta_from_python(TSRoleTypeRef type,
                                                      nb::handle source,
                                                      bool)
         {
             return value_from_python(
                 source,
-                schema_of(type, "TSW delta_from_python").delta_value_schema);
+                schema_of(type, "TSW delta_from_python").authored_delta_schema);
         }
 
         /**
@@ -850,7 +857,7 @@ namespace hgraph::python_bridge
     const PythonTSDataOps &window_python_ts_data_ops() noexcept
     {
         static const PythonTSDataOps ops{
-            .requires_authored_delta_impl = &ts_requires_authored_slot<&never_requires_authored>,
+            .requires_authored_delta_impl = &ts_requires_authored_slot<&window_requires_authored>,
             .delta_from_python_impl = &ts_delta_from_python_slot<&window_delta_from_python>,
             .apply_result_impl = &ts_apply_result_slot<&apply_delta_result>,
         };
@@ -927,6 +934,37 @@ namespace hgraph::python_bridge
         }
         TypeRealizationScope realization_scope{snapshot};
         return build_delta(type, source, requires_authored(type, source));
+    }
+
+    std::vector<std::optional<Value>> replay_deltas_from_python(
+        const TSValueTypeMetaData &schema, const nb::list &values, DateTime start_time)
+    {
+        if (start_time < MIN_ST) { throw std::invalid_argument("set_replay requires a valid start time"); }
+        const auto snapshot = TypeRealizationSnapshot::capture(TypeRegistry::instance());
+        TypeRealizationScope scope{snapshot.get()};
+        TSOutput authored{schema};
+        TSInput observed{TSInputBuilderFactory::checked_builder_for(schema, TSEndpointSchema::peered(&schema))};
+        observed.view(nullptr, start_time - MIN_TD).bind_output(authored.view(start_time - MIN_TD));
+
+        std::vector<std::optional<Value>> deltas;
+        deltas.reserve(nb::len(values));
+        auto now = start_time;
+        for (nb::handle item : values)
+        {
+            if (item.is_none()) { deltas.emplace_back(std::nullopt); }
+            else
+            {
+                // Check the authored shape before applying state-dependent changes.
+                static_cast<void>(delta_from_python(&schema, item));
+                auto output = authored.view(now);
+                apply_python_result(output, item);
+                deltas.emplace_back(output.modified()
+                                        ? std::optional<Value>{capture_delta(observed.view(nullptr, now))}
+                                        : std::nullopt);
+            }
+            now += MIN_TD;
+        }
+        return deltas;
     }
 
     void apply_python_result(const TSOutputView &output, nb::handle result)
