@@ -13,25 +13,26 @@ Summary
 Define the implementation plan for duration-based time-series windows to evict
 expired observations at their actual expiry time, even when the source remains
 silent.  A root graph containing one or more owned duration ``TSW`` outputs,
-including outputs inside nested graph instances, receives one root-owned pull
-source.  A runtime-only forward reference to that source is published in the
-root ``GlobalState`` shared by every nested graph.  Duration windows subscribe
-to the source, which schedules the earliest expiry and mutates every due window
-when evaluated.  This covers ``to_window`` and any other node whose output is,
+including outputs inside nested graph instances, shares one expiry service.
+The root owns it in a native execution slot alongside ``GlobalState``.
+Duration windows subscribe to the service, which schedules the earliest expiry
+and evicts every due sample when the root runs.  This covers ``to_window`` and any other node whose output is,
 or contains, a duration TSW without giving each producer or nested graph its
 own scheduling implementation.  The work also replaces the singular removal
 surface and scalar-only TSW delta with representations capable of describing
 multiple evictions, reset-only ticks, and removal-only scheduled ticks.
 
-Stage 1 implements the window delta and its in-memory and distributed
-representations. Duration windows still prune on mutation. The shared root
-source, durable recording migration and recovery work follow in later stages.
+Stage 1 introduced the window delta and its in-memory and distributed
+representations. Stage 2 adds a native root expiry service for duration windows
+at fixed owned output paths, including paths inside nested graph instances.
+Durable recording migration and dynamic collection attachment follow in later
+stages.
 
 Problem statement
 -----------------
 
-The present duration TSW prunes old values only while pushing a new source
-value.  Given a ten-second range:
+Before Stage 2 a live duration TSW pruned old values only while pushing a new
+source value.  Given a ten-second range:
 
 .. code-block:: text
 
@@ -40,10 +41,10 @@ value.  Given a ten-second range:
    t=2s   3
    t=20s  4
 
-the values ``1``, ``2``, and ``3`` remain visible until ``t=20s`` even though
-they expired earlier.  At ``t=20s`` several values leave together, while the
-pre-RFC C++ surface preserved only the last removed element.  Incremental
-consumers cannot update correctly from that delta.
+the values ``1``, ``2``, and ``3`` used to remain visible until ``t=20s``
+even though they expired earlier. At ``t=20s`` several values left together.
+The pre-RFC C++ surface reported only the last removal, so incremental
+consumers could lose track of the others.
 
 Root-graph expiry source
 ------------------------
@@ -53,50 +54,31 @@ must be usable in values, tests, record/replay materialisation, and extension
 code without requiring a graph.  A standalone duration window continues to
 prune on explicit mutation; scheduled eviction is an execution-layer service.
 
-During root graph assembly, core recursively inspects resolved, owned output
-schemas, including the output requirements of nested graph definitions.  If at
-least one output is, or contains, a duration TSW, it adds exactly one special
-pull source to the root graph.  This must apply to both normal ``Wiring``
-construction and the supported direct C++ graph-builder path.
+Each graph definition plans its duration-window paths once. Both public wiring
+and direct C++ graph builders use that plan. A fixed-list step represents all
+positions without expanding the schema into one path per element.
 
-The root source publishes a typed, runtime-only forward reference under a
-reserved internal ``GlobalState`` key.  Nested ``GraphView::global_state()``
-already resolves to the root store, so a TSW at any nesting depth finds the
-same source.  The concrete representation should follow the existing
-type-erasure pattern: a reference to a private control output resolves its
-owning node, and that node exposes a typed expiry-source view.  It must not
-expose or persist a raw ``NodePtr``.  Root construction binds the forward
-reference after node storage is attached and before any node start hook; root
-stop removes it.
+The first eligible owner creates a single pull service in the root's native
+global state. This typed execution slot sits alongside the run configuration.
+Nested owners borrow a weak forward reference to that root service. Copying
+the configuration copies no deadlines or endpoint references. Roots without
+live duration owners allocate no service.
 
-Layout-only dependencies place the source before every normal root node that
-can own or host a duration TSW.  It is the first normal-rank source, after the
-root graph's mandatory push-source phase.  A nested graph does not create
-another expiry source.
+Start subscribes each fixed-path owner before its node's start hook. The
+service contributes its earliest deadline to the root's next scheduled time.
+When the root runs, it pulls due windows in the phase immediately after push
+sources and before ordinary nodes. This gives each consumer the final state for
+the cycle while preserving public node indices, edges and observer identities.
+Graph stop and failed start detach registrations before endpoint destruction.
 
-When an owning node starts, the framework attaches each duration TSW in its
-output tree to the root expiry source resolved from ``GlobalState``.  The
-relationship is subscription based:
-
-* the TSW output retains an opaque subscription/callback to the source through
-  the existing execution-time notification machinery;
-* the source retains a stable handle to the TSW and its next expiry;
-* a TSW mutation notifies the source, which inserts, updates, or removes that
-  window's expiry entry; and
-* source invalidation or graph stop removes the subscription before either
-  endpoint is destroyed.
-
-The root source is shared by ``to_window``, custom adaptors, replay sources,
-aggregation nodes, extension nodes, and dynamically created nested graph
-instances.  Producers neither inject ``NodeScheduler`` for this purpose nor
-implement expiry callbacks themselves.
-
-The forward reference is bound before start, so even a root push-source output
-can attach although push-source start hooks precede normal nodes.  Nested
-producers start later through their root parent and resolve the same reference.
-Stop and dynamic graph teardown detach subscriptions while both endpoints are
-alive.  The root source must release every remaining subscription and erase the
-reserved ``GlobalState`` entry before root graph storage destruction.
+Recording readers, transport endpoints and operators that deliberately replay,
+sample or delay window publications preserve their own event timing. These
+outputs reproduce the source's departures when the operator publishes them.
+Forwarding endpoints borrow the real owner's publication. A custom native
+node that replays such a stream declares ``replays_output_events = true`` on
+its implementation. A C++ graph builder can set the same policy on a node
+instance with ``builder.replays_output_events(true)``. An ordinary window
+producer uses the default live policy.
 
 Output-tree coverage
 --------------------
@@ -120,58 +102,37 @@ subscription identity.
 Proposed execution algorithm
 ----------------------------
 
-The storage/view layer will provide operations equivalent to:
+The storage view exposes ``next_expiry_time()`` and the existing
+``begin_mutation(now).expire()``. The root algorithm is:
 
-.. code-block:: cpp
+1. An owned window registers one stable alarm. Registration reads the oldest
+   timestamp so pre-seeded windows have an initial deadline.
+2. The source stores armed owners in an indexed minimum heap. Each registration
+   records its position; cancellation erases it immediately. A stable insertion
+   sequence orders equal deadlines. Empty windows have no heap entry.
+3. At evaluation the root source removes each due alarm before invoking it.
+   Expiry publishes all samples at or beyond their first invalid instant as one
+   removal delta. A callback can cancel or reschedule an alarm without leaving
+   a stale heap entry.
+4. Ordinary output notification wakes downstream nodes. When the owner is
+   nested, the existing child scheduling machinery wakes its parent in this
+   cycle. The source observes each modified owner and refreshes its deadline.
+5. Notifications coalesce at most once per endpoint per evaluation. The service
+   keeps a deduplicated list of touched registrations and rereads their final
+   deadlines after the root finishes, covering expire-then-append and
+   clear-then-push. Cancelling a registration also unlinks it from this list.
+6. A newly installed snapshot can already be overdue. A pre-start snapshot is
+   processed on the first evaluation. A snapshot published after the root's
+   expiry phase can first wake it on the next representable instant.
 
-   DateTime next_expiry_time() const;
-   TSWRemovalView evict_expired(DateTime now);
-
-The exact names and return representation are subject to implementation review.
-The root-level algorithm is:
-
-1. Root graph assembly creates one expiry pull source when the complete graph
-   can own at least one duration TSW and ranks it before corresponding normal
-   root producers and nested-graph host nodes.
-2. Root construction binds the source's typed forward reference into the
-   reserved ``GlobalState`` entry before start.
-3. Start-time attachment at any graph depth resolves that reference and
-   registers each live window.  Registration reads its current oldest
-   timestamp, so a restored or pre-seeded window is armed without persisting an
-   alarm handle.
-4. After a push, clear, restore, or removal, the TSW subscription reports its
-   new ``next_expiry_time``.  An empty window removes its entry.
-5. The root source maintains all entries and schedules itself for the earliest
-   expiry across the complete graph.  Updating one window does not create
-   another source or poll the other windows.
-6. When evaluated, the source visits every entry due at or before the current
-   evaluation time, calls ``evict_expired(now)``, and marks each changed TSW
-   modified.
-7. For a nested TSW, normal output notification schedules local consumers; the
-   existing nested schedule propagation wakes each parent until the
-   later-ranked root host node is scheduled in the same cycle.
-8. The resulting mutation notification supplies the window's next expiry, and
-   the source arms itself for the new global minimum.
-
-The source's queue should use a stable subscription identifier plus a
-generation to reject stale entries after reschedule, reset, dynamic erasure, or
-address reuse.
-
-Eviction marks the TSW modified and therefore notifies its expiry subscription
-while the source is itself evaluating.  Queue updates must be re-entrant safe:
-the entry being processed is identified by subscription and generation, and
-the callback records its replacement deadline without invalidating the due-set
-iteration.
-
-When a normal producer tick and expiry coincide, root or nested rank evaluates
-the expiry effect before the producer.  The producer can then append or
+When a normal producer tick and expiry coincide, the root processes the
+deadline before the producer evaluates in its own graph.  The producer can then append or
 clear-and-append in the same cycle, and downstream consumers observe one final
 window value and one structured delta containing all removals and additions.
-Stage 1 must therefore allow scheduler removal followed by an owner mutation
-through separate mutation scopes at the same evaluation time; the present
-singular-delta guard is not sufficient.  A direct root push-source TSW producer
-runs in the mandatory push phase before the expiry source; its structured delta
-must normalize push/removal into the same final per-cycle result.
+Stage 1 allows a scheduled removal followed by an owner push or clear
+through separate mutation scopes at the same evaluation time. A direct root
+push source runs before the expiry service. Its window delta combines the
+push and removal in the same cycle.
 
 Window closure
 --------------
@@ -242,8 +203,8 @@ A checkpoint for a duration TSW must preserve retained values and their
 original evaluation timestamps.  Replaying values without timestamps changes
 their future expiry and is not recovery.
 
-The expiry-source queue, subscription generations, and graph alarm are derived
-execution state and are not persisted.  Start-time subscription reads the
+The expiry heap, subscription handles, and root deadline are derived
+execution state. Recovery rebuilds them from window storage.  Start-time subscription reads the
 restored TSW and derives its next alarm from the oldest value.  If recovery
 seeding occurs during the owning node's start hook, attachment must happen
 first so the seed mutation updates the source.  A start-completion invariant
@@ -281,8 +242,8 @@ Stage 1: delta and mutation semantics
    owner mutation.  Add direct native tests.  Do not schedule expiry yet.
 
 Stage 2: root-graph expiry source
-   Add automatic root source creation, the reserved ``GlobalState`` forward
-   reference, rank dependencies, static output-tree subscriptions, deadline
+   Add automatic root source creation, the typed root global-state execution
+   slot, pre-consumer dispatch, static output-tree subscriptions, deadline
    management, and due eviction.  Exercise direct TSW output, a TSW nested in a
    bundle, root and nested producers, and coincident producer/expiry cycles.
    Retain existing fixed-window behaviour.
@@ -310,8 +271,8 @@ Native and Python tests must cover:
   instances, and multiple TSW fields;
 * a direct TSW output, a bundle-contained TSW, and dynamically created TSW
   children;
-* root-source rank, nested schedule propagation, and downstream same-cycle
-  notification order;
+* root pull-phase ordering, nested schedule propagation, and downstream
+  same-cycle notification order;
 * incremental sum/mean consumers using ``removed_values``;
 * old scalar-delta recordings read by the new implementation;
 * clear-only and removal-only delta record/replay;
@@ -326,9 +287,7 @@ Unresolved questions
 --------------------
 
 * How to version durable Arrow/JSON recording metadata for structured window
-  events and identify replay-owned windows when the root service is installed.
-* Whether the expiry source should use an indexed heap or a lazy heap with
-  subscription generations.
+  events and migrate older durable formats.
 * The exact output-tree hook used to attach dynamic duration TSW children
   without a full-tree scan.
 * Whether scheduler lateness should expose the scheduled expiry time in

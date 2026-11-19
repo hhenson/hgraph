@@ -706,4 +706,15 @@ TEST_CASE("moved-from node builder metadata queries and edits remain safe", "[no
     auto captured = moved.with_error_capture(node_error_ts_meta()).make_node();
     REQUIRE(captured.view().label() == "label");
     REQUIRE(captured.view().checkpoint_identity().id == "checkpoint");
+
+    // Reusing a moved-from builder can begin with either diagnostic. Its
+    // independently configured replay policy stays effective through both edits.
+    moved.replays_output_events(true);
+    auto replay = std::move(moved);
+    moved.replays_output_events(true).checkpoint_identity({.id = "reused"}).label("after move");
+    CHECK(moved.checkpoint_identity().id == "reused");
+    CHECK(moved.label() == "after move");
+    CHECK(moved.replays_output_events());
+    CHECK(replay.replays_output_events());
+    CHECK(replay.checkpoint_identity().id == "checkpoint");
 }

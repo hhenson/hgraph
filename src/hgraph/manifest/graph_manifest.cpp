@@ -61,6 +61,7 @@ namespace hgraph::manifest
             k_behaviour_requires_phase_runner = 1u << 5,
             k_behaviour_schedule_on_start = 1u << 6,
             k_behaviour_captures_errors = 1u << 7,
+            k_behaviour_replays_output_events = 1u << 8,
         };
 
         void append_endpoint_annotation(CanonicalWriter &writer, const TSEndpointSchema &endpoint)
@@ -125,6 +126,8 @@ namespace hgraph::manifest
             if (schema->requires_phase_runner) { behaviour |= k_behaviour_requires_phase_runner; }
             if (schema->schedule_on_start) { behaviour |= k_behaviour_schedule_on_start; }
             if (schema->captures_errors) { behaviour |= k_behaviour_captures_errors; }
+            if (node.replays_output_events() && schema->output_schema &&
+                schema->output_schema->contains_fixed_duration_window()) { behaviour |= k_behaviour_replays_output_events; }
             scope.tag(k_node_tag_behaviour);
             scope.varint(behaviour);
 

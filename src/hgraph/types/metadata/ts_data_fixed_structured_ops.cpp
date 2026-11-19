@@ -376,7 +376,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 .ownership_ops             = &ownership_ops(),
                 .inspection_ops            = &inspection_ops(),
                 .current_state_ops =
-                    &ts_current_state_detail::current_state_ops_for(schema->kind),
+                    &ts_current_state_detail::current_state_ops_for(*schema),
                 .checkpoint_ops = &ts_checkpoint_detail::fixed_checkpoint_ops(),
                 .layout_impl               = &fixed_layout,
                 .tracking_impl             = &fixed_tracking,

@@ -19,9 +19,11 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/runtime/checkpoint_codec.cpp
     hgraph/runtime/component_checkpoint.cpp
     hgraph/runtime/graph_checkpoint_coordinator.cpp
+    hgraph/runtime/window_expiry_subscriptions.cpp
     hgraph/runtime/feedback_node.cpp
     hgraph/runtime/global_state.cpp
     hgraph/runtime/graph.cpp
+    hgraph/runtime/window_expiry_service.cpp
     hgraph/runtime/logger.cpp
     hgraph/runtime/map_node.cpp
     hgraph/runtime/tsl_map_node.cpp

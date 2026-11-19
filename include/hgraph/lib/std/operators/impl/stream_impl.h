@@ -21,6 +21,7 @@
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/time_series/ts_delta.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value_callable.h>
 
@@ -29,7 +30,10 @@
 #include <algorithm>
 #include <cmath>
 #include <deque>
+#include <functional>
+#include <iterator>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -230,6 +234,7 @@ namespace hgraph::stdlib
         struct abs_tsw_impl
         {
             static constexpr auto name = std::same_as<T, Int> ? "abs_tsw_int" : "abs_tsw_float";
+            static constexpr bool replays_output_events = true;
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context)
             {
@@ -409,10 +414,6 @@ namespace hgraph::stdlib
                 {
                     if (!tsw_ready(window)) { return; }
                 }
-                else
-                {
-                    if (window.size() == 0) { return; }
-                }
 
                 // Both aggregates are RECURRENCES upstream: the previous
                 // answer, plus the element the window just took, less the one
@@ -428,6 +429,12 @@ namespace hgraph::stdlib
                 const std::size_t size    = window.size();
                 const auto        arrival = window.delta_value(now);
                 const auto        removals = window.removed_values(now);
+                if constexpr (!Mean)
+                {
+                    // A duration window's final departure publishes its empty sum.
+                    // A reset or an empty window with no departures stays silent.
+                    if (size == 0 && (!window.time_based() || window.cleared(now) || removals.limit == 0)) { return; }
+                }
                 const bool        evicted = removals.limit == 1;
                 // The recurrence is only the answer where the previous answer
                 // DESCRIBES the window this tick appended to. That holds for a
@@ -657,9 +664,83 @@ namespace hgraph::stdlib
             std::deque<Value> buffer{};
         };
 
+        struct BufferedDelta
+        {
+            DateTime source_time;
+            Value change;
+
+            explicit BufferedDelta(const TSInputView &input)
+                : source_time(input.evaluation_time()), change(capture_delta(input)) {}
+        };
+
+        // One window delta can add at most one observation. Fold a group on
+        // the original source clock, then publish its final history once.
+        // Other output shapes retain their ordinary ordered-delta behaviour.
+        struct BufferedWindowHistory
+        {
+            std::unique_ptr<TSOutput> source;
+
+            BufferedWindowHistory() = default;
+            BufferedWindowHistory(const BufferedWindowHistory &other)
+                : source(other.source ? std::make_unique<TSOutput>(*other.source) : nullptr) {}
+            BufferedWindowHistory(BufferedWindowHistory &&) noexcept = default;
+            BufferedWindowHistory &operator=(BufferedWindowHistory other) noexcept
+            {
+                source.swap(other.source);
+                return *this;
+            }
+
+            void prepare(const TSOutputView &out)
+            {
+                if (out.schema()->contains_window()) { source = std::make_unique<TSOutput>(out.type_ref()); }
+            }
+
+            void remember(const BufferedDelta &event)
+            {
+                if (source) { apply_delta(source->view(event.source_time), event.change.view()); }
+            }
+
+            void publish(const TSOutputView &out, const BufferedDelta &event, bool resync = false)
+            {
+                remember(event);
+                if (source && resync)
+                    reconcile_current_state(out, source->data_view(), {TSCurrentReconcileScope::Full, true, true});
+                else { apply_delta(out, event.change.view()); }
+            }
+
+            template <typename It, typename Select>
+            void publish_group(const TSOutputView &out, It first, It last, Select select)
+            {
+                if (first == last) { return; }
+                const auto final = std::prev(last);
+                for (auto it = first; it != final; ++it)
+                {
+                    if (source) { remember(select(*it)); }
+                    else { apply_delta(out, select(*it).change.view()); }
+                }
+                publish(out, select(*final), first != final);
+            }
+        };
+
         struct TimedDeltaQueueState
         {
-            std::deque<std::pair<DateTime, Value>> buffer{};
+            std::deque<std::pair<DateTime, BufferedDelta>> buffer{};
+            BufferedWindowHistory history{};
+
+            void publish_due(const TSOutputView &out, DateTime now)
+            {
+                auto end = buffer.begin();
+                while (end != buffer.end() && end->first <= now) { ++end; }
+                history.publish_group(out, buffer.begin(), end, [](const auto &entry) -> const auto & { return entry.second; });
+                buffer.erase(buffer.begin(), end);
+            }
+        };
+
+        struct GateState
+        {
+            std::deque<BufferedDelta> buffer{};
+            BufferedWindowHistory history{};
+            bool dropped_prefix{false};
         };
 
         /** batch: the queued deltas and the output list bindings (element
@@ -690,7 +771,8 @@ namespace hgraph::stdlib
         {
             // Deltas captured per proxy count, replayed (in arrival order,
             // so container deltas net) when the LAGGED count reaches it.
-            ankerl::unordered_dense::map<Int, std::deque<Value>> cache{};
+            ankerl::unordered_dense::map<Int, std::deque<BufferedDelta>> cache{};
+            BufferedWindowHistory history{};
         };
 
         struct ThrottleReleaseOps;
@@ -707,7 +789,8 @@ namespace hgraph::stdlib
             // Deltas accumulated while a throttle window is open; applied in
             // arrival order on release so container deltas MERGE (dict ticks
             // within one window emit as one combined delta).
-            std::deque<Value> pending{};
+            std::deque<BufferedDelta> pending{};
+            BufferedWindowHistory history{};
             // A TSS output nets its pending deltas into one {added, removed}
             // bundle on release: the set element binding and result type
             // (primary / result) and the delta bundle binding, resolved once
@@ -726,17 +809,11 @@ namespace hgraph::stdlib
             if (value <= TimeDelta{}) { throw std::invalid_argument(std::string{name} + " must be positive"); }
         }
 
-        inline void append_delta(DeltaQueueState &state, Value delta, std::size_t limit)
-        {
-            if (state.buffer.size() >= limit) { throw std::overflow_error("gate buffer length exceeded"); }
-            state.buffer.push_back(std::move(delta));
-        }
-
         /** Net a queue of canonical set deltas ({added, removed} bundles) into
             one; an empty optional means the queue cancels out (add then
             remove of the same element) and nothing should be emitted. The
             bindings are the throttle's start-resolved TSS delta bindings. */
-        inline std::optional<Value> net_set_deltas(std::deque<Value> &pending, const ThrottleState &state)
+        inline std::optional<Value> net_set_deltas(std::deque<BufferedDelta> &pending, const ThrottleState &state)
         {
             // Hashed, because every element of every queued delta asks "is this
             // already pending the other way?" -- answering from a list, and
@@ -752,9 +829,9 @@ namespace hgraph::stdlib
                 if (!values.contains(value)) { values.emplace(value); }
             };
 
-            for (Value &delta : pending)
+            for (const auto &event : pending)
             {
-                const auto bundle = delta.view().as_bundle();
+                const auto bundle = event.change.view().as_bundle();
                 // Canonical order inside one delta is remove-before-add.
                 const auto gone = bundle.field("removed").as_indexed_view();
                 for (std::size_t i = 0; i < gone.size(); ++i)
@@ -789,7 +866,7 @@ namespace hgraph::stdlib
 
         [[nodiscard]] inline bool throttle_release_ordered(ThrottleState &state, const TSOutputView &out)
         {
-            for (Value &delta : state.pending) { apply_delta(out, delta.view()); }
+            state.history.publish_group(out, state.pending.begin(), state.pending.end(), std::identity{});
             return true;
         }
 
@@ -826,6 +903,12 @@ namespace hgraph::static_schema_detail
     struct scalar_name<stdlib::stream_impl_detail::DeltaQueueState>
     {
         static constexpr std::string_view value{"stdlib.delta_queue_state"};
+    };
+
+    template <>
+    struct scalar_name<stdlib::stream_impl_detail::GateState>
+    {
+        static constexpr std::string_view value{"stdlib.gate_state"};
     };
 
     template <>
@@ -886,17 +969,19 @@ namespace hgraph::stdlib
 
     struct sample_impl
     {
+        static constexpr bool replays_output_events = true;
         static void eval(In<"signal", SIGNAL> signal,
                          In<"ts", TsVar<"S">, InputActivity::Passive, InputValidity::Unchecked> ts,
                          Out<TsVar<"S">> out)
         {
             static_cast<void>(signal);
-            if (ts.valid()) { out.apply(ts.value()); }
+            if (ts.valid()) { reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample}); }
         }
     };
 
     struct filter_impl
     {
+        static constexpr bool replays_output_events = true;
         static void eval(In<"condition", TS<Bool>, InputValidity::Unchecked> condition,
                          In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                          RecordableState<TS<Bool>> last_condition,
@@ -954,6 +1039,7 @@ namespace hgraph::stdlib
 
     struct lag_tick_impl
     {
+        static constexpr bool replays_output_events = true;
         static constexpr auto name = "lag_tick";
         static void start(Scalar<"period", Int> period)
         {
@@ -983,7 +1069,12 @@ namespace hgraph::stdlib
         (each tick defers by the CURRENT delay value). */
     struct lag_time_ts_impl
     {
+        static constexpr bool replays_output_events = true;
         static constexpr auto name = "lag_time_ts";
+        static void start(State<stream_impl_detail::TimedDeltaQueueState> state, Out<TsVar<"S">> out)
+        {
+            state.modify().history.prepare(out);
+        }
 
         static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                          In<"period", TS<TimeDelta>> period,
@@ -997,16 +1088,11 @@ namespace hgraph::stdlib
             if (ts.modified() && ts.valid())
             {
                 stream_impl_detail::require_positive(period.value(), "period");
-                current.buffer.emplace_back(now + period.value(), capture_delta(ts.base()));
+                current.buffer.emplace_back(now + period.value(), ts.base());
                 scheduler.schedule(period.value());
             }
 
-            while (!current.buffer.empty() && current.buffer.front().first <= now)
-            {
-                Value delta = std::move(current.buffer.front().second);
-                current.buffer.pop_front();
-                apply_delta(out, delta.view());
-            }
+            current.publish_due(out, now);
 
         }
     };
@@ -1019,7 +1105,13 @@ namespace hgraph::stdlib
         cache fills and drains (upstream's make_active/make_passive dance). */
     struct lag_proxy_node_impl
     {
+        static constexpr bool replays_output_events = true;
         static constexpr auto name = "lag_tsd_proxy";
+        static void start(State<stream_impl_detail::LagProxyState> state, Out<TsVar<"S">> out)
+        {
+            state.modify().history.prepare(out);
+        }
+
         static void eval(In<"ts", TsVar<"S">, InputActivity::Active, InputValidity::Unchecked> ts,
                          In<"c", TS<Int>, InputActivity::Passive> c,
                          In<"lag_c", TS<Int>, InputActivity::Passive, InputValidity::Unchecked> lag_c,
@@ -1030,13 +1122,13 @@ namespace hgraph::stdlib
             if (ts.modified() && ts.valid())
             {
                 lag_c.make_active();
-                current.cache[c.value()].push_back(capture_delta(ts.base()));
+                current.cache[c.value()].emplace_back(ts.base());
             }
             if (lag_c.modified() && lag_c.valid())
             {
                 if (auto entry = current.cache.find(lag_c.value()); entry != current.cache.end())
                 {
-                    for (Value &delta : entry->second) { apply_delta(out, delta.view()); }
+                    current.history.publish_group(out, entry->second.begin(), entry->second.end(), std::identity{});
                     current.cache.erase(entry);
                 }
                 if (current.cache.empty()) { lag_c.make_passive(); }
@@ -1204,10 +1296,13 @@ namespace hgraph::stdlib
         variant above is the count form). */
     struct lag_time_impl
     {
+        static constexpr bool replays_output_events = true;
         static constexpr auto name = "lag_time";
 
-        static void start(Scalar<"period", TimeDelta> period)
+        static void start(Scalar<"period", TimeDelta> period, State<stream_impl_detail::TimedDeltaQueueState> state,
+                          Out<TsVar<"S">> out)
         {
+            state.modify().history.prepare(out);
             stream_impl_detail::require_positive(period.value(), "period");
         }
 
@@ -1223,16 +1318,11 @@ namespace hgraph::stdlib
 
             if (ts.modified() && ts.valid())
             {
-                current.buffer.emplace_back(now + period.value(), capture_delta(ts.base()));
+                current.buffer.emplace_back(now + period.value(), ts.base());
                 scheduler.schedule(period.value(), std::nullopt, on_wall_clock.value());
             }
 
-            while (!current.buffer.empty() && current.buffer.front().first <= now)
-            {
-                Value delta = std::move(current.buffer.front().second);
-                current.buffer.pop_front();
-                apply_delta(out, delta.view());
-            }
+            current.publish_due(out, now);
 
         }
 
@@ -1358,13 +1448,14 @@ namespace hgraph::stdlib
 
     struct freeze_impl
     {
+        static constexpr bool replays_output_events = true;
         static void eval(In<"predicate", TS<Bool>> predicate,
                          In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                          Out<TsVar<"S">> out)
         {
             if (predicate.value())
             {
-                if (ts.valid()) { out.apply(ts.value()); }
+                if (ts.valid()) { reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample}); }
                 predicate.make_passive();
                 ts.make_passive();
                 return;
@@ -1526,6 +1617,7 @@ namespace hgraph::stdlib
 
     struct resample_impl
     {
+        static constexpr bool replays_output_events = true;
         static void start(Scalar<"period", TimeDelta> period, NodeScheduler scheduler)
         {
             stream_impl_detail::require_positive(period.value(), "period");
@@ -1537,18 +1629,21 @@ namespace hgraph::stdlib
                          NodeScheduler scheduler,
                          Out<TsVar<"S">> out)
         {
-            if (ts.valid()) { out.apply(ts.value()); }
+            if (ts.valid()) { reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample}); }
             scheduler.schedule(period.value());
         }
     };
 
     struct gate_impl
     {
-        static void start(Scalar<"buffer_length", Int> buffer_length)
+        static constexpr bool replays_output_events = true;
+        static void start(Scalar<"buffer_length", Int> buffer_length, State<stream_impl_detail::GateState> state,
+                          Out<TsVar<"S">> out)
         {
             // Negative = keep only the newest |n| queued deltas (hgraph's
             // gate(..., -1) keeps the latest value); zero is meaningless.
-            if (buffer_length.value() >= 0)
+            if (buffer_length.value() < 0) { state.modify().history.prepare(out); }
+            else
             {
                 stream_impl_detail::require_positive(buffer_length.value(), "buffer_length");
             }
@@ -1558,7 +1653,7 @@ namespace hgraph::stdlib
                          In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                          Scalar<"buffer_length", Int> buffer_length,
                          NodeScheduler scheduler,
-                         State<stream_impl_detail::DeltaQueueState> state,
+                         State<stream_impl_detail::GateState> state,
                          Out<TsVar<"S">> out)
         {
             auto       &current        = state.modify();
@@ -1570,25 +1665,34 @@ namespace hgraph::stdlib
 
             if (ts.modified() && ts.valid())
             {
-                Value delta = capture_delta(ts.base());
+                stream_impl_detail::BufferedDelta event{ts.base()};
                 if (condition_true && current.buffer.empty())
                 {
-                    apply_delta(out, delta.view());
+                    current.history.publish(out, event);
                     emitted = true;
                 }
                 else if (keep_newest)
                 {
-                    while (current.buffer.size() >= limit) { current.buffer.pop_front(); }
-                    current.buffer.push_back(std::move(delta));
+                    if (current.buffer.size() >= limit)
+                    {
+                        current.history.remember(current.buffer.front());
+                        current.buffer.pop_front();
+                        current.dropped_prefix = true;
+                    }
+                    current.buffer.push_back(std::move(event));
                 }
-                else { stream_impl_detail::append_delta(current, std::move(delta), limit); }
+                else
+                {
+                    if (current.buffer.size() >= limit) { throw std::overflow_error("gate buffer length exceeded"); }
+                    current.buffer.push_back(std::move(event));
+                }
             }
 
             if (!emitted && condition_true && !current.buffer.empty())
             {
-                Value delta = std::move(current.buffer.front());
+                current.history.publish(out, current.buffer.front(), current.dropped_prefix);
                 current.buffer.pop_front();
-                apply_delta(out, delta.view());
+                current.dropped_prefix = false;
                 emitted = true;
             }
 
@@ -1812,6 +1916,7 @@ namespace hgraph::stdlib
 
     struct throttle_impl
     {
+        static constexpr bool replays_output_events = true;
         /* hgraph's model: an open throttle window IS a pending scheduler
            event. Ticks inside the window accumulate; the window closing
            releases them merged. ``delay_first_tick`` buffers the tick that
@@ -1823,6 +1928,7 @@ namespace hgraph::stdlib
             const auto &erased = static_cast<const TSOutputView &>(out);
             const auto *schema = erased.schema();
             current.release_ops = &stream_impl_detail::throttle_release_ops_for(schema->kind);
+            current.history.prepare(erased);
             if (schema->kind == TSTypeKind::TSS)
             {
                 // The netted release builds {added, removed} as the output's
@@ -1858,19 +1964,19 @@ namespace hgraph::stdlib
             {
                 if (!current.has_period) { throw std::invalid_argument("throttle requires a valid period"); }
 
-                Value delta = capture_delta(ts.base());
+                stream_impl_detail::BufferedDelta event{ts.base()};
                 if (scheduler.is_scheduled() || scheduler.is_scheduled_now())
                 {
-                    current.pending.push_back(std::move(delta));
+                    current.pending.push_back(std::move(event));
                 }
                 else if (delay_first_tick.value())
                 {
-                    current.pending.push_back(std::move(delta));
+                    current.pending.push_back(std::move(event));
                     scheduler.schedule(current.period, std::nullopt, use_wall_clock.value());
                 }
                 else
                 {
-                    apply_delta(out, delta.view());
+                    current.history.publish(out, event);
                     scheduler.schedule(current.period, std::nullopt, use_wall_clock.value());
                 }
             }
@@ -1967,6 +2073,7 @@ namespace hgraph::stdlib
         for the same reason the count form gives. */
     struct take_by_time_impl
     {
+        static constexpr bool replays_output_events = true;
         static constexpr auto name = "take_by_time_delta";
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
@@ -2012,6 +2119,7 @@ namespace hgraph::stdlib
         re-publish unchanged container entries — the filter_ rule). */
     struct take_impl
     {
+        static constexpr bool replays_output_events = true;
         static constexpr auto name = "take_delta";
 
         static auto defaults() { return std::tuple{arg<"count">(Int{1})}; }
@@ -2051,6 +2159,7 @@ namespace hgraph::stdlib
         tick (the dropped prefix's deltas were skipped), deltas thereafter. */
     struct drop_impl
     {
+        static constexpr bool replays_output_events = true;
         static constexpr auto name = "drop_delta";
 
         static auto defaults() { return std::tuple{arg<"count">(Int{1})}; }
@@ -2059,7 +2168,7 @@ namespace hgraph::stdlib
                          RecordableState<TS<Int>> seen, Out<TsVar<"S">> out)
         {
             const Int index = stream_impl_detail::recorded_index(seen);
-            if (index == count.value()) { out.apply(ts.value()); }
+            if (index == count.value()) { reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample}); }
             else if (index > count.value())
             {
                 apply_delta(out, capture_delta(ts.base()).view());
@@ -2070,6 +2179,7 @@ namespace hgraph::stdlib
 
     struct take_reset_impl
     {
+        static constexpr bool replays_output_events = true;
         /* ``take(ts, reset, count)``: forward the first ``count`` ticks, then
            passivate ts; a reset tick re-arms the counter and reactivates. */
         static auto defaults() { return std::tuple{arg<"count">(Int{1})}; }
@@ -2109,12 +2219,13 @@ namespace hgraph::stdlib
             }
             seen.set(index);
             if (index >= limit) { ts.make_passive(); }
-            out.apply(ts.value());
+            reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample});
         }
     };
 
     struct drop_time_impl
     {
+        static constexpr bool replays_output_events = true;
         /* ``drop(ts, period)``: drop ticks until ``period`` has elapsed since
            the first tick, then forward the rest.
 
@@ -2140,7 +2251,7 @@ namespace hgraph::stdlib
             const auto opened_at = first.value().checked_as<DateTime>();
             if (now - opened_at > period.value())
             {
-                out.apply(ts.value());
+                reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample});
                 return;
             }
             // The gate is still closed, so make sure we wake at the boundary
@@ -2154,6 +2265,7 @@ namespace hgraph::stdlib
 
     struct step_impl
     {
+        static constexpr bool replays_output_events = true;
         static void start(Scalar<"step_size", Int> step_size)
         {
             stream_impl_detail::require_positive(step_size.value(), "step_size");
@@ -2163,13 +2275,14 @@ namespace hgraph::stdlib
                          RecordableState<TS<Int>> seen, Out<TsVar<"S">> out)
         {
             const Int index = stream_impl_detail::recorded_index(seen);
-            if (index % step_size.value() == 0) { out.apply(ts.value()); }
+            if (index % step_size.value() == 0) { reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample}); }
             seen.set(index + 1);
         }
     };
 
     struct slice_impl
     {
+        static constexpr bool replays_output_events = true;
         static void start(Scalar<"step_size", Int> step_size)
         {
             stream_impl_detail::require_positive(step_size.value(), "step_size");
@@ -2185,7 +2298,7 @@ namespace hgraph::stdlib
             if (start.value() < 0) { return; }
             if (index < start.value()) { return; }
             if (stop.value() >= 0 && index >= stop.value()) { return; }
-            if ((index - start.value()) % step_size.value() == 0) { out.apply(ts.value()); }
+            if ((index - start.value()) % step_size.value() == 0) { reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample}); }
         }
     };
 

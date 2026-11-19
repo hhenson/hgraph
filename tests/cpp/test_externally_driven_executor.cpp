@@ -84,6 +84,25 @@ namespace
         }
     };
 
+    struct CountWindowSamples
+    {
+        static void eval(In<"samples", TSWDuration<Int, 2, 0>, InputValidity::Unchecked> samples,
+                         GlobalStateView state)
+        {
+            state.set("retained", Value{static_cast<Int>(samples.size())});
+        }
+    };
+
+    struct ExpiringWindowGraph
+    {
+        static void compose(Wiring &w)
+        {
+            auto sample = wire<stdlib::const_, TS<Int>>(w, Int{7});
+            auto window = wire<stdlib::to_window>(w, sample, 2 * MIN_TD, TimeDelta{});
+            wire<CountWindowSamples>(w, window);
+        }
+    };
+
     using Recorded = std::vector<std::optional<Int>>;
 
     GraphBuilder seeded_graph(const std::vector<std::optional<Int>> &values)
@@ -175,6 +194,88 @@ TEST_CASE("externally driven: the caller chooses the time, and the graph reports
     CHECK(view.graph().next_scheduled_time() == MAX_DT);
 
     view.stop_external();
+}
+
+TEST_CASE("externally driven: copying live configuration leaves window deadlines in their own roots")
+{
+    stdlib::register_standard_operators();
+    GraphExecutorBuilder builder;
+    builder.graph_builder(build_graph<ExpiringWindowGraph>())
+        .mode(GraphExecutorMode::ExternallyDriven).end_time(test_end);
+    auto first_executor = builder.make_executor();
+    auto second_executor = builder.make_executor();
+    auto first = first_executor.view();
+    auto second = second_executor.view();
+    const auto later = MIN_ST + 10 * MIN_TD;
+    first.start_external(MIN_ST);
+    second.start_external(later);
+    REQUIRE(first.step(MIN_ST));
+    REQUIRE(second.step(later));
+
+    auto first_state = first.graph().global_state();
+    auto second_state = second.graph().global_state();
+    REQUIRE(first_state.get_as<Int>("retained") == 1);
+    REQUIRE(second_state.get_as<Int>("retained") == 1);
+    // The source remains active on both roots while their public values are copied.
+    first_state.set("window_expiry", Value{Int{42}});
+    second_state.copy_from(first_state);
+    REQUIRE(second_state.size() == 2);
+    CHECK(second_state.get_as<Int>("window_expiry") == 42);
+
+    const auto first_expiry = MIN_ST + 3 * MIN_TD;
+    const auto second_expiry = later + 3 * MIN_TD;
+    REQUIRE(first.graph().next_scheduled_time() == first_expiry);
+    REQUIRE(second.graph().next_scheduled_time() == second_expiry);
+    CHECK_THROWS_AS(first.step(first_expiry + MIN_TD), std::invalid_argument);
+    REQUIRE(first.step(first_expiry));
+    CHECK(first_state.get_as<Int>("retained") == 0);
+    CHECK(second_state.get_as<Int>("retained") == 1);
+    CHECK(first.graph().next_scheduled_time() == MAX_DT);
+    first.stop_external();
+
+    REQUIRE(second.step(second_expiry));
+    CHECK(second_state.get_as<Int>("retained") == 0);
+    CHECK(second.graph().next_scheduled_time() == MAX_DT);
+    second.stop_external();
+}
+
+TEST_CASE("externally driven: an arrival from an after-evaluation callback gets its own window expiry")
+{
+    stdlib::register_standard_operators();
+    GraphExecutorBuilder builder;
+    builder.graph_builder(build_graph<ExpiringWindowGraph>())
+        .mode(GraphExecutorMode::ExternallyDriven).end_time(test_end);
+    auto executor = builder.make_executor();
+    auto engine = executor.view();
+    engine.start_external(MIN_ST);
+    REQUIRE(engine.step(MIN_ST));
+
+    auto graph = engine.graph();
+    auto owner = graph.node_at(1).output(MIN_ST);
+    const auto &data = owner.data_view();
+    REQUIRE(data.schema()->is_duration_based());
+    const auto first_expiry = MIN_ST + 3 * MIN_TD;
+    const auto next_expiry = first_expiry + 3 * MIN_TD;
+    REQUIRE(graph.next_scheduled_time() == first_expiry);
+    engine.engine_control().add_after_evaluation_notification([&] {
+        // Callbacks registered during this boundary run in the same cycle.
+        engine.engine_control().add_after_evaluation_notification([&] {
+            REQUIRE(data.as_window().empty());
+            Value sample{Int{15}};
+            data.as_window().begin_mutation(first_expiry).push(sample.view());
+        });
+    });
+
+    REQUIRE(engine.step(first_expiry));
+    REQUIRE(data.as_window().size() == 1);
+    REQUIRE(graph.next_scheduled_time() == next_expiry);
+    REQUIRE(engine.step(next_expiry));
+    REQUIRE(data.as_window().empty());
+    const auto removed_times = data.as_window().removed_value_times(next_expiry);
+    REQUIRE(removed_times.limit == 1);
+    CHECK(*removed_times.begin() == first_expiry);
+    CHECK(graph.next_scheduled_time() == MAX_DT);
+    engine.stop_external();
 }
 
 TEST_CASE("externally driven: stepping over due work is refused, not silently dropped")

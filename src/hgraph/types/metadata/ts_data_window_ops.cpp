@@ -62,6 +62,7 @@ namespace hgraph::ts_data_plan_factory_detail
             bool added{false};
             bool cleared{false};
             bool replaced{false};
+            bool applied{false};
             using Batch = std::vector<RemovedWindowSample>;
             std::variant<RemovedWindowSample, Batch> removals{};
 
@@ -406,22 +407,39 @@ namespace hgraph::ts_data_plan_factory_detail
             }
 
           public:
+            void require_unapplied_tick(DateTime now) const
+            {
+                if (tick_.time == now && tick_.applied)
+                    throw std::logic_error("TSW delta can only be applied once per evaluation time");
+            }
+
             // A transported tick carries the source's removal timestamps. Using the
             // receiving clock to recalculate expiry would change delayed replay.
             void apply_delta(bool cleared, const ValueView &added, const IndexedValueView &removed,
                              DateTime modified_time, std::size_t fixed_period)
             {
-                const auto drop = cleared ? size_ : removed.size();
+                require_unapplied_tick(modified_time);
+
+                // A canonical change is relative to the beginning of its cycle.
+                // The root can already have removed a prefix of that same history.
+                // Take the union of the two prefixes, keeping the source's original
+                // times wherever its authoritative removal supplies them.
+                const auto expired = tick_.time == modified_time ? tick_.size() : 0;
+                const auto overlap = std::min(expired, removed.size());
+                const auto drop = cleared ? size_ : removed.size() - overlap;
                 if (drop > size_ || (fixed_period && size_ - drop + added.has_value() > fixed_period))
                     throw std::invalid_argument("TSW delta does not match the receiver's retained sample count");
 
-                WindowTick next{.time = modified_time, .added = added.has_value(), .cleared = cleared};
+                WindowTick next{.time = modified_time, .added = added.has_value(), .cleared = cleared, .applied = true};
                 next.append(removed.size(), [&](std::size_t index) {
                     const auto sample = removed.at(index).as_bundle();
                     const auto value = sample.at(0);
                     if (value.schema() != element_binding_.schema() || !value.has_value())
                         throw std::invalid_argument("TSW removal requires a live value of its element type");
                     return RemovedWindowSample{Value{element_binding_, value}, sample.at(1).checked_as<DateTime>()};
+                });
+                next.append(expired - overlap, [&](std::size_t index) {
+                    return tick_.at(overlap + index);
                 });
                 if (added.has_value())
                 {
@@ -1404,6 +1422,7 @@ namespace hgraph::ts_data_plan_factory_detail
                         static_cast<std::uint64_t>(self->schema->time_range().count()))
                         throw std::invalid_argument("TSW sample replacement exceeds its time range");
                 auto &window = storage<Storage>(window_mutable_value_memory(context, memory));
+                window.require_unapplied_tick(modified_time);
                 window.restore_checkpoint(values, times);
                 window.mark_replacement(modified_time);
             }

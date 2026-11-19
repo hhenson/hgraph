@@ -955,8 +955,8 @@ def test_duration_tsw_exposes_timedelta_configuration():
     def app(value: TS[int]) -> TS[int]:
         return inspect(to_window(value, period, minimum))
 
-    assert eval_node(app, [1, 2]) == [1, 2]
-    assert observations == [(period, minimum), (period, minimum)]
+    assert eval_node(app, [1, 2]) == [1, 2, None, None, 1, 0]
+    assert observations == [(period, minimum)] * 4
 
 
 def test_duration_minimum_distinguishes_explicit_zero_from_omission():
@@ -970,11 +970,11 @@ def test_duration_minimum_distinguishes_explicit_zero_from_omission():
     def warmed(value: TS[int]) -> TS[float]:
         return mean(to_window(value, 2 * MIN_TD))
 
-    assert eval_node(immediate, [2, 4, 6]) == [2.0, 3.0, 4.0]
+    assert eval_node(immediate, [2, 4, 6]) == [2.0, 3.0, 4.0, 5.0, 6.0]
     assert eval_node(warmed, [2, 4, 6]) == [None, None, 4.0]
 
 
-def test_window_delta_preserves_original_times_on_multi_eviction_and_clear():
+def test_window_delta_preserves_original_times_on_quiet_expiry_arrival_and_clear():
     observations = []
 
     @compute_node(valid=())
@@ -993,17 +993,18 @@ def test_window_delta_preserves_original_times_on_multi_eviction_and_clear():
         return observe(to_window(data, 2 * MIN_TD, 0 * MIN_TD, reset=reset))
 
     assert eval_node(app, [7, 7, None, None, 9, None, None],
-                     [None, None, None, None, None, True, True]) == [1, 2, None, None, 1, 0, 0]
+                     [None, None, None, None, None, True, True]) == [1, 2, None, 1, 1, 0, 0]
     assert observations == [
         (False, (7,), (), (), 7),
         (False, (7,), (), (), 7),
-        (False, (9,), ((MIN_ST, 7), (MIN_ST + MIN_TD, 7)), (7, 7), 9),
+        (False, (), ((MIN_ST, 7),), (7,), None),
+        (False, (9,), ((MIN_ST + MIN_TD, 7),), (7,), 9),
         (True, (), ((MIN_ST + 4 * MIN_TD, 9),), (9,), None),
         (True, (), (), (), None),
     ]
 
 
-def test_window_owner_can_expire_then_append_and_replace_all_samples():
+def test_window_owner_can_append_after_scheduled_expiry_and_replace_all_samples():
     changes = []
 
     @compute_node
@@ -1013,11 +1014,11 @@ def test_window_owner_can_expire_then_append_and_replace_all_samples():
     ) -> TSW[int, WindowSize[2 * MIN_TD], WindowSize[0 * MIN_TD]]:
         if operation.value == "replace":
             _output.replace_samples([7, 7])
-        elif operation.value == "expire":
-            assert _output.expire()
+        elif operation.value == "observe expiry":
+            # The expiry source runs before this owner at their shared time.
+            assert not _output.expire()
         else:
-            expired = _output.expire()
-            assert expired == (operation.value == "expire and append")
+            assert not _output.expire()
             assert _output.can_apply_result(9)
             _output.value = 9
             assert not _output.can_apply_result(10)
@@ -1028,8 +1029,8 @@ def test_window_owner_can_expire_then_append_and_replace_all_samples():
             tuple((s["time"], s["value"]) for s in change.get("replacement", ())),
         ))
 
-    operations = ["replace", None, None, "expire", "append", None, None, "expire and append"]
-    assert eval_node(publish, operations) == [7, None, None, None, 9, None, None, 9]
+    operations = ["replace", None, None, "observe expiry", "append", None, None, "append"]
+    assert eval_node(publish, operations) == [7, None, None, None, 9, None, None, 9, None, None, None]
     assert changes == [
         ((), (), ((MIN_ST, 7), (MIN_ST, 7))),
         ((), ((MIN_ST, 7), (MIN_ST, 7)), ()),
@@ -1078,7 +1079,7 @@ def test_nested_public_window_delta_keeps_the_position_on_departure_only_ticks()
         if operation.value == "replace":
             window.replace_samples([3, 5])
         else:
-            assert window.expire()
+            assert not window.expire()  # The root has already published this departure.
         observed.append((_output.delta_value, window.delta_value))
 
     operations = ["replace", None, "expire"]

@@ -509,6 +509,7 @@ namespace hgraph::spawn_detail
     struct SpawnNode
     {
         static constexpr auto name = "spawn_";
+        static constexpr bool replays_output_events = true;
         // A dynamic-graph owner whose children are its stages (RFC 0039). Its
         // contract is what it saves of each stage, in order: the component a
         // stage hosts, or every node when spawn_ is itself a member. Bootstraps

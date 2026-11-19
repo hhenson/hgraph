@@ -547,7 +547,12 @@ def test_duration_window_history_and_clear_broadcast(mapper):
         return hg.eval_node(app, [{"a": 10}, None, {"b": 20}, None, None],
                             [1, 2, 3, None, 4], [None, None, None, True, None])
     expected = run(hg.map_)
-    assert expected[-1] == {"a": (10, 4), "b": (20, 4)}
+    assert expected[3:] == [
+        {"a": (10,), "b": (20,)},         # reset
+        {"a": (10, 4), "b": (20, 4)},     # new sample
+        None, None, None,
+        {"a": (10,), "b": (20,)},         # departure during silence
+    ]
     assert run(mapper) == expected
 
 

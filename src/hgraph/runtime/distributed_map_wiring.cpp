@@ -269,6 +269,7 @@ namespace hgraph::distributed
     struct prepared_dmap_impl : prepared_dmap_lifecycle
     {
         static constexpr auto name = "dmap_";
+        static constexpr bool replays_output_events = true;
         static void eval(In<"inputs", TsVar<"I">, InputValidity::Unchecked> inputs,
                          Scalar<"plan", DistributedMapPlanPtr> plan, TypeArg<"result", TsVar<"O">>,
                          State<DistributedMapState> state, NodeScheduler scheduler, DateTime now, Out<TsVar<"O">> out)

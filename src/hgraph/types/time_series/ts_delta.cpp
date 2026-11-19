@@ -1191,6 +1191,21 @@ namespace hgraph
             throw std::logic_error("TSData current-state reconciliation is not available");
         }
 
+        template <auto Reconcile, bool RetainsSampleTimes, typename Source>
+        void reconcile_or_sample(const TSOutputView &target, const Source &source, TSCurrentReconcileOptions options)
+        {
+            if (options.scope == TSCurrentReconcileScope::Sample)
+            {
+                if constexpr (RetainsSampleTimes) { options = {TSCurrentReconcileScope::Full, true}; }
+                else
+                {
+                    apply_current_value(target, source.value());
+                    return;
+                }
+            }
+            Reconcile(target, source, options);
+        }
+
         [[nodiscard]] const TSCurrentStateOps &atomic_current_state_ops() noexcept
         {
             static const TSCurrentStateOps ops{
@@ -1199,8 +1214,8 @@ namespace hgraph
                 &capture_current_atomic,
                 &apply_current_value_direct,
                 &observable_atomic,
-                &reconcile_atomic_impl<TSInputView>,
-                &reconcile_atomic_impl<TSDataView>,
+                &reconcile_or_sample<reconcile_atomic_impl<TSInputView>, false>,
+                &reconcile_or_sample<reconcile_atomic_impl<TSDataView>, false>,
                 /* captures_while_invalid: */ false,   // an atomic input has no value to capture once invalid
             };
             return ops;
@@ -1214,8 +1229,8 @@ namespace hgraph
                 &capture_current_signal,
                 &apply_current_value_direct,
                 &observable_atomic,
-                &reconcile_atomic_impl<TSInputView>,
-                &reconcile_atomic_impl<TSDataView>,
+                &reconcile_or_sample<reconcile_atomic_impl<TSInputView>, false>,
+                &reconcile_or_sample<reconcile_atomic_impl<TSDataView>, false>,
                 /* captures_while_invalid: */ false,   // a signal carries no value at all
             };
             return ops;
@@ -1229,8 +1244,8 @@ namespace hgraph
                 &capture_current_transient,
                 &apply_current_value_direct,
                 &observable_atomic,
-                &reconcile_atomic_impl<TSInputView>,
-                &reconcile_atomic_impl<TSDataView>,
+                &reconcile_or_sample<reconcile_atomic_impl<TSInputView>, false>,
+                &reconcile_or_sample<reconcile_atomic_impl<TSDataView>, false>,
                 /* captures_while_invalid: */ false,   // an unbound reference has nothing to capture
             };
             return ops;
@@ -1244,8 +1259,8 @@ namespace hgraph
                 &capture_current_window,
                 &apply_current_value_direct,
                 &observable_window,
-                &reconcile_window_impl<TSInputView>,
-                &reconcile_window_impl<TSDataView>,
+                &reconcile_or_sample<reconcile_window_impl<TSInputView>, true>,
+                &reconcile_or_sample<reconcile_window_impl<TSDataView>, true>,
                 /* captures_while_invalid: */ false,   // a cleared or partially warm window stays valid
             };
             return ops;
@@ -1259,13 +1274,14 @@ namespace hgraph
                 &capture_current_set,
                 &apply_current_value_direct,
                 &observable_set,
-                &reconcile_set_impl<TSInputView>,
-                &reconcile_set_impl<TSDataView>,
+                &reconcile_or_sample<reconcile_set_impl<TSInputView>, false>,
+                &reconcile_or_sample<reconcile_set_impl<TSDataView>, false>,
                 /* captures_while_invalid: */ true,   // an emptied TSS still owes the removals its link holds
             };
             return ops;
         }
 
+        template <bool RetainsSampleTimes = false>
         [[nodiscard]] const TSCurrentStateOps &dict_current_state_ops() noexcept
         {
             static const TSCurrentStateOps ops{
@@ -1274,13 +1290,14 @@ namespace hgraph
                 &capture_current_dict,
                 &apply_current_value_dict,
                 &observable_dict,
-                &reconcile_dict_impl<TSInputView>,
-                &reconcile_dict_impl<TSDataView>,
+                &reconcile_or_sample<reconcile_dict_impl<TSInputView>, RetainsSampleTimes>,
+                &reconcile_or_sample<reconcile_dict_impl<TSDataView>, RetainsSampleTimes>,
                 /* captures_while_invalid: */ true,   // an emptied TSD still owes the removals its link holds
             };
             return ops;
         }
 
+        template <bool RetainsSampleTimes = false>
         [[nodiscard]] const TSCurrentStateOps &list_current_state_ops() noexcept
         {
             static const TSCurrentStateOps ops{
@@ -1289,13 +1306,14 @@ namespace hgraph
                 &capture_current_list,
                 &apply_current_value_list,
                 &observable_list,
-                &reconcile_indexed_impl<TSInputView>,
-                &reconcile_indexed_impl<TSDataView>,
+                &reconcile_or_sample<reconcile_indexed_impl<TSInputView>, RetainsSampleTimes>,
+                &reconcile_or_sample<reconcile_indexed_impl<TSDataView>, RetainsSampleTimes>,
                 /* captures_while_invalid: */ false,   // a truncation is reported through the list's own delta, not a child capture
             };
             return ops;
         }
 
+        template <bool RetainsSampleTimes = false>
         [[nodiscard]] const TSCurrentStateOps &bundle_current_state_ops() noexcept
         {
             static const TSCurrentStateOps ops{
@@ -1304,8 +1322,8 @@ namespace hgraph
                 &capture_current_bundle,
                 &apply_current_value_bundle,
                 &observable_bundle,
-                &reconcile_indexed_impl<TSInputView>,
-                &reconcile_indexed_impl<TSDataView>,
+                &reconcile_or_sample<reconcile_indexed_impl<TSInputView>, RetainsSampleTimes>,
+                &reconcile_or_sample<reconcile_indexed_impl<TSDataView>, RetainsSampleTimes>,
                 /* captures_while_invalid: */ false,   // a bundle's own capture already walks its children
             };
             return ops;
@@ -1343,6 +1361,21 @@ namespace hgraph
             };
             const auto index = static_cast<std::size_t>(kind);
             return index < table.size() ? *table[index] : missing_current_state_ops();
+        }
+
+        const TSCurrentStateOps &current_state_ops_for(const TSValueTypeMetaData &schema) noexcept
+        {
+            if (schema.contains_window())
+            {
+                switch (schema.kind)
+                {
+                    case TSTypeKind::TSB: return bundle_current_state_ops<true>();
+                    case TSTypeKind::TSL: return list_current_state_ops<true>();
+                    case TSTypeKind::TSD: return dict_current_state_ops<true>();
+                    default: break;
+                }
+            }
+            return current_state_ops_for(schema.kind);
         }
     }  // namespace ts_current_state_detail
 
@@ -2095,6 +2128,8 @@ namespace hgraph
                                        const Source &source)
         {
             const auto *source_schema = source.schema();
+            // Interned identical topologies need no recursive compatibility walk.
+            if (source_schema == &schema) { return; }
             // A default, non-live view is the contract's explicit absent
             // source. It carries no topology and asks the selected strategy
             // to clear/invalidate its target state.

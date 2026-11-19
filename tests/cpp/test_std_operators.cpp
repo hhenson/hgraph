@@ -740,6 +740,16 @@ namespace
         }
     };
 
+    template <typename T>
+    struct DurationWindowSum
+    {
+        static Port<TS<T>> compose(Wiring &w, Port<TS<T>> samples)
+        {
+            auto window = wire<stdlib::to_window>(w, samples, 2 * MIN_TD, 2 * MIN_TD);
+            return wire<stdlib::sum_>(w, window).template as<TS<T>>();
+        }
+    };
+
     struct SumOfAbsoluteWindow
     {
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> data, Port<SIGNAL> expire)
@@ -3273,6 +3283,15 @@ TEST_CASE("std operators: a window aggregate reseeds when the window is not appe
                  values<Float>(11.0, 22.0));
 }
 
+TEST_CASE("std operators: duration window sum publishes zero on its last departure")
+{
+    stdlib::register_standard_operators();
+    // The first sample is below the two-microsecond minimum for all_valid.
+    // The running sum observes each departure even after the source goes quiet.
+    CHECK_OUTPUT(eval_node<DurationWindowSum<Int>>(values<Int>(7, 2)), values<Int>(7, 9, none, 2, 0));
+    CHECK_OUTPUT(eval_node<DurationWindowSum<Float>>(values<Float>(7.5)), values<Float>(7.5, none, none, 0.0));
+}
+
 TEST_CASE("std operators: len_ covers windows and composite-element lists (issue #81)")
 {
     stdlib::register_standard_operators();
@@ -4804,7 +4823,10 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
     CHECK_OUTPUT(eval_node<stdlib::to_window>(values<Int>(1, 2, 3, 4, 5), MIN_TD * 2),
                  values<Value>(window_delta<Int>(1), window_delta<Int>(2), window_delta<Int>(3),
                                window_delta<Int>(4, {{1, MIN_ST}}),
-                               window_delta<Int>(5, {{2, MIN_ST + MIN_TD}})));
+                               window_delta<Int>(5, {{2, MIN_ST + MIN_TD}}),
+                               window_delta<Int>(std::nullopt, {{3, MIN_ST + 2 * MIN_TD}}),
+                               window_delta<Int>(std::nullopt, {{4, MIN_ST + 3 * MIN_TD}}),
+                               window_delta<Int>(std::nullopt, {{5, MIN_ST + 4 * MIN_TD}})));
     CHECK_THROWS_WITH(
         (eval_node<stdlib::to_window>(values<Int>(1), Int{0})),
         Catch::Matchers::ContainsSubstring("to_window: period must be positive"));
@@ -4817,8 +4839,8 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
     // Expiring -3 leaves only -4. Neither abs_ nor sum_ may count -4 twice.
     CHECK_OUTPUT(eval_node<SumOfAbsoluteWindow>(values<Int>(-3, -4, none, none, none, -5),
                                                 values<Bool>(none, none, none, true, none, none)),
-                 values<Int>(3, 7, none, 4, none, 5));
-    CHECK_OUTPUT(eval_node<DurationReadinessGraph<true>>(values<Int>(2, 4, 6)), values<Float>(2., 3., 4.));
+                 values<Int>(3, 7, none, 4, 0, 5, none, none, 0));
+    CHECK_OUTPUT(eval_node<DurationReadinessGraph<true>>(values<Int>(2, 4, 6)), values<Float>(2., 3., 4., 5., 6.));
     CHECK_OUTPUT(eval_node<DurationReadinessGraph<false>>(values<Int>(2, 4, 6)), values<Float>(none, none, 4.));
     CHECK_THROWS_WITH(
         (eval_node<stdlib::to_window>(values<Int>(1), MIN_TD * 2, -MIN_TD)),
@@ -4837,10 +4859,13 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
                      values<Int>(1, 2, 3),
                      values<Bool>(none, true, none)),
                  values<Int>(101, 102, 205));
+    auto reset_history = values<Int>(101, 203, 0, 103);
+    // The sample at t3 remains through t13. The cleared samples have no outstanding departures.
+    reset_history.resize(14);
+    reset_history.emplace_back(0);
     CHECK_OUTPUT(eval_node<ResettableDurationWindowGraph>(
                      values<Int>(1, 2, none, 3),
-                     values<Bool>(none, none, true, none)),
-                 values<Int>(101, 203, 0, 103));
+                     values<Bool>(none, none, true, none)), reset_history);
     CHECK_OUTPUT(eval_node<stdlib::dedup>(values<Int>(1, 2, 2, 3, 3, 3, 4)),
                  values<Int>(1, 2, none, 3, none, none, 4));
     CHECK_OUTPUT((eval_node<stdlib::dedup, TSS<Int>>(

@@ -208,6 +208,16 @@ namespace hgraph
         return ops.size_impl(ops.context, memory) == 0 ? MIN_DT : ops.time_at_impl(ops.context, memory, 0);
     }
 
+    DateTime TSWDataView::next_expiry_time() const
+    {
+        if (!duration_based()) { return MAX_DT; }
+        const auto oldest = first_modified_time();
+        if (oldest == MIN_DT) { return MAX_DT; }
+        const auto span = time_range();
+        if (oldest >= MAX_DT || span >= MAX_DT - oldest) { return MAX_DT; }
+        return oldest + span + MIN_TD;
+    }
+
     DateTime TSWDataView::time_at(std::size_t index) const
     {
         const auto &ops = window_ops();
@@ -389,7 +399,7 @@ namespace hgraph
     {
         if (!cleared && !added.has_value() && removed.size() == 0) { return; }
         const auto &ops = window_ops();
-        if (mutation_.modified(ops, current_mutation_time()))
+        if (owner_already_wrote(ops))
             throw std::logic_error("TSW delta can only be applied once per evaluation time");
         ops.apply_window_delta_impl(ops.context, mutation_.mutable_data(ops), cleared, added, removed,
                                     current_mutation_time());
@@ -430,7 +440,7 @@ namespace hgraph
     void TSWDataMutationView::replace_samples(const ValueView &values, std::span<const DateTime> times)
     {
         const auto &ops = window_ops();
-        if (mutation_.modified(ops, current_mutation_time()))
+        if (owner_already_wrote(ops))
             throw std::logic_error("TSWDataMutationView::replace_samples allows one replacement per cycle");
         ops.replace_samples_impl(ops.context, mutation_.mutable_data(ops), values, times,
                                  current_mutation_time());

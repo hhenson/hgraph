@@ -586,7 +586,8 @@ def test_python_compute_produces_tick_and_duration_tsw():
         return value.value
 
     check(eval_node(tick_window, [1, 2, 3, 4]) == [1, 2, 3, 4], "tick TSW output")
-    check(eval_node(duration_window, [1, 2, 3, 4]) == [1, 2, 3, 4], "duration TSW output")
+    # The four scheduled departures publish no new arrival sample.
+    check(eval_node(duration_window, [1, 2, 3, 4]) == [1, 2, 3, 4, None, None, None, None], "duration TSW output")
 
 
 def test_compute_validity_optional_inputs_and_no_tick():

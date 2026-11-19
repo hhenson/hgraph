@@ -3467,6 +3467,12 @@ namespace hgraph
         }
 
         template <typename TImplementation>
+        inline constexpr bool replays_output_events = [] {
+            if constexpr (requires { TImplementation::replays_output_events; }) { return TImplementation::replays_output_events; }
+            else { return false; }
+        }();
+
+        template <typename TImplementation>
         [[nodiscard]] NodeTypeMetaData static_node_schema_base()
         {
             static_assert(std::is_class_v<TImplementation>, "Static node implementations must be class/struct types");
@@ -3681,28 +3687,16 @@ namespace hgraph
     NodeBuilder &NodeBuilder::implementation()
     {
         auto parts = static_node_detail::static_node_builder_parts<TImplementation>();
-        std::string saved_label{label()};
-        Value       saved_scalars{std::move(scalars_)};
-        const auto  saved_output_storage = output_value_storage_;
-        *this = static_node_detail::make_static_node_builder<TImplementation>(std::move(parts));
-        if (!saved_label.empty()) { label(std::move(saved_label)); }
-        if (saved_scalars.has_value()) { scalars(std::move(saved_scalars)); }
-        output_value_storage(saved_output_storage);
-        return *this;
+        return replace_implementation(static_node_detail::make_static_node_builder<TImplementation>(std::move(parts)),
+                                      static_node_detail::replays_output_events<TImplementation>);
     }
 
     template <typename TImplementation>
     NodeBuilder &NodeBuilder::implementation(const ResolutionMap &resolution)
     {
         auto parts = static_node_detail::static_node_builder_parts<TImplementation>(resolution);
-        std::string saved_label{label()};
-        Value       saved_scalars{std::move(scalars_)};
-        const auto  saved_output_storage = output_value_storage_;
-        *this = static_node_detail::make_static_node_builder<TImplementation>(std::move(parts));
-        if (!saved_label.empty()) { label(std::move(saved_label)); }
-        if (saved_scalars.has_value()) { scalars(std::move(saved_scalars)); }
-        output_value_storage(saved_output_storage);
-        return *this;
+        return replace_implementation(static_node_detail::make_static_node_builder<TImplementation>(std::move(parts)),
+                                      static_node_detail::replays_output_events<TImplementation>);
     }
 
 }  // namespace hgraph

@@ -7711,7 +7711,7 @@ Accepted native overloads
 ``to_window``
 -------------
 
-Convert a stream into a typed trailing ``TSW`` window. A nonempty window is readable during warm-up. When ``reset`` and the source tick together, retained values are cleared before the new tick is added. Wiring rejects a non-positive period, a negative minimum, or a minimum greater than the period. @note Cost: O(1) for a count-window append, O(1 + R) for an append evicting R samples; O(W) retained for W live samples.
+Convert a stream into a typed trailing ``TSW`` window. Duration windows publish departures during source silence. A sample exactly one period old stays. A nonempty window is readable during warm-up. When ``reset`` and the source tick together, retained values are cleared before the new tick is added. Wiring rejects a non-positive period, a negative minimum, or a minimum greater than the period. @note Cost: O(1) per count-window append. A duration deadline update costs O(log N) for N armed windows and processing R due samples costs O(R) for that window. Each owner retains O(W) live samples.
 
 Python exposure: lazy native operator proxy.
 

@@ -287,7 +287,7 @@ namespace hgraph
                 dict_base.all_valid_impl = &all_valid;
                 dict_base.ownership_ops = &ownership_ops();
                 dict_base.current_state_ops =
-                    &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSD);
+                    &ts_current_state_detail::current_state_ops_for(*schema);
                 dict_base.empty_delta_impl = &ts_data_detail::empty_delta_tsd;
                 dict_base.capture_delta_impl = &ts_data_detail::capture_delta_tsd;
                 dict_base.delta_has_effect_impl = &ts_data_detail::delta_has_effect_tsd;

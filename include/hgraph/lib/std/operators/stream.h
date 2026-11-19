@@ -211,6 +211,7 @@ namespace hgraph::stdlib
     };
 
     /** Convert a stream into a typed trailing ``TSW`` window.
+        Duration windows publish departures during source silence. A sample exactly one period old stays.
         A nonempty window is readable during warm-up. When ``reset`` and
         the source tick together, retained values are cleared before the new tick is added.
         Wiring rejects a non-positive period, a negative minimum, or a minimum greater
@@ -224,7 +225,7 @@ namespace hgraph::stdlib
         @code{.py}
         recent = hg.to_window(price, period=20, min_window_period=5, reset=session_start)
         @endcode
-        @note Cost: O(1) for a count-window append, O(1 + R) for an append evicting R samples; O(W) retained for W live samples. */
+        @note Cost: O(1) per count-window append. A duration deadline update costs O(log N) for N armed windows and processing R due samples costs O(R) for that window. Each owner retains O(W) live samples. */
     struct to_window : Operator<"to_window", In<"ts", TsVar<"S">>, Scalar<"period", ScalarVar<"P", Int, TimeDelta>>,
                                 Scalar<"min_window_period", ScalarVar<"M", Int, TimeDelta>>, Out<TsVar<"O">>>
     {

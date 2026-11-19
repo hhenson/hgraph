@@ -1454,7 +1454,7 @@ namespace hgraph::detail
                 .allows_mutation            = true,
                 .is_target_link             = true,
                 .ownership_ops              = &target_link_ownership_ops(),
-                .current_state_ops          = &ts_current_state_detail::current_state_ops_for(context.schema->kind),
+                .current_state_ops          = &ts_current_state_detail::current_state_ops_for(*context.schema),
                 .layout_impl                = &target_link_layout,
                 .tracking_impl              = &target_link_tracking,
                 .mutable_tracking_impl      = &target_link_mutable_tracking,

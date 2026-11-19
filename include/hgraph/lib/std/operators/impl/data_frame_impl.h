@@ -352,6 +352,7 @@ namespace hgraph::stdlib
     struct replay_data_frame_impl
     {
         static constexpr auto name = "replay_data_frame";
+        static constexpr bool replays_output_events = true;
 
         static auto defaults()
         {

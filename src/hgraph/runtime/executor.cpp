@@ -4,6 +4,7 @@
 #include <hgraph/runtime/graph_checkpoint_coordinator.h>
 
 #include "registry_snapshot_detail.h"
+#include "window_expiry_service.h"
 
 #include <hgraph/runtime/lifecycle_observer.h>
 #include <hgraph/runtime/logger.h>
@@ -669,6 +670,22 @@ namespace hgraph
             }
         }
 
+        bool evaluate_root_with_notifications(const GraphView &graph, DateTime now,
+                                              std::vector<std::function<void()>> &after)
+        {
+            bool completed = false;
+            auto finish = UnwindCleanupGuard([&] {
+                if (completed) { finish_root_window_expiry(graph, now); }
+            });
+            // A callback can publish after a removal at the same time. Only the
+            // first modification notifies, so read final deadlines after callbacks.
+            auto drain_after = UnwindCleanupGuard([&] { drain_evaluation_notifications(after, false); });
+            completed = evaluate_root_nodes(graph, now);
+            drain_after.complete();
+            finish.complete();
+            return completed;
+        }
+
         template <typename Storage>
         void stop_storage(Storage &state)
         {
@@ -826,11 +843,7 @@ namespace hgraph
                     drain_evaluation_notifications(state.before_evaluation_notifications, true);
                     // Match Python's try/finally cycle contract: even a partial
                     // graph evaluation must run the after queue before teardown.
-                    auto drain_after = UnwindCleanupGuard([&] {
-                        drain_evaluation_notifications(state.after_evaluation_notifications, false);
-                    });
-                    completed = graph.evaluate(evaluation_time);
-                    drain_after.complete();
+                    completed = evaluate_root_with_notifications(graph, evaluation_time, state.after_evaluation_notifications);
                     remove_recorder.complete();
                     if (recording_this_cycle) { recorded_cycle = true; }
                 });
@@ -1007,11 +1020,7 @@ namespace hgraph
             });
             run_executor_phase(state, GraphExecutorPhase::Evaluation, [&] {
                 drain_evaluation_notifications(state.before_evaluation_notifications, true);
-                auto drain_after = UnwindCleanupGuard([&] {
-                    drain_evaluation_notifications(state.after_evaluation_notifications, false);
-                });
-                completed = graph.evaluate(evaluation_time);
-                drain_after.complete();
+                completed = evaluate_root_with_notifications(graph, evaluation_time, state.after_evaluation_notifications);
             });
             if (!completed)
             {
