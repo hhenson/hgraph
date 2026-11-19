@@ -12,6 +12,7 @@
 #include <hgraph/types/python_ops.h>
 
 #include "detail/ts_data_seams.h"
+#include "detail/window_change.h"
 
 #include <fmt/format.h>
 
@@ -30,6 +31,7 @@
 #include <unordered_map>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace hgraph::ts_data_plan_factory_detail
 {
@@ -46,6 +48,81 @@ namespace hgraph::ts_data_plan_factory_detail
             return alignment <= 1 ? value : ((value + alignment - 1) / alignment) * alignment;
         }
 
+        struct RemovedWindowSample
+        {
+            Value value{};
+            DateTime time{MIN_DT};
+        };
+
+        // The first removed sample stays inline: an ordinary fixed-count roll
+        // needs no removal-list allocation. Larger clears and duration drops spill.
+        struct WindowTick
+        {
+            DateTime time{MIN_DT};
+            bool added{false};
+            bool cleared{false};
+            bool replaced{false};
+            using Batch = std::vector<RemovedWindowSample>;
+            std::variant<RemovedWindowSample, Batch> removals{};
+
+            std::size_t size() const noexcept
+            {
+                if (const auto *single = std::get_if<RemovedWindowSample>(&removals))
+                    return single->value.has_value() ? 1 : 0;
+                return std::get<Batch>(removals).size();
+            }
+
+            const RemovedWindowSample &at(std::size_t index) const
+            {
+                if (const auto *single = std::get_if<RemovedWindowSample>(&removals))
+                {
+                    if (index == 0 && single->value.has_value()) { return *single; }
+                    throw std::out_of_range("TSW removed sample index out of range");
+                }
+                return std::get<Batch>(removals).at(index);
+            }
+
+            template <typename Read>
+            void append(std::size_t count, Read read)
+            {
+                if (count == 0) { return; }
+                if (auto *single = std::get_if<RemovedWindowSample>(&removals))
+                {
+                    const bool retain_first = single->value.has_value();
+                    if (!retain_first && count == 1)
+                    {
+                        *single = read(0);
+                        return;
+                    }
+                    Batch batch;
+                    batch.reserve(count + retain_first);
+                    if (retain_first) { batch.emplace_back(); }
+                    for (std::size_t i = 0; i < count; ++i) { batch.push_back(read(i)); }
+                    // All throwing copies are complete before moving the inline sample.
+                    if (retain_first) { batch.front() = std::move(*single); }
+                    removals = std::move(batch);
+                    return;
+                }
+                auto &batch = std::get<Batch>(removals);
+                const auto previous = batch.size();
+                batch.reserve(previous + count);
+                auto rollback = make_scope_exit([&] { batch.resize(previous); });
+                for (std::size_t i = 0; i < count; ++i) { batch.push_back(read(i)); }
+                rollback.release();
+            }
+
+            DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+            {
+                if (const auto *single = std::get_if<RemovedWindowSample>(&removals))
+                    return single->value.dynamic_storage_metrics();
+                const auto &batch = std::get<Batch>(removals);
+                DynamicStorageMetrics result{.live_bytes = batch.size() * sizeof(RemovedWindowSample),
+                                             .reserved_bytes = batch.capacity() * sizeof(RemovedWindowSample)};
+                for (const auto &sample : batch) { result += sample.value.dynamic_storage_metrics(); }
+                return result;
+            }
+        };
+
         class TSWindowStorageCore
         {
           public:
@@ -57,8 +134,7 @@ namespace hgraph::ts_data_plan_factory_detail
             TSWindowStorageCore(const TSWindowStorageCore &other)
                 : time_binding_(other.time_binding_),
                   element_binding_(other.element_binding_),
-                  evicted_(other.evicted_),
-                  evicted_time_(other.evicted_time_)
+                  tick_(other.tick_)
             {
                 copy_live_from(other);
             }
@@ -67,12 +143,12 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 if (this != &other)
                 {
+                    invalidate_delta_projection();
                     clear();
                     deallocate();
                     time_binding_    = other.time_binding_;
                     element_binding_ = other.element_binding_;
-                    evicted_         = other.evicted_;
-                    evicted_time_    = other.evicted_time_;
+                    tick_            = other.tick_;
                     copy_live_from(other);
                 }
                 return *this;
@@ -86,9 +162,9 @@ namespace hgraph::ts_data_plan_factory_detail
                   capacity_(std::exchange(other.capacity_, 0)),
                   size_(std::exchange(other.size_, 0)),
                   head_(std::exchange(other.head_, 0)),
-                  evicted_(std::move(other.evicted_)),
-                  evicted_time_(std::exchange(other.evicted_time_, MIN_DT))
+                  tick_(std::exchange(other.tick_, {}))
             {
+                other.invalidate_delta_projection();
                 other.time_binding_    = nullptr;
                 other.element_binding_ = nullptr;
             }
@@ -97,6 +173,7 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 if (this != &other)
                 {
+                    invalidate_delta_projection();
                     clear();
                     deallocate();
                     time_binding_          = other.time_binding_;
@@ -106,8 +183,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     capacity_              = std::exchange(other.capacity_, 0);
                     size_                  = std::exchange(other.size_, 0);
                     head_                  = std::exchange(other.head_, 0);
-                    evicted_               = std::move(other.evicted_);
-                    evicted_time_          = std::exchange(other.evicted_time_, MIN_DT);
+                    tick_                  = std::exchange(other.tick_, {});
+                    other.invalidate_delta_projection();
                     other.time_binding_    = nullptr;
                     other.element_binding_ = nullptr;
                 }
@@ -120,10 +197,37 @@ namespace hgraph::ts_data_plan_factory_detail
                 deallocate();
             }
 
+            // Keyed, indexed and range projections borrow the same child delta.
+            // Avoid constructing that owning bundle unless a consumer reads it.
+            template <typename Build> ValueView delta_projection(bool snapshot, Build build) const
+            {
+                if (!delta_projection_) { delta_projection_ = std::make_unique<WindowProjections>(); }
+                auto &projection = snapshot ? delta_projection_->snapshot : delta_projection_->change;
+                if (!projection.has_value()) { projection = build(); }
+                return projection.view();
+            }
+
+            void invalidate_delta_projection() noexcept { delta_projection_.reset(); }
+
             [[nodiscard]] std::size_t size() const noexcept { return size_; }
             [[nodiscard]] bool empty() const noexcept { return size_ == 0; }
             [[nodiscard]] ValueTypeRef time_binding() const { return time_binding_; }
             [[nodiscard]] ValueTypeRef element_binding() const { return element_binding_; }
+
+            // Value is an escaping owner and may select a different representation.
+            // A staged arrival must use the exact binding of the receiver's ring.
+            using ElementStorage = MemoryUtils::ErasedOwner<MemoryUtils::InlineStoragePolicy<>, TypeRecord>;
+            [[nodiscard]] ElementStorage stage_element(const ValueView &source) const
+            {
+                if (!source.has_value() || source.schema() != element_binding_.schema())
+                    throw std::invalid_argument("TSW arrival requires the window element type");
+                if (source.binding() == element_binding_)
+                    return ElementStorage::owning_copy(*element_binding_.record(), source.data());
+                ElementStorage retained{*element_binding_.record()};
+                element_binding_.ops_ref().copy_assign_from(element_binding_, retained.data(),
+                                                            source.binding(), source.data());
+                return retained;
+            }
 
             /** Exact raw-buffer ownership plus recursively owned payloads. */
             [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
@@ -138,25 +242,45 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     result += ops.dynamic_storage_metrics(element_at(index));
                 }
-                result += evicted_.dynamic_storage_metrics();
+                result += tick_.dynamic_storage_metrics();
+                if (delta_projection_)
+                {
+                    result += {sizeof(WindowProjections), sizeof(WindowProjections)};
+                    result += delta_projection_->change.dynamic_storage_metrics();
+                    result += delta_projection_->snapshot.dynamic_storage_metrics();
+                }
                 return result;
             }
 
-            /** The element most recently evicted by a push (hgraph's
-                removed_value) and the evaluation time it fell out. */
-            [[nodiscard]] const Value &evicted_element() const noexcept { return evicted_; }
-            [[nodiscard]] DateTime evicted_time() const noexcept { return evicted_time_; }
-            [[nodiscard]] DateTime cleared_time() const noexcept
+            [[nodiscard]] const WindowTick &tick() const noexcept { return tick_; }
+
+            [[nodiscard]] DateTime replaced_time() const noexcept { return tick_.replaced ? tick_.time : MIN_DT; }
+
+            [[nodiscard]] ValueView evicted_element() const
             {
-                return evicted_.has_value() ? MIN_DT : evicted_time_;
+                return !tick_.cleared && tick_.size() ? tick_.at(tick_.size() - 1).value.view() : ValueView{};
+            }
+            [[nodiscard]] DateTime evicted_time() const noexcept { return !tick_.cleared && tick_.size() ? tick_.time : MIN_DT; }
+            [[nodiscard]] DateTime cleared_time() const noexcept { return tick_.cleared ? tick_.time : MIN_DT; }
+
+            void begin_replacement(DateTime modified_time)
+            {
+                invalidate_delta_projection();
+                clear();
+                tick_ = WindowTick{.time = modified_time, .replaced = true};
             }
 
-            /** Clear the logical window while retaining its allocation. */
-            void clear_values(DateTime modified_time) noexcept
+            void mark_replacement(DateTime modified_time)
             {
+                invalidate_delta_projection();
+                tick_ = WindowTick{.time = modified_time, .added = !empty(), .replaced = true};
+            }
+
+            void clear_values(DateTime modified_time)
+            {
+                record_removals(size_, modified_time);
+                tick_.cleared = true;
                 clear();
-                evicted_.reset();
-                evicted_time_ = modified_time;
             }
 
             /** Cold load a validated chronological image in one allocation.
@@ -165,7 +289,9 @@ namespace hgraph::ts_data_plan_factory_detail
              */
             void restore_checkpoint(const IndexedValueView &values, std::span<const DateTime> times)
             {
-                clear_values(MIN_DT);
+                invalidate_delta_projection();
+                clear();
+                tick_ = {};
                 reserve_exact(values.size());
                 for (std::size_t index = 0; index < values.size(); ++index)
                 {
@@ -234,25 +360,94 @@ namespace hgraph::ts_data_plan_factory_detail
                 ++size_;
             }
 
+            void note_arrival(DateTime modified_time)
+            {
+                begin_tick(modified_time);
+                tick_.added = true;
+            }
+
             void overwrite_oldest(const ValueView &source, DateTime modified_time)
             {
                 validate_source(source);
                 if (capacity_ == 0) { throw std::logic_error("TSW storage has no capacity"); }
 
                 const auto physical = head_;
-                record_evicted(value_slot(physical), modified_time);
+                record_removals(1, modified_time);
+                if (size_ < capacity_)
+                {
+                    // Replay of a nontrivial value can reserve one spare construction slot.
+                    append(source, modified_time);
+                    remove_oldest(1);
+                    return;
+                }
                 copy_assign_value_slot(physical, source.data());
                 copy_assign_time_slot(physical, modified_time);
                 head_ = (head_ + 1) % capacity_;
             }
 
-            /** Stash the element a push is about to drop (hgraph's removed_value). */
-            void record_evicted(const void *element_memory, DateTime modified_time)
+            void begin_tick(DateTime modified_time)
             {
-                evicted_      = Value{ValueView{element_binding_, const_cast<void *>(element_memory)}};
-                evicted_time_ = modified_time;
+                invalidate_delta_projection();
+                if (tick_.time != modified_time) { tick_ = WindowTick{.time = modified_time}; }
             }
 
+            void record_removals(std::size_t count, DateTime modified_time)
+            {
+                begin_tick(modified_time);
+                tick_.append(count, [this](std::size_t index) {
+                    return RemovedWindowSample{Value{ValueView{element_binding_, element_at(index)}}, time_at(index)};
+                });
+            }
+
+            void evict_oldest(std::size_t count, DateTime modified_time)
+            {
+                record_removals(count, modified_time);
+                remove_oldest(count);
+            }
+
+          public:
+            // A transported tick carries the source's removal timestamps. Using the
+            // receiving clock to recalculate expiry would change delayed replay.
+            void apply_delta(bool cleared, const ValueView &added, const IndexedValueView &removed,
+                             DateTime modified_time, std::size_t fixed_period)
+            {
+                const auto drop = cleared ? size_ : removed.size();
+                if (drop > size_ || (fixed_period && size_ - drop + added.has_value() > fixed_period))
+                    throw std::invalid_argument("TSW delta does not match the receiver's retained sample count");
+
+                WindowTick next{.time = modified_time, .added = added.has_value(), .cleared = cleared};
+                next.append(removed.size(), [&](std::size_t index) {
+                    const auto sample = removed.at(index).as_bundle();
+                    const auto value = sample.at(0);
+                    if (value.schema() != element_binding_.schema() || !value.has_value())
+                        throw std::invalid_argument("TSW removal requires a live value of its element type");
+                    return RemovedWindowSample{Value{element_binding_, value}, sample.at(1).checked_as<DateTime>()};
+                });
+                if (added.has_value())
+                {
+                    auto retained = stage_element(added);
+                    const ValueView arrival{element_binding_, retained.data()};
+                    if (size_ == capacity_ && drop && element_plan().trivially_copyable)
+                    {
+                        // The ordinary fixed scalar roll needs no extra ring position.
+                        remove_oldest(drop);
+                        append(arrival, modified_time);
+                    }
+                    else
+                    {
+                        // Finish construction before destroying history if a payload may throw.
+                        if (fixed_period && size_ == capacity_) { reserve_exact(size_ + 1); }
+                        else { ensure_capacity(size_ + 1); }
+                        append(arrival, modified_time);
+                        remove_oldest(drop);
+                    }
+                }
+                else { remove_oldest(drop); }
+                invalidate_delta_projection();
+                tick_ = std::move(next);
+            }
+
+          protected:
             [[nodiscard]] static IndexedValueView checked_source_values(const ValueView &source)
             {
                 if (!source.has_value()) { throw std::invalid_argument("TSW copy requires a live source value"); }
@@ -396,12 +591,12 @@ namespace hgraph::ts_data_plan_factory_detail
                 head_ = 0;
             }
 
-            void prune_before(DateTime cutoff) noexcept
+            void remove_oldest(std::size_t count) noexcept
             {
-                while (size_ > 0 && time_at_physical(head_) < cutoff)
+                for (std::size_t i = 0; i < count; ++i)
                 {
                     destroy_slot(head_);
-                    head_ = capacity_ == 0 ? 0 : (head_ + 1) % capacity_;
+                    head_ = (head_ + 1) % capacity_;
                     --size_;
                 }
                 if (size_ == 0) { head_ = 0; }
@@ -503,14 +698,14 @@ namespace hgraph::ts_data_plan_factory_detail
             std::size_t             capacity_{0};
             std::size_t             size_{0};
             std::size_t             head_{0};
-            Value                   evicted_{};
-            DateTime                evicted_time_{MIN_DT};
+            WindowTick              tick_{};
+            struct WindowProjections { Value change; Value snapshot; };
+            mutable std::unique_ptr<WindowProjections> delta_projection_;
         };
 
         class SizeTSWindowStorage final : public TSWindowStorageCore
         {
           public:
-            using TSWindowStorageCore::clear;  // the RFC 0035 replace seam rebuilds through it
             SizeTSWindowStorage(const ValueTypeRef &time_binding,
                                 const ValueTypeRef &element_binding,
                                 std::size_t period)
@@ -527,6 +722,7 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 if (size() < period_) { append(source, modified_time); }
                 else { overwrite_oldest(source, modified_time); }
+                note_arrival(modified_time);
             }
 
             void copy_from_value(const ValueView &source, DateTime modified_time)
@@ -537,7 +733,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     throw std::length_error("TSW fixed window source exceeds the configured period");
                 }
 
-                clear();
+                begin_replacement(modified_time);
                 for (std::size_t index = 0; index < source_values.size(); ++index)
                 {
                     push(source_values.at(index), modified_time);
@@ -552,10 +748,11 @@ namespace hgraph::ts_data_plan_factory_detail
                     throw std::length_error("TSW fixed window source exceeds the configured period");
                 }
 
-                clear();
+                begin_replacement(modified_time);
                 for (std::size_t index = 0; index < source_values.size(); ++index)
                 {
                     append_move(source_values.at(index), modified_time);
+                    note_arrival(modified_time);
                 }
             }
 
@@ -567,7 +764,6 @@ namespace hgraph::ts_data_plan_factory_detail
         class TimeTSWindowStorage final : public TSWindowStorageCore
         {
           public:
-            using TSWindowStorageCore::clear;  // the RFC 0035 replace seam rebuilds through it
             TimeTSWindowStorage(const ValueTypeRef &time_binding,
                                 const ValueTypeRef &element_binding,
                                 TimeDelta time_range)
@@ -575,23 +771,36 @@ namespace hgraph::ts_data_plan_factory_detail
                   time_range_(time_range)
             {}
 
-            void push(const ValueView &source, DateTime modified_time)
+            bool expire(DateTime modified_time)
             {
                 const DateTime cutoff = modified_time - time_range_;
-                // Stash the LAST element the span drop evicts (removed_value).
                 std::size_t dropped = 0;
                 while (dropped < size() && time_at(dropped) < cutoff) { ++dropped; }
-                if (dropped > 0) { record_evicted(element_at(dropped - 1), modified_time); }
-                prune_before(cutoff);
+                if (dropped == 0)
+                {
+                    // Discard a retired tick's transient samples on a later explicit
+                    // mutation, even if the new evaluation has no expiry to publish.
+                    if (modified_time > tick().time) { begin_tick(modified_time); }
+                    return false;
+                }
+                evict_oldest(dropped, modified_time);
+                return true;
+            }
+
+            void push(const ValueView &source, DateTime modified_time)
+            {
+                validate_source(source);
+                expire(modified_time);
                 ensure_capacity(size() + 1);
                 append(source, modified_time);
+                note_arrival(modified_time);
             }
 
             void copy_from_value(const ValueView &source, DateTime modified_time)
             {
                 const IndexedValueView source_values = checked_source_values(source);
 
-                clear();
+                begin_replacement(modified_time);
                 for (std::size_t index = 0; index < source_values.size(); ++index)
                 {
                     push(source_values.at(index), modified_time);
@@ -602,11 +811,12 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 const IndexedValueView source_values = checked_source_values(source);
 
-                clear();
+                begin_replacement(modified_time);
                 ensure_capacity(source_values.size());
                 for (std::size_t index = 0; index < source_values.size(); ++index)
                 {
                     append_move(source_values.at(index), modified_time);
+                    note_arrival(modified_time);
                 }
             }
 
@@ -801,8 +1011,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 layout->time_binding    = time_binding;
                 layout->value_offset    = value_offset;
                 layout->tracking_offset = tracking_offset;
-                layout->delta_binding   = element_binding;
                 layout->canonical_delta_binding = ts_data_detail::canonical_delta_binding_for(schema_);
+                layout->delta_binding = layout->canonical_delta_binding;
 
                 configure_ts_ops();
                 configure_value_ops();
@@ -825,6 +1035,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .mutable_tracking_impl     = &window_mutable_tracking,
                     .has_current_value_impl    = &window_has_current_value,
                     .dynamic_storage_metrics_impl = &window_dynamic_storage_metrics,
+                    .delta_view_impl           = &window_arrival_view,
                     .value_memory_impl         = &window_value_memory,
                     .mutable_value_memory_impl = &window_mutable_value_memory,
                     .delta_memory_impl         = &window_delta_memory,
@@ -840,6 +1051,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .to_python_impl            = &python_ops_detail::forwarder<&PythonOps::TSData::window_to_python>::call,
                     .delta_to_python_impl      = &python_ops_detail::forwarder<&PythonOps::TSData::window_delta_to_python>::call,
                 };
+                ops.change_view_impl = &window_change_view;
                 ops.size_impl        = &window_size;
                 ops.element_at_impl  = &window_element_at;
                 ops.time_at_impl     = &window_time_at;
@@ -847,9 +1059,14 @@ namespace hgraph::ts_data_plan_factory_detail
                 ops.capacity_impl    = nullptr;
                 ops.full_impl        = nullptr;
                 ops.push_impl        = &window_push;
+                ops.expire_impl      = &window_expire;
+                ops.apply_window_delta_impl = &window_apply_delta;
+                ops.removed_values_impl = &window_removed<ValueView>;
+                ops.removed_value_times_impl = &window_removed<DateTime>;
                 ops.clear_impl       = &window_clear;
                 ops.replace_samples_impl = &window_replace_samples;
                 ops.cleared_time_impl = &window_cleared_time;
+                ops.replaced_time_impl = &window_replaced_time;
                 ops.evicted_time_impl    = &window_evicted_time;
                 ops.evicted_element_impl = &window_evicted_element;
             }
@@ -857,6 +1074,11 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static DateTime window_evicted_time(const void *context, const void *memory) noexcept
             {
                 return storage<Storage>(window_value_memory(context, memory)).evicted_time();
+            }
+
+            [[nodiscard]] static DateTime window_replaced_time(const void *context, const void *memory) noexcept
+            {
+                return storage<Storage>(window_value_memory(context, memory)).replaced_time();
             }
 
             [[nodiscard]] static DateTime window_cleared_time(const void *context, const void *memory) noexcept
@@ -867,7 +1089,7 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static ValueView window_evicted_element(const void *context, const void *memory) noexcept
             {
                 const auto &window = storage<Storage>(window_value_memory(context, memory));
-                return window.evicted_element().has_value() ? window.evicted_element().view() : ValueView{};
+                return window.evicted_element();
             }
 
             void configure_value_ops()
@@ -1035,14 +1257,44 @@ namespace hgraph::ts_data_plan_factory_detail
                 return advance(memory, ctx(context)->layout->value_offset);
             }
 
-            [[nodiscard]] static const void *window_delta_memory(const void *context, const void *memory) noexcept
+            [[nodiscard]] static ValueView window_arrival_view(const void *context, const void *memory, DateTime now)
             {
-                return storage<Storage>(window_value_memory(context, memory)).last_element();
+                const auto &window = storage<Storage>(window_value_memory(context, memory));
+                const bool arrived = now != MIN_DT && window.tick().added && window.tick().time == now &&
+                                     window_tracking(context, memory)->last_modified_time == now;
+                return {ctx(context)->layout->element_binding, arrived ? window.last_element() : nullptr};
             }
 
-            [[nodiscard]] static void *window_mutable_delta_memory(const void *context, void *memory) noexcept
+            [[nodiscard]] static ValueView window_change_view(const void *context, const void *memory,
+                                                              DateTime now, bool snapshot)
             {
-                return const_cast<void *>(storage<Storage>(window_mutable_value_memory(context, memory)).last_element());
+                const auto &window = storage<Storage>(window_value_memory(context, memory));
+                const auto binding = ctx(context)->layout->canonical_delta_binding;
+                const auto last = window_tracking(context, memory)->last_modified_time;
+                if (last == MIN_DT || (!snapshot && (last != now || window.tick().time != now)))
+                    return {binding, nullptr};
+                const bool replacement = snapshot || window.tick().replaced;
+                return window.delta_projection(replacement, [&] {
+                    const auto values = replacement
+                        ? Range<ValueView>{.context = context, .memory = memory, .limit = window.size(), .projector = &window_element_at}
+                        : window_removed<ValueView>(context, memory, now);
+                    const auto times = replacement
+                        ? Range<DateTime>{.context = context, .memory = memory, .limit = window.size(), .projector = &window_time_at}
+                        : window_removed<DateTime>(context, memory, now);
+                    return ts_data_detail::build_window_change(
+                        ctx(context)->layout->canonical_delta_binding, !replacement && window.tick().cleared,
+                        replacement ? ValueView{} : window_arrival_view(context, memory, now), replacement, values, times);
+                });
+            }
+
+            [[nodiscard]] static const void *window_delta_memory(const void *context, const void *memory)
+            {
+                return window_change_view(context, memory, window_tracking(context, memory)->last_modified_time, false).data();
+            }
+
+            [[nodiscard]] static void *window_mutable_delta_memory(const void *context, void *memory)
+            {
+                return const_cast<void *>(window_delta_memory(context, memory));
             }
 
             [[nodiscard]] static std::size_t window_size(const void *context, const void *memory)
@@ -1082,10 +1334,39 @@ namespace hgraph::ts_data_plan_factory_detail
                     // Arrivals may use another owning representation of the
                     // exact payload schema (for example a mutable HGL list).
                     // Stage before eviction so a failed conversion is atomic.
-                    const Value retained{window.element_binding(), source};
-                    window.push(retained.view(), modified_time);
+                    auto retained = window.stage_element(source);
+                    window.push(ValueView{window.element_binding(), retained.data()}, modified_time);
                 }
                 else { window.push(source, modified_time); }
+            }
+
+            static bool window_expire(const void *context, void *memory, DateTime modified_time)
+            {
+                if constexpr (std::is_same_v<Storage, TimeTSWindowStorage>)
+                {
+                    return storage<Storage>(window_mutable_value_memory(context, memory)).expire(modified_time);
+                }
+                return false;
+            }
+
+            static void window_apply_delta(const void *context, void *memory, bool cleared, const ValueView &added,
+                                           const IndexedValueView &removed, DateTime modified_time)
+            {
+                auto &window = storage<Storage>(window_mutable_value_memory(context, memory));
+                const auto period = ctx(context)->schema->is_duration_based() ? 0 : ctx(context)->schema->period();
+                window.apply_delta(cleared, added, removed, modified_time, period);
+            }
+
+            template <typename T>
+            static Range<T> window_removed(const void *context, const void *memory, DateTime time)
+            {
+                const auto &tick = storage<Storage>(window_value_memory(context, memory)).tick();
+                return {.memory = &tick, .limit = time == tick.time ? tick.size() : 0,
+                        .projector = [](const void *, const void *data, std::size_t index) -> T {
+                            const auto &sample = static_cast<const WindowTick *>(data)->at(index);
+                            if constexpr (std::is_same_v<T, DateTime>) { return sample.time; }
+                            else { return sample.value.view(); }
+                        }};
             }
 
             static void window_clear(const void *context, void *memory, DateTime modified_time)
@@ -1122,8 +1403,9 @@ namespace hgraph::ts_data_plan_factory_detail
                             static_cast<std::uint64_t>(times.front().time_since_epoch().count()) >
                         static_cast<std::uint64_t>(self->schema->time_range().count()))
                         throw std::invalid_argument("TSW sample replacement exceeds its time range");
-                storage<Storage>(window_mutable_value_memory(context, memory))
-                    .restore_checkpoint(values, times);
+                auto &window = storage<Storage>(window_mutable_value_memory(context, memory));
+                window.restore_checkpoint(values, times);
+                window.mark_replacement(modified_time);
             }
 
             [[nodiscard]] static bool window_copy_value_from(const void *context, void *memory,
@@ -1736,7 +2018,7 @@ namespace hgraph::ts_data_seams
                     throw std::length_error("TSW fixed window source exceeds the configured period");
                 }
             }
-            window.clear();
+            window.begin_replacement(modified_time);
             for (std::size_t index = 0; index < count; ++index)
             {
                 Value element{window.element_binding()};
@@ -1746,8 +2028,17 @@ namespace hgraph::ts_data_seams
         }
 
         template <typename Storage>
-        void push_window(Storage &window, DateTime modified_time, FillElementFn fill, void *fill_context)
+        void push_window(Storage &window, DateTime modified_time, bool already_modified, FillElementFn fill, void *fill_context)
         {
+            if (already_modified)
+            {
+                const auto &tick = window.tick();
+                // A manual expiry may have published earlier in this evaluation.
+                // Its owner may still supply the single arrival for the same tick.
+                if (!std::is_same_v<Storage, TimeTSWindowStorage> || tick.time != modified_time ||
+                    tick.added || tick.cleared || tick.replaced || tick.size() == 0)
+                    throw std::logic_error("TSW from_python allows only one window tick per evaluation time");
+            }
             Value element{window.element_binding()};
             fill(fill_context, 0, window.element_binding(), const_cast<void *>(element.view().data()));
             window.push(element.view(), modified_time);
@@ -1770,10 +2061,10 @@ namespace hgraph::ts_data_seams
         return static_cast<const std::byte *>(memory) + common(context).layout->value_offset;
     }
 
-    const void *window_delta_memory(const void *context, const void *memory) noexcept
+    ValueView window_arrival(const void *context, const void *memory, DateTime time)
     {
-        return common(context).time_window ? TimeBase::window_delta_memory(context, memory)
-                                           : SizeBase::window_delta_memory(context, memory);
+        return common(context).time_window ? TimeBase::window_arrival_view(context, memory, time)
+                                           : SizeBase::window_arrival_view(context, memory, time);
     }
 
     std::size_t window_storage_size(const void *context, const void *storage) noexcept
@@ -1805,15 +2096,16 @@ namespace hgraph::ts_data_seams
 
     void window_push(const void *context, void *memory, DateTime modified_time, FillElementFn fill, void *fill_context)
     {
+        const bool already_modified = window_tracking(context, memory).last_modified_time == modified_time;
         if (common(context).time_window)
         {
             push_window(ts_data_plan_factory_detail::storage<TimeTSWindowStorage>(TimeBase::window_mutable_value_memory(context, memory)),
-                        modified_time, fill, fill_context);
+                        modified_time, already_modified, fill, fill_context);
         }
         else
         {
             push_window(ts_data_plan_factory_detail::storage<SizeTSWindowStorage>(SizeBase::window_mutable_value_memory(context, memory)),
-                        modified_time, fill, fill_context);
+                        modified_time, already_modified, fill, fill_context);
         }
     }
 }  // namespace hgraph::ts_data_seams

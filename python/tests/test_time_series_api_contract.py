@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 import _hgraph
+from frozendict import frozendict
 import numpy as np
 
 from hgraph import (
@@ -108,6 +109,8 @@ TSW_API = {
     "first_modified_time",
     "has_removed_value",
     "min_size",
+    "window_delta",
+    "removed_values",
     "removed_value",
     "size",
     "value_times",
@@ -956,6 +959,203 @@ def test_duration_tsw_exposes_timedelta_configuration():
     assert observations == [(period, minimum), (period, minimum)]
 
 
+def test_duration_minimum_distinguishes_explicit_zero_from_omission():
+    from hgraph import mean
+
+    @graph
+    def immediate(value: TS[int]) -> TS[float]:
+        return mean(to_window(value, 2 * MIN_TD, min_window_period=0 * MIN_TD))
+
+    @graph
+    def warmed(value: TS[int]) -> TS[float]:
+        return mean(to_window(value, 2 * MIN_TD))
+
+    assert eval_node(immediate, [2, 4, 6]) == [2.0, 3.0, 4.0]
+    assert eval_node(warmed, [2, 4, 6]) == [None, None, 4.0]
+
+
+def test_window_delta_preserves_original_times_on_multi_eviction_and_clear():
+    observations = []
+
+    @compute_node(valid=())
+    def observe(w: TSW[int, WindowSize[2 * MIN_TD], WindowSize[0 * MIN_TD]]) -> TS[int]:
+        change = w.window_delta
+        np.testing.assert_equal(change, w.output.window_delta)
+        observations.append((
+            change["cleared"], tuple(change["added"]),
+            tuple((sample["time"], sample["value"]) for sample in change["removed"]),
+            tuple(w.removed_values()), w.delta_value,
+        ))
+        return len(w)
+
+    @graph
+    def app(data: TS[int], reset: SIGNAL) -> TS[int]:
+        return observe(to_window(data, 2 * MIN_TD, 0 * MIN_TD, reset=reset))
+
+    assert eval_node(app, [7, 7, None, None, 9, None, None],
+                     [None, None, None, None, None, True, True]) == [1, 2, None, None, 1, 0, 0]
+    assert observations == [
+        (False, (7,), (), (), 7),
+        (False, (7,), (), (), 7),
+        (False, (9,), ((MIN_ST, 7), (MIN_ST + MIN_TD, 7)), (7, 7), 9),
+        (True, (), ((MIN_ST + 4 * MIN_TD, 9),), (9,), None),
+        (True, (), (), (), None),
+    ]
+
+
+def test_window_owner_can_expire_then_append_and_replace_all_samples():
+    changes = []
+
+    @compute_node
+    def publish(
+        operation: TS[str],
+        _output: TSW_OUT[int, WindowSize[2 * MIN_TD], WindowSize[0 * MIN_TD]] = None,
+    ) -> TSW[int, WindowSize[2 * MIN_TD], WindowSize[0 * MIN_TD]]:
+        if operation.value == "replace":
+            _output.replace_samples([7, 7])
+        elif operation.value == "expire":
+            assert _output.expire()
+        else:
+            expired = _output.expire()
+            assert expired == (operation.value == "expire and append")
+            assert _output.can_apply_result(9)
+            _output.value = 9
+            assert not _output.can_apply_result(10)
+        change = _output.window_delta
+        changes.append((
+            tuple(change["added"]),
+            tuple((s["time"], s["value"]) for s in change["removed"]),
+            tuple((s["time"], s["value"]) for s in change.get("replacement", ())),
+        ))
+
+    operations = ["replace", None, None, "expire", "append", None, None, "expire and append"]
+    assert eval_node(publish, operations) == [7, None, None, None, 9, None, None, 9]
+    assert changes == [
+        ((), (), ((MIN_ST, 7), (MIN_ST, 7))),
+        ((), ((MIN_ST, 7), (MIN_ST, 7)), ()),
+        ((9,), (), ()),
+        ((9,), ((MIN_ST + 4 * MIN_TD, 9),), ()),
+    ]
+
+
+def test_sampled_window_reports_held_history_with_original_times():
+    from hgraph import if_then_else
+
+    observations = []
+
+    @compute_node
+    def observe(window: TSW[int, WindowSize[2], WindowSize[1]]) -> TS[int]:
+        observations.append((window.delta_value, window.window_delta, window.output.window_delta))
+        return len(window)
+
+    @graph
+    def app(select: TS[bool], left: TS[int], right: TS[int]) -> TS[int]:
+        return observe(if_then_else(select, to_window(left, 2, 1), to_window(right, 2, 1)))
+
+    # The inactive right branch receives two samples. Switching to it publishes
+    # the held window at a time when neither branch receives another value.
+    assert eval_node(app, [True, None, False], [3, None, None], [7, 8, None]) == [1, None, 2]
+    sampled_value, sampled_input, sampled_output = observations[-1]
+    assert tuple(sampled_value) == (7, 8)
+    for change in (sampled_input, sampled_output):
+        assert list(change["added"]) == []
+        assert change["replacement"] == [
+            {"time": MIN_ST, "value": 7},
+            {"time": MIN_ST + MIN_TD, "value": 8},
+        ]
+
+
+class _DurationWindowRow(TimeSeriesSchema):
+    samples: TSL[TSW[int, WindowSize[MIN_TD], WindowSize[0 * MIN_TD]], Size[1]]
+
+
+def test_nested_public_window_delta_keeps_the_position_on_departure_only_ticks():
+    observed = []
+
+    @compute_node
+    def publish(operation: TS[str], _output: TSB_OUT[_DurationWindowRow] = None) -> TSB[_DurationWindowRow]:
+        window = _output.samples[0]
+        if operation.value == "replace":
+            window.replace_samples([3, 5])
+        else:
+            assert window.expire()
+        observed.append((_output.delta_value, window.delta_value))
+
+    operations = ["replace", None, "expire"]
+    replacement, departure = {"samples": {0: 5}}, {"samples": {0: None}}
+    assert eval_node(publish, operations) == [replacement, None, departure]
+    assert observed == [(replacement, 5), (departure, None)]
+    assert eval_node(publish, operations, __elide__=True) == [replacement, departure]
+
+
+class _NestedWindowRow(TimeSeriesSchema):
+    prices: TSL[TSW[frozendict[str, int], WindowSize[1], WindowSize[1]], Size[1]]
+
+
+def test_nested_window_recording_and_public_arrival_with_map_samples():
+    series = TSD[str, TSB[_NestedWindowRow]]
+    first = {"added": 3}
+    second = {"removed": 5}
+    ticks = [{"order": {"prices": {0: value}}} for value in (first, second)]
+
+    wiring = _hgraph.Wiring()
+    source = wiring.wire("replay", ("updates",), {}, output_type=series.handle)
+    wiring.wire("record", (source, "changes"), {})
+    wiring.set_replay("updates", ticks, series.handle)
+    changes = [row["modified"]["order"]["prices"]["modified"][0]
+               for row in wiring.run().recorded("changes")]
+    assert [list(change["added"]) for change in changes] == [[first], [second]]
+    assert changes[0]["removed"] == []
+    assert changes[1]["removed"] == [{"value": first, "time": MIN_ST}]
+
+    @graph
+    def as_output(rows: TSD[str, TSB[_NestedWindowRow]]) -> TSD[str, TSB[_NestedWindowRow]]:
+        return rows
+
+    assert eval_node(as_output, ticks) == ticks
+
+    observations = []
+
+    @compute_node
+    def observe(rows: TSD[str, TSB[_NestedWindowRow]]) -> TS[bool]:
+        window = rows["order"].prices[0]
+        observations.append((rows.delta_value, window.delta_value, window.output.delta_value))
+        return True
+
+    assert eval_node(observe, ticks) == [True, True]
+    assert observations == [(ticks[0], first, first), (ticks[1], second, second)]
+
+
+def test_authored_window_removals_use_the_requested_run_start():
+    first = MIN_ST + 10 * MIN_TD
+    removed = []
+
+    @compute_node
+    def observe(w: TSW[int, WindowSize[2], WindowSize[1]]) -> TS[int]:
+        removed.extend((s["time"], s["value"]) for s in w.window_delta["removed"])
+        return len(w)
+
+    assert eval_node(observe, [1, 2, 3], __start_time__=first) == [1, 2, 2]
+    assert removed == [(first, 1)]
+
+
+def test_replay_legacy_scalar_window_recording_keeps_its_quiet_interval():
+    wiring = _hgraph.Wiring()
+    window = TSW[int, WindowSize[2 * MIN_TD], WindowSize[0 * MIN_TD]]
+    replay = wiring.wire("replay", ("legacy",), {}, output_type=window.handle)
+    wiring.wire("record", (replay, "changes"), {})
+    # Scalar records have no removal entries. At the next recorded arrival
+    # the historical window prunes its old values in the same evaluation.
+    wiring.set_replay("legacy", [7, 7, None, None, 9])
+    changes = wiring.run().recorded("changes")
+    assert [None if tick is None else tuple(tick["added"]) for tick in changes] == [
+        (7,), (7,), None, None, (9,),
+    ]
+    assert [(sample["time"], sample["value"]) for sample in changes[-1]["removed"]] == [
+        (MIN_ST, 7), (MIN_ST + MIN_TD, 7),
+    ]
+
+
 def test_runtime_stub_declares_the_supported_time_series_contract():
     source = Path(_hgraph.__file__).with_name("_hgraph.pyi").read_text(
         encoding="utf-8"
@@ -976,6 +1176,7 @@ def test_runtime_stub_declares_the_supported_time_series_contract():
     reference_declaration = class_declaration("TimeSeriesRef")
     for view in (input_declaration, output_declaration, read_only_output_declaration):
         assert "def invalidated(self) -> bool:" in view
+        assert "def window_delta(self) -> dict[str, object] | None:" in view
     for name in sorted(BASE_INPUT_API | ITERABLE_API | TSD_API | TSS_API | TSW_API):
         assert f"def {name}(" in input_declaration, name
     for name in sorted(

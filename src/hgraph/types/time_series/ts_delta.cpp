@@ -1,5 +1,7 @@
 #include <hgraph/types/time_series/ts_delta.h>
 
+#include "../metadata/detail/window_change.h"
+
 #include <hgraph/types/time_series/endpoint_schema.h>
 
 #include <hgraph/types/metadata/type_registry.h>
@@ -67,6 +69,12 @@ namespace hgraph
          * reordered schema fails loudly in a debug build instead of silently
          * reading the wrong field; release builds pay nothing.
          */
+        inline constexpr std::size_t tsw_delta_cleared         = 0;
+        inline constexpr std::size_t tsw_delta_added           = 1;
+        inline constexpr std::size_t tsw_delta_removed         = 2;
+        inline constexpr std::size_t tsw_delta_replacement     = 3;
+        inline constexpr std::size_t tsw_sample_value          = 0;
+        inline constexpr std::size_t tsw_sample_time           = 1;
         inline constexpr std::size_t tss_delta_added           = 0;
         inline constexpr std::size_t tss_delta_removed         = 1;
         inline constexpr std::size_t tsl_delta_removed         = 0;
@@ -648,11 +656,44 @@ namespace hgraph
             return builder.build();
         }
 
+        void set_window_samples(BundleBuilder &delta, std::size_t field,
+                                Range<ValueView> values, Range<DateTime> times)
+        {
+            const auto list_type = delta.field_binding(field);
+            const auto sample_type = compact_element_binding(list_type);
+            ListBuilder samples{sample_type};
+            auto time = times.begin();
+            for (const auto value : values)
+            {
+                BundleBuilder sample{sample_type};
+                sample.set(tsw_sample_value, value);
+                sample.set(tsw_sample_time, Value{*time});
+                samples.push_back(sample.build());
+                ++time;
+            }
+            auto storage = samples.build_storage();
+            delta.set(field, ValueView{list_type, &storage});
+        }
+
+        Value build_window_delta(const TSWDataView &window, DateTime now, bool snapshot)
+        {
+            return ts_data_detail::build_window_change(
+                window.base().layout().canonical_delta_binding, !snapshot && window.cleared(now),
+                snapshot ? ValueView{} : window.delta_value(now), snapshot,
+                snapshot ? window.values() : window.removed_values(now),
+                snapshot ? window.value_times() : window.removed_value_times(now));
+        }
+
+        Value capture_current_window(const TSInputView &input)
+        {
+            return build_window_delta(input.as_window().data_view(), input.evaluation_time(), true);
+        }
+
         [[nodiscard]] Value capture_current_transient(const TSInputView &input)
         {
             if (input.modified()) { return capture_delta(input); }
             throw std::logic_error(
-                "capture_current_delta cannot reconstruct an unmodified TSW or REF");
+                "capture_current_delta cannot reconstruct an unmodified REF");
         }
 
         [[nodiscard]] bool observable_atomic(const TSInputView &input,
@@ -664,8 +705,10 @@ namespace hgraph
         [[nodiscard]] bool observable_window(const TSInputView &input,
                                              const ValueView &delta)
         {
-            // Tick windows emit before they reach min-size validity.
-            return input.modified() && delta.has_value();
+            if (!input.modified() || !delta.has_value()) { return false; }
+            const auto fields = delta.as_bundle();
+            return fields.at(tsw_delta_replacement).has_value() || fields.at(tsw_delta_cleared).checked_as<bool>() ||
+                   fields.at(tsw_delta_added).as_indexed_view().size() || fields.at(tsw_delta_removed).as_indexed_view().size();
         }
 
         [[nodiscard]] bool observable_set(const TSInputView &input,
@@ -803,6 +846,39 @@ namespace hgraph
             auto mutation = target.begin_mutation(target.evaluation_time());
             static_cast<void>(mutation.copy_value_from(source_value));
             if (options.sample_all) { mutation.mark_modified(); }
+        }
+
+        template <typename Source>
+        void reconcile_window_impl(const TSOutputView &target, const Source &source,
+                                   TSCurrentReconcileOptions options)
+        {
+            if (!should_visit_source(source, target, options)) { return; }
+            if (!source_live(source))
+            {
+                if (options.scope == TSCurrentReconcileScope::Full) { invalidate_target(target); }
+                return;
+            }
+
+            const auto incoming = [&] {
+                if constexpr (std::same_as<Source, TSInputView>) { return source.as_window().data_view(); }
+                else { return source.as_window(); }
+            }();
+            const auto output = target.as_window();
+            if (!options.sample_all && target.valid() && output.size() == incoming.size() &&
+                target.value().equals(incoming.value()))
+            {
+                bool same_times = true;
+                for (std::size_t i = 0; i < output.size(); ++i)
+                {
+                    if (output.time_at(i) != incoming.time_at(i)) { same_times = false; break; }
+                }
+                if (same_times) { return; }
+            }
+
+            std::vector<DateTime> times;
+            times.reserve(incoming.size());
+            for (DateTime time : incoming.value_times()) { times.push_back(time); }
+            output.begin_mutation(target.evaluation_time()).replace_samples(incoming.value(), times);
         }
 
         template <typename Source>
@@ -1165,12 +1241,12 @@ namespace hgraph
             static const TSCurrentStateOps ops{
                 &current_value_schema_compatible_atomic,
                 &current_ts_schema_compatible_window,
-                &capture_current_transient,
+                &capture_current_window,
                 &apply_current_value_direct,
                 &observable_window,
-                &reconcile_atomic_impl<TSInputView>,
-                &reconcile_atomic_impl<TSDataView>,
-                /* captures_while_invalid: */ false,   // capture_delta_tsw throws on a removal-only tick
+                &reconcile_window_impl<TSInputView>,
+                &reconcile_window_impl<TSDataView>,
+                /* captures_while_invalid: */ false,   // a cleared or partially warm window stays valid
             };
             return ops;
         }
@@ -1356,18 +1432,8 @@ namespace hgraph
 
         Value capture_delta_tsw(const TSInputView &in)
         {
-            if (in.data_view().as_window().cleared(in.evaluation_time()))
-            {
-                throw std::logic_error(
-                    "capture_delta: TSW clear ticks are not representable by the legacy scalar delta");
-            }
-            const ValueView delta = in.delta_value();
-            if (!delta.has_value())
-            {
-                throw std::logic_error(
-                    "capture_delta: TSW clear/removal-only ticks are not representable by the legacy scalar delta");
-            }
-            return Value{delta};
+            if (in.delta_is_sampled_rebind()) { return capture_current_window(in); }
+            return capture_window_delta(in.as_window().data_view(), in.evaluation_time());
         }
 
         Value capture_delta_tss(const TSInputView &in)
@@ -1711,8 +1777,37 @@ namespace hgraph
 
         void apply_delta_tsw(const TSOutputView &out, const ValueView &delta)
         {
-            auto window_out = out.as_window();
-            window_out.begin_mutation(out.evaluation_time()).push(delta);
+            auto window = out.as_window();
+            auto mutation = window.begin_mutation(out.evaluation_time());
+            if (delta.schema() == out.schema()->authored_delta_schema)
+            {
+                mutation.push(delta);
+                return;
+            }
+            validate_window_delta(*out.schema(), delta);
+            const auto fields = delta.as_bundle();
+            if (fields.at(tsw_delta_replacement).has_value())
+            {
+                const auto snapshot = fields.at(tsw_delta_replacement).as_indexed_view();
+                const auto added_type = fields.at(tsw_delta_added).binding();
+                ListBuilder values{compact_element_binding(added_type)};
+                std::vector<DateTime> times;
+                times.reserve(snapshot.size());
+                for (std::size_t i = 0; i < snapshot.size(); ++i)
+                {
+                    const auto sample = snapshot.at(i).as_bundle();
+                    values.push_back(sample.at(tsw_sample_value));
+                    times.push_back(sample.at(tsw_sample_time).checked_as<DateTime>());
+                }
+                auto storage = values.build_storage();
+                mutation.replace_samples(ValueView{added_type, &storage}, times);
+                return;
+            }
+            const auto added = fields.at(tsw_delta_added).as_indexed_view();
+            const auto removed = fields.at(tsw_delta_removed).as_indexed_view();
+            const bool cleared = fields.at(tsw_delta_cleared).checked_as<bool>();
+            if (cleared || added.size() || removed.size())
+                mutation.apply_delta(cleared, added.size() ? added.at(0) : ValueView{}, removed);
         }
 
         void apply_delta_tss(const TSOutputView &out, const ValueView &delta)
@@ -1875,6 +1970,79 @@ namespace hgraph
         static_cast<void>(require_schema(in.schema(), "delta_is_observable"));
         const auto &ops = current_state_ops_for_input(in, "delta_is_observable");
         return ops.delta_is_observable_impl(in, delta);
+    }
+
+    Value ts_data_detail::build_window_change(ValueTypeRef binding, bool cleared, ValueView arrival,
+                                              bool replacement, Range<ValueView> samples, Range<DateTime> times)
+    {
+        BundleBuilder delta{binding};
+        delta.set(tsw_delta_cleared, Value{cleared});
+        const auto added_type = delta.field_binding(tsw_delta_added);
+        ListBuilder added{compact_element_binding(added_type)};
+        if (arrival.has_value()) { added.push_back(arrival); }
+        auto added_storage = added.build_storage();
+        delta.set(tsw_delta_added, ValueView{added_type, &added_storage});
+        if (replacement)
+        {
+            set_window_samples(delta, tsw_delta_removed, {}, {});
+            set_window_samples(delta, tsw_delta_replacement, samples, times);
+        }
+        else { set_window_samples(delta, tsw_delta_removed, samples, times); }
+        return delta.build();
+    }
+
+    Value capture_window_delta(const TSWDataView &window, DateTime now)
+    {
+        const auto data = window.base();
+        if (data.ops().is_target_link)
+        {
+            // A forwarding output can sample held history even when the immediate
+            // input stayed bound. The inner link owns that sampling event.
+            const auto &ops = static_cast<const TSWDataOps &>(data.ops());
+            const auto change = ops.change_view_impl(ops.context, data.data(), now, false);
+            if (change.has_value()) { return Value{change}; }
+        }
+        return build_window_delta(window, now, window.replaced(now));
+    }
+
+    void validate_window_delta(const TSValueTypeMetaData &schema, const ValueView &delta)
+    {
+        if (!delta.has_value() || delta.schema() != schema.delta_value_schema ||
+            schema.kind != TSTypeKind::TSW)
+            throw std::invalid_argument("window delta has the wrong schema");
+        const auto fields = delta.as_bundle();
+        if (!fields.at(tsw_delta_cleared).has_value() || !fields.at(tsw_delta_added).has_value() || !fields.at(tsw_delta_removed).has_value())
+            throw std::invalid_argument("window delta requires cleared, added and removed fields");
+        const auto added = fields.at(tsw_delta_added).as_indexed_view();
+        if (added.size() > 1 || (added.size() == 1 && !added.at(0).has_value()))
+            throw std::invalid_argument("window delta must carry zero or one live arrival");
+        const auto removed = fields.at(tsw_delta_removed).as_indexed_view();
+        const auto replacement = fields.at(tsw_delta_replacement);
+        if (replacement.has_value() && (fields.at(tsw_delta_cleared).checked_as<bool>() || added.size() || removed.size()))
+            throw std::invalid_argument("window replacement cannot contain incremental changes");
+        const auto samples = fields.at(replacement.has_value() ? tsw_delta_replacement : tsw_delta_removed).as_indexed_view();
+        if (replacement.has_value() && !schema.is_duration_based() && samples.size() > schema.period())
+            throw std::invalid_argument("window replacement exceeds configured period");
+        DateTime first = MIN_DT;
+        DateTime previous = MIN_DT;
+        for (std::size_t i = 0; i < samples.size(); ++i)
+        {
+            const auto entry = samples.at(i);
+            if (!entry.has_value()) throw std::invalid_argument("window delta has an unset sample");
+            const auto sample = entry.as_bundle();
+            if (!sample.at(tsw_sample_value).has_value() || !sample.at(tsw_sample_time).has_value())
+                throw std::invalid_argument("window sample requires a value and timestamp");
+            const auto time = sample.at(tsw_sample_time).checked_as<DateTime>();
+            if (time == MIN_DT || time < previous)
+                throw std::invalid_argument("window sample timestamps must be valid and chronological");
+            if (i == 0) { first = time; }
+            previous = time;
+        }
+        if (replacement.has_value() && schema.is_duration_based() && samples.size() > 1 &&
+            static_cast<std::uint64_t>(previous.time_since_epoch().count()) -
+                static_cast<std::uint64_t>(first.time_since_epoch().count()) >
+                static_cast<std::uint64_t>(schema.time_range().count()))
+            throw std::invalid_argument("window replacement exceeds configured duration");
     }
 
     void apply_delta(const TSOutputView &out, const ValueView &delta)

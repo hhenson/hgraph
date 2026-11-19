@@ -168,9 +168,10 @@ TSW intentionally uses ``all_valid`` for minimum-window readiness instead.
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 29. ABI 29 adds the TSL range of cleared
-    and truncated positions. Rebuild native extensions against TS ABI 29
-    and value ABI 11. ABI 28 changed the sparse range return layout and
+    ``TS_DATA_OPS_ABI_VERSION`` is 30. ABI 30 adds window change-set
+    observation, expiry and replay. Rebuild native extensions against TS ABI 30
+    and value ABI 11. ABI 29 added the TSL range of cleared and truncated
+    positions. ABI 28 changed the sparse range return layout and
     bounded dictionary modified-slot searches. ABI 27 changes keyed observer spill
     ownership and input activation/checkpoint records; native extensions must
     be rebuilt. ABI 25 adds
@@ -968,9 +969,19 @@ still list-shaped:
   in the time range depends on tick rate.
 
 The TSData plan has a window storage component plus the common tracking
-stamp. There is no separate delta region. ``delta_value(t)`` returns the
-latest element in the window when ``last_modified_time == t``; otherwise
-it returns a typed-null scalar view.
+stamp. On an ordinary edit, ``delta_value(t)`` exposes the current arrival.
+An expiry-only or clear-only tick returns a typed-null scalar even when later
+samples remain in the window. The canonical window delta additionally carries
+reset, ordered removals, and optional whole-window replacement.
+
+``removed_values(t)`` and ``removed_value_times(t)`` borrow paired ranges
+from the producing evaluation. Each removal retains its source timestamp.
+A single removal fits inline. Two or more removals share one allocated
+buffer of value/timestamp pairs. The storage survives until a later mutation
+or destruction. A nested container reading the canonical change also creates
+a cached bundle on first access. Ordinary scalar arrivals and single-removal
+rolls use no heap storage for that bundle. Capture the canonical delta to keep
+the history beyond the evaluation.
 
 .. code-block:: text
 
@@ -1002,7 +1013,7 @@ The layout and ops behind the view differ by schema:
       FixedOps["tick-count ops<br/>SizeTSWDataLayout<br/>fixed cyclic buffer"]
       DurationOps["duration ops<br/>TimeTSWDataLayout<br/>timestamped queue"]
       Value["value()<br/>list-shaped ValueView"]
-      Delta["delta_value(t)<br/>latest element if modified at t"]
+      Delta["delta_value(t)<br/>current arrival"]
 
       View --> FixedOps
       View --> DurationOps

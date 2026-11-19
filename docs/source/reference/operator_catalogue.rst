@@ -7711,7 +7711,7 @@ Accepted native overloads
 ``to_window``
 -------------
 
-Convert a stream into a typed trailing ``TSW`` window. The output becomes valid after ``min_window_period`` values. When ``reset`` and the source tick together, retained values are cleared before the new tick is added. Wiring rejects a non-positive period, a negative minimum, or a minimum greater than the period. @note Cost: O(1) append/evict per tick; O(W) retained by the TSW itself. Aggregates over the window (``min_`` / ``max_`` / ``sum_`` / ``mean`` / ``std``) recompute in O(W) per window tick — recorded beside their kernels.
+Convert a stream into a typed trailing ``TSW`` window. A nonempty window is readable during warm-up. When ``reset`` and the source tick together, retained values are cleared before the new tick is added. Wiring rejects a non-positive period, a negative minimum, or a minimum greater than the period. @note Cost: O(1) for a count-window append, O(1 + R) for an append evicting R samples; O(W) retained for W live samples.
 
 Python exposure: lazy native operator proxy.
 
@@ -7725,10 +7725,10 @@ are fixed when the graph is built.
    Values admitted to the window.
 
 ``period`` : scalar; ``int``, ``timedelta``
-   Maximum number of retained ticks, fixed at wiring time.
+   Maximum retained tick count or duration.
 
 ``min_window_period`` : scalar; ``int``, ``timedelta``
-   Minimum retained count required for validity. Optional in overloads that show ``= ...``.
+   Minimum tick count or elapsed span for full readiness. For durations, omission uses the period and explicit zero is ready on the first tick. Optional in overloads that show ``= ...``.
 
 ``reset`` : time-series; ``SIGNAL``
    Optional signal that clears retained ticks.

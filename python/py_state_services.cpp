@@ -883,6 +883,8 @@ namespace hgraph::python_bridge
                      "A NumPy-compatible datetime64 buffer containing window evaluation times.")
         .def_prop_ro("first_modified_time", &PyOutput::first_modified_time,
                      "The evaluation time of the oldest value retained by a window output.")
+        .def_prop_ro("window_delta", &PyOutput::window_delta,
+                     "The structured window change this cycle, or None while idle.")
         .def_prop_ro("has_removed_value", &PyOutput::has_removed_value,
                      "Whether a window value was evicted in the current cycle.")
         .def_prop_ro("removed_value", &PyOutput::removed_value,
@@ -929,6 +931,10 @@ namespace hgraph::python_bridge
              "Return dictionary or dynamic-list child outputs added in the current cycle.")
         .def("added_items", &PyOutput::added_items,
              "Return dictionary key / dynamic-list index and child-output pairs added in the current cycle.")
+        .def("expire", &PyOutput::expire,
+             "Drop samples older than this duration window and report whether any left.")
+        .def("replace_samples", &PyOutput::replace_samples, nb::arg("values"), nb::arg("times") = nb::none(),
+             "Replace the entire window. Omitted sample times default to the current evaluation.")
         .def("clear", &PyOutput::clear,
              "Clear the current collection value and publish removals.")
         .def("invalidate", &PyOutput::invalidate,
@@ -1033,6 +1039,8 @@ namespace hgraph::python_bridge
                      "A NumPy-compatible datetime64 buffer containing window evaluation times.")
         .def_prop_ro("first_modified_time", &PyReadOnlyOutput::first_modified_time,
                      "The evaluation time of the oldest retained window value.")
+        .def_prop_ro("window_delta", &PyReadOnlyOutput::window_delta,
+                     "The structured window change this cycle, or None while idle.")
         .def_prop_ro("has_removed_value", &PyReadOnlyOutput::has_removed_value,
                      "Whether a window value was evicted in the current cycle.")
         .def_prop_ro("removed_value", &PyReadOnlyOutput::removed_value,
@@ -1414,6 +1422,8 @@ namespace hgraph::python_bridge
                      "A NumPy-compatible datetime64 buffer containing window evaluation times.")
         .def_prop_ro("first_modified_time", &PyTimeSeries::first_modified_time,
                      "The evaluation time of the oldest value retained by a window input.")
+        .def_prop_ro("window_delta", &PyTimeSeries::window_delta,
+                     "The structured window change this cycle, or None while idle.")
         .def_prop_ro("has_removed_value", &PyTimeSeries::has_removed_value,
                      "Whether a window value was evicted in the current cycle.")
         .def_prop_ro("removed_value", &PyTimeSeries::removed_value,

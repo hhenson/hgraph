@@ -23,8 +23,9 @@ own scheduling implementation.  The work also replaces the singular removal
 surface and scalar-only TSW delta with representations capable of describing
 multiple evictions, reset-only ticks, and removal-only scheduled ticks.
 
-This RFC is a design plan.  No scheduler-driven eviction or persistence-format
-change is supplied with RFC 0006.
+Stage 1 implements the window delta and its in-memory and distributed
+representations. Duration windows still prune on mutation. The shared root
+source, durable recording migration and recovery work follow in later stages.
 
 Problem statement
 -----------------
@@ -41,7 +42,7 @@ value.  Given a ten-second range:
 
 the values ``1``, ``2``, and ``3`` remain visible until ``t=20s`` even though
 they expired earlier.  At ``t=20s`` several values leave together, while the
-current C++ surface preserves only the last removed element.  Incremental
+pre-RFC C++ surface preserved only the last removed element.  Incremental
 consumers cannot update correctly from that delta.
 
 Root-graph expiry source
@@ -189,57 +190,53 @@ and separate RFC review.
 Removal surface
 ---------------
 
-The C++ TSW surface will gain a per-evaluation range:
-
-.. code-block:: cpp
-
-   Range<ValueView> removed_values() const;
-
-For a fixed-count TSW the range contains zero or one value.  For a duration TSW
-it may contain any number.  The existing singular ``removed_value`` may remain
-as a fixed-window convenience, but duration consumers must not silently receive
-only the final removal.
-
-The storage representation should own removed values only until the end of the
-evaluation cycle.  The plan must establish stable borrowed-view lifetime,
-destruction, and after-evaluation cleanup without allocating on the
-single-removal fixed-window hot path.
+C++ window inputs and outputs expose parallel ranges of removed values and
+original sample times, oldest first. At the data-view level the caller supplies
+the evaluation time. Python window views expose the values through
+``removed_values()`` and the timestamped samples through ``window_delta``.
+The legacy singular ``removed_value`` reports the last overflow or expiry
+on an ordinary tick. Reset clears this singular observation. The plural range
+includes everything discarded by a reset, even for a fixed-count window.
 
 Structured TSW delta
 --------------------
 
-The existing scalar TSW delta cannot represent clear or removal-only events.
-A versioned structured delta is required before scheduled eviction can ship.
-The candidate logical shape is:
+A canonical incremental change has the following fields:
 
 .. code-block:: text
 
-   TSWDelta<T>:
-       cleared: bool
-       added:   zero-or-one T
-       removed: zero-or-more T
+   cleared: bool
+   added:   list<T>                  # zero or one
+   removed: list<{value: T, time: DateTime}>
 
-The implementation review must choose concrete value schemas that preserve
-type erasure and avoid optional-value ambiguity.  A zero-or-one list for
-``added`` is preferable to assigning sentinel meaning to a default ``T``.
+``cleared`` distinguishes a reset on an already-empty window from silence.
+If expiry removes a prefix and the producer clears and pushes in the same
+cycle, the delta contains the prefix, the other cleared samples, and the
+single addition. Equal values and equal times retain their multiplicity.
+The receiving evaluation time stamps an incremental addition. Each removal
+carries its original sample timestamp, even when a receiver applies it later.
 
-``removed`` includes every value removed by expiry or fixed-window overflow.
-On clear it includes the formerly retained values and ``cleared`` remains true,
-including for an already-empty window.  This lets incremental consumers remove
-their derived state while preserving the semantically important empty clear.
+Assigning a whole window or sampling a newly bound window uses the optional
+``replacement`` field. Its ordered list of timestamped samples supplies the
+complete current state. A present empty list installs an empty window. This
+form has ``cleared=false`` and empty incremental lists.
 
-The review must decide whether removal timestamps are part of the public delta
-or remain accessible only through a richer transient view.  This decision
-requires examples using time-weighted and event-time algorithms before the
-schema is accepted.
+The native scalar observation and Python ``delta_value`` retain the arriving
+value on incremental ticks. A removal-only tick has no arriving value.
+For a duration window, an explicit zero minimum makes the first sample
+fully ready. Omitting the minimum uses the full duration.
 
 Recording and migration
 -----------------------
 
-The structured delta is a wire-format change and requires its own version
-marker.  Readers must continue accepting legacy scalar TSW deltas, interpreting
-each as ``cleared=false, added=[value], removed=[]``.  Writers emit only the new
-format after migration.
+Stage 1 uses the stored value schema to distinguish legacy scalar arrivals
+from captured structured deltas. A legacy arrival is applied at its recorded
+time under the original prune-on-push behaviour. Gaps in its historical trace
+stay silent. A recorded structured removal supplies its own timestamped samples.
+The distributed boundary marks its new window payload explicitly and still
+reads the earlier clear/push encoding. Deploy compatible readers before new
+writers. The Arrow/JSON format migration and its recovery tests belong to
+Stage 3.
 
 A checkpoint for a duration TSW must preserve retained values and their
 original evaluation timestamps.  Replaying values without timestamps changes
@@ -328,10 +325,8 @@ Native and Python tests must cover:
 Unresolved questions
 --------------------
 
-* Whether public removal deltas require original timestamps as well as values.
-* The exact structured value schema used for zero-or-one ``added``.
-* Whether the delta migration belongs in the next major wire version or can be
-  introduced under a TSW-specific metadata version.
+* How to version durable Arrow/JSON recording metadata for structured window
+  events and identify replay-owned windows when the root service is installed.
 * Whether the expiry source should use an indexed heap or a lazy heap with
   subscription generations.
 * The exact output-tree hook used to attach dynamic duration TSW children

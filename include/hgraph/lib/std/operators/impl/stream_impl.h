@@ -175,7 +175,8 @@ namespace hgraph::stdlib
                 const auto *schema = time_series_schema_at_as<AnyTS>(context, 0);
                 const auto *period = context.scalar_as<TimeDelta>("period");
                 if (schema == nullptr || period == nullptr) { return; }
-                const auto *min_period = context.scalar_as<TimeDelta>("min_window_period");
+                const auto *minimum_arg = context.scalar("min_window_period");
+                const auto *min_period = minimum_arg ? minimum_arg->scalar_value.try_as<TimeDelta>() : nullptr;
                 if (*period <= TimeDelta{})
                 {
                     throw std::invalid_argument("to_window: period must be positive");
@@ -187,7 +188,7 @@ namespace hgraph::stdlib
                         "to_window: min_window_period must be between zero and period");
                 }
                 const TimeDelta min_range =
-                    min_period != nullptr && *min_period > TimeDelta{0} ? *min_period : *period;
+                    min_period != nullptr && !minimum_arg->from_default ? *min_period : *period;
                 bind_output(
                     resolution, TypeRegistry::instance().tsw_duration(schema->value_schema, *period, min_range));
             }
@@ -250,12 +251,58 @@ namespace hgraph::stdlib
                 const auto &erased = static_cast<const TSOutputView &>(out);
                 const TSWInputView window_input{ts.base().borrowed_ref()};
                 auto window = window_input.data_view();
-                if (window.size() == 0) { return; }
-
-                Value result{std::abs(window.at(window.size() - 1).checked_as<T>())};
+                const DateTime now = erased.evaluation_time();
                 auto out_window = erased.as_window();
-                auto mutation   = out_window.begin_mutation(erased.evaluation_time());
-                mutation.push(result.view());
+                auto mutation = out_window.begin_mutation(now);
+                if (ts.base().delta_is_sampled_rebind() || window.replaced(now))
+                {
+                    ListBuilder values{window.layout().element_binding};
+                    std::vector<DateTime> times;
+                    times.reserve(window.size());
+                    for (std::size_t i = 0; i < window.size(); ++i)
+                    {
+                        values.push_back(Value{std::abs(window.at(i).checked_as<T>())});
+                        times.push_back(window.time_at(i));
+                    }
+                    mutation.replace_samples(values.build().view(), times);
+                    return;
+                }
+
+                const auto arrival = window.delta_value(now);
+                Value added;
+                if (arrival.has_value()) { added = Value{std::abs(arrival.checked_as<T>())}; }
+                const auto removals = window.removed_values(now);
+                // The common append needs no transient delta materialization. A
+                // delayed input may still retain a sample past its local deadline.
+                const auto retained = out_window.data_view();
+                const bool would_evict = !retained.empty() &&
+                    (retained.time_based() ? retained.time_at(0) < now - retained.time_range() : retained.full());
+                const bool ordinary_roll = retained.size_based() && retained.full() && removals.limit == 1 &&
+                    *window.removed_value_times(now).begin() == retained.time_at(0);
+                if (added.has_value() && !window.cleared(now) &&
+                    ((removals.limit == 0 && !would_evict) || ordinary_roll))
+                {
+                    mutation.push(added.view());
+                    return;
+                }
+
+                // Apply the source's exact departures, even if it was replayed
+                // at a different time. Each removed value undergoes the same
+                // transform as its original arrival.
+                const auto change = window.base().layout().canonical_delta_binding;
+                const auto sample_type = compact_element_binding(BundleBuilder{change}.field_binding("removed"));
+                ListBuilder removed{sample_type};
+                const auto times = window.removed_value_times(now);
+                auto time = times.begin();
+                for (const auto value : removals)
+                {
+                    BundleBuilder sample{sample_type};
+                    sample.set("value", Value{std::abs(value.checked_as<T>())});
+                    sample.set("time", Value{*time});
+                    removed.push_back(sample.build());
+                    ++time;
+                }
+                mutation.apply_delta(window.cleared(now), added.view(), removed.build().as_indexed_view());
             }
         };
 
@@ -379,7 +426,9 @@ namespace hgraph::stdlib
                 const auto        now     = erased.evaluation_time();
                 const auto       &output  = erased.data_view();
                 const std::size_t size    = window.size();
-                const bool        evicted = window.has_removed_value(now);
+                const auto        arrival = window.delta_value(now);
+                const auto        removals = window.removed_values(now);
+                const bool        evicted = removals.limit == 1;
                 // The recurrence is only the answer where the previous answer
                 // DESCRIBES the window this tick appended to. That holds for a
                 // push and nothing else, and this runtime has two ways a
@@ -400,7 +449,8 @@ namespace hgraph::stdlib
                 const bool appended_onto =
                     size >= 2 && window.time_at(size - 2) == erased.last_modified_time();
                 const bool seeded = output.has_current_value() && window.modified(now) &&
-                                    !window.cleared(now) && (rolled_single || appended_onto);
+                                    !window.cleared(now) && !window.replaced(now) && arrival.has_value() &&
+                                    removals.limit <= 1 && (rolled_single || appended_onto);
 
                 if constexpr (Mean)
                 {
@@ -413,7 +463,7 @@ namespace hgraph::stdlib
                         const std::size_t previous_size = evicted ? size : size - 1;
                         Float total = erased.value().checked_as<Float>() *
                                       static_cast<Float>(previous_size);
-                        total += static_cast<Float>(window.delta_value(now).checked_as<T>());
+                        total += static_cast<Float>(arrival.checked_as<T>());
                         if (evicted)
                         {
                             total -= static_cast<Float>(window.removed_value(now).checked_as<T>());
@@ -438,7 +488,7 @@ namespace hgraph::stdlib
                     if (seeded)
                     {
                         total = erased.value().checked_as<T>();
-                        total += window.delta_value(now).checked_as<T>();
+                        total += arrival.checked_as<T>();
                         if (evicted) { total -= window.removed_value(now).checked_as<T>(); }
                     }
                     else

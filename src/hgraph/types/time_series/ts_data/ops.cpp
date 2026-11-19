@@ -511,6 +511,11 @@ namespace hgraph::ts_data_detail
         missing_ts_data_op("window push");
     }
 
+    bool missing_window_expire(const void *, void *, DateTime) { missing_ts_data_op("window expire"); }
+
+    void missing_window_apply_delta(const void *, void *, bool, const ValueView &, const IndexedValueView &, DateTime)
+    { missing_ts_data_op("window apply delta"); }
+
     void missing_window_clear(const void *, void *, DateTime) { missing_ts_data_op("window clear"); }
     void missing_window_replace_samples(const void *, void *, const ValueView &,
                                          std::span<const DateTime>, DateTime)

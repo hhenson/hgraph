@@ -19,8 +19,10 @@
 #include <array>
 #include <bit>
 #include <cstddef>
+#include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -92,7 +94,10 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     // ABI 24 distinguishes explicit empty sparse publications from child notifications.
     // ABI 28 adds sparse range cursors and bounds dictionary modified-slot searches.
     // ABI 29 adds the list removal range, including invalidations in place.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 29);
+    // ABI 30 adds duration-window expiry and canonical change projections.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 30);
+    static_assert(sizeof(TSWDataOps) == sizeof(TSDataOps) + 18 * sizeof(void *),
+                  "TSWDataOps changed shape: update the TSData ABI ledger");
     static_assert(sizeof(TSDataOps) == 288,
                   "TSDataOps changed shape: bump TS_DATA_OPS_ABI_VERSION and this size");
     static_assert(std::is_same_v<decltype(TSDataLayout::canonical_delta_binding), ValueTypeRef>);
@@ -189,11 +194,11 @@ TEST_CASE("time-series type boundaries reject previous ops ABI records")
         auto stale = *type.record();
         stale.ops_abi_version = TS_DATA_OPS_ABI_VERSION - 1;
         REQUIRE_THROWS_WITH(TSRoleTypeRef::checked(AnyPtr::typed_null(stale)),
-                            "TSRoleTypeRef requires TSData ops ABI version 29");
+                            "TSRoleTypeRef requires TSData ops ABI version " + std::to_string(TS_DATA_OPS_ABI_VERSION));
         // Its layout operation throws: reject the ABI before calling it.
         const TSDataOps unusable_ops{};
         REQUIRE_THROWS_WITH(intern_ts_type(*schema, type.role(), type.checked_plan(), unusable_ops, {}, TS_DATA_OPS_ABI_VERSION - 1),
-                            "intern_ts_type requires TSData ops ABI version 29");
+                            "intern_ts_type requires TSData ops ABI version " + std::to_string(TS_DATA_OPS_ABI_VERSION));
     }
 }
 
@@ -319,8 +324,6 @@ TEST_CASE("dynamic TSL and TSW physical plans retain their baseline layouts")
 
 #if defined(__APPLE__) && defined(__aarch64__)
     const auto &dynamic = factory.data_type_for(dynamic_schema).checked_plan();
-    const auto &tick = factory.data_type_for(tick_schema).checked_plan();
-    const auto &duration = factory.data_type_for(duration_schema).checked_plan();
     // 128 = the pre-RFC-0031 96, plus the two structural-delta lengths (live
     // and previous) -- the window time reuses the modified-ring header -- plus
     // one pointer to the ordinal snapshot of the modified ring, which exists
@@ -331,11 +334,21 @@ TEST_CASE("dynamic TSL and TSW physical plans retain their baseline layouts")
     // does not contribute to these data-plan sizes.
     REQUIRE(dynamic.layout.size == 128);
     REQUIRE(dynamic.layout.alignment == 8);
-    REQUIRE(tick.layout.size == 144);
-    REQUIRE(tick.layout.alignment == 8);
-    REQUIRE(duration.layout.size == 144);
-    REQUIRE(duration.layout.alignment == 8);
 #endif
+
+    // For ordinary 64-bit release libraries the former 144-byte window gains
+    // 24 bytes for the first removal's original time, tick flags and the
+    // single/batch discriminator, plus one pointer for lazy delta projection.
+    if constexpr (sizeof(void *) == 8 && sizeof(std::vector<Int>) == 3 * sizeof(void *))
+    {
+        for (const auto *schema : {tick_schema, duration_schema})
+        {
+            CAPTURE(schema->is_duration_based());
+            const auto &window = factory.data_type_for(schema).checked_plan();
+            CHECK(window.layout.size == 176);
+            CHECK(window.layout.alignment == 8);
+        }
+    }
 }
 
 TEST_CASE("value ops discriminator has a fixed byte ABI at offset zero")

@@ -1,6 +1,8 @@
 #include <hgraph/types/time_series/ts_output/window_view.h>
 
 #include <hgraph/types/time_series/ts_output/view_common.h>
+#include <hgraph/types/time_series/ts_delta.h>
+#include <hgraph/types/value/value.h>
 
 #include <utility>
 
@@ -37,6 +39,18 @@ namespace hgraph
     std::size_t TSWOutputView::size() const { return data_view().size(); }
     bool TSWOutputView::empty() const { return data_view().empty(); }
     bool TSWOutputView::full() const { return data_view().full(); }
+    Value TSWOutputView::window_delta() const
+    {
+        return view_.modified() ? capture_window_delta(data_view(), view_.evaluation_time()) : Value{};
+    }
+    Range<ValueView> TSWOutputView::removed_values() const
+    {
+        return data_view().removed_values(view_.evaluation_time());
+    }
+    Range<DateTime> TSWOutputView::removed_value_times() const
+    {
+        return data_view().removed_value_times(view_.evaluation_time());
+    }
     DateTime TSWOutputView::first_modified_time() const { return data_view().first_modified_time(); }
     DateTime TSWOutputView::time_at(std::size_t index) const { return data_view().time_at(index); }
     ValueView TSWOutputView::time_value_at(std::size_t index) const { return data_view().time_value_at(index); }

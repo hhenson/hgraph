@@ -369,3 +369,36 @@ accepts a shorter sequence, an explicit length, or ``_output.resize(n)``.
 To truncate old producer code that returned ``{n: hg.REMOVE}``, return
 ``hg.TSLDelta(size_modified=n)``. Pass the captured ``TSLDelta`` itself
 to replay so size-only changes survive.
+
+
+Reading a window change
+-----------------------
+
+A window holds its samples oldest first. A count window rolls when it is
+full. A duration window drops samples older than its period when it receives
+a value. A sample exactly one period old still belongs to the window.
+For a duration minimum of zero the first sample is fully ready. Omitting
+the minimum requires the retained timestamps to span the whole period.
+
+Inside a Python node, ``window.window_delta`` exposes the change for the
+current evaluation. For example, if two observations of 7 arrived one
+microsecond apart and both leave when 9 arrives, the change contains
+``added=[9]`` and two ``removed`` samples. Each has ``value=7`` and its own
+original ``time``. An explicit reset sets ``cleared`` even if nothing was held.
+A whole-window assignment supplies ``replacement`` with the complete ordered
+sequence of timestamped samples. On an idle cycle ``window_delta`` is
+``None``.
+
+Use ``window.delta_value`` for the arriving value and ``window.removed_values()``
+for all values that left. C++ nodes can iterate ``removed_values()`` and
+``removed_value_times()`` in parallel, or keep an owned change with
+``capture_delta(input)``.
+
+
+A Python owner can publish a whole window with
+``_output.replace_samples(values, times)``. Omitting ``times`` timestamps
+every replacement sample at the current evaluation. Assigning one element
+to ``_output.value`` appends it, including when that element is a sequence.
+A duration-window owner can explicitly call ``_output.expire()``. It
+returns true if any samples left and allows a subsequent append in the same
+evaluation.

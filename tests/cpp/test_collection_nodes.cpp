@@ -413,7 +413,7 @@ TEST_CASE("collections: TSW typed output pushes values and typed input reads the
     CHECK_OUTPUT(testing::get_recorded_values<Int>(ex.view().graph().global_state(), "out"), {1, 3, 6, 9});
 }
 
-TEST_CASE("collections: TSW replay and record round-trip scalar push deltas")
+TEST_CASE("collections: TSW replay accepts scalar samples and records additions and evictions")
 {
     (void)TypeRegistry::instance().register_scalar<Int>("int");
 
@@ -428,14 +428,16 @@ TEST_CASE("collections: TSW replay and record round-trip scalar push deltas")
     ex.view().run();
 
     CHECK_OUTPUT(testing::get_recorded_deltas(ex.view().graph().global_state(), "out"),
-                 {Value{Int{1}}, Value{Int{2}}, Value{Int{3}}, Value{Int{4}}});
+                 {window_delta<Int>(1), window_delta<Int>(2), window_delta<Int>(3),
+                  window_delta<Int>(4, {{1, MIN_ST}})});
 }
 
-TEST_CASE("collections: eval_node exchanges bare scalar deltas for TSW")
+TEST_CASE("collections: eval_node accepts scalar window samples and returns canonical deltas")
 {
     (void)TypeRegistry::instance().register_scalar<Int>("int");
 
-    CHECK_OUTPUT(testing::eval_node<MirrorWindowForEvalNode>({1, none, 3, 4}), {1, none, 3, 4});
+    CHECK_OUTPUT(testing::eval_node<MirrorWindowForEvalNode>({1, none, 3, 4}),
+                 {window_delta<Int>(1), none, window_delta<Int>(3), window_delta<Int>(4)});
 }
 
 TEST_CASE("collections: TSB typed field selectors work through node wiring")

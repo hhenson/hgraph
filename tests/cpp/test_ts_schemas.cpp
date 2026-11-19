@@ -151,7 +151,7 @@ TEST_CASE("ts_schemas: TSL<T>.value_schema is List<T.value>; fixed and growing l
     }
 }
 
-TEST_CASE("ts_schemas: TSW<T>.value_schema is List<T, period>, delta is T")
+TEST_CASE("ts_schemas: TSW<T> has retained values, a structured delta and scalar authored samples")
 {
     using namespace hgraph;
     auto       &registry    = TypeRegistry::instance();
@@ -168,8 +168,12 @@ TEST_CASE("ts_schemas: TSW<T>.value_schema is List<T, period>, delta is T")
         REQUIRE(win->value_schema->element_type == double_meta);
         REQUIRE(win->value_schema->fixed_size == 10);
 
-        // delta_value_schema = double
-        REQUIRE(win->delta_value_schema == double_meta);
+        const auto *sample = registry.un_named_bundle({
+            {"value", double_meta}, {"time", registry.register_scalar<DateTime>("datetime")}});
+        CHECK(win->delta_value_schema == registry.un_named_bundle({
+            {"cleared", registry.register_scalar<bool>("bool")}, {"added", registry.list(double_meta)},
+            {"removed", registry.list(sample)}, {"replacement", registry.list(sample)}}));
+        CHECK(win->authored_delta_schema == double_meta);
     }
 
     SECTION("duration-based window")
@@ -183,8 +187,12 @@ TEST_CASE("ts_schemas: TSW<T>.value_schema is List<T, period>, delta is T")
         REQUIRE(win->value_schema == expected_value);
         REQUIRE(win->value_schema->fixed_size == 0);
 
-        // delta_value_schema = double
-        REQUIRE(win->delta_value_schema == double_meta);
+        const auto *sample = registry.un_named_bundle({
+            {"value", double_meta}, {"time", registry.register_scalar<DateTime>("datetime")}});
+        CHECK(win->delta_value_schema == registry.un_named_bundle({
+            {"cleared", registry.register_scalar<bool>("bool")}, {"added", registry.list(double_meta)},
+            {"removed", registry.list(sample)}, {"replacement", registry.list(sample)}}));
+        CHECK(win->authored_delta_schema == double_meta);
     }
 }
 

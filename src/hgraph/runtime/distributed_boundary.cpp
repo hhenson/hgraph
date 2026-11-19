@@ -1,6 +1,7 @@
 #include <hgraph/runtime/distributed_boundary.h>
 
 #include <hgraph/types/value/binary_session.h>
+#include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/binary_codec.h>
@@ -17,6 +18,9 @@ namespace hgraph::distributed
     {
         constexpr unsigned live_flag = 1;
         constexpr unsigned full_flag = 2;
+        // Earlier frames use clear and push marker bytes. This flag identifies
+        // an incremental RFC 0007 window payload independently of its element type.
+        constexpr unsigned window_delta_v2_flag = 4;
         void byte(unsigned value, std::string &bytes) { bytes.push_back(static_cast<char>(value)); }
         unsigned byte(BinaryReader &reader) { return std::to_integer<unsigned>(*reader.take(1)); }
         void invalidate(const TSOutputView &out)
@@ -53,6 +57,7 @@ namespace hgraph::distributed
         BoundBinaryConverter value{};
         BoundBinaryConverter key{};
         BoundBinaryConverter time{};
+        BoundBinaryConverter window_delta{};
         ValueTypeRef element_binding{};
         std::vector<std::unique_ptr<Plan>> children{};
         Capture capture{};
@@ -96,6 +101,7 @@ namespace hgraph::distributed
                     full_when_unbound = true;
                     value = bind_binary_converter(schema->value_type, BinaryProfile::Fast);
                     time = bind_binary_converter(TypeRegistry::instance().register_scalar<DateTime>("datetime"), BinaryProfile::Fast);
+                    window_delta = bind_binary_converter(schema->delta_value_schema, BinaryProfile::Fast);
                     element_binding = value.binding();
                     capture = &capture_window; apply = &apply_window; decode = &decode_window; break;
                 case TSTypeKind::REF:
@@ -111,7 +117,10 @@ namespace hgraph::distributed
             auto &bytes = writer.out;
             full = full || in.delta_is_sampled_rebind() ||
                    (full_when_unbound && !in.data_view().valid());
-            byte((in.valid() ? live_flag : 0) | (full ? full_flag : 0), bytes);
+            const bool window = schema->kind == TSTypeKind::TSW;
+            if (window && !full) { full = in.as_window().data_view().replaced(in.evaluation_time()); }
+            byte((in.valid() ? live_flag : 0) | (full ? full_flag : 0) |
+                 (window && !full ? window_delta_v2_flag : 0), bytes);
             capture(*this, in, full, group, groups, writer);
         }
         [[nodiscard]] Decoded read(BinaryReader &reader, DateTime evaluation_time) const
@@ -119,7 +128,8 @@ namespace hgraph::distributed
             auto depth = reader.enter();
             Decoded decoded;
             decoded.flags = byte(reader);
-            if (decoded.flags & ~(live_flag | full_flag))
+            const bool incremental_window = schema->kind == TSTypeKind::TSW && !(decoded.flags & full_flag);
+            if (decoded.flags & ~(live_flag | full_flag | (incremental_window ? window_delta_v2_flag : 0)))
                 throw std::invalid_argument("invalid distributed boundary flags");
             decode(*this, decoded, reader, evaluation_time);
             return decoded;
@@ -212,6 +222,11 @@ namespace hgraph::distributed
                     samples.push_back_copy(value.view().data());
                 }
                 decoded.value = samples.build();
+            }
+            else if (decoded.flags & window_delta_v2_flag)
+            {
+                decoded.value = plan.window_delta.read(reader);
+                validate_window_delta(*plan.schema, decoded.value.view());
             }
             else
             {
@@ -486,10 +501,8 @@ namespace hgraph::distributed
             }
             else
             {
-                byte(window.data_view().cleared(in.evaluation_time()), bytes);
-                const auto delta = in.delta_value();
-                byte(delta.has_value(), bytes);
-                if (delta.has_value()) plan.value.write(delta, writer);
+                const auto delta = capture_window_delta(window.data_view(), in.evaluation_time());
+                plan.window_delta.write(delta.view(), writer);
             }
         }
         static void apply_window(const Plan &, const TSOutputView &out, const Decoded &decoded,
@@ -503,6 +516,11 @@ namespace hgraph::distributed
                 if (!decoded.times.empty() || (flags & live_flag))
                     mutation.replace_samples(decoded.value.view(), decoded.times);
                 else if (!window.empty()) mutation.clear();
+                if (!(flags & live_flag)) invalidate(out);
+            }
+            else if (flags & window_delta_v2_flag)
+            {
+                apply_delta(out, decoded.value.view());
                 if (!(flags & live_flag)) invalidate(out);
             }
             else

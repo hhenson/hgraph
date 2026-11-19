@@ -1014,7 +1014,12 @@ namespace hgraph::python_bridge
         "The completed result of a native graph execution.\n\n"
         "Use recorded() to retrieve values captured through the runner's "
         "record/replay support.")
-        .def("recorded", &PyRun::recorded, nb::arg("key"),
+        .def("_eval_recorded", [](PyRun &run, const std::string &key, PyTsType type, bool sparse) {
+            return run.recorded(key, sparse, type.meta);
+        }, nb::arg("key"), nb::arg("type"), nb::arg("sparse") = false)
+        .def("recorded", [](PyRun &run, const std::string &key, bool sparse) {
+            return run.recorded(key, sparse);
+        }, nb::arg("key"),
              nb::arg("sparse") = false,
              "Return values recorded under key. Sparse mode preserves only "
              "ticks; dense mode aligns values to evaluation cycles.");
@@ -1484,7 +1489,9 @@ namespace hgraph::python_bridge
              nb::arg("sizes") = nb::none(), nb::arg("initial_resolution").none() = nb::none(),
              nb::arg("node_label") = nb::none())
         .def("set_replay", &PyWiring::set_replay, nb::arg("key"), nb::arg("values"),
-             nb::arg("ts_type") = nb::none())
+             nb::arg("ts_type") = nb::none(), nb::arg("start_time") = MIN_ST,
+             "Seed input samples one tick apart. start_time dates the first authored sample "
+             "and any timestamped window removals derived from the sequence.")
         .def("feedback", &PyWiring::feedback, nb::arg("ts_type"), nb::arg("initial") = nb::none())
         .def("feedback_bind", &PyWiring::feedback_bind, nb::arg("feedback"), nb::arg("port"))
         .def("delayed_binding", &PyWiring::delayed_binding, nb::arg("ts_type"))

@@ -205,6 +205,24 @@ namespace hgraph::detail
             return target.delta_value(evaluation_time).data();
         }
 
+        [[nodiscard]] ValueView target_link_window_change_view(const void *context, const void *memory,
+                                                               DateTime now, bool snapshot)
+        {
+            const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
+            auto target = link ? link->target_view() : TSDataView{};
+            if (!target.has_current_value()) { return {}; }
+            const auto &ops = static_cast<const TSWDataOps &>(target.ops());
+            const bool sampled = link->tracking.last_modified_time == now && target.last_modified_time() < now;
+            return ops.change_view_impl(ops.context, target.data(), now, snapshot || sampled);
+        }
+
+        [[nodiscard]] const void *target_link_window_delta_memory(const void *context, const void *memory)
+        {
+            const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
+            return link ? target_link_window_change_view(context, memory, link->tracking.last_modified_time, false).data()
+                        : nullptr;
+        }
+
         [[nodiscard]] ValueView target_link_delta_view(const void *context,
                                                         const void *memory,
                                                         DateTime evaluation_time)
@@ -1198,6 +1216,14 @@ namespace hgraph::detail
             return target_link_window_view(context, memory).time_value_at(index);
         }
 
+        [[nodiscard]] DateTime target_link_window_replaced_time(const void *context, const void *memory)
+        {
+            auto target = target_link_target_view(context, memory);
+            if (!target.valid()) { return MIN_DT; }
+            const auto &ops = static_cast<const TSWDataOps &>(target.ops());
+            return ops.replaced_time_impl ? ops.replaced_time_impl(ops.context, target.data()) : MIN_DT;
+        }
+
         [[nodiscard]] DateTime target_link_window_cleared_time(const void *context,
                                                                 const void *memory) noexcept
         {
@@ -1250,13 +1276,18 @@ namespace hgraph::detail
         // Forwarded map outputs use input-role target links. The outer window
         // mutation has already checked per-cycle push/clear ordering; dispatch
         // into the owning target strategy and publish through its normal tracker.
-        template <typename Write>
-        void write_target_link_window(const void *context, void *memory, DateTime time, Write write)
+        TSOutputView writable_window_target(const void *context, void *memory, DateTime time)
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
             if (link == nullptr || !link->target_output().bound())
                 throw std::logic_error("TSInput target-link window write requires a bound target output");
-            auto target = link->target_output().view(time);
+            return link->target_output().view(time);
+        }
+
+        template <typename Write>
+        void write_target_link_window(const void *context, void *memory, DateTime time, Write write)
+        {
+            auto target = writable_window_target(context, memory, time);
             auto data = target.data_view().borrowed_ref();
             const auto &ops = static_cast<const TSWDataOps &>(data.ops());
             auto mutation = target.begin_mutation(time);
@@ -1270,6 +1301,32 @@ namespace hgraph::detail
                 ops.push_impl(ops.context, target, value, time);
             });
         }
+        bool target_link_window_expire(const void *context, void *memory, DateTime time)
+        {
+            auto target = writable_window_target(context, memory, time);
+            return target.as_window().begin_mutation(time).expire();
+        }
+
+        void target_link_window_apply_delta(const void *context, void *memory, bool cleared, const ValueView &added,
+                                            const IndexedValueView &removed, DateTime time)
+        {
+            write_target_link_window(context, memory, time, [&](const TSWDataOps &ops, void *target) {
+                ops.apply_window_delta_impl(ops.context, target, cleared, added, removed, time);
+            });
+        }
+
+        Range<ValueView> target_link_window_removed_values(const void *context, const void *memory, DateTime time)
+        {
+            auto target = target_link_target_view(context, memory);
+            return target.as_window().removed_values(time);
+        }
+
+        Range<DateTime> target_link_window_removed_value_times(const void *context, const void *memory, DateTime time)
+        {
+            auto target = target_link_target_view(context, memory);
+            return target.as_window().removed_value_times(time);
+        }
+
         void target_link_window_clear(const void *context, void *memory, DateTime time)
         {
             write_target_link_window(context, memory, time, [&](const TSWDataOps &ops, void *target) {
@@ -1664,6 +1721,8 @@ namespace hgraph::detail
                 context->layout.tracking_offset = storage_offset;
                 context->ops = TSWDataOps{};
                 static_cast<TSDataOps &>(context->ops) = target_link_base_ops(*context);
+                context->ops.change_view_impl = &target_link_window_change_view;
+                context->ops.delta_memory_impl = &target_link_window_delta_memory;
                 context->ops.size_impl = &target_link_window_size;
                 context->ops.element_at_impl = &target_link_window_element_at;
                 context->ops.time_at_impl = &target_link_window_time_at;
@@ -1671,6 +1730,11 @@ namespace hgraph::detail
                 context->ops.capacity_impl = &target_link_window_capacity;
                 context->ops.full_impl = &target_link_window_full;
                 context->ops.push_impl = &target_link_window_push;
+                context->ops.expire_impl = &target_link_window_expire;
+                context->ops.replaced_time_impl = &target_link_window_replaced_time;
+                context->ops.apply_window_delta_impl = &target_link_window_apply_delta;
+                context->ops.removed_values_impl = &target_link_window_removed_values;
+                context->ops.removed_value_times_impl = &target_link_window_removed_value_times;
                 context->ops.clear_impl = &target_link_window_clear;
                 context->ops.replace_samples_impl = &target_link_window_replace_samples;
                 context->ops.cleared_time_impl = &target_link_window_cleared_time;
@@ -1689,6 +1753,8 @@ namespace hgraph::detail
             context->layout.tracking_offset = storage_offset;
             context->ops = TSWDataOps{};
             static_cast<TSDataOps &>(context->ops) = target_link_base_ops(*context);
+            context->ops.change_view_impl = &target_link_window_change_view;
+            context->ops.delta_memory_impl = &target_link_window_delta_memory;
             context->ops.size_impl = &target_link_window_size;
             context->ops.element_at_impl = &target_link_window_element_at;
             context->ops.time_at_impl = &target_link_window_time_at;
@@ -1696,6 +1762,11 @@ namespace hgraph::detail
             context->ops.capacity_impl = &target_link_window_capacity;
             context->ops.full_impl = &target_link_window_full;
             context->ops.push_impl = &target_link_window_push;
+            context->ops.expire_impl = &target_link_window_expire;
+            context->ops.replaced_time_impl = &target_link_window_replaced_time;
+            context->ops.apply_window_delta_impl = &target_link_window_apply_delta;
+            context->ops.removed_values_impl = &target_link_window_removed_values;
+            context->ops.removed_value_times_impl = &target_link_window_removed_value_times;
             context->ops.clear_impl = &target_link_window_clear;
             context->ops.replace_samples_impl = &target_link_window_replace_samples;
             context->ops.cleared_time_impl = &target_link_window_cleared_time;

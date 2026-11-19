@@ -1,4 +1,6 @@
 #include <hgraph/runtime/distributed_boundary.h>
+#include <hgraph/types/time_series/ts_delta.h>
+#include <hgraph/types/value/binary_codec.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
@@ -205,6 +207,50 @@ TEST_CASE("distributed boundary windows stream constant-size deltas and preserve
     fixture.relay(next_time);
     CHECK(window_at(fixture.target, next_time).size() == 1);
     CHECK(window_at(fixture.target, next_time).at(0).checked_as<Int>() == 99);
+}
+
+TEST_CASE("distributed window frames preserve originally timed departures even when applied later")
+{
+    const auto *schema = schema_descriptor<TSWDuration<Int, 2, 0>>::ts_meta();
+    BoundaryFixture fixture{schema};
+    auto apply_later = [&](DateTime source_time) {
+        const auto frame = fixture.transfer.capture(fixture.input.view(nullptr, source_time));
+        fixture.transfer.apply(fixture.target.view(source_time + 10 * MIN_TD), frame.view());
+    };
+    auto from = fixture.source.data_view();
+    auto source = from.as_window();
+    source.begin_mutation(MIN_ST).push(Value{Int{1}}.view());
+    apply_later(MIN_ST);
+    source.begin_mutation(MIN_ST + MIN_TD).push(Value{Int{2}}.view());
+    apply_later(MIN_ST + MIN_TD);
+    const auto due = MIN_ST + 3 * MIN_TD;
+    REQUIRE(source.begin_mutation(due).expire());
+    apply_later(due);
+    auto to = fixture.target.data_view();
+    auto target = to.as_window();
+    REQUIRE(target.size() == 1);
+    CHECK(target.front().checked_as<Int>() == 2);
+    CHECK(capture_window_delta(target, due + 10 * MIN_TD)
+              .equals(window_delta<Int>(std::nullopt, {{1, MIN_ST}})));
+}
+
+TEST_CASE("distributed window accepts legacy flagged-state clear and single-push frames")
+{
+    const auto *schema = schema_descriptor<TSW<Int, 2, 1>>::ts_meta();
+    BoundaryFixture fixture{schema};
+    // Original protocol: live state, no clear, one push, then a fast-profile scalar.
+    std::string bytes{"\1\0\1", 3};
+    auto converter = bind_binary_converter(schema->value_type, BinaryProfile::Fast);
+    BinaryWriter writer{bytes};
+    converter.write(Value{Int{42}}.view(), writer);
+    fixture.transfer.apply(fixture.target.view(MIN_ST), Value{bytes}.view());
+    auto target = fixture.target.data_view();
+    auto window = target.as_window();
+    REQUIRE(window.size() == 1);
+    CHECK(window.front().checked_as<Int>() == 42);
+    const auto later = MIN_ST + MIN_TD;
+    fixture.transfer.apply(fixture.target.view(later), Value{std::string{"\1\1\0", 3}}.view());
+    CHECK(capture_window_delta(window, later).equals(window_delta<Int>(std::nullopt, {{42, MIN_ST}}, true)));
 }
 
 TEST_CASE("distributed boundary transports set membership incrementally and on rebind")

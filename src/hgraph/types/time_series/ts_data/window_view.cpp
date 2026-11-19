@@ -1,4 +1,5 @@
 #include <hgraph/types/time_series/ts_data.h>
+#include <hgraph/types/value/specialized_views.h>
 
 #include <stdexcept>
 
@@ -174,11 +175,30 @@ namespace hgraph
         return evicted;
     }
 
+    Range<ValueView> TSWDataView::removed_values(DateTime evaluation_time) const
+    {
+        const auto &ops = window_ops();
+        return ops.removed_values_impl(ops.context, storage_.data(), evaluation_time);
+    }
+
+    Range<DateTime> TSWDataView::removed_value_times(DateTime evaluation_time) const
+    {
+        const auto &ops = window_ops();
+        return ops.removed_value_times_impl(ops.context, storage_.data(), evaluation_time);
+    }
+
     bool TSWDataView::cleared(DateTime evaluation_time) const
     {
         const auto &ops = window_ops();
         return evaluation_time != MIN_DT && ops.cleared_time_impl != nullptr &&
                ops.cleared_time_impl(ops.context, storage_.data()) == evaluation_time;
+    }
+
+    bool TSWDataView::replaced(DateTime evaluation_time) const
+    {
+        const auto &ops = window_ops();
+        return evaluation_time != MIN_DT && ops.replaced_time_impl != nullptr &&
+               ops.replaced_time_impl(ops.context, storage_.data()) == evaluation_time;
     }
 
     DateTime TSWDataView::first_modified_time() const
@@ -350,15 +370,46 @@ namespace hgraph
         return mutation_.current_mutation_time();
     }
 
-    void TSWDataMutationView::push(const ValueView &source)
+    bool TSWDataMutationView::owner_already_wrote(const TSWDataOps &ops) const
+    {
+        const auto now = current_mutation_time();
+        return mutation_.modified(ops, now) &&
+               !(duration_based() && has_removed_value(now) && !cleared(now) && !delta_value(now).has_value());
+    }
+
+    bool TSWDataMutationView::expire()
     {
         const auto &ops = window_ops();
-        if (mutation_.modified(ops, current_mutation_time()) && !cleared_)
+        if (!ops.expire_impl(ops.context, mutation_.mutable_data(ops), current_mutation_time())) { return false; }
+        mutation_.mark_modified(ops);
+        return true;
+    }
+
+    void TSWDataMutationView::apply_delta(bool cleared, const ValueView &added, const IndexedValueView &removed)
+    {
+        if (!cleared && !added.has_value() && removed.size() == 0) { return; }
+        const auto &ops = window_ops();
+        if (mutation_.modified(ops, current_mutation_time()))
+            throw std::logic_error("TSW delta can only be applied once per evaluation time");
+        ops.apply_window_delta_impl(ops.context, mutation_.mutable_data(ops), cleared, added, removed,
+                                    current_mutation_time());
+        mutation_.mark_modified(ops);
+    }
+
+    bool TSWDataMutationView::can_push() const
+    {
+        return cleared_ || !owner_already_wrote(window_ops());
+    }
+
+    void TSWDataMutationView::push(const ValueView &source)
+    {
+        if (!can_push())
         {
             throw std::logic_error("TSWDataMutationView::push allows only one window tick per evaluation time");
         }
         // push_impl defaults to a named throwing thunk (never null since the
         // TSW defaults hardening) — the null test was dead.
+        const auto &ops = window_ops();
         ops.push_impl(ops.context, mutation_.mutable_data(ops), source, current_mutation_time());
         mutation_.mark_modified(ops);
         cleared_ = false;
@@ -367,7 +418,7 @@ namespace hgraph
     void TSWDataMutationView::clear()
     {
         const auto &ops = window_ops();
-        if (mutation_.modified(ops, current_mutation_time()))
+        if (owner_already_wrote(ops))
         {
             throw std::logic_error("TSWDataMutationView::clear allows only one reset per evaluation time");
         }

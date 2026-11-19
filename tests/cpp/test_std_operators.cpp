@@ -715,6 +715,41 @@ namespace
         }
     };
 
+    template <bool ExplicitMinimum>
+    struct DurationReadinessGraph
+    {
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            auto window = [&] {
+                if constexpr (ExplicitMinimum) { return wire<stdlib::to_window>(w, ts, MIN_TD * 2, TimeDelta{}); }
+                else { return wire<stdlib::to_window>(w, ts, MIN_TD * 2); }
+            }();
+            return wire<stdlib::mean>(w, window).template as<TS<Float>>();
+        }
+    };
+
+    struct ExplicitExpiryWindow
+    {
+        static void eval(In<"data", TS<Int>, InputValidity::Unchecked> data,
+                         In<"expire", SIGNAL, InputValidity::Unchecked> expire,
+                         Out<TSWDuration<Int, 2, 0>> out)
+        {
+            auto mutation = out.begin_mutation(out.evaluation_time());
+            if (expire.modified()) { mutation.expire(); }
+            if (data.modified()) { mutation.push(data.base().value()); }
+        }
+    };
+
+    struct SumOfAbsoluteWindow
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> data, Port<SIGNAL> expire)
+        {
+            auto source = wire<ExplicitExpiryWindow>(w, data, expire);
+            auto magnitude = wire<stdlib::abs_>(w, source);
+            return wire<stdlib::sum_>(w, magnitude).as<TS<Int>>();
+        }
+    };
+
     struct ResettableDurationWindowGraph
     {
         static constexpr auto name = "resettable_duration_window_graph";
@@ -4767,8 +4802,9 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
                  values<Int>(none, none, none, none));
 
     CHECK_OUTPUT(eval_node<stdlib::to_window>(values<Int>(1, 2, 3, 4, 5), MIN_TD * 2),
-                 values<Value>(Value{Int{1}}, Value{Int{2}}, Value{Int{3}},
-                               Value{Int{4}}, Value{Int{5}}));
+                 values<Value>(window_delta<Int>(1), window_delta<Int>(2), window_delta<Int>(3),
+                               window_delta<Int>(4, {{1, MIN_ST}}),
+                               window_delta<Int>(5, {{2, MIN_ST + MIN_TD}})));
     CHECK_THROWS_WITH(
         (eval_node<stdlib::to_window>(values<Int>(1), Int{0})),
         Catch::Matchers::ContainsSubstring("to_window: period must be positive"));
@@ -4777,6 +4813,15 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
         Catch::Matchers::ContainsSubstring("to_window: min_window_period must be between zero and period"));
     CHECK_THROWS_WITH(
         (eval_node<stdlib::to_window>(values<Int>(1), Int{3}, Int{4})),
+        Catch::Matchers::ContainsSubstring("to_window: min_window_period must be between zero and period"));
+    // Expiring -3 leaves only -4. Neither abs_ nor sum_ may count -4 twice.
+    CHECK_OUTPUT(eval_node<SumOfAbsoluteWindow>(values<Int>(-3, -4, none, none, none, -5),
+                                                values<Bool>(none, none, none, true, none, none)),
+                 values<Int>(3, 7, none, 4, none, 5));
+    CHECK_OUTPUT(eval_node<DurationReadinessGraph<true>>(values<Int>(2, 4, 6)), values<Float>(2., 3., 4.));
+    CHECK_OUTPUT(eval_node<DurationReadinessGraph<false>>(values<Int>(2, 4, 6)), values<Float>(none, none, 4.));
+    CHECK_THROWS_WITH(
+        (eval_node<stdlib::to_window>(values<Int>(1), MIN_TD * 2, -MIN_TD)),
         Catch::Matchers::ContainsSubstring("to_window: min_window_period must be between zero and period"));
     CHECK_THROWS_WITH(
         (eval_node<stdlib::to_window>(values<Int>(1), TimeDelta{})),

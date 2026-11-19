@@ -891,13 +891,13 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
         # Python-readable mirror of the run start (the C++ run bounds have no
         # wiring-time getter): start-time-aware wiring — the DATA_FRAME
         # replay overloads' upstream `_api.start_time` filter — reads this.
-        _global_state["__start_time__"] = (
-            __start_time__ if __start_time__ is not None else _hgraph.MIN_ST)
+        replay_start = __start_time__ if __start_time__ is not None else _hgraph.MIN_ST
+        _global_state["__start_time__"] = replay_start
         out = fn(*ports, **scalars)
         # Replay values convert AFTER wiring: hgraph surfaces wiring errors
         # before data-conversion errors, and tests pin that order.
         for key, series, handle in deferred_replay:
-            w.set_replay(key, series, ts_type=handle)
+            w.set_replay(key, series, ts_type=handle, start_time=replay_start)
         length = max((len(series) for i, series in enumerate(inputs)
                       if isinstance(series, (list, tuple)) and i not in scalar_positions), default=0)
         _finalize_compound_scalar_types()
@@ -926,13 +926,14 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
         _wiring_stack.pop()
         _gs_scope.__exit__(None, None, None)
     result_type = record_port.ts_type
+    result = run._eval_recorded("eval_node::out", result_type, sparse=bool(__elide__))
     if __elide__:
         # hgraph parity: elide keeps only the ticked cycles, in order (the
         # recording was made SPARSE, so this is just the list). As in the
         # legacy runner, a never-ticking output is reported as None.
-        recorded = [_simplify_delta(v, result_type) for _, v in run.recorded("eval_node::out", sparse=True)]
+        recorded = [_simplify_delta(v, result_type) for _, v in result]
         return recorded or None
-    recorded = [_simplify_delta(v, result_type) for v in run.recorded("eval_node::out")]
+    recorded = [_simplify_delta(v, result_type) for v in result]
     if (not realtime and __start_time__ is not None
             and __start_time__ > _hgraph.MIN_ST):
         # hgraph parity: the result list is aligned to the RUN START (index 0

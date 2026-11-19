@@ -56,14 +56,22 @@ namespace hgraph
         [[nodiscard]] bool all_valid() const;
 
         /** hgraph's removed_value: the element the supplied evaluation
-            cycle's push evicted (a full tick window rolling, or a duration
+            cycle evicted (a full tick window rolling, or a duration
             window's span drop). Data-level callers must supply the cycle;
             endpoint views provide their current evaluation time. */
         [[nodiscard]] bool has_removed_value(DateTime evaluation_time) const;
         [[nodiscard]] ValueView removed_value(DateTime evaluation_time) const;
 
+        /** All removals on this tick in their original order, including those
+         * discarded by clear. The two borrowed ranges have identical indices. */
+        [[nodiscard]] Range<ValueView> removed_values(DateTime evaluation_time) const;
+        [[nodiscard]] Range<DateTime> removed_value_times(DateTime evaluation_time) const;
+
         /** True when clear participated in the supplied evaluation cycle. */
         [[nodiscard]] bool cleared(DateTime evaluation_time) const;
+
+        /** True for a whole-window replacement, including an empty snapshot. */
+        [[nodiscard]] bool replaced(DateTime evaluation_time) const;
 
         /** Time associated with the oldest element, or ``MIN_DT`` when empty. */
         [[nodiscard]] DateTime first_modified_time() const;
@@ -120,8 +128,19 @@ namespace hgraph
         /** Runtime time associated with this mutation scope. */
         [[nodiscard]] DateTime current_mutation_time() const;
 
-        /** Append one window tick. Only one tick is accepted per evaluation time. */
+        /** Whether the owner can append its one arrival at this evaluation time. */
+        [[nodiscard]] bool can_push() const;
+        /** Append an arrival, coalescing any earlier manual expiry. */
         void push(const ValueView &source);
+
+        /** Remove samples older than this duration window at the mutation time.
+         * Return true and publish one modification only if any sample left.
+         * An owner may still push or clear on this same cycle. */
+        bool expire();
+
+        /** Replay an authoritative window tick. Removed entries carry the original
+         * sample value and timestamp. An empty added view means no arrival. */
+        void apply_delta(bool cleared, const ValueView &added, const IndexedValueView &removed);
 
         /**
          * Remove every retained tick and mark the window modified.
@@ -149,6 +168,9 @@ namespace hgraph
         friend class TSWDataView;
 
         TSWDataMutationView(TSWDataStorageRef storage, DateTime evaluation_time, TrustedStorageTag);
+
+        /** An expiry may have already marked the window before its owner runs. */
+        [[nodiscard]] bool owner_already_wrote(const TSWDataOps &ops) const;
 
         TSDataMutationView mutation_;
         bool               cleared_{false};

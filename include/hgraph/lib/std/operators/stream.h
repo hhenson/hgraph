@@ -211,20 +211,20 @@ namespace hgraph::stdlib
     };
 
     /** Convert a stream into a typed trailing ``TSW`` window.
-        The output becomes valid after ``min_window_period`` values. When ``reset`` and
+        A nonempty window is readable during warm-up. When ``reset`` and
         the source tick together, retained values are cleared before the new tick is added.
         Wiring rejects a non-positive period, a negative minimum, or a minimum greater
         than the period.
         @param ts Values admitted to the window.
-        @param period Maximum number of retained ticks, fixed at wiring time.
-        @param min_window_period Minimum retained count required for validity.
+        @param period Maximum retained tick count or duration.
+        @param min_window_period Minimum tick count or elapsed span for full readiness. For durations, omission uses the period and explicit zero is ready on the first tick.
         @param reset Optional signal that clears retained ticks.
         @return A typed time-series window over the most recent values.
         @par Python example
         @code{.py}
         recent = hg.to_window(price, period=20, min_window_period=5, reset=session_start)
         @endcode
-        @note Cost: O(1) append/evict per tick; O(W) retained by the TSW itself. Aggregates over the window (``min_`` / ``max_`` / ``sum_`` / ``mean`` / ``std``) recompute in O(W) per window tick — recorded beside their kernels. */
+        @note Cost: O(1) for a count-window append, O(1 + R) for an append evicting R samples; O(W) retained for W live samples. */
     struct to_window : Operator<"to_window", In<"ts", TsVar<"S">>, Scalar<"period", ScalarVar<"P", Int, TimeDelta>>,
                                 Scalar<"min_window_period", ScalarVar<"M", Int, TimeDelta>>, Out<TsVar<"O">>>
     {

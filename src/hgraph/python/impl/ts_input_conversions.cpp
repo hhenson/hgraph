@@ -1,3 +1,4 @@
+#include "ts_child_delta.h"
 #include "list_delta_source.h"
 #include "python_ops_families.h"
 
@@ -35,11 +36,11 @@ namespace hgraph::python_bridge
 
         [[nodiscard]] nb::object child_delta_to_python(TSRoleTypeRef type, const void *memory, DateTime evaluation_time)
         {
-            if (!type || memory == nullptr) { return nb::none(); }
+            if (!type || memory == nullptr) { return {}; }
             const auto &ops      = *type.ops();
             const auto *tracking = ops.tracking_impl(ops.context, memory);
-            if (tracking == nullptr || tracking->last_modified_time != evaluation_time) { return nb::none(); }
-            return take(ops.delta_to_python_impl(ops.context, memory, evaluation_time));
+            if (tracking == nullptr || tracking->last_modified_time != evaluation_time) { return {}; }
+            return published_child_delta(ops, memory, evaluation_time);
         }
 
         // -- endpoint shapes -----------------------------------------------------------
@@ -91,7 +92,7 @@ namespace hgraph::python_bridge
                 auto child_delta = child_delta_to_python(seams::input_child_type(context, memory, index),
                                                          seams::input_child_memory(context, memory, index),
                                                          evaluation_time);
-                if (!child_delta.is_none()) { result[nb::str{field.name}] = child_delta; }
+                if (child_delta.is_valid()) { result[nb::str{field.name}] = child_delta; }
             }
             return result;
         }
@@ -105,7 +106,7 @@ namespace hgraph::python_bridge
                 auto child_delta = child_delta_to_python(seams::input_child_type(context, memory, index),
                                                          seams::input_child_memory(context, memory, index),
                                                          evaluation_time);
-                if (!child_delta.is_none()) { result[nb::int_{index}] = child_delta; }
+                if (child_delta.is_valid()) { result[nb::int_{index}] = child_delta; }
             }
             const auto bundle = ValueView{seams::input_delta_binding(context),memory}.as_bundle();
             return python_list_delta(std::move(result),to_python(bundle.at(0).binding(),memory),nb::none());
