@@ -685,7 +685,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .allows_mutation           = true,
                     .ownership_ops             = &ownership_ops(),
                     .current_state_ops =
-                        &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSL),
+                        &ts_current_state_detail::current_state_ops_for(*schema),
                     .checkpoint_ops = &checkpoint_ops(),
                     .layout_impl               = &dynamic_layout,
                     .tracking_impl             = &dynamic_tracking,

@@ -45,17 +45,6 @@ namespace hgraph::stdlib
 
     namespace stream_impl_detail
     {
-        /** Sample the endpoint's retained observations. Window times are not
-            represented in the list returned by value(), including nested windows. */
-        inline void publish_sample(const TSOutputView &out, const TSInputView &source)
-        {
-            if (out.schema()->contains_window())
-            {
-                reconcile_current_state(out, source, TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, true});
-            }
-            else { apply_current_value(out, source.value()); }
-        }
-
         /** Stream position counters are LOOPBACK state — they decide which
             future ticks pass — so they are RecordableState: replay restarting
             them at zero changed which ticks passed (audit 2026-08-15). */
@@ -425,10 +414,6 @@ namespace hgraph::stdlib
                 {
                     if (!tsw_ready(window)) { return; }
                 }
-                else
-                {
-                    if (window.size() == 0) { return; }
-                }
 
                 // Both aggregates are RECURRENCES upstream: the previous
                 // answer, plus the element the window just took, less the one
@@ -444,6 +429,12 @@ namespace hgraph::stdlib
                 const std::size_t size    = window.size();
                 const auto        arrival = window.delta_value(now);
                 const auto        removals = window.removed_values(now);
+                if constexpr (!Mean)
+                {
+                    // A duration window's final departure publishes its empty sum.
+                    // A reset or an empty window with no departures stays silent.
+                    if (size == 0 && (!window.time_based() || window.cleared(now) || removals.limit == 0)) { return; }
+                }
                 const bool        evicted = removals.limit == 1;
                 // The recurrence is only the answer where the previous answer
                 // DESCRIBES the window this tick appended to. That holds for a
@@ -984,7 +975,7 @@ namespace hgraph::stdlib
                          Out<TsVar<"S">> out)
         {
             static_cast<void>(signal);
-            if (ts.valid()) { stream_impl_detail::publish_sample(out, ts.base()); }
+            if (ts.valid()) { reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample}); }
         }
     };
 
@@ -1464,7 +1455,7 @@ namespace hgraph::stdlib
         {
             if (predicate.value())
             {
-                if (ts.valid()) { stream_impl_detail::publish_sample(out, ts.base()); }
+                if (ts.valid()) { reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample}); }
                 predicate.make_passive();
                 ts.make_passive();
                 return;
@@ -1638,7 +1629,7 @@ namespace hgraph::stdlib
                          NodeScheduler scheduler,
                          Out<TsVar<"S">> out)
         {
-            if (ts.valid()) { stream_impl_detail::publish_sample(out, ts.base()); }
+            if (ts.valid()) { reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample}); }
             scheduler.schedule(period.value());
         }
     };
@@ -2177,7 +2168,7 @@ namespace hgraph::stdlib
                          RecordableState<TS<Int>> seen, Out<TsVar<"S">> out)
         {
             const Int index = stream_impl_detail::recorded_index(seen);
-            if (index == count.value()) { stream_impl_detail::publish_sample(out, ts.base()); }
+            if (index == count.value()) { reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample}); }
             else if (index > count.value())
             {
                 apply_delta(out, capture_delta(ts.base()).view());
@@ -2228,7 +2219,7 @@ namespace hgraph::stdlib
             }
             seen.set(index);
             if (index >= limit) { ts.make_passive(); }
-            stream_impl_detail::publish_sample(out, ts.base());
+            reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample});
         }
     };
 
@@ -2260,7 +2251,7 @@ namespace hgraph::stdlib
             const auto opened_at = first.value().checked_as<DateTime>();
             if (now - opened_at > period.value())
             {
-                stream_impl_detail::publish_sample(out, ts.base());
+                reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample});
                 return;
             }
             // The gate is still closed, so make sure we wake at the boundary
@@ -2284,7 +2275,7 @@ namespace hgraph::stdlib
                          RecordableState<TS<Int>> seen, Out<TsVar<"S">> out)
         {
             const Int index = stream_impl_detail::recorded_index(seen);
-            if (index % step_size.value() == 0) { stream_impl_detail::publish_sample(out, ts.base()); }
+            if (index % step_size.value() == 0) { reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample}); }
             seen.set(index + 1);
         }
     };
@@ -2307,7 +2298,7 @@ namespace hgraph::stdlib
             if (start.value() < 0) { return; }
             if (index < start.value()) { return; }
             if (stop.value() >= 0 && index >= stop.value()) { return; }
-            if ((index - start.value()) % step_size.value() == 0) { stream_impl_detail::publish_sample(out, ts.base()); }
+            if ((index - start.value()) % step_size.value() == 0) { reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample}); }
         }
     };
 

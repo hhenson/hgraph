@@ -163,6 +163,60 @@ namespace
         }
     };
 
+    struct FirstSampleTime
+    {
+        static void eval(In<"pair", WindowPair> pair, Out<TS<DateTime>> out)
+        {
+            out.set(pair.field<"windows">()[0].time_at(0));
+        }
+    };
+
+    struct SampleNestedWindows
+    {
+        static Port<TS<DateTime>> compose(Wiring &w, Port<SIGNAL> trigger, Port<TS<Int>> values)
+        {
+            auto windows = wire<WritePair>(w, values);
+            return wire<FirstSampleTime>(w, wire<stdlib::sample>(w, trigger, windows).as<WindowPair>());
+        }
+    };
+
+    using ScalarPair = TSL<TS<Int>, 2>;
+
+    struct PartialScalarPair
+    {
+        static void eval(In<"phase", TS<Int>> phase, Out<ScalarPair> out)
+        {
+            if (phase.value() == 0)
+            {
+                out[0].set(Int{4});
+                out[1].set(Int{9});
+            }
+            else
+            {
+                auto first = out[0];
+                static_cast<void>(first.begin_mutation(out.evaluation_time()).invalidate());
+            }
+        }
+    };
+
+    struct ReadFirstScalar
+    {
+        static void eval(In<"pair", ScalarPair> pair, Out<TS<Int>> out)
+        {
+            auto first = pair[0];
+            out.set(first.valid() ? first.value() : Int{-1});
+        }
+    };
+
+    struct SamplePartialScalars
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<SIGNAL> trigger, Port<TS<Int>> phases)
+        {
+            auto pair = wire<PartialScalarPair>(w, phases);
+            return wire<ReadFirstScalar>(w, wire<stdlib::sample>(w, trigger, pair).as<ScalarPair>());
+        }
+    };
+
     struct ThrottledWindow
     {
         static Port<Window> compose(Wiring &w, Port<TS<Int>> samples)
@@ -314,6 +368,17 @@ TEST_CASE("sampling a held duration window keeps the time of each retained obser
     CHECK(samples.at(0).as_bundle().at("time").checked_as<DateTime>() == MIN_ST);
     CHECK(samples.at(1).as_bundle().at("value").checked_as<Int>() == 7);
     CHECK(samples.at(1).as_bundle().at("time").checked_as<DateTime>() == MIN_ST + MIN_TD);
+}
+
+TEST_CASE("sampling a nested window retains its timestamp and sampling plain slots keeps patch semantics")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<SampleNestedWindows>(values<Bool>(none, true), values<Int>(4)),
+                 values<DateTime>(none, MIN_ST));
+    // When the source loses slot 0, the next sample of the partial plain
+    // list retains its previously published 4 at that position.
+    CHECK_OUTPUT(eval_node<SamplePartialScalars>(values<Bool>(true, none, true), values<Int>(0, 1)),
+                 values<Int>(4, none, 4));
 }
 
 TEST_CASE("buffered duration windows release the surviving source observations as one snapshot")

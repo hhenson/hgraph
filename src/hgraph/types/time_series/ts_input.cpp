@@ -2222,7 +2222,7 @@ namespace hgraph
                 .ownership_ops = &input_ownership_ops(),
                 .inspection_ops = &input_inspection_ops(),
                 .current_state_ops =
-                    &ts_current_state_detail::current_state_ops_for(context->schema->kind),
+                    &ts_current_state_detail::current_state_ops_for(*context->schema),
                 .layout_impl = &input_layout,
                 .tracking_impl = &input_tracking,
                 .mutable_tracking_impl = &input_mutable_tracking,

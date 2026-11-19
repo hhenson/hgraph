@@ -2075,7 +2075,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 base_ops.record_child_modified_impl = &tsd_record_child_modified;
                 base_ops.copy_value_from_impl = &tsd_copy_value_from;
                 base_ops.current_state_ops =
-                    &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSD);
+                    &ts_current_state_detail::current_state_ops_for(*dict_schema);
                 base_ops.checkpoint_ops = &checkpoint_ops();
                 base_ops.empty_delta_impl = &ts_data_detail::empty_delta_tsd;
                 base_ops.capture_delta_impl = &ts_data_detail::capture_delta_tsd;

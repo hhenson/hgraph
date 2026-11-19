@@ -171,6 +171,26 @@ def test_sampling_a_list_of_windows_keeps_the_source_times_in_every_snapshot():
     ]
 
 
+def test_sampling_a_partial_plain_list_keeps_the_last_value_in_an_unset_slot():
+    pair = hg.TSL[hg.TS[int], hg.Size[2]]
+
+    @hg.compute_node
+    def publish(phase: hg.TS[int], _output: hg.TSL = None) -> pair:
+        if phase.value == 0:
+            return (4, 9)
+        _output[0].invalidate()
+
+    @hg.compute_node
+    def first(values: pair) -> hg.TS[int]:
+        return values[0].value if values[0].valid else -1
+
+    @hg.graph
+    def app(trigger: hg.SIGNAL, phase: hg.TS[int]) -> hg.TS[int]:
+        return first(hg.sample(trigger, publish(phase)))
+
+    assert hg.eval_node(app, [True, None, True], [0, 1]) == [4, None, 4]
+
+
 def test_eval_node_window_input_replays_its_authored_quiet_interval():
     period = hg.WindowSize[2 * hg.MIN_TD]
     minimum = hg.WindowSize[timedelta(0)]

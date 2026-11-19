@@ -36,6 +36,18 @@ def test_tsw_sum_is_a_running_sum_below_the_minimum_window():
     assert eval_node(g, [1, 2, 3]) == [1, 3, 5]
 
 
+def test_duration_window_sum_publishes_zero_after_its_last_sample_departs():
+    @graph
+    def running_sum(ts: TS[int]) -> TS[int]:
+        return sum_(to_window(ts, 2 * MIN_TD, min_window_period=2 * MIN_TD))
+
+    # Seven departs first, while two is still present. After two departs the
+    # empty sum remains a public value until the next sample arrives.
+    assert eval_node(running_sum, [7, 2, None, None, None, 5]) == [
+        7, 9, None, 2, 0, 5, None, None, 0,
+    ]
+
+
 def test_tsw_mean_still_waits_for_the_minimum_window():
     """The guard for the above: the gate is dropped for ``sum_`` only."""
 

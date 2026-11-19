@@ -22,6 +22,9 @@ namespace hgraph
         Incremental,
         /** Make the target's complete live state match the source. */
         Full,
+        /** Sample a held endpoint. A shape carrying observation history copies
+            that history; other shapes apply their normal whole-value semantics. */
+        Sample,
     };
 
     /** Wiring/runtime policy for copying live TSData state into a publication snapshot. */
