@@ -15,7 +15,13 @@ namespace hgraph::persistence
         void install_frame_backend()
         {
             register_record_replay_frame_operators();
-            record_replay::register_seed_resolver(FRAME_BACKEND, &frame_seed_resolver);
+            record_replay::register_seed_resolver(FRAME_BACKEND, &frame_seed_resolver,
+                [](GlobalStateView gs, std::string_view key, const TSOutputView &target, record_replay::SeedPublication mode) {
+                    const auto history = record_replay_frame_detail::recorded_window_state(
+                        gs, key, target.schema(), target.evaluation_time(), mode == record_replay::SeedPublication::AtStart);
+                    if (history)
+                        record_replay::publish_window_history(target, history->data_view(), mode);
+                });
         }
     }  // namespace
 

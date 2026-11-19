@@ -417,3 +417,11 @@ Operators such as ``lag`` and ``take`` that control the publication of
 captured changes follow their own event stream. A sample delayed by
 ``lag`` keeps its source timestamp in the removal event. Window children
 created inside dynamic lists and dictionaries have a later lifecycle stage.
+
+A recording replays departures at the times they were published. A live
+checkpoint resumes expiry from the original arrival times. For a window
+holding ``7@0`` and ``2@1`` with a span of two microseconds, a restart at
+offset 2 still publishes departures at 3 and 4. A restart at 5 publishes
+both overdue removals together at 5, carrying the original times 0 and 1.
+An empty restored window stays quiet. See :ref:`durable-window-records`
+for the Arrow and JSON formats.

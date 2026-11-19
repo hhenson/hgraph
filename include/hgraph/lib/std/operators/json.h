@@ -42,6 +42,8 @@ namespace hgraph::stdlib
     /** Serialize each time-series tick as JSON text.
         Full-value mode encodes the current value; delta mode encodes the canonical
         per-tick delta used by record/replay and preserves removals explicitly.
+        If the time series contains a window, delta mode wraps the event in a
+        versioned object. Removed and replaced samples retain their original times.
         @param ts Value or structure to encode.
         @param delta When true, encode only the current tick's canonical delta.
         @return JSON text for each source tick.
@@ -153,6 +155,9 @@ namespace hgraph::stdlib
         array means that element does not tick. A growing list takes its length from the array.
         Both kinds accept a delta object with a ``modified`` index map and
         ``removed`` indices. Supply ``size_modified`` to resize a growing list.
+        A window recording publishes only at its recorded rows. Versioned events
+        retain sample timestamps. Historical held arrays use the row time, and
+        untagged scalar arrivals prune the window when the next arrival is read.
         @param ts JSON text.
         @return Parsed values in the selected output schema.
         @par Python example

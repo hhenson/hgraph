@@ -507,3 +507,182 @@ def test_a_call_selects_its_backend_independently_of_the_graph():
     # A frame exists at all only because the call chose the DataFrame backend.
     assert _rows(frame) == 1
     assert _columns(frame) == ["__date_time__", "__as_of__", "__key_1__", "value"]
+
+
+def test_timed_window_recording_replays_a_quiet_prefix_and_original_departures():
+    """A clipped replay folds the skipped arrivals without publishing them."""
+    import pyarrow as pa
+
+    window_type = hg.TSW[int, hg.WindowSize[2 * hg.MIN_TD], hg.WindowSize[0 * hg.MIN_TD]]
+    events = []
+
+    @hg.graph
+    def record_window(sample: hg.TS[int]):
+        hg.record(hg.to_window(sample, 2 * hg.MIN_TD, 0 * hg.MIN_TD), "window", recordable_id="book")
+
+    @hg.compute_node
+    def observe(window: window_type) -> hg.TS[tuple[int, ...]]:
+        events.append((window.last_modified_time, window.window_delta))
+        return tuple(window.value)
+
+    @hg.graph
+    def replay_window() -> hg.TS[tuple[int, ...]]:
+        return observe(hg.replay("window", window_type, recordable_id="book"))
+
+    @hg.graph
+    def latest_window() -> hg.TS[tuple[int, ...]]:
+        return observe(hg.replay_const[window_type](key="window", recordable_id="book",
+                                                    tm=hg.MIN_ST + hg.MIN_TD))
+
+    with hg.GlobalState():
+        hg.set_record_replay_model("DataFrame")
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECORD):
+            hg.eval_node(record_window, [4, 5])
+        frame = hg.frame_store_read("book.window")
+        assert frame.schema.metadata[b"hgraph.window_delta.version"] == b"1"
+        change = frame.schema.field("value").type
+        assert pa.types.is_struct(change)
+        assert pa.types.is_list(change.field("removed").type)
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.REPLAY):
+            assert hg.eval_node(replay_window, __start_time__=hg.MIN_ST + 2 * hg.MIN_TD) == [None, (5,), ()]
+            assert [(when, delta["removed"]) for when, delta in events] == [
+                (hg.MIN_ST + 3 * hg.MIN_TD, [{"value": 4, "time": hg.MIN_ST}]),
+                (hg.MIN_ST + 4 * hg.MIN_TD, [{"value": 5, "time": hg.MIN_ST + hg.MIN_TD}]),
+            ]
+            events.clear()
+            assert hg.eval_node(latest_window, __start_time__=hg.MIN_ST + 2 * hg.MIN_TD) == [(4, 5)]
+            assert events[0][1]["replacement"] == [
+                {"value": 4, "time": hg.MIN_ST}, {"value": 5, "time": hg.MIN_ST + hg.MIN_TD},
+            ]
+
+
+def test_component_recover_publishes_window_seed_with_the_original_sample_times():
+    window_type = hg.TSW[int, hg.WindowSize[4 * hg.MIN_TD], hg.WindowSize[0 * hg.MIN_TD]]
+
+    @hg.compute_node
+    def sample_times(window: window_type) -> hg.TS[str]:
+        return ",".join(str((t - hg.MIN_ST) // hg.MIN_TD) for t in window.value_times.tolist())
+
+    @hg.component
+    def strategy(window: window_type) -> hg.TS[str]:
+        return sample_times(window)
+
+    @hg.graph
+    def app(value: hg.TS[int]) -> hg.TS[str]:
+        return strategy(hg.to_window(value, 4 * hg.MIN_TD, 0 * hg.MIN_TD))
+
+    with hg.GlobalState():
+        hg.set_record_replay_model("DataFrame")
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECORD):
+            assert hg.eval_node(app, [4, 5], __end_time__=hg.MIN_ST + 2 * hg.MIN_TD) == ["0", "0,1"]
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECOVER):
+            assert hg.eval_node(app, [], __start_time__=hg.MIN_ST + 2 * hg.MIN_TD,
+                                __end_time__=hg.MIN_ST + 3 * hg.MIN_TD) == ["0,1"]
+            assert hg.eval_node(app, [7], __start_time__=hg.MIN_ST + 2 * hg.MIN_TD,
+                                __end_time__=hg.MIN_ST + 3 * hg.MIN_TD) == ["0,1,2"]
+
+
+def test_persisted_window_replays_from_parquet_with_polars_presentation(tmp_path):
+    from hgraph import _hgraph
+    from hgraph_persistence.compat import FileBasedDataFrameStorage
+
+    window_type = hg.TSW[int, hg.WindowSize[2 * hg.MIN_TD], hg.WindowSize[0 * hg.MIN_TD]]
+
+    @hg.graph
+    def record_window(sample: hg.TS[int]):
+        hg.record(hg.to_window(sample, 2 * hg.MIN_TD, 0 * hg.MIN_TD), "window", recordable_id="file")
+
+    @hg.graph
+    def read_window() -> hg.TS[int]:
+        return hg.sum_(hg.replay("window", window_type, recordable_id="file"))
+
+    previous = _hgraph.polars_frames()
+    _hgraph.set_polars_frames(True)
+    try:
+        with hg.GlobalState(), FileBasedDataFrameStorage(tmp_path):
+            hg.set_record_replay_model("DataFrame")
+            hg.eval_node(record_window, [4])
+        with hg.GlobalState(), FileBasedDataFrameStorage(tmp_path):
+            hg.set_record_replay_model("DataFrame")
+            assert hg.eval_node(read_window) == [4, None, None, 0]
+    finally:
+        _hgraph.set_polars_frames(previous)
+
+
+def test_component_recover_accepts_a_live_restart_removal_and_a_recorded_empty_seed():
+    window_type = hg.TSW[int, hg.WindowSize[2 * hg.MIN_TD], hg.WindowSize[0 * hg.MIN_TD]]
+    seen = []
+
+    @hg.compute_node
+    def read(window: window_type) -> hg.TS[int]:
+        seen.append(window.window_delta)
+        return len(window)
+
+    @hg.component
+    def strategy(window: window_type) -> hg.TS[int]:
+        return read(window)
+
+    @hg.graph
+    def record(value: hg.TS[int]) -> hg.TS[int]:
+        window = hg.to_window(value, 2 * hg.MIN_TD, 0 * hg.MIN_TD)
+        hg.record(window, "window", recordable_id="feed")
+        return strategy(window)
+
+    @hg.graph
+    def recover() -> hg.TS[int]:
+        return strategy(hg.replay("window", window_type, recordable_id="feed"))
+
+    departure = hg.MIN_ST + 3 * hg.MIN_TD
+    with hg.GlobalState():
+        hg.set_record_replay_model("DataFrame")
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECORD):
+            assert hg.eval_node(record, [7]) == [1, None, None, 0]
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECOVER):
+            seen.clear()
+            assert hg.eval_node(recover, __start_time__=departure) == [0]
+            assert len(seen) == 1
+            assert seen[0]["removed"] == [{"value": 7, "time": hg.MIN_ST}]
+            seen.clear()
+            assert hg.eval_node(recover, __start_time__=departure + hg.MIN_TD) == [0]
+            assert len(seen) == 1
+            assert seen[0]["replacement"] == []
+
+
+def test_window_replacements_round_trip_inside_a_keyed_bundle():
+    window = hg.TSW[int, hg.Size[2], hg.Size[1]]
+    output = hg.TSW_OUT[int, hg.Size[2], hg.Size[1]]
+
+    class Book(hg.TimeSeriesSchema):
+        samples: window
+
+    books = hg.TSD[str, hg.TSB[Book]]
+
+    @hg.compute_node
+    def replace(value: hg.TS[int], _output: output = None) -> window:
+        _output.replace_samples([value.value, value.value + 1] if value.value else [])
+
+    @hg.graph
+    def make_book(value: hg.TS[int]) -> hg.TSB[Book]:
+        return hg.combine[hg.TSB[Book]](samples=replace(value))
+
+    @hg.graph
+    def record(values: hg.TSD[str, hg.TS[int]]):
+        hg.record(hg.map_(make_book, values), "books", recordable_id="desk")
+
+    changes = []
+
+    @hg.compute_node
+    def read(items: books) -> hg.TS[int]:
+        child = items["a"].samples
+        changes.append(child.window_delta["replacement"])
+        return len(child)
+
+    @hg.graph
+    def replay() -> hg.TS[int]:
+        return read(hg.replay("books", books, recordable_id="desk"))
+
+    with hg.GlobalState():
+        hg.set_record_replay_model("DataFrame")
+        hg.eval_node(record, [{"a": 4}, None, {"a": 0}])
+        assert hg.eval_node(replay) == [2, None, 0]
+        assert changes == [[{"value": 4, "time": hg.MIN_ST}, {"value": 5, "time": hg.MIN_ST}], []]

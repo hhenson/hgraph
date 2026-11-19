@@ -4,6 +4,7 @@
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/ts_input/bundle_view.h>
 #include <hgraph/types/time_series/ts_input/dict_view.h>
 #include <hgraph/types/time_series/ts_output/dict_view.h>
@@ -267,6 +268,8 @@ namespace hgraph::stdlib
             void apply_frame(const TableLayout &layout, const TableRowSource &source,
                              const TSOutputView &out);
 
+            const TableTypeOps &window_ops();
+
             void begin_leaf(TableLayout &layout, const TSValueTypeMetaData *schema)
             {
                 if (layout.leaf_ts == nullptr)
@@ -290,7 +293,7 @@ namespace hgraph::stdlib
             {
                 const TableTypeOps &selected = table_type_ops(schema);
                 const TableTypeOps &builtin = builtin_table_type_ops(schema);
-                if (&selected == &builtin)
+                if (&selected == &builtin && &selected != &window_ops())
                 {
                     selected.describe(layout, schema, std::move(prefix), std::move(ts_path),
                                       level_no);
@@ -456,6 +459,40 @@ namespace hgraph::stdlib
                 return ops;
             }
 
+            void describe_window(TableLayout &layout, const TSValueTypeMetaData *schema,
+                                 std::string, std::vector<std::size_t>, std::size_t)
+            {
+                begin_leaf(layout, schema);
+                layout.keys.push_back("value");
+                layout.col_metas.push_back(schema->delta_value_schema);
+            }
+
+            void emit_window(const TableLayout &, const TSInputView &ts, Int mode, DateTime now,
+                             DateTime as_of, bool, const TableRowSink &sink, bool)
+            {
+                const auto edit = mode == static_cast<Int>(ToTableMode::Tick)
+                                      ? capture_delta(ts) : capture_current_delta(ts);
+                sink.cell(sink.context, 0, Value{now}.view());
+                sink.cell(sink.context, 1, Value{as_of}.view());
+                if (edit.has_value()) { sink.cell(sink.context, 2, edit.view()); }
+                sink.end_row(sink.context);
+            }
+
+            void apply_window(const TableLayout &, const TableRowSource &source, const TSOutputView &out)
+            {
+                for (std::size_t row = 0; row < source.rows; ++row)
+                {
+                    const auto change = source.cell(source.context, row, 2);
+                    if (change.has_value()) { apply_delta(out, change.view()); }
+                }
+            }
+
+            const TableTypeOps &window_ops()
+            {
+                static const TableTypeOps ops{&describe_window, &emit_window, &apply_window};
+                return ops;
+            }
+
             [[nodiscard]] const TableTypeOps &ts_ops()
             {
                 static const TableTypeOps ops{&describe_ts, &emit_plain, &apply_plain};
@@ -506,6 +543,8 @@ namespace hgraph::stdlib
             }
             switch (schema->kind)
             {
+            case TSTypeKind::TSW:
+                return window_ops();
             case TSTypeKind::TSD:
                 return tsd_ops();
             case TSTypeKind::TSB:

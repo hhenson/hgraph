@@ -12,6 +12,9 @@
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <algorithm>
+#include <iterator>
+
 namespace
 {
     using namespace hgraph;
@@ -28,6 +31,30 @@ namespace
         Value payload{value};
         view.as_window().begin_mutation(MIN_ST + MIN_TD * offset).push(payload.view());
     }
+
+    using RestoredWindow = TSWDuration<Int, 2, 1>;
+
+    TSCheckpointImage saved_window_history()
+    {
+        TSOutput source{schema_descriptor<RestoredWindow>::ts_meta()};
+        auto data = source.data_view();
+        push(data, 7, 0);
+        push(data, 2, 1);
+        return capture_ts_checkpoint(data);
+    }
+
+    struct RestoreWindowAtStart
+    {
+        static void eval(Out<RestoredWindow>) {}
+
+        static void start(Out<RestoredWindow> out, GlobalStateView state)
+        {
+            if (state.contains("restore_at_start"))
+            {
+                restore_ts_checkpoint(out.base().data_view(), saved_window_history());
+            }
+        }
+    };
 
     template<bool Duration, bool Mean>
     struct WindowStrategy
@@ -139,7 +166,96 @@ TEST_CASE("TSW checkpoint: compact live samples preserve warmup and ring evictio
     CHECK(rolled_target_data.as_window().front().checked_as<Int>() == 30);
 }
 
-TEST_CASE("TSW checkpoint: duration restore retains timestamps and push-only expiry", "[checkpoint][window]")
+TEST_CASE("TSW checkpoint: a nested window restored between root evaluations arms its first deadline",
+          "[checkpoint][window]")
+{
+    using namespace hgraph;
+    NodeBuilder owner;
+    owner.implementation<RestoreWindowAtStart>();
+    GraphBuilder graph;
+    graph.add_node(owner);
+    GraphExecutorBuilder builder;
+    builder.graph_builder(graph).mode(GraphExecutorMode::ExternallyDriven);
+    auto executor = builder.make_executor();
+    auto engine = executor.view();
+    const auto start = MIN_ST + 2 * MIN_TD;
+    engine.start_external(start);
+    auto root = engine.graph();
+    REQUIRE(root.next_scheduled_time() == MAX_DT);  // the root owner is empty
+
+    root.global_state().set("restore_at_start", Value{true});
+    auto child = graph.make_nested_graph(root.node_at(0).pointer());
+    child.view().start(start);
+    const auto due = MIN_ST + 3 * MIN_TD;
+    REQUIRE(root.next_scheduled_time() == due);
+    REQUIRE(engine.step(due));
+    const auto output = child.view().node_at(0).output(due);
+    REQUIRE(output.as_window().size() == 1);
+    REQUIRE(root.next_scheduled_time() == due + MIN_TD);
+    child.view().stop(due);
+    CHECK(root.next_scheduled_time() == MAX_DT);
+    engine.stop_external();
+}
+
+TEST_CASE("TSW checkpoint: restoring before or during startup arms due and overdue departures",
+          "[checkpoint][window]")
+{
+    const bool during_start = GENERATE(false, true);
+    const Int start_offset = GENERATE(2, 3, 5);
+    CAPTURE(during_start, start_offset);
+
+    NodeBuilder owner;
+    owner.implementation<RestoreWindowAtStart>();
+    GraphBuilder graph;
+    graph.add_node(owner);
+    if (during_start) { graph.global_state().set("restore_at_start", Value{true}); }
+    GraphExecutorBuilder builder;
+    builder.graph_builder(std::move(graph)).mode(GraphExecutorMode::ExternallyDriven);
+    WindowCheckpointObserver observer;
+    auto executor = builder.make_executor();
+    auto engine = executor.view();
+    auto root = engine.graph();
+    auto output = root.node_at(0).output(MIN_ST);
+    const auto &data = output.data_view();
+    data.subscribe(&observer);
+    if (!during_start) { restore_ts_checkpoint(data, saved_window_history()); }
+
+    const auto start = MIN_ST + start_offset * MIN_TD;
+    engine.start_external(start);
+    REQUIRE(observer.notifications == 0);
+    REQUIRE(data.last_modified_time() == MIN_ST + MIN_TD);
+    REQUIRE(data.as_window().size() == 2);
+    REQUIRE(data.all_valid());
+    const auto first_due = std::max(start, MIN_ST + 3 * MIN_TD);
+    REQUIRE(root.next_scheduled_time() == first_due);
+    REQUIRE(engine.step(first_due));
+    const auto first_batch = data.as_window().removed_value_times(first_due);
+    REQUIRE(first_batch.limit == (start_offset == 5 ? 2 : 1));
+    CHECK(*first_batch.begin() == MIN_ST);
+    if (start_offset == 5)
+    {
+        CHECK(*std::next(first_batch.begin()) == MIN_ST + MIN_TD);
+    }
+    else
+    {
+        REQUIRE(data.as_window().size() == 1);
+        CHECK(data.as_window().at(0).checked_as<Int>() == 2);
+        CHECK_FALSE(data.all_valid());
+        const auto second_due = MIN_ST + 4 * MIN_TD;
+        REQUIRE(root.next_scheduled_time() == second_due);
+        REQUIRE(engine.step(second_due));
+        const auto last_batch = data.as_window().removed_value_times(second_due);
+        REQUIRE(last_batch.limit == 1);
+        CHECK(*last_batch.begin() == MIN_ST + MIN_TD);
+    }
+    CHECK(data.as_window().empty());
+    CHECK(root.next_scheduled_time() == MAX_DT);
+    CHECK(observer.notifications == (start_offset == 5 ? 1 : 2));
+    data.unsubscribe(&observer);
+    engine.stop_external();
+}
+
+TEST_CASE("TSW checkpoint: a standalone duration window retains its timestamps and prunes on its next push", "[checkpoint][window]")
 {
     auto &registry = TypeRegistry::instance();
     const auto *schema = registry.tsw_duration(scalar_descriptor<Int>::value_meta(), MIN_TD * 4, MIN_TD * 3);

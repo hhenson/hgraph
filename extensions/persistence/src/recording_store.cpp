@@ -212,14 +212,4 @@ namespace hgraph::persistence
         return result;
     }
 
-    Value frame_seed_resolver(GlobalStateView state, std::string_view fq_key,
-                              const TSValueTypeMetaData *schema, DateTime start_time)
-    {
-        if (schema == nullptr)
-        {
-            return {};
-        }
-        return replay_const_value(state, fq_key, schema->value_schema, start_time,
-                                  table::config(state).as_of.value_or(MAX_DT));
-    }
 }  // namespace hgraph::persistence

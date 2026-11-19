@@ -1665,9 +1665,10 @@ struct harness_replay {
   static auto defaults() { return std::tuple{arg<"recordable_id">(Str{""})}; }
 
   static void start(Scalar<"key", std::string> key, Scalar<"recordable_id", Str> recordable_id, TraitsView traits,
-                    GlobalStateView gs, State<stdlib::record_replay_memory_detail::ReplayCursorState> cursor) {
+                    GlobalStateView gs, State<stdlib::record_replay_memory_detail::ReplayCursorState> cursor,
+                    Out<TsVar<"S">> out) {
       stdlib::replay_impl::start(std::move(key), TypeArg<"tp", TsVar<"S">, AutoResolve>{}, std::move(recordable_id),
-                                 Scalar<"model", Str>{Str{}}, std::move(traits), std::move(gs), std::move(cursor));
+                                 Scalar<"model", Str>{Str{}}, std::move(traits), std::move(gs), std::move(cursor), std::move(out));
   }
 
   static void eval(Scalar<"key", std::string> key,

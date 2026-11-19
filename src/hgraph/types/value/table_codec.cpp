@@ -1,5 +1,6 @@
 #include <hgraph/types/value/table_codec.h>
 
+#include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/utils/counted_mutex.h>
@@ -654,8 +655,20 @@ namespace hgraph
             Column::ReadFn                   read;
         };
 
+        void append_bundle(const Column &, const ValueView &, arrow::ArrayBuilder &);
+        Value read_bundle(const Column &, const arrow::Array &, std::int64_t);
         void append_sequence(const Column &, const ValueView &, arrow::ArrayBuilder &);
         Value read_sequence(const Column &, const arrow::Array &, std::int64_t);
+
+        struct NestedColumnPlan
+        {
+            LeafOps ops;
+            ValueTypeRef binding;
+            ValueTypeRef element;
+            std::vector<Column> children;
+            bool has_zoned_datetime{false};
+        };
+        const NestedColumnPlan &nested_column_plan(const ValueTypeMetaData *meta);
 
 /**
  * The atomic leaves the table codec can carry, as ONE list: the dispatch in
@@ -696,15 +709,56 @@ namespace hgraph
     }
             HGRAPH_TABLE_ATOMIC_LEAVES(HGRAPH_TABLE_LEAF_DISPATCH)
 #undef HGRAPH_TABLE_LEAF_DISPATCH
-            if ((meta->value_kind() == ValueTypeKind::List ||
-                 (meta->value_kind() == ValueTypeKind::Tuple && meta->has(ValueTypeFlags::VariadicTuple))) &&
-                meta->element_type != nullptr)
+            if (meta->value_kind() == ValueTypeKind::Bundle || meta->value_kind() == ValueTypeKind::List ||
+                (meta->value_kind() == ValueTypeKind::Tuple && meta->has(ValueTypeFlags::VariadicTuple)))
             {
-                return {arrow::list(leaf_ops_for(meta->element_type).type), &append_sequence, &read_sequence};
+                return nested_column_plan(meta).ops;
             }
             throw std::logic_error(fmt::format("table codec: unsupported leaf scalar '{}'",
                                                meta != nullptr && !meta->name().empty() ? meta->name()
                                                                                       : std::string_view{"?"}));
+        }
+
+        bool contains_zoned_datetime(const ValueTypeMetaData *meta)
+        {
+            if (meta->value_kind() == ValueTypeKind::Atomic)
+                return meta == scalar_descriptor<ZonedDateTime>::value_meta();
+            return nested_column_plan(meta).has_zoned_datetime;
+        }
+
+        // Columns exposed by the installed SDK keep their existing layout. Each
+        // worker resolves the child thunks, physical types and storage bindings
+        // once per composite schema. Registry resets may recycle schema addresses.
+        const NestedColumnPlan &nested_column_plan(const ValueTypeMetaData *meta)
+        {
+            thread_local std::unordered_map<const ValueTypeMetaData *, NestedColumnPlan> plans;
+            thread_local std::uint64_t generation{};
+            const auto current = TypeRegistry::instance().reset_generation();
+            if (current != generation) { plans.clear(); generation = current; }
+            if (const auto found = plans.find(meta); found != plans.end()) { return found->second; }
+
+            NestedColumnPlan plan;
+            plan.binding = ValuePlanFactory::instance().type_for(meta);
+            const auto add = [&](const ValueTypeMetaData *child) {
+                const auto ops = leaf_ops_for(child);
+                plan.has_zoned_datetime |= contains_zoned_datetime(child);
+                plan.children.push_back(Column{.leaf_meta = child, .type = ops.type, .append = ops.append, .read = ops.read});
+                return ops.type;
+            };
+            if (meta->value_kind() == ValueTypeKind::Bundle)
+            {
+                arrow::FieldVector fields;
+                for (std::size_t i = 0; i < meta->field_count; ++i)
+                    fields.push_back(arrow::field(meta->fields[i].name, add(meta->fields[i].type)));
+                plan.ops = {arrow::struct_(std::move(fields)), &append_bundle, &read_bundle};
+            }
+            else
+            {
+                if (!meta->element_type) { throw std::invalid_argument("table codec: list requires an element schema"); }
+                plan.element = ValuePlanFactory::instance().type_for(meta->element_type);
+                plan.ops = {arrow::list(add(meta->element_type)), &append_sequence, &read_sequence};
+            }
+            return plans.emplace(meta, std::move(plan)).first->second;
         }
 
         void validate_data_type(const std::shared_ptr<arrow::DataType> &actual,
@@ -784,10 +838,7 @@ namespace hgraph
         {
             std::vector<std::string> keys{"hgraph.temporal.version"};
             std::vector<std::string> values{"2"};
-            if (std::any_of(leaf_metas.begin(), leaf_metas.end(),
-                            [](const ValueTypeMetaData *leaf) {
-                                return leaf == scalar_descriptor<ZonedDateTime>::value_meta();
-                            }))
+            if (std::any_of(leaf_metas.begin(), leaf_metas.end(), &contains_zoned_datetime))
             {
                 keys.emplace_back("hgraph.tzdb.version");
                 values.emplace_back(make_time_zone_provider()->version());
@@ -813,7 +864,7 @@ namespace hgraph
                         source, array.type()->ToString()));
                 }
             }
-            if (leaf == scalar_descriptor<ZonedDateTime>::value_meta())
+            if (contains_zoned_datetime(leaf))
             {
                 const auto &metadata = schema.metadata();
                 const int version_index =
@@ -822,8 +873,12 @@ namespace hgraph
                         : -1;
                 if (version_index < 0)
                 {
+                    // Before struct columns were introduced, list-only zone
+                    // columns could be written without a tzdb marker.
+                    if (leaf->value_kind() == ValueTypeKind::List || leaf->value_kind() == ValueTypeKind::Tuple)
+                        return;
                     throw std::invalid_argument(fmt::format(
-                        "table codec: {} is a ZonedDateTime but the Arrow "
+                        "table codec: {} contains ZonedDateTime but the Arrow "
                         "schema has no hgraph.tzdb.version",
                         source));
                 }
@@ -840,19 +895,47 @@ namespace hgraph
             }
         }
 
+        void append_bundle(const Column &column, const ValueView &value, arrow::ArrayBuilder &builder)
+        {
+            auto &fields = static_cast<arrow::StructBuilder &>(builder);
+            check(fields.Append(), "append bundle");
+            const auto bundle = value.as_bundle();
+            const auto &children = nested_column_plan(column.leaf_meta).children;
+            for (std::size_t i = 0; i < children.size(); ++i)
+            {
+                const auto child = bundle.at(i);
+                auto &field = *fields.field_builder(static_cast<int>(i));
+                if (!child.has_value()) { append_null(field); continue; }
+                children[i].append(children[i], child, field);
+            }
+        }
+
+        Value read_bundle(const Column &column, const arrow::Array &array, std::int64_t row)
+        {
+            const auto &fields = static_cast<const arrow::StructArray &>(array);
+            const auto &plan = nested_column_plan(column.leaf_meta);
+            BundleBuilder result{plan.binding};
+            for (std::size_t i = 0; i < plan.children.size(); ++i)
+            {
+                const auto field = fields.field(static_cast<int>(i));
+                if (field->IsNull(row)) { continue; }
+                const auto &child = plan.children[i];
+                result.set(i, child.read(child, *field, row));
+            }
+            return result.build();
+        }
+
         void append_sequence(const Column &column, const ValueView &leaf, arrow::ArrayBuilder &builder)
         {
             auto &list_builder = static_cast<arrow::ListBuilder &>(builder);
             check(list_builder.Append(), "append sequence");
             auto       &value_builder = *list_builder.value_builder();
-            const auto *element_meta  = column.leaf_meta->element_type;
-            const auto  element_ops   = leaf_ops_for(element_meta);
-            const Column element_column{.leaf_meta = element_meta, .type = element_ops.type};
+            const auto &element_column = nested_column_plan(column.leaf_meta).children.front();
 
             const auto append_values = [&](const auto &sequence) {
                 for (const ValueView value : sequence.values())
                 {
-                    if (value.has_value()) { element_ops.append(element_column, value, value_builder); }
+                    if (value.has_value()) { element_column.append(element_column, value, value_builder); }
                     else { append_null(value_builder); }
                 }
             };
@@ -864,23 +947,16 @@ namespace hgraph
         {
             const auto &list         = static_cast<const arrow::ListArray &>(array);
             const auto *sequence_meta = column.leaf_meta;
-            const auto *element_meta  = sequence_meta->element_type;
-            const auto  element_binding = ValuePlanFactory::instance().type_for(element_meta);
-            if (element_binding == nullptr)
-            {
-                throw std::logic_error("table codec: sequence element has no value binding");
-            }
-
-            const auto  element_ops = leaf_ops_for(element_meta);
-            const Column element_column{.leaf_meta = element_meta, .type = element_ops.type};
+            const auto &plan = nested_column_plan(sequence_meta);
+            const auto element_binding = plan.element;
+            const auto &element_column = plan.children.front();
             const auto  &values = *list.values();
             const auto   begin  = list.value_offset(row);
             const auto   end    = begin + list.value_length(row);
 
             if (sequence_meta->is_shaped_array() && sequence_meta->fixed_size != 0)
             {
-                const auto sequence_binding =
-                    ValuePlanFactory::instance().type_for(sequence_meta);
+                const auto sequence_binding = plan.binding;
                 if (sequence_binding == nullptr)
                 {
                     throw std::logic_error(
@@ -893,7 +969,7 @@ namespace hgraph
                 for (std::int64_t index = begin; index < end; ++index)
                 {
                     if (values.IsNull(index)) { continue; }
-                    Value value = element_ops.read(element_column, values, index);
+                    Value value = element_column.read(element_column, values, index);
                     output.at(static_cast<std::size_t>(index - begin))
                         .copy_from(value.view());
                 }
@@ -908,7 +984,7 @@ namespace hgraph
                     builder.push_back_unset();
                     continue;
                 }
-                Value value = element_ops.read(element_column, values, index);
+                Value value = element_column.read(element_column, values, index);
                 builder.push_back_copy(value.view().data());
             }
             ListStorage storage = builder.build_storage();

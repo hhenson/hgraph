@@ -2512,7 +2512,7 @@ Accepted native overloads
 
 Parse JSON text directly into an explicitly selected time-series schema. Each parsed value is applied as that tick's delta, so collection removals and structural updates follow the target type's normal delta semantics.
 
-Being a delta, an absent member is UNCHANGED rather than removed: a bare ``[..]`` for a ``TSS`` adds its members, and removal needs the explicit ``{"added": [..], "removed": [..]}`` form. A ``null`` element of a ``TSL`` array means that element does not tick. A growing list takes its length from the array. Both kinds accept a delta object with a ``modified`` index map and ``removed`` indices. Supply ``size_modified`` to resize a growing list.
+Being a delta, an absent member is UNCHANGED rather than removed: a bare ``[..]`` for a ``TSS`` adds its members, and removal needs the explicit ``{"added": [..], "removed": [..]}`` form. A ``null`` element of a ``TSL`` array means that element does not tick. A growing list takes its length from the array. Both kinds accept a delta object with a ``modified`` index map and ``removed`` indices. Supply ``size_modified`` to resize a growing list. A window recording publishes only at its recorded rows. Versioned events retain sample timestamps. Historical held arrays use the row time, and untagged scalar arrivals prune the window when the next arrival is read.
 
 Python exposure: lazy native operator proxy.
 
@@ -7631,7 +7631,7 @@ Accepted native overloads
 ``to_json``
 -----------
 
-Serialize each time-series tick as JSON text. Full-value mode encodes the current value; delta mode encodes the canonical per-tick delta used by record/replay and preserves removals explicitly.
+Serialize each time-series tick as JSON text. Full-value mode encodes the current value; delta mode encodes the canonical per-tick delta used by record/replay and preserves removals explicitly. If the time series contains a window, delta mode wraps the event in a versioned object. Removed and replaced samples retain their original times.
 
 Python exposure: lazy native operator proxy.
 

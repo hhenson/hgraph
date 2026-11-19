@@ -62,8 +62,10 @@ external-state path in ``GraphBuilder`` or the runtime.
 
 Duration-window deadlines belong to one root execution. The root global state
 holds the expiry service in a private typed field alongside the configuration
-map. The first owned duration window creates it before its producer starts.
-Nested owners retain a weak reference to that same service. A graph without
+map. Each graph attaches its owned duration windows after node start and
+checkpoint restoration, before notifying observers that the graph has
+started. The first owner creates the service. Nested owners retain a weak
+reference to that same service. A graph without
 eligible windows allocates no expiry service, subscription or deadline queue.
 Stopping the root releases the service.
 

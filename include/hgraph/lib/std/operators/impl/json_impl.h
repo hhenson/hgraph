@@ -170,6 +170,7 @@ namespace hgraph::stdlib
     struct from_json_impl
     {
         static constexpr auto name = "from_json";
+        static constexpr bool replays_output_events = true;
 
         static void start(State<json_ts_detail::TsJsonPlanState> plan, Out<TsVar<"O">> out)
         {

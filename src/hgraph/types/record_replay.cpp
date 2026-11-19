@@ -3,6 +3,7 @@
 #include <hgraph/runtime/graph.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/primitive_types.h>
+#include <hgraph/types/time_series/ts_data/checkpoint.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/ts_output.h>
 
@@ -38,15 +39,46 @@ namespace hgraph::record_replay
         /** Backend id -> registered RECOVER seed resolver. Build-time
             registration state; reset() clears it and the registration
             installers replay it (RFC 0025 checkpoint 3 semantics). */
-        std::vector<std::pair<std::string, SeedResolver>> g_seed_resolvers{};
-
-        [[nodiscard]] SeedResolver find_seed_resolver(std::string_view backend) noexcept
+        struct SeedBackend
         {
-            for (const auto &[id, resolver] : g_seed_resolvers)
-            {
-                if (id == backend) { return resolver; }
-            }
+            std::string id;
+            SeedResolver resolve;
+            SeedPublisher publish;
+        };
+        std::vector<SeedBackend> g_seed_resolvers{};
+
+        [[nodiscard]] SeedBackend *find_seed_resolver(std::string_view backend) noexcept
+        {
+            for (auto &entry : g_seed_resolvers)
+                if (entry.id == backend) { return &entry; }
             return nullptr;
+        }
+
+        enum class PrefixEnd { BeforeStart, ThroughStart };
+
+        std::size_t apply_memory_prefix(const ValueView &buffer, TSOutput &history, DateTime start, PrefixEnd end)
+        {
+            const auto entries = buffer.as_list();
+            std::size_t index = 0;
+            for (; index < entries.size(); ++index)
+            {
+                const auto entry = entries.at(index).as_indexed_view();
+                const auto when = entry.at(0).checked_as<DateTime>();
+                if (when > start || (when == start && end == PrefixEnd::BeforeStart)) { break; }
+                apply_delta(history.view(when), entry.at(1));
+            }
+            return index;
+        }
+
+        void publish_memory_seed(GlobalStateView state, std::string_view fq_key, const TSOutputView &target, SeedPublication mode)
+        {
+            const auto buffer = state.get(":memory:" + std::string{fq_key});
+            if (!buffer.valid()) { return; }
+            TSOutput history{target.schema()};
+            apply_memory_prefix(buffer, history, target.evaluation_time(),
+                                mode == SeedPublication::AtStart ? PrefixEnd::ThroughStart : PrefixEnd::BeforeStart);
+            if (!history.view(target.evaluation_time()).valid()) { return; }
+            publish_window_history(target, history.data_view(), mode);
         }
 
         void ensure_config_type()
@@ -194,9 +226,9 @@ namespace hgraph::record_replay
         const RecordReplayConfig cfg = config(state);
         if (cfg.backend != MEMORY && cfg.backend != TESTING)
         {
-            if (const SeedResolver resolver = find_seed_resolver(cfg.backend))
+            if (const auto *backend = find_seed_resolver(cfg.backend))
             {
-                return resolver(state, fq_key, schema, start_time);
+                return backend->resolve(state, fq_key, schema, start_time);
             }
             throw std::runtime_error("no recovery seed resolver for record/replay backend '" +
                                      cfg.backend + "'");
@@ -209,36 +241,89 @@ namespace hgraph::record_replay
         }
 
         TSOutput   accumulated{schema};
-        const auto entries = buffer.as_list();
-        for (std::size_t i = 0; i < entries.size(); ++i)
-        {
-            const auto     entry = entries.at(i).as_indexed_view();
-            const DateTime when = entry.at(0).checked_as<DateTime>();
-            if (when > start_time)
-            {
-                break;
-            }
-            apply_delta(accumulated.view(when), entry.at(1));
-        }
+        apply_memory_prefix(buffer, accumulated, start_time, PrefixEnd::ThroughStart);
         const auto view = accumulated.view(start_time);
         return view.valid() ? Value{view.value()} : Value{};
     }
 
+    std::size_t restore_window_replay_prefix(const ValueView &buffer, const TSOutputView &target)
+    {
+        if (!buffer.valid()) { return 0; }
+        const auto entries = buffer.as_list();
+        const auto now = target.evaluation_time();
+        if (entries.size() == 0 || entries.at(0).as_indexed_view().at(0).checked_as<DateTime>() >= now) { return 0; }
+        TSOutput history{target.schema()};
+        const auto count = apply_memory_prefix(buffer, history, now, PrefixEnd::BeforeStart);
+        restore_ts_checkpoint(target.data_view(), capture_ts_checkpoint(history.data_view()));
+        return count;
+    }
+
+    void publish_window_history(const TSOutputView &target, const TSDataView &history, SeedPublication mode)
+    {
+        if (mode == SeedPublication::BeforeLive)
+            restore_ts_checkpoint(target.data_view(), capture_ts_checkpoint(history));
+        else
+            reconcile_current_state(target, history, {TSCurrentReconcileScope::Full, true});
+    }
+
+    void publish_recorded_seed(GlobalStateView state, std::string_view fq_key, const TSOutputView &target,
+                               SeedPublication mode)
+    {
+        if (target.schema()->contains_window())
+        {
+            const auto selected = config(state).backend;
+            if (selected == MEMORY || selected == TESTING)
+            {
+                publish_memory_seed(state, fq_key, target, mode);
+                return;
+            }
+            if (const auto *backend = find_seed_resolver(selected))
+            {
+                if (backend->publish)
+                {
+                    backend->publish(state, fq_key, target, mode);
+                    return;
+                }
+                if (mode == SeedPublication::BeforeLive)
+                {
+                    // Older extensions supply a current value only. Populate a
+                    // private endpoint before importing it, so the live restart
+                    // tick is still the sole publication in this cycle.
+                    const auto now = target.evaluation_time();
+                    if (now == MIN_DT) { return; }
+                    const auto previous = now - MIN_TD;
+                    const auto value = backend->resolve(state, fq_key, target.schema(), previous);
+                    if (value.has_value())
+                    {
+                        TSOutput history{target.schema()};
+                        apply_current_value(history.view(previous), value.view());
+                        publish_window_history(target, history.data_view(), mode);
+                    }
+                    return;
+                }
+            }
+        }
+        const auto value = recorded_seed_resolver(state, fq_key, target.schema(), target.evaluation_time());
+        if (value.has_value()) { apply_current_value(target, value.view()); }
+    }
+
     void register_seed_resolver(std::string_view backend, SeedResolver resolver)
+    {
+        register_seed_resolver(backend, resolver, nullptr);
+    }
+
+    void register_seed_resolver(std::string_view backend, SeedResolver resolver, SeedPublisher publisher)
     {
         if (backend.empty() || resolver == nullptr)
         {
             throw std::invalid_argument("seed resolver registration requires a backend id and fn");
         }
-        for (auto &[id, registered] : g_seed_resolvers)
+        if (auto *entry = find_seed_resolver(backend))
         {
-            if (id == backend)
-            {
-                registered = resolver;
-                return;
-            }
+            entry->resolve = resolver;
+            entry->publish = publisher;
         }
-        g_seed_resolvers.emplace_back(std::string{backend}, resolver);
+        else { g_seed_resolvers.push_back({std::string{backend}, resolver, publisher}); }
     }
 
     void reset() noexcept

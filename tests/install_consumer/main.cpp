@@ -2,6 +2,7 @@
 
 #include <hgraph/lib/std/standard_types.h>
 #include <hgraph/lib/std/operators/io.h>
+#include <hgraph/lib/std/operators/json.h>
 #include <hgraph/lib/std/operators/table.h>
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/runtime/runtime.h>
@@ -422,10 +423,29 @@ struct ConsumerWindowGraph {
         return wire<ConsumerWindowSize>(w, wire<ConsumerWindowOwner>(w, input));
     }
 };
+struct ConsumerRecordedDepartures {
+    static void eval(In<"windows", ConsumerWindows> input, Out<TS<DateTime>> out) {
+        auto prices = input.field<"prices">();
+        if (prices.removed_value_times().limit) {
+            out.set(*prices.removed_value_times().begin());
+        }
+    }
+};
+struct ConsumerWindowRecordingGraph {
+    static Port<TS<DateTime>> compose(Wiring &w, Port<TS<Int>> input) {
+        auto window = wire<ConsumerWindowOwner>(w, input);
+        auto event = wire<stdlib::to_json>(w, window, true).as<TS<Str>>();
+        auto replayed = wire<stdlib::from_json, ConsumerWindows>(w, event).as<ConsumerWindows>();
+        return wire<ConsumerRecordedDepartures>(w, replayed);
+    }
+};
 void check_scheduled_window() {
     const auto result = testing::eval_node<ConsumerWindowGraph>(std::vector<std::optional<Int>>{41});
     if (result != std::vector<std::optional<Int>>{1, std::nullopt, std::nullopt, 0})
         throw std::runtime_error("installed SDK window field missed its quiet departure");
+    const auto times = testing::eval_node<ConsumerWindowRecordingGraph>(std::vector<std::optional<Int>>{41});
+    if (times != std::vector<std::optional<DateTime>>{std::nullopt, std::nullopt, std::nullopt, MIN_ST})
+        throw std::runtime_error("installed SDK replay lost the original time of a nested window sample");
 }
 
 struct ConsumerMixedState {

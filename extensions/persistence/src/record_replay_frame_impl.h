@@ -8,6 +8,7 @@
 
 #include <arrow/array.h>
 #include <arrow/table.h>
+#include <arrow/util/key_value_metadata.h>
 #include <hgraph/lib/std/operators/io.h>
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -16,6 +17,7 @@
 #include <hgraph/types/table_config.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/time_series/ts_delta.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/compact_storage.h>
 #include <hgraph/types/value/table_codec.h>
 #include <hgraph/types/value/value_builder.h>
@@ -201,6 +203,8 @@ namespace hgraph::persistence
             }
         };
 
+        inline constexpr char WINDOW_FORMAT[] = "hgraph.window_delta.version";
+
         /** Heap replay cursor owned across start/eval/stop via node State. */
         struct ReplayHandle
         {
@@ -225,6 +229,10 @@ namespace hgraph::persistence
             DateTime                 as_of{MAX_DT};
             DateTime                 start_time{MIN_ST};
             bool                     segmented{false};
+            bool                     has_windows{false};
+            const ValueTypeMetaData *legacy_element{nullptr};
+            // Materialized only when the replay actually skips window events.
+            std::unique_ptr<TSOutput> history{};
         };
 
         struct RecordedFrameRows
@@ -236,6 +244,7 @@ namespace hgraph::persistence
             const std::vector<int> *columns{nullptr};
             std::int64_t            first{0};
             std::int64_t            count{0};
+            const ValueTypeMetaData *legacy_element{nullptr};
 
             static Value cell(const void *context, std::size_t row, std::size_t column)
             {
@@ -252,7 +261,9 @@ namespace hgraph::persistence
                 {
                     return {};
                 }
-                return frame_cell_at(*self.frame, index, self.layout->col_metas[column],
+                const auto *meta = column == 2 && self.legacy_element != nullptr
+                                       ? self.legacy_element : self.layout->col_metas[column];
+                return frame_cell_at(*self.frame, index, meta,
                                      self.first + static_cast<std::int64_t>(row));
             }
 
@@ -277,8 +288,15 @@ namespace hgraph::persistence
 
         [[nodiscard]] inline Frame finish_recording_frame(RecorderHandle &handle)
         {
-            return table_ts_detail::annotate_recording_projection(
+            Frame frame = table_ts_detail::annotate_recording_projection(
                 handle.recorder.finish(), handle.recording_projection);
+            if (handle.layout != nullptr && handle.layout->ts_schema->contains_window())
+            {
+                auto metadata = frame.table->schema()->metadata()->Copy();
+                metadata->Append(WINDOW_FORMAT, "1");
+                frame.table = frame.table->ReplaceSchemaMetadata(std::move(metadata));
+            }
+            return frame;
         }
 
         inline void flush_segment(RecorderHandle &handle, GlobalStateView gs)
@@ -299,14 +317,85 @@ namespace hgraph::persistence
             rows it replays. Resolution is stored on the handle rather than
             applied to the table: row selection is a Take, which preserves
             column order, so the indices stay valid for the selected frame. */
-        [[nodiscard]] inline Frame prepare_replay_segment(ReplayHandle &handle, Frame frame)
+        inline void select_segment(ReplayHandle &handle, Frame frame)
         {
+            const auto &layout = *handle.recording_layout;
             handle.source_columns = table_ts_detail::resolve_replay_columns(
-                frame, *handle.recording_layout, handle.source_names, handle.as_of_named,
-                handle.removes_named);
-            return data_frame_detail::select_replay_frame(frame, *handle.recording_layout,
-                                                          handle.source_columns, handle.as_of,
-                                                          handle.start_time);
+                frame, layout, handle.source_names, handle.as_of_named, handle.removes_named);
+            if (handle.has_windows)
+            {
+                const auto metadata = frame.table->schema()->metadata();
+                const int version = metadata ? metadata->FindKey(WINDOW_FORMAT) : -1;
+                if (version < 0 && layout.ts_schema->kind != TSTypeKind::TSW)
+                    throw std::invalid_argument("replay: nested window recording requires a window format version");
+                if (version >= 0 && metadata->value(version) != "1")
+                    throw std::invalid_argument("replay: unsupported window recording version " + metadata->value(version));
+                // A legacy root window wrote its literal element, even when that
+                // element is itself a struct with fields called added or removed.
+                handle.legacy_element = version < 0 ? layout.ts_schema->value_type : nullptr;
+            }
+            handle.frame = data_frame_detail::select_replay_frame(frame, layout,
+                handle.source_columns, handle.as_of, handle.has_windows ? MIN_DT : handle.start_time);
+            handle.row = 0;
+        }
+
+        inline void apply_next_event(ReplayHandle &handle, const TSOutputView &out)
+        {
+            const auto first = handle.row++;
+            const auto rows = frame_rows(handle.frame);
+            while (handle.row < rows && recorded_value_time(handle, handle.row) == out.evaluation_time())
+                ++handle.row;
+            const RecordedFrameRows recorded{handle.recording_layout, &handle.frame, &handle.source_columns,
+                                             first, handle.row - first, handle.legacy_element};
+            handle.recording_layout->ops->apply(*handle.recording_layout, recorded.source(), out);
+        }
+
+        inline void retain_history(ReplayHandle &handle, DateTime cutoff, bool inclusive)
+        {
+            while (handle.row < frame_rows(handle.frame))
+            {
+                const auto when = recorded_value_time(handle, handle.row);
+                if (when > cutoff || (!inclusive && when == cutoff)) { break; }
+                if (!handle.history) { handle.history = std::make_unique<TSOutput>(handle.recording_layout->ts_schema); }
+                apply_next_event(handle, handle.history->view(when));
+            }
+        }
+
+        inline void prepare_replay_segment(ReplayHandle &handle, Frame frame)
+        {
+            select_segment(handle, std::move(frame));
+            if (handle.has_windows) { retain_history(handle, handle.start_time, false); }
+        }
+
+        // The eager const form returns the current value. The wired form copies
+        // this storage directly so each retained sample keeps its observation time.
+        [[nodiscard]] inline std::unique_ptr<TSOutput> recorded_window_state(
+            GlobalStateView gs, std::string_view key, const TSValueTypeMetaData *schema, DateTime cutoff,
+            bool inclusive = true)
+        {
+            const auto config = table::config(gs);
+            ReplayHandle handle;
+            handle.recording_layout = &table_ts_detail::ts_table_layout(schema, config.date_key, config.as_of_key);
+            handle.has_windows = true;
+            handle.as_of = config.as_of.value_or(MAX_DT);
+            const auto take = [&](Frame frame) {
+                select_segment(handle, std::move(frame));
+                retain_history(handle, cutoff, inclusive);
+            };
+            Frame frame = store_read(gs, key);
+            if (!frame.has_value()) { return {}; }
+            if (is_segmented_recording(frame))
+            {
+                for (std::size_t i = 0;; ++i)
+                {
+                    frame = store_read(gs, segment_key(key, i));
+                    if (!frame.has_value()) { break; }
+                    take(std::move(frame));
+                    if (handle.row < frame_rows(handle.frame)) { break; }
+                }
+            }
+            else { take(std::move(frame)); }
+            return std::move(handle.history);
         }
 
         [[nodiscard]] inline bool load_next_replay_segment(ReplayHandle &handle, GlobalStateView gs)
@@ -322,9 +411,8 @@ namespace hgraph::persistence
                     return false;
                 }
                 ++handle.next_segment;
-                handle.frame = prepare_replay_segment(handle, std::move(next));
-                handle.row = 0;
-                if (frame_rows(handle.frame) != 0)
+                prepare_replay_segment(handle, std::move(next));
+                if (handle.row < frame_rows(handle.frame))
                 {
                     return true;
                 }
@@ -622,6 +710,7 @@ namespace hgraph::persistence
             }
             auto handle = std::make_unique<ReplayHandle>();
             handle->recording_layout = &layout;
+            handle->has_windows = layout.ts_schema->contains_window();
             handle->source_names = std::move(stored_names);
             handle->as_of_named = !as_of_key.value().empty();
             handle->removes_named = !replay_options.removed_names.empty();
@@ -640,13 +729,17 @@ namespace hgraph::persistence
             }
             else
             {
-                handle->frame =
-                    record_replay_frame_detail::prepare_replay_segment(*handle, std::move(stored));
+                record_replay_frame_detail::prepare_replay_segment(*handle, std::move(stored));
             }
-            if (frame_rows(handle->frame) > 0)
+            if (handle->history)
             {
-                sched.schedule(
-                    record_replay_frame_detail::recorded_value_time(*handle, 0));
+                // Seed without publishing pre-start rows or inventing a start tick.
+                restore_ts_checkpoint(erased.data_view(), capture_ts_checkpoint(handle->history->data_view()));
+                handle->history.reset();
+            }
+            if (handle->row < frame_rows(handle->frame))
+            {
+                sched.schedule(record_replay_frame_detail::recorded_value_time(*handle, handle->row));
             }
             state.set(FrameReplayState{handle.release()});  // owned by node State until stop
         }
@@ -670,23 +763,9 @@ namespace hgraph::persistence
             static_cast<void>(frame_prefix);
             auto              *handle = state.get().handle;
             const auto         rows = frame_rows(handle->frame);
-            const std::int64_t first = handle->row;
-            while (handle->row < rows &&
-                   record_replay_frame_detail::recorded_value_time(*handle, handle->row) == now)
+            if (handle->row < rows && record_replay_frame_detail::recorded_value_time(*handle, handle->row) == now)
             {
-                ++handle->row;
-            }
-            if (handle->row > first)
-            {
-                const record_replay_frame_detail::RecordedFrameRows recorded{
-                    .layout = handle->recording_layout,
-                    .frame = &handle->frame,
-                    .columns = &handle->source_columns,
-                    .first = first,
-                    .count = handle->row - first};
-                const TableRowSource source = recorded.source();
-                handle->recording_layout->ops->apply(*handle->recording_layout, source,
-                                                     static_cast<const TSOutputView &>(out));
+                record_replay_frame_detail::apply_next_event(*handle, out);
             }
             if (handle->row >= rows && handle->segmented)
             {
@@ -835,8 +914,15 @@ namespace hgraph::persistence
                                             "required for the eager (const) call");
             }
             const auto config = table::config(context.global_state);
+            const auto fq_key = *recordable_id + "." + (key != nullptr ? *key : Str{});
+            if (resolved_output->contains_window())
+            {
+                const auto history = record_replay_frame_detail::recorded_window_state(
+                    context.global_state, fq_key, resolved_output, tm != nullptr ? *tm : MAX_DT);
+                return history ? Value{history->view().value()} : Value{};
+            }
             return replay_const_value(
-                context.global_state, *recordable_id + "." + (key != nullptr ? *key : Str{}),
+                context.global_state, fq_key,
                 resolved_output->value_schema, tm != nullptr ? *tm : MAX_DT,
                 config.as_of.value_or(MAX_DT));
         }
@@ -847,9 +933,16 @@ namespace hgraph::persistence
         {
             const auto &erased = static_cast<const TSOutputView &>(out);
             const auto  cutoff = tm.value() == MAX_DT ? now : tm.value();
+            const auto fq_key = record_replay::fq_recordable_id(traits, recordable_id.value()) + "." + key.value();
+            if (erased.schema()->contains_window())
+            {
+                const auto history = record_replay_frame_detail::recorded_window_state(gs, fq_key, erased.schema(), cutoff);
+                if (history)
+                    reconcile_current_state(erased, history->data_view(), {TSCurrentReconcileScope::Full, true});
+                return;
+            }
             Value       value = replay_const_value(
-                gs,
-                record_replay::fq_recordable_id(traits, recordable_id.value()) + "." + key.value(),
+                gs, fq_key,
                 erased.schema()->value_schema, cutoff,
                 table::config(gs).as_of.value_or(MAX_DT));
             if (value.has_value())

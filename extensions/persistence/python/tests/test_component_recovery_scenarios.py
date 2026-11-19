@@ -286,3 +286,30 @@ def test_a_node_whose_scalars_cannot_be_signed_is_refused_by_name(tmp_path):
     assert _run(scenario, (hg.TS[int],), hg.TS[str], (events,), 0)[1] == "SELL:1"
     with pytest.raises(Exception, match=r"scalar argument \d+ of Python node '_sided' cannot be signed"):
         _run(scenario, (hg.TS[int],), hg.TS[str], (events,), 0, persistence.ComponentCheckpointStore(tmp_path))
+
+
+def test_window_departures_after_durable_restart_keep_their_original_times(tmp_path):
+    sample_times = hg.TS[tuple[int, ...]]
+
+    @hg.compute_node
+    def departed(window: hg.TSW[int, hg.WINDOW_SIZE, hg.WINDOW_SIZE_MIN]) -> sample_times:
+        return tuple((sample["time"] - hg.MIN_ST) // hg.MIN_TD for sample in window.window_delta["removed"])
+
+    @hg.component
+    def scenario(ts: hg.TS[int]) -> sample_times:
+        return departed(hg.to_window(ts, 2 * hg.MIN_TD, hg.MIN_TD))
+
+    schema = (hg.TS[int],)
+    samples = ([7, 2, None, None, None, None],)
+    # The first cut is during warm-up. The second reopens exactly at the
+    # first deadline. The third reopens a window whose last sample has left.
+    assert compare_restarts(tmp_path, scenario, schema, sample_times, samples, (1, 3, 5)) == [
+        (), (), None, (0,), (1,), None,
+    ]
+
+    # Recover the same two samples after both deadlines. One removal tick
+    # contains the two stored sample times, then the graph is quiet.
+    store = persistence.ComponentCheckpointStore(tmp_path / "overdue")
+    _run(scenario, schema, sample_times, ([7, 2],), 0, store)
+    reopened = persistence.ComponentCheckpointStore(tmp_path / "overdue")
+    assert _run(scenario, schema, sample_times, ([None, None],), 5, reopened, "cut-2") == [(0, 1), None]

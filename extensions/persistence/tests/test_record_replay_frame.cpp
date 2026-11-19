@@ -1,4 +1,5 @@
 #include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/std/component.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/graph_wiring.h>
@@ -192,6 +193,119 @@ using namespace hgraph::persistence::store;
         }
     };
 
+    using DurationWindow = TSWDuration<Int, 2, 0>;
+
+    struct RecordWindow
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> samples)
+        {
+            const auto window = wire<stdlib::to_window>(w, samples, 2 * MIN_TD, TimeDelta{});
+            wire<stdlib::record>(w, window, Str{"window"}, arg<"recordable_id">(Str{"book"}),
+                                 arg<"flush_rows">(Int{1}));
+            return samples;
+        }
+    };
+
+    struct DescribeWindow
+    {
+        static void eval(In<"window", DurationWindow> window, Out<TS<Str>> out)
+        {
+            Str text = fmt::format("{} held", window.size());
+            for (const auto value : window.removed_values())
+                text += fmt::format(" -{}", value.checked_as<Int>());
+            for (const auto time : window.removed_value_times())
+                text += fmt::format("@{}", (time - MIN_ST) / MIN_TD);
+            out.set(text);
+        }
+    };
+
+    struct ReplayWindow
+    {
+        static Port<TS<Str>> compose(Wiring &w)
+        {
+            auto window = wire<stdlib::replay, DurationWindow>(w, Str{"window"},
+                                                              arg<"recordable_id">(Str{"book"}));
+            return wire<DescribeWindow>(w, window);
+        }
+    };
+
+    using Book = UnNamedTSB<Field<"samples", TSW<Int, 2, 1>>>;
+    using Books = TSD<Str, Book>;
+
+    struct WriteBook
+    {
+        static void eval(In<"sample", TS<Int>> sample, Out<Books> out)
+        {
+            auto window = out[Str{"a"}].field<"samples">();
+            if (sample.value() == 0) { window.clear(); }
+            else { window.push(sample.value()); }
+        }
+    };
+
+    struct RecordBooks
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> samples)
+        {
+            wire<stdlib::record>(w, wire<WriteBook>(w, samples), Str{"books"},
+                                 arg<"recordable_id">(Str{"desk"}), arg<"mode">(stdlib::ToTableMode::Sample));
+            return samples;
+        }
+    };
+
+    struct ReadBook
+    {
+        static void eval(In<"books", Books> books, Out<TS<Str>> out)
+        {
+            auto child = books[Str{"a"}].field<"samples">();
+            const auto change = child.window_delta();
+            const auto samples = change.as_bundle().at("replacement").as_indexed_view();
+            Str result;
+            for (std::size_t i = 0; i < samples.size(); ++i)
+            {
+                const auto sample = samples.at(i).as_bundle();
+                if (i != 0) { result += ", "; }
+                result += fmt::format("{}@{}", sample.at("value").checked_as<Int>(),
+                                      (sample.at("time").checked_as<DateTime>() - MIN_ST) / MIN_TD);
+            }
+            out.set(result);
+        }
+    };
+
+    struct ReplayBooks
+    {
+        static Port<TS<Str>> compose(Wiring &w)
+        {
+            return wire<ReadBook>(w, wire<stdlib::replay, Books>(w, Str{"books"}, arg<"recordable_id">(Str{"desk"})));
+        }
+    };
+
+    struct ReadOldestTime
+    {
+        static void eval(In<"window", DurationWindow> window, Out<TS<Int>> out)
+        {
+            if (!window.empty()) { out.set((window.time_at(0) - MIN_ST) / MIN_TD); }
+        }
+    };
+
+    struct WindowStrategy
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"window", DurationWindow> window)
+        {
+            return wire<ReadOldestTime>(w, Port<DurationWindow>{window});
+        }
+    };
+
+    template <record_replay::Mode Mode>
+    struct WindowComponent
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> samples)
+        {
+            record_replay::scope scope{Mode};
+            auto window = wire<stdlib::to_window>(w, samples, 2 * MIN_TD, TimeDelta{}).as<DurationWindow>();
+            return stdlib::component<WindowStrategy>(w, "window_strategy", window);
+        }
+    };
+
     struct SegmentedRecordGraph
     {
         [[maybe_unused]] static constexpr auto name = "segmented_record_frame_graph";
@@ -381,6 +495,43 @@ TEST_CASE("frame backend: record writes a bitemporal frame to the store; "
 
     // Run 2: replay - values re-emitted at the RECORDED times (cycle-aligned).
     CHECK_OUTPUT(eval_node<ReplayGraph>(), values<Int>(10, none, 30, 40));
+}
+
+TEST_CASE("frame backend: window rows retain departures and their original times across segments")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    record_replay::set_config(context.state().view(), {.backend = "hgraph.persistence.frame"});
+
+    (void)eval_node<RecordWindow>(values<Int>(4, 5));
+    const auto frame = test_detail::store_read("book.window.2");
+    REQUIRE(frame.has_value());
+    CHECK(frame.table->schema()->metadata()->Get("hgraph.window_delta.version").ValueOr("") == "1");
+    CHECK(frame.table->GetColumnByName("value")->type()->id() == arrow::Type::STRUCT);
+    CHECK_OUTPUT(eval_node<ReplayWindow>(), values<Str>("1 held", "2 held", none, "1 held -4@0", "0 held -5@1"));
+}
+
+TEST_CASE("frame backend: sampled windows in a keyed bundle carry full timestamped and empty replacements")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    record_replay::set_config(context.state().view(), {.backend = "hgraph.persistence.frame"});
+
+    (void)eval_node<RecordBooks>(values<Int>(4, 5, none, 0));
+    CHECK_OUTPUT(eval_node<ReplayBooks>(), values<Str>("4@0", "4@0, 5@1", none, ""));
+}
+
+TEST_CASE("frame backend: component recovery preserves window sample times at the restart")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    record_replay::set_config(context.state().view(), {.backend = "hgraph.persistence.frame"});
+
+    const auto restart = MIN_ST + 2 * MIN_TD;
+    CHECK_OUTPUT((eval_node_with_options<WindowComponent<record_replay::Mode::Record>>(
+        {.end_time = restart}, values<Int>(4, 5))), values<Int>(0, 0));
+    CHECK_OUTPUT((eval_node_with_options<WindowComponent<record_replay::Mode::Recover>>(
+        {.start_time = restart, .end_time = restart + MIN_TD}, values<Int>())), values<Int>(0));
 }
 
 TEST_CASE("frame backend: per-recording time-column names replay through the "
