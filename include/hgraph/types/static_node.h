@@ -247,7 +247,7 @@ namespace hgraph
     {
         /** Build ``Map<int, delta(C)>`` from a sparse ``index -> child-delta`` map. */
         template <typename C>
-        [[nodiscard]] inline Value build_list_delta(const std::map<std::size_t, delta_input_t<C>> &entries)
+        [[nodiscard]] inline Value build_list_modifications(const std::map<std::size_t, delta_input_t<C>> &entries)
         {
             const auto key_binding =
                 ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta());
@@ -273,9 +273,10 @@ namespace hgraph
         /** Build a dynamic ``TSL`` delta ``Bundle{removed: Set<int>, modified:
             Map<int, delta(C)>}`` (RFC 0031). */
         template <typename C>
-        [[nodiscard]] inline Value build_dynamic_list_delta(
+        [[nodiscard]] inline Value build_list_delta(
             const std::map<std::size_t, delta_input_t<C>> &modified,
-            const std::vector<std::size_t>                &removed)
+            const std::vector<std::size_t>                &removed,
+            std::optional<std::size_t> size = std::nullopt)
         {
             auto       &registry        = TypeRegistry::instance();
             const auto *key_meta        = scalar_descriptor<Int>::value_meta();
@@ -283,7 +284,7 @@ namespace hgraph
             const auto *removed_schema  = registry.set(key_meta);
             const auto *modified_schema = registry.map(key_meta, delta_value_schema<C>());
             const auto *bundle_schema   = registry.un_named_bundle(
-                {{"removed", removed_schema}, {"modified", modified_schema}});
+                {{"removed", removed_schema}, {"modified", modified_schema}, {"size_modified", key_meta}});
             const auto bundle_binding = ValuePlanFactory::instance().type_for(bundle_schema);
             if (!key_binding || !bundle_binding)
             {
@@ -299,7 +300,8 @@ namespace hgraph
 
             BundleBuilder bundle{bundle_binding};
             bundle.set("removed", removed_set.build());
-            bundle.set("modified", build_list_delta<C>(modified));
+            bundle.set("modified", build_list_modifications<C>(modified));
+            if (size) { bundle.set("size_modified", Value{static_cast<Int>(*size)}); }
             return bundle.build();
         }
 
@@ -373,15 +375,7 @@ namespace hgraph
         {
             [[nodiscard]] static Value build()
             {
-                // A dynamic TSL carries the removal-capable bundle (RFC 0031).
-                if constexpr (static_cast<std::size_t>(N) == 0)
-                {
-                    return build_dynamic_list_delta<C>({}, {});
-                }
-                else
-                {
-                    return build_list_delta<C>({});
-                }
+                return build_list_delta<C>({}, {});
             }
         };
 
@@ -469,62 +463,48 @@ namespace hgraph
     }  // namespace static_node_detail
 
     /**
-     * Build the canonical fixed ``TSL<C,N>`` delta value ``Map<int, delta(C)>`` from a
-     * sparse ``index -> child-delta`` list. For a scalar child the entry value is the
-     * bare ``T``; for a container child it is a prebuilt child-delta ``Value`` (from an
-     * inner ``set_delta`` / ``list_delta``) — so construction is recursive. The result
-     * matches the runtime ``delta_value_schema`` (immutable compact ``Map``).
+     * Build a list delta from indexed child deltas, cleared positions, and
+     * an optional new length. For a scalar child, pass its value. For a
+     * collection child, pass its own delta.
      */
     template <typename C>
     [[nodiscard]] inline Value
-    list_delta(std::initializer_list<std::pair<std::size_t, static_node_detail::delta_input_t<C>>> entries)
+    list_delta(std::initializer_list<std::pair<std::size_t, static_node_detail::delta_input_t<C>>> entries,
+               std::vector<std::size_t> removed = {}, std::optional<std::size_t> size = std::nullopt)
     {
         std::map<std::size_t, static_node_detail::delta_input_t<C>> map;
         for (const auto &[index, input] : entries) { map.insert_or_assign(index, input); }
-        return static_node_detail::build_list_delta<C>(map);
+        return static_node_detail::build_list_delta<C>(map, removed, size);
     }
 
     /** Positional ``TSL<C,N>`` delta: position is the child index, ``none`` skips it. */
     template <typename C>
-    [[nodiscard]] inline Value list_delta(std::vector<std::optional<static_node_detail::delta_input_t<C>>> positional)
+    [[nodiscard]] inline Value list_delta(std::vector<std::optional<static_node_detail::delta_input_t<C>>> positional,
+                                                 std::vector<std::size_t> removed = {}, std::optional<std::size_t> size = std::nullopt)
     {
         std::map<std::size_t, static_node_detail::delta_input_t<C>> map;
         for (std::size_t i = 0; i < positional.size(); ++i)
         {
             if (positional[i].has_value()) { map.emplace(i, *positional[i]); }
         }
-        return static_node_detail::build_list_delta<C>(map);
+        return static_node_detail::build_list_delta<C>(map, removed, size);
     }
 
-    /**
-     * Build the canonical unbounded ``TSL<C>`` delta value
-     * ``Bundle{removed: Set<int>, modified: Map<int, delta(C)>}`` (RFC 0031).
-     *
-     * ``removed`` names the indices truncated away this cycle; they are always
-     * a contiguous suffix of the previous length.
-     */
+    /** Unbounded-list spelling of the positional delta builder. */
     template <typename C>
     [[nodiscard]] inline Value dynamic_list_delta(
         std::initializer_list<std::pair<std::size_t, static_node_detail::delta_input_t<C>>> entries,
-        std::vector<std::size_t> removed = {})
+        std::vector<std::size_t> removed = {}, std::optional<std::size_t> size = std::nullopt)
     {
-        std::map<std::size_t, static_node_detail::delta_input_t<C>> map;
-        for (const auto &[index, input] : entries) { map.insert_or_assign(index, input); }
-        return static_node_detail::build_dynamic_list_delta<C>(map, removed);
+        return list_delta<C>(entries, std::move(removed), size);
     }
 
-    /** Positional unbounded ``TSL<C>`` delta; ``none`` skips a position. */
     template <typename C>
     [[nodiscard]] inline Value dynamic_list_delta(
         std::vector<std::optional<static_node_detail::delta_input_t<C>>> positional,
-        std::vector<std::size_t> removed = {})
+        std::vector<std::size_t> removed = {}, std::optional<std::size_t> size = std::nullopt)
     {
-        std::map<std::size_t, static_node_detail::delta_input_t<C>> map;
-        for (std::size_t i = 0; i < positional.size(); ++i)
-        {
-            if (positional[i].has_value()) { map.emplace(i, *positional[i]); }
-        }
-        return static_node_detail::build_dynamic_list_delta<C>(map, removed);
+        return list_delta<C>(std::move(positional), std::move(removed), size);
     }
 
     /**

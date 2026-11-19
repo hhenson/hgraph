@@ -57,6 +57,7 @@ namespace hgraph::ts_data_seams
     // (``fixed_element_type(...).ops_ref()``); the seams answer the shape.
     [[nodiscard]] const TSValueTypeMetaData &fixed_schema(const void *context) noexcept;
     [[nodiscard]] const TSDataLayout &fixed_layout(const void *context) noexcept;
+    [[nodiscard]] ValueTypeRef fixed_modified_map_binding(const void *context) noexcept;
     [[nodiscard]] std::size_t fixed_element_count(const void *context) noexcept;
     [[nodiscard]] TSRoleTypeRef fixed_element_type(const void *context, std::size_t index) noexcept;
     [[nodiscard]] std::int64_t fixed_ordinal_key(const void *context, std::size_t index) noexcept;

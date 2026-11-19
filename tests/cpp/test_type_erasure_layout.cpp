@@ -91,7 +91,8 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     // ABI 13 made the Python slots unconditional and opaque.
     // ABI 24 distinguishes explicit empty sparse publications from child notifications.
     // ABI 28 adds sparse range cursors and bounds dictionary modified-slot searches.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 28);
+    // ABI 29 adds the list removal range, including invalidations in place.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 29);
     static_assert(sizeof(TSDataOps) == 288,
                   "TSDataOps changed shape: bump TS_DATA_OPS_ABI_VERSION and this size");
     static_assert(std::is_same_v<decltype(TSDataLayout::canonical_delta_binding), ValueTypeRef>);
@@ -188,11 +189,11 @@ TEST_CASE("time-series type boundaries reject previous ops ABI records")
         auto stale = *type.record();
         stale.ops_abi_version = TS_DATA_OPS_ABI_VERSION - 1;
         REQUIRE_THROWS_WITH(TSRoleTypeRef::checked(AnyPtr::typed_null(stale)),
-                            "TSRoleTypeRef requires TSData ops ABI version 28");
+                            "TSRoleTypeRef requires TSData ops ABI version 29");
         // Its layout operation throws: reject the ABI before calling it.
         const TSDataOps unusable_ops{};
         REQUIRE_THROWS_WITH(intern_ts_type(*schema, type.role(), type.checked_plan(), unusable_ops, {}, TS_DATA_OPS_ABI_VERSION - 1),
-                            "intern_ts_type requires TSData ops ABI version 28");
+                            "intern_ts_type requires TSData ops ABI version 29");
     }
 }
 

@@ -351,10 +351,9 @@ TSData implementation families
     child ``TSData`` handle and vector growth moves only those handles,
     not the child TSData allocations they point at. The current value is
     projected as a dynamic value-layer ``List`` over child current values
-    and the delta as ``Bundle{removed: Set<int>, modified: Map<int, delta(C)>}``
-    — the ``TSD`` delta shape (RFC 0031). Removal is TAIL TRUNCATION: the list
-    stays dense and ``size()`` stays an element count, so the whole structural
-    delta is two lengths (the live size when the window opened, and now).
+    and the delta as ``Bundle{removed, modified, size_modified}``. Clearing a
+    child keeps its position. Truncation removes the tail. The optional
+    size is the current length when it differs from the opening length.
     Truncated children are stopped at removal time and RETAINED for the rest of
     the delta window, so ``removed_values()`` can read their last value and a
     re-grow inside the same window resurrects the same child, exactly as ``TSD``
@@ -884,9 +883,8 @@ canonical value-region copy. Copying those transient views materialises
 normal canonical value-layer ``List`` / ``Bundle`` / ``Map`` / ``Set``
 storage. Fixed ``TSL`` and ``TSB`` can therefore contain any implemented
 non-``REF`` child kind: ``TS``, ``SIGNAL``, ``TSS``, ``TSD``, fixed
-and dynamic ``TSL``, ``TSB``, and ``TSW``. Dynamic ``TSL`` storage grows
-and shrinks: its ``Bundle{removed, modified}`` delta carries the truncated
-indices (RFC 0031).
+and dynamic ``TSL``, ``TSB``, and ``TSW``. On a resize the list delta carries the new length in
+``size_modified``. Its ``removed`` set includes the truncated tail.
 
 .. mermaid::
 
@@ -937,9 +935,8 @@ The parent ``delta_value(t)`` view is valid when the parent
 ``last_modified_time == t``. For ``TSB`` it exposes a bundle-shaped
 delta where each field projects to the matching child's delta if that
 child also modified at ``t``; unmodified fields are typed-null. For
-fixed ``TSL`` it exposes the documented map-shaped delta
-``Map<int, child.delta>`` and iterates only child indices modified at
-``t``.
+fixed ``TSL`` it exposes the list delta. Its modified map projects valid child
+updates, its removed set projects cleared positions, and its size field is absent.
 
 Projecting a child stores a ``TSParentLink`` in the child node's
 tracking region. The link records the immediate parent storage-type/data

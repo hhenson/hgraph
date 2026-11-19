@@ -6,6 +6,11 @@ and friends) so class identity — not equality — shapes TSS/TSD delta
 application and the unset state of an ``Optional`` value.
 Define them here once; every other module re-exports."""
 
+from functools import lru_cache
+
+import _hgraph
+
+
 # ``reduce(func, ts)`` has no zero, whereas ``reduce(func, ts, None)`` supplies
 # a typed, never-valid zero. Keep omission distinct without exposing another
 # public marker.
@@ -97,22 +102,71 @@ class Removed:
         return f"Removed({self.item!r})"
 
 
-def _simplify_delta(value):
-    """Map canonical delta bundles back to hgraph's friendly test shapes:
-    TSD {removed, modified} -> {key: value, removed_key: REMOVE};
-    TSS {added, removed} -> SetDelta."""
-    if isinstance(value, dict):
-        if set(value.keys()) in ({"removed", "modified"}, {"removed", "modified", "removed_strict"}):
-            out = {k: _simplify_delta(v) for k, v in value["modified"].items()}
-            out.update({k: REMOVE for k in value["removed"]})
-            out.update({k: REMOVE for k in value.get("removed_strict", ())})
-            return out
-        if set(value.keys()) == {"added", "removed"}:
-            # hgraph's TSS delta shape: one set - added items plain,
-            # removed items wrapped in Removed(...).
-            return _SetDelta(added=value["added"], removed=value["removed"])
-        return {k: _simplify_delta(v) for k, v in value.items()}
+class TSLDelta(dict):
+    """Positional list updates. A size-only delta has no positional entries."""
+
+    def __init__(self, modified=None, *, removed=(), size_modified=None):
+        super().__init__(modified or {})
+        for index in removed:
+            if index in self and self[index] is not REMOVE:
+                raise ValueError(f"position {index} is both modified and removed")
+            self[index] = REMOVE
+        self.size_modified = size_modified
+
+    @property
+    def modified(self):
+        return {k: v for k, v in self.items() if v is not REMOVE}
+
+    @property
+    def removed(self):
+        return frozenset(k for k, v in self.items() if v is REMOVE)
+
+    def __bool__(self):
+        return bool(len(self)) or self.size_modified is not None
+
+    def copy(self):
+        return TSLDelta(self, size_modified=self.size_modified)
+
+    def __eq__(self, other):
+        if isinstance(other, TSLDelta) and self.size_modified != other.size_modified:
+            return False
+        return dict.__eq__(self, other)
+
+    def __ne__(self, other):
+        return not self == other
+
+    def __repr__(self):
+        return f"TSLDelta({self.modified!r}, removed={self.removed!r}, size_modified={self.size_modified!r})"
+
+
+@lru_cache
+def _bundle_delta_fields(ts_type):
+    return dict(_hgraph.ts_field_types(ts_type))
+
+
+def _simplify_delta(value, ts_type):
+    """Present a native delta using the declared time-series type at each position."""
+    if not isinstance(value, dict):
+        return value
+    if ts_type.is_tsl:
+        child = _hgraph.tsl_element_ts(ts_type)
+        modified = {i: _simplify_delta(v, child) for i, v in value["modified"].items()}
+        if ts_type.is_fixed_tsl:
+            modified.update(dict.fromkeys(value["removed"], REMOVE))
+            return modified
+        return TSLDelta(modified, removed=value["removed"], size_modified=value["size_modified"])
+    if ts_type.is_tsd:
+        child = _hgraph.tsd_element_ts(ts_type)
+        modified = {k: _simplify_delta(v, child) for k, v in value["modified"].items()}
+        modified.update(dict.fromkeys(value["removed"], REMOVE))
+        return modified
+    if ts_type.is_tsb:
+        fields = _bundle_delta_fields(ts_type)
+        return {k: _simplify_delta(v, fields[k]) for k, v in value.items()}
+    if ts_type.is_tss:
+        return _SetDelta(added=value["added"], removed=value["removed"])
     return value
+
 
 class _SetDelta(frozenset):
     """hgraph's SetDelta: a frozenset of added items + Removed(...) markers.

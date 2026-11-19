@@ -702,7 +702,8 @@ namespace hgraph::stdlib
         {
             BoundJsonConverter        value{};    // leaf / whole-value
             BoundJsonConverter        element{};  // TSS element
-            BoundJsonConverter        delta{};    // TSL index-map delta
+            BoundJsonConverter        delta{};    // TSL positional delta
+            BoundJsonConverter        list_indices{};  // legacy fixed-list JSON
             BoundJsonConverter        key{};      // TSD key
             const ValueTypeMetaData  *key_meta{nullptr};
             std::vector<std::unique_ptr<TsJsonPlan>> children{};
@@ -731,6 +732,7 @@ namespace hgraph::stdlib
                     plan->value      = bind_json_converter(schema->value_schema);
                     plan->delta      = bind_json_converter(
                         schema->delta_value_schema);
+                    plan->list_indices = bind_json_converter(schema->delta_value_schema->fields[1].type);
                     plan->children.emplace_back(build_ts_json_plan(list->element_ts()));
                     break;
                 }
@@ -841,36 +843,10 @@ namespace hgraph::stdlib
                     out.push_back('}');
                 },
                 [&](TSLInputView list) {
-                    // A dynamic TSL carries the canonical
-                    // {"removed": [..], "modified": {..}} delta so a
-                    // truncation survives the round trip (RFC 0031); a fixed
-                    // TSL has no structural delta and stays a bare index map.
-                    const bool dynamic =
-                        list.schema() != nullptr && list.schema()->is_unbounded_tsl();
-                    bool first = true;
-                    if (dynamic)
-                    {
-                        out.push_back('{');
-                        out += "\"removed\": [";
-                        bool first_removed = true;
-                        for (const std::size_t index : list.removed_indices())
-                        {
-                            write_separator(first_removed, out);
-                            out += fmt::format("{}", index);
-                        }
-                        out += "], \"modified\": ";
-                    }
-                    out.push_back('{');
-                    for (std::size_t index = 0; index < list.size(); ++index)
-                    {
-                        auto child = list[index];
-                        if (!child.modified()) { continue; }
-                        write_separator(first, out);
-                        out += fmt::format("\"{}\": ", index);
-                        write_ts_delta(child, *plan.children[0], out);
-                    }
-                    out.push_back('}');
-                    if (dynamic) { out.push_back('}'); }
+                    const auto delta = list.base().delta_value();
+                    if (delta.has_value() && delta.schema() == list.schema()->delta_value_schema) plan.delta.write(delta, out);
+                    else
+                        plan.delta.write(capture_current_delta(list.base()).view(), out);
                 },
                 [&](TSBInputView bundle) {
                     bool first = true;
@@ -1021,11 +997,13 @@ namespace hgraph::stdlib
                         if (dynamic && count < list.size()) { list.resize(count); }
                         return;
                     }
-                    // The object form IS the canonical TSL delta: a bare index
-                    // map for a fixed TSL, {"removed", "modified"} for a
-                    // dynamic one. Its converter reads quoted keys.
-                    const Value parsed = json_fragment::parse_value(
-                        plan.delta, cursor);
+                    auto probe      = cursor;
+                    bool positional = false;
+                    if (json_fragment::consume(probe, '{') && json_fragment::peek(probe) == '"') {
+                        const auto key = json_fragment::parse_string(probe);
+                        positional     = !key.empty() && key.front() >= '0' && key.front() <= '9';
+                    }
+                    const Value parsed = json_fragment::parse_value(positional ? plan.list_indices : plan.delta, cursor);
                     apply_delta(list.base(), parsed.view());
                 },
                 [&](TSOutputView leaf) {

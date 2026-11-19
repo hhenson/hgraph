@@ -933,6 +933,9 @@ namespace hgraph::python_bridge
              "Clear the current collection value and publish removals.")
         .def("invalidate", &PyOutput::invalidate,
              "Invalidate the output without assigning a replacement value.")
+        .def("resize", &PyOutput::resize, nb::arg("length"), "Set the length of an unbounded TSL.")
+        .def_prop_ro("size_modified", &PyOutput::size_modified,
+                     "New TSL length when it changed this cycle, otherwise None.")
         .def("removed_keys", &PyOutput::removed_keys,
              "Return dictionary keys, or dynamic-list indices, removed in the current cycle.")
         .def("removed_values", &PyOutput::removed_values,
@@ -1060,6 +1063,8 @@ namespace hgraph::python_bridge
              "Return dictionary or dynamic-list child outputs added in the current cycle.")
         .def("added_items", &PyReadOnlyOutput::added_items,
              "Return dictionary key / dynamic-list index and child-output pairs added in the current cycle.")
+        .def_prop_ro("size_modified", &PyReadOnlyOutput::size_modified,
+                     "New TSL length when it changed this cycle, otherwise None.")
         .def("removed_keys", &PyReadOnlyOutput::removed_keys,
              "Return dictionary keys, or dynamic-list indices, removed in the current cycle.")
         .def("removed_values", &PyReadOnlyOutput::removed_values,
@@ -1447,6 +1452,8 @@ namespace hgraph::python_bridge
              "Return dictionary or dynamic-list child inputs added in the current cycle.")
         .def("values", &PyTimeSeries::values,
              "Return the current child values of a collection input.")
+        .def_prop_ro("size_modified", &PyTimeSeries::size_modified,
+                     "New TSL length when it changed this cycle, otherwise None.")
         .def("removed_keys", &PyTimeSeries::removed_keys,
              "Return dictionary keys, or dynamic-list indices, removed in the current cycle.")
         .def("removed_items", &PyTimeSeries::removed_items,

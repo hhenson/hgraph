@@ -1,3 +1,4 @@
+#include "../metadata/detail/list_delta_projection.h"
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_data/ts_labels.h>
 
@@ -707,8 +708,20 @@ namespace hgraph
             IndexedValueOps ops{};
         };
 
+        struct InputBindingContext;
         struct InputListDeltaSurface
         {
+            const InputBindingContext *parent{};
+            SetValueOps                removed_set_ops{};
+            IndexedValueOps            list_delta_bundle_ops{};
+            ValueTypeRef               removed_set_binding{}, removed_owned_binding{}, modified_map_binding{};
+            ValueTypeRef               canonical_delta() const;
+            std::size_t                candidate_count(const void *) const { return ordinal_keys.size(); }
+            std::size_t                candidate(const void *, std::size_t i) const { return i; }
+            const std::int64_t        &index_key(const void *, std::size_t i) const { return ordinal_keys.at(i); }
+            const std::int64_t        *changed_size(const void *) const { return nullptr; }
+            bool                       is_removed(const void *memory, std::size_t index) const;
+
             MapValueOps               map_ops{};
             SetValueOps               key_set_ops{};
             ValueTypeRef ordinal_key_binding{nullptr};
@@ -1321,6 +1334,17 @@ namespace hgraph
             return tracking != nullptr && tracking->last_modified_time == time;
         }
 
+        ValueTypeRef InputListDeltaSurface::canonical_delta() const { return parent->layout.canonical_delta_binding; }
+        bool         InputListDeltaSurface::is_removed(const void *memory, std::size_t index) const {
+            if (index >= ordinal_keys.size()) return false;
+            const auto  type = input_value_storage_type(parent, memory, index);
+            const auto *data = input_element_memory(parent, memory, index);
+            if (!type || !data) return false;
+            const auto &ops  = type.ops_ref();
+            const auto *t    = ops.tracking_impl(ops.context, data);
+            const auto  time = input_tracking(parent, memory)->last_modified_time;
+            return time != MIN_DT && t && t->last_modified_time == MIN_DT && t->last_empty_delta_time == time;
+        }
         [[nodiscard]] ValueView input_child_delta_view(const void *context,
                                                        const void *memory,
                                                        std::size_t index)
@@ -1699,7 +1723,7 @@ namespace hgraph
                                                                const void *memory)
         {
             const auto *state = static_cast<const InputBindingContext *>(context);
-            if (binding.schema() != state->schema->delta_value_schema ||
+            if (binding.schema() != state->schema->delta_value_schema->fields[1].type ||
                 binding.schema() == nullptr || binding.schema()->value_kind() != ValueTypeKind::Map)
             {
                 throw std::logic_error("TSInput list delta snapshot requires the canonical parent delta map schema");
@@ -2116,9 +2140,11 @@ namespace hgraph
             else
             {
                 auto &delta = *list_delta;
-                delta.ordinal_key_binding = ValuePlanFactory::instance().type_for(delta_schema->key_type);
+                delta.parent = context.get();
+                const auto *map_schema = delta_schema->fields[1].type;
+                delta.ordinal_key_binding = ValuePlanFactory::instance().type_for(map_schema->key_type);
                 delta.map_value_binding = context->children.empty()
-                                              ? realized_input_value_binding_for(delta_schema->element_type)
+                                              ? realized_input_value_binding_for(map_schema->element_type)
                                               : input_child_delta_binding(context.get(), nullptr, 0);
                 if (delta.ordinal_key_binding == nullptr || delta.map_value_binding == nullptr)
                 {
@@ -2166,9 +2192,14 @@ namespace hgraph
                 delta.key_set_ops.copy_construct_view_impl = &input_delta_key_set_copy_construct_view;
                 delta.key_set_ops.copy_assign_view_impl = &input_delta_key_set_copy_assign_view;
 
-                const auto *key_set_schema = TypeRegistry::instance().set(delta_schema->key_type);
+                const auto *key_set_schema = TypeRegistry::instance().set(map_schema->key_type);
                 delta.key_set_binding = intern_value_type(*key_set_schema, root_plan, delta.key_set_ops);
-                context->delta_binding = intern_value_type(*delta_schema, root_plan, delta.map_ops);
+                delta.modified_map_binding = intern_value_type(*map_schema, root_plan, delta.map_ops);
+                ts_data_plan_factory_detail::ListDeltaProjection<InputListDeltaSurface>::configure(delta);
+                const auto &removed         = *delta_schema->fields[0].type;
+                delta.removed_owned_binding = ValuePlanFactory::instance().type_for(&removed);
+                delta.removed_set_binding   = intern_value_type(removed, root_plan, delta.removed_set_ops);
+                context->delta_binding      = intern_value_type(*delta_schema, root_plan, delta.list_delta_bundle_ops);
             }
             context->layout.delta_binding = context->delta_binding;
             context->bundle_layout.delta_binding = context->delta_binding;
@@ -2206,6 +2237,12 @@ namespace hgraph
                 .delta_to_python_impl = &input_delta_to_python,
                 .value_as_delta_to_python_impl = &input_value_as_delta_to_python,
             };
+            if (list_delta) {
+                context->ts_data_ops.removed_positions_impl = [](const void *root, const void *memory) {
+                    const auto &list = static_cast<const InputBindingContext *>(root)->delta.list();
+                    return ts_data_plan_factory_detail::ListDeltaProjection<InputListDeltaSurface>::removed_indices(&list, memory);
+                };
+            }
             context->ts_data_ops.size_impl = &input_indexed_size;
             context->ts_data_ops.element_binding_impl = &input_value_storage_type;
             context->ts_data_ops.element_memory_impl = &input_element_memory;

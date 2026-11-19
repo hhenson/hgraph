@@ -243,7 +243,7 @@ __all__ = [
     "from_graph", "to_graph", "impl_input", "impl_output", "get_service_inputs", "set_service_output",
 ]
 
-from ._wiring import set_delta, compute_set_delta
+from ._wiring import set_delta, TSLDelta, compute_set_delta
 from ._types import K_1
 default_path = ""   # hgraph's default service path sentinel
 
@@ -262,7 +262,7 @@ __all__ += [
     "RECORDABLE_STATE", "TS_OUT", "DebugContext", "RecordReplayContext",
     "cast_", "collect", "combine", "convert", "dispatch", "dispatch_",
     "emit", "filter_by", "compound_scalar", "ts_schema", "with_signature",
-    "set_delta", "compute_set_delta", "set_record_replay_model",
+    "TSLDelta", "set_delta", "compute_set_delta", "set_record_replay_model",
 ]
 
 if TYPE_CHECKING:

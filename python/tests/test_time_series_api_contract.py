@@ -1022,9 +1022,9 @@ def test_runtime_stub_declares_the_supported_time_series_contract():
 
 def test_native_time_series_types_declare_only_the_supported_surface():
     assert _declared_public_api(_hgraph.TimeSeries) == (
-        BASE_INPUT_API | ITERABLE_API | TSD_API | TSS_API | TSW_API | {"as_schema"}
+        BASE_INPUT_API | ITERABLE_API | TSD_API | TSS_API | TSW_API | {"as_schema", "size_modified"}
     )
     assert _declared_public_api(_hgraph.TimeSeriesOutput) == (
-        READ_ONLY_OUTPUT_API | {"as_schema"}
+        READ_ONLY_OUTPUT_API | {"as_schema", "size_modified"}
     )
     assert _declared_public_api(_hgraph.TimeSeriesRef) == REFERENCE_TOKEN_API

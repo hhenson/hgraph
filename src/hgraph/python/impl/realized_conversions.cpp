@@ -82,7 +82,13 @@ namespace hgraph::python_bridge
                     {
                         const char *name = state->schema->fields[index].name;
                         if (name == nullptr || *name == '\0') { continue; }
-                        if (!realized_detail::composite_field_is_set(state, memory, index)) { continue; }
+                        if (!realized_detail::composite_field_is_set(state, memory, index)) {
+                            if (index == 2 && state->child_bindings.size() == 3 && std::string_view{name} == "size_modified" &&
+                                std::string_view{state->schema->fields[0].name} == "removed" &&
+                                std::string_view{state->schema->fields[1].name} == "modified")
+                                result[nb::str{name}] = nb::none();
+                            continue;
+                        }
                         const auto &ops   = state->child_bindings[index].ops_ref();
                         const auto *child = static_cast<const std::byte *>(memory) + state->offsets[index];
                         result[nb::str{name}] = to_python(ops, child);

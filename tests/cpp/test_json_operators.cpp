@@ -348,9 +348,9 @@ TEST_CASE("json operators: a dynamic TSL array sets the list length")
     CHECK_OUTPUT(
         eval_node<FromJsonDynamicListGraph>(
             values<Str>(Str{"[1, 2, 3]"}, Str{"[null, 9]"}, Str{"[]"})),
-        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}),
-                      dynamic_list_delta<TS<Int>>({{1, 9}}, {2}),
-                      dynamic_list_delta<TS<Int>>({}, {0, 1})));
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}, {}, 3),
+                      dynamic_list_delta<TS<Int>>({{1, 9}}, {2}, 2),
+                      dynamic_list_delta<TS<Int>>({}, {0, 1}, 0)));
 }
 
 TEST_CASE("json operators: a dynamic TSL delta round-trips its removals")
@@ -360,10 +360,21 @@ TEST_CASE("json operators: a dynamic TSL delta round-trips its removals")
     stdlib::register_standard_operators();
     CHECK_OUTPUT(
         eval_node<DynamicListJsonRoundTripGraph>(
-            values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}),
-                          dynamic_list_delta<TS<Int>>({{0, 7}}, {1}))),
-        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}),
-                      dynamic_list_delta<TS<Int>>({{0, 7}}, {1})));
+            values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}, {}, 2),
+                          dynamic_list_delta<TS<Int>>({{0, 7}}, {1}, 1))),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}, {}, 2),
+                      dynamic_list_delta<TS<Int>>({{0, 7}}, {1}, 1)));
+}
+
+TEST_CASE("json operators: write a list length or clear one position")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<FromJsonDynamicListGraph>(
+        values<Str>(R"([10, 20, 30])", R"({"removed": [1]})", R"({"size_modified": 1})", R"({"size_modified": 3})")),
+        values<Value>(list_delta<TS<Int>>({{0,10},{1,20},{2,30}}, {}, 3),
+                      list_delta<TS<Int>>({}, {1}), list_delta<TS<Int>>({}, {1,2}, 1), list_delta<TS<Int>>({}, {}, 3)));
+    CHECK_OUTPUT(eval_node<FromJsonFixedListGraph>(values<Str>(R"({"1": 20})")),
+                 values<Value>(list_delta<TS<Int>>({{1,20}})));
 }
 
 TEST_CASE("json operators: temporal parsing uses the shared native format registry")

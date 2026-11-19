@@ -205,9 +205,7 @@ def test_python_compute_consumes_and_produces_dynamic_tsl():
 
 
 def test_python_compute_truncates_a_dynamic_tsl():
-    # RFC 0031: a dynamic TSL can shrink. A returned tuple IS the list, so its
-    # length sets the list length; a REMOVE entry in a mapping truncates to the
-    # lowest removed index.
+    # A shorter tuple and an explicit length both truncate a growing list.
     @hg.compute_node
     def first_two(values: TSL[TS[int], Size[-1]]) -> TSL[TS[int], Size[-1]]:
         return tuple(child.value for child in values.values())[:2]
@@ -224,7 +222,7 @@ def test_python_compute_truncates_a_dynamic_tsl():
         values: TSL[TS[int], Size[-1]], trim: TS[bool]
     ) -> TSL[TS[int], Size[-1]]:
         if trim.modified and trim.value:
-            return {1: hg.REMOVE}
+            return hg.TSLDelta(size_modified=1)
         return {index: child.value for index, child in enumerate(values.values()) if child.modified}
 
     @graph
@@ -236,8 +234,144 @@ def test_python_compute_truncates_a_dynamic_tsl():
     result = eval_node(app2, [{0: 1, 1: 2, 2: 3}, None], [False, True])
     check(
         result == [{0: 1, 1: 2, 2: 3}, {1: hg.REMOVE, 2: hg.REMOVE}],
-        f"REMOVE truncation: {result}",
+        f"size-only truncation: {result}",
     )
+
+
+def test_dynamic_tsl_size_modified_is_the_new_length_only_on_a_resize():
+    dynamic = TSL[TS[int], Size[-1]]
+    output_sizes = []
+
+    @hg.compute_node
+    def source(action: TS[int], _output: TSL = None) -> dynamic:
+        if action.value:
+            _output[0].value = action.value
+        else:
+            _output.resize(0)
+        output_sizes.append(_output.size_modified)
+
+    observations = []
+
+    @hg.compute_node(valid=())
+    def inspect(values: dynamic, probe: TS[bool]) -> TS[int]:
+        observations.append((len(values), values.size_modified))
+        return len(values)
+
+    @graph
+    def run(action: TS[int], probe: TS[bool]) -> TS[int]:
+        return inspect(source(action), probe)
+
+    assert eval_node(run, [7, 8, 0, None], [None, None, None, True]) == [1, 1, 0, 0]
+    assert output_sizes == [1, None, 0]
+    assert observations == [(1, 1), (1, None), (0, 0), (0, None)]
+
+
+def test_tsl_delta_records_and_replays_removals_and_sizes():
+    for bound in (3, -1):
+        series = TSL[TS[int], Size[bound]]
+        seen = []
+
+        @hg.compute_node
+        def observe(values: series) -> TS[int]:
+            seen.append((values.value, tuple(sorted(values.removed_keys())), values.size_modified, values.delta_value))
+            return len(values)
+
+        @graph
+        def identity(values: series) -> series:
+            return values
+
+        ticks = [{0: 10, 1: 20, 2: 30}, {1: hg.REMOVE}, None, {1: 21}]
+        expected = [{0: 10, 1: 20, 2: 30}, {1: hg.REMOVE}, None, {1: 21}]
+        delta_type = dict if bound == 3 else hg.TSLDelta
+        if bound == -1:
+            expected = [hg.TSLDelta(expected[0], size_modified=3), hg.TSLDelta(removed={1}),
+                        None, hg.TSLDelta({1: 21})]
+            ticks += [hg.TSLDelta(size_modified=1), hg.TSLDelta(size_modified=3), {2: 31}, hg.TSLDelta(size_modified=0)]
+            expected += [hg.TSLDelta(removed={1, 2}, size_modified=1), hg.TSLDelta(size_modified=3),
+                         hg.TSLDelta({2: 31}), hg.TSLDelta(removed={0, 1, 2}, size_modified=0)]
+        recorded = eval_node(identity, ticks)
+        assert recorded == expected
+        assert all(type(d) is delta_type for d in recorded if d is not None)
+        sparse = eval_node(identity, ticks, __elide__=True)
+        assert sparse == [d for d in expected if d is not None]
+        assert all(type(d) is delta_type for d in sparse)
+        assert eval_node(identity, recorded) == expected
+        eval_node(observe, recorded)
+        assert all(type(delta) is delta_type for *_, delta in seen)
+        assert seen[1] == ((10, None, 30), (1,), None, expected[1])
+        if bound == -1:
+            assert seen[-3] == ((10, None, None), (), 3, expected[-3])
+            assert seen[-1] == ((), (0, 1, 2), 0, expected[-1])
+
+
+def test_tsl_delta_on_separately_wired_children():
+    @hg.compute_node
+    def clearable(value: TS[int], _output: TS[int] = None) -> TS[int]:
+        if value.value == 0:
+            _output.invalidate()
+        else:
+            return value.value
+
+    seen = []
+
+    @hg.compute_node
+    def observe(items: TSL[TS[int], Size[2]]) -> TS[int]:
+        seen.append((items.size_modified, tuple(items.removed_keys()), items.delta_value))
+        return len(items)
+
+    @graph
+    def run(left: TS[int], right: TS[int]) -> TS[int]:
+        return observe(TSL.from_ts(left, clearable(right)))
+
+    assert eval_node(run, [10], [20, 0, 30]) == [2, 2, 2]
+    assert seen == [(None, (), {0: 10, 1: 20}), (None, (1,), {1: hg.REMOVE}), (None, (), {1: 30})]
+    assert all(type(delta) is dict for _, _, delta in seen)
+
+
+def test_nested_tsl_delta_types_on_output_input_and_recording():
+    for outer_size, inner_size in ((1, -1), (-1, 1)):
+        series = TSL[TSL[TS[int], Size[inner_size]], Size[outer_size]]
+        outputs, inputs = [], []
+
+        @hg.compute_node
+        def publish(value: TS[int], _output: series = None) -> series:
+            _output[0][0].value = value.value
+            outputs.append(_output.delta_value)
+
+        @hg.compute_node
+        def observe(value: series) -> series:
+            inputs.append(value.delta_value)
+            return value.delta_value
+
+        @graph
+        def run(value: TS[int]) -> series:
+            return observe(publish(value))
+
+        recorded = eval_node(run, [7, 8])
+        for ticks in (outputs, inputs, recorded):
+            assert ticks == [{0: {0: 7}}, {0: {0: 8}}]
+            for i, delta in enumerate(ticks):
+                fixed, growing = (delta, delta[0]) if outer_size == 1 else (delta[0], delta)
+                assert type(fixed) is dict
+                assert type(growing) is hg.TSLDelta
+                assert growing.size_modified == (1 if i == 0 else None)
+
+
+def test_tsl_same_cycle_clear_and_republish_reports_only_the_final_change():
+    @hg.compute_node
+    def publish(step: TS[int], _output: TSL = None) -> TSL[TS[int], Size[-1]]:
+        if step.value == 0:
+            return (10, 20)
+        _output[1].invalidate()
+        _output[1].value = 21
+        if step.value == 2:
+            _output[1].invalidate()
+
+    assert eval_node(publish, [0, 1, 2]) == [
+        hg.TSLDelta({0: 10, 1: 20}, size_modified=2),
+        hg.TSLDelta({1: 21}),
+        hg.TSLDelta(removed={1}),
+    ]
 
 
 def test_dynamic_tsl_reports_added_and_removed_indices():
@@ -259,7 +393,7 @@ def test_dynamic_tsl_reports_added_and_removed_indices():
     def delta_removals(values: TSL[TS[int], Size[-1]]) -> TS[tuple[int, ...]]:
         return tuple(sorted(k for k, v in values.delta_value.items() if v is hg.REMOVE))
 
-    ticks = [{0: 1, 1: 2, 2: 3}, {1: hg.REMOVE}, {1: 9}]
+    ticks = [{0: 1, 1: 2, 2: 3}, hg.TSLDelta(size_modified=1), {1: 9}]
 
     @graph
     def app_added(values: TSL[TS[int], Size[-1]]) -> TS[tuple[int, ...]]:
@@ -300,8 +434,8 @@ def test_native_map_truncates_a_dynamic_tsl_output_with_its_source():
 
     result = eval_node(
         app,
-        [{0: 1, 1: 2}, {1: hg.REMOVE}],
-        [{0: 10, 1: 20}, {1: hg.REMOVE}],
+        [{0: 1, 1: 2}, hg.TSLDelta(size_modified=1)],
+        [{0: 10, 1: 20}, hg.TSLDelta(size_modified=1)],
     )
     check(result == [{0: 11, 1: 22}, {1: hg.REMOVE}], f"map truncation: {result}")
 

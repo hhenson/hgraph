@@ -6,7 +6,7 @@ symbol fails loudly at import time. ``_wiring_stack`` is re-exported by
 from-import aliasing — it stays the SAME list object as
 ``hgraph._wiring._core._wiring_stack``; nothing may rebind it."""
 from ._sentinels import (
-    Null, REMOVE, REMOVE_IF_EXISTS, Removed, _Removed, _SetDelta, _simplify_delta, compute_set_delta, set_delta
+    Null, REMOVE, REMOVE_IF_EXISTS, Removed, _Removed, _SetDelta, _simplify_delta, compute_set_delta, TSLDelta, set_delta
 )
 from ._state import (
     GlobalContext, GlobalState, RecordReplayContext, RecordReplayEnum, _GLOBAL_MISSING,
@@ -99,7 +99,7 @@ __all__ = [
     "operator_function", "pass_through", "passive", "push_queue", "record_replay_scope",
     "reduce", "reference_service", "register_adaptor", "register_service",
     "request_reply_service", "run_graph", "service_adaptor", "service_adaptor_impl",
-    "service_impl", "set_as_of", "set_delta", "set_pooled_compound_scalar_storage", "set_record_replay_config",
+    "service_impl", "set_as_of", "TSLDelta", "set_delta", "set_pooled_compound_scalar_storage", "set_record_replay_config",
     "set_record_replay_model", "set_service_output", "set_table_schema_as_of_key",
     "set_table_schema_date_key", "sink_node", "subscription_service", "switch_", "to_graph",
     "wire", "WiringGraphContext"

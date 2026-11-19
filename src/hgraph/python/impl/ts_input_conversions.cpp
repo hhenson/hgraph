@@ -1,3 +1,4 @@
+#include "list_delta_source.h"
 #include "python_ops_families.h"
 
 #include "../../types/time_series/detail/ts_input_seams.h"
@@ -63,6 +64,12 @@ namespace hgraph::python_bridge
         template <ValueForm Form>
         [[nodiscard]] nb::object input_list_to_python(const void *context, const void *memory)
         {
+            if constexpr (Form == ValueForm::Delta) {
+                return python_list_snapshot(seams::input_child_count(context), false, [&](std::size_t index) {
+                    return child_value_to_python(seams::input_child_type(context, memory, index),
+                                                 seams::input_child_memory(context, memory, index), Form);
+                });
+            }
             nb::list result;
             for (std::size_t index = 0, count = seams::input_child_count(context); index < count; ++index)
             {
@@ -100,7 +107,8 @@ namespace hgraph::python_bridge
                                                          evaluation_time);
                 if (!child_delta.is_none()) { result[nb::int_{index}] = child_delta; }
             }
-            return result;
+            const auto bundle = ValueView{seams::input_delta_binding(context),memory}.as_bundle();
+            return python_list_delta(std::move(result),to_python(bundle.at(0).binding(),memory),nb::none());
         }
 
         // -- value / delta projections -------------------------------------------------
@@ -115,6 +123,11 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::object input_delta_projection_to_python(const void *context, const void *memory)
         {
             return to_python(Value{ValueView{seams::input_delta_binding(context), memory}});
+        }
+
+        [[nodiscard]] nb::object input_delta_map_to_python(const void *context, const void *memory) {
+            const auto modified = ValueView{seams::input_delta_binding(context), memory}.as_bundle().at(1);
+            return to_python(Value{modified});
         }
 
         [[nodiscard]] nb::object input_delta_key_set_to_python(const void *context, const void *memory)
@@ -193,7 +206,7 @@ namespace hgraph::python_bridge
         section.input_list_delta_to_python       = &ts_delta_to_python_slot<&input_list_delta_to_python>;
         section.input_value_projection_to_python = &to_python_slot<&input_value_projection_to_python>;
         section.input_delta_bundle_to_python     = &to_python_slot<&input_delta_projection_to_python>;
-        section.input_delta_map_to_python        = &to_python_slot<&input_delta_projection_to_python>;
+        section.input_delta_map_to_python        = &to_python_slot<&input_delta_map_to_python>;
         section.input_delta_key_set_to_python    = &to_python_slot<&input_delta_key_set_to_python>;
         section.target_link_to_python            = &to_python_slot<&target_link_to_python>;
         section.target_link_delta_to_python      = &ts_delta_to_python_slot<&target_link_delta_to_python>;

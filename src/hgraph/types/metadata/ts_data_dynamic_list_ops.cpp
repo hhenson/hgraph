@@ -14,6 +14,7 @@
 #include <hgraph/util/scope.h>
 
 #include "detail/ts_data_seams.h"
+#include "detail/list_delta_projection.h"
 
 #include "../time_series/ts_data/ownership.h"
 
@@ -89,7 +90,7 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] TSDataTracking &mutable_tracking() noexcept { return tracking_; }
 
             /** Live list length. */
-            [[nodiscard]] std::size_t size() const noexcept { return live_size_; }
+            [[nodiscard]] std::size_t size() const noexcept { return static_cast<std::size_t>(live_size_); }
             /** Live plus retained (removed-this-window) extent. */
             [[nodiscard]] std::size_t retained_size() const noexcept { return elements_.size(); }
             /** Live length when the current delta window opened. */
@@ -135,10 +136,12 @@ namespace hgraph::ts_data_plan_factory_detail
                 // child notifies its observers, and the ring positions it is
                 // about to pop must not be reachable while that runs.
                 auto &header = ordinal_keys_.front();
+                auto pos = header.next_modified;
+                while (pos != 0) { pos = std::exchange(ordinal_keys_[pos].next_modified, 0); }
                 header.next_modified = 0;
                 flush_retained();
                 header.ordinal_key = modified_time.time_since_epoch().count();
-                previous_size_     = live_size_;
+                previous_size_     = this->size();
             }
 
             void record_child_modified(std::size_t index, DateTime modified_time)
@@ -147,7 +150,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 // already-linked entry would corrupt it), so it is dropped.
                 if (modified_time < delta_time()) { return; }
                 prepare_delta(modified_time);
-                if (index >= live_size_) { return; }
+                if (index >= this->size()) { return; }
 
                 // Child tracking notifies its parent only on the first mutation
                 // at a given evaluation time. Keep a circular list whose header
@@ -156,6 +159,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 auto &header = ordinal_keys_.front();
                 const std::size_t position = index + 1;
                 auto &entry = ordinal_keys_.at(position);
+                if (modified_snapshot_) { modified_snapshot_->valid = false; }
+                if (entry.next_modified != 0) { return; }
                 if (header.next_modified == 0)
                 {
                     entry.next_modified = position;
@@ -178,7 +183,7 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 constexpr auto unavailable = static_cast<std::size_t>(-1);
                 const auto snapshot_size =
-                    fallback_on_exception(unavailable, [&] { return modified_snapshot().size(); });
+                    fallback_on_exception(unavailable, [&] { return modified_snapshot().visible.size(); });
                 if (snapshot_size != unavailable) { return snapshot_size; }
 
                 // Out of memory for the snapshot: count the ring directly.
@@ -192,7 +197,7 @@ namespace hgraph::ts_data_plan_factory_detail
 
             [[nodiscard]] std::size_t modified_index_at(std::size_t ordinal) const
             {
-                const auto &visible = modified_snapshot();
+                const auto &visible = modified_snapshot().visible;
                 if (ordinal >= visible.size())
                 {
                     throw std::out_of_range("dynamic TSL modified index ordinal is out of range");
@@ -215,8 +220,8 @@ namespace hgraph::ts_data_plan_factory_detail
 
             [[nodiscard]] std::size_t added_index_count() const noexcept
             {
-                if (!structural_delta_current() || live_size_ <= previous_size_) { return 0; }
-                return live_size_ - previous_size_;
+                if (!structural_delta_current() || this->size() <= previous_size_) { return 0; }
+                return this->size() - previous_size_;
             }
 
             [[nodiscard]] std::size_t added_index_at(std::size_t ordinal) const
@@ -230,8 +235,8 @@ namespace hgraph::ts_data_plan_factory_detail
 
             [[nodiscard]] std::size_t removed_index_count() const noexcept
             {
-                if (!structural_delta_current() || previous_size_ <= live_size_) { return 0; }
-                return previous_size_ - live_size_;
+                if (!structural_delta_current() || previous_size_ <= this->size()) { return 0; }
+                return previous_size_ - this->size();
             }
 
             [[nodiscard]] std::size_t removed_index_at(std::size_t ordinal) const
@@ -240,20 +245,26 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     throw std::out_of_range("dynamic TSL removed index ordinal is out of range");
                 }
-                return live_size_ + ordinal;
+                return this->size() + ordinal;
+            }
+
+            const std::vector<std::size_t> &published() const { return modified_snapshot().published; }
+            const std::int64_t             *changed_size() const {
+                if (!structural_delta_current() || this->size() == previous_size_) return nullptr;
+                return &live_size_;
             }
 
             /** Grow the live list, constructing or resurrecting elements. */
             void ensure_size(std::size_t size, TSRoleTypeRef element_type, DateTime modified_time)
             {
-                if (size <= live_size_) { return; }
+                if (size <= this->size()) { return; }
                 resize(size, element_type, modified_time);
             }
 
             /** Set the live list length, growing or truncating. */
             void restore_size(std::size_t size, TSRoleTypeRef element_type)
             {
-                if (live_size_ != 0 || !elements_.empty())
+                if (this->size() != 0 || !elements_.empty())
                     throw std::invalid_argument("dynamic list checkpoint requires fresh storage");
                 grow_to(size, element_type);
                 previous_size_ = size;
@@ -268,8 +279,8 @@ namespace hgraph::ts_data_plan_factory_detail
                         "dynamic TSL resize requires a concrete evaluation time");
                 }
                 prepare_delta(modified_time);
-                if (size > live_size_) { grow_to(size, element_type); }
-                else if (size < live_size_) { truncate_to(size); }
+                if (size > this->size()) { grow_to(size, element_type); }
+                else if (size < this->size()) { truncate_to(size); }
             }
 
             [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
@@ -314,13 +325,14 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 ModifiedSnapshotKey      key{};
                 std::vector<std::size_t> visible{};
+                std::vector<std::size_t> published{};
                 bool                     valid{false};
             };
 
-            [[nodiscard]] const std::vector<std::size_t> &modified_snapshot() const
+            [[nodiscard]] const ModifiedSnapshot &modified_snapshot() const
             {
                 const auto &header = ordinal_keys_.front();
-                const ModifiedSnapshotKey key{header.ordinal_key, header.next_modified, live_size_,
+                const ModifiedSnapshotKey key{header.ordinal_key, header.next_modified, this->size(),
                                               tracking_.last_modified_time};
                 // Allocated by the first ordinal read, so a list that is never
                 // read that way carries one null pointer and nothing else.
@@ -330,14 +342,18 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     snapshot.valid = false;
                     snapshot.visible.clear();
+                    snapshot.published.clear();
                     for_each_modified_index([&](std::size_t index) {
                         snapshot.visible.push_back(index);
+                        const auto &ops = element_type_.ops_ref();
+                        if (ops.tracking_impl(ops.context,child_memory(index))->last_modified_time == delta_time())
+                            snapshot.published.push_back(index);
                         return true;
                     });
                     snapshot.key   = key;
                     snapshot.valid = true;
                 }
-                return snapshot.visible;
+                return snapshot;
             }
 
             /** Visit live ring members in notification order; ``fn`` returns
@@ -353,7 +369,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     // A child modified and then truncated in the same window
                     // is reported as REMOVED, not modified.
-                    if (position - 1 < live_size_ && !fn(position - 1)) { return; }
+                    if (position - 1 < this->size() && !fn(position - 1)) { return; }
                     position = ordinal_keys_[position].next_modified;
                 } while (position != first);
             }
@@ -384,22 +400,22 @@ namespace hgraph::ts_data_plan_factory_detail
                     rollback.release();
                 }
                 binding_rollback.release();
-                live_size_ = size;
+                live_size_ = static_cast<std::int64_t>(size);
             }
 
             void truncate_to(std::size_t size) noexcept
             {
-                for (std::size_t index = size; index < live_size_; ++index)
+                for (std::size_t index = size; index < this->size(); ++index)
                 {
                     detail::stop_owned_ts_data_tree(TSDataView{element_type_, elements_[index].data()});
                 }
-                live_size_ = size;
+                live_size_ = static_cast<std::int64_t>(size);
             }
 
             /** Invalidate and destroy the tail retained by the closing window. */
             void flush_retained() noexcept
             {
-                while (elements_.size() > live_size_)
+                while (elements_.size() > this->size())
                 {
                     detail::invalidate_owned_ts_data_tree(
                         TSDataView{element_type_, elements_.back().data()});
@@ -415,7 +431,7 @@ namespace hgraph::ts_data_plan_factory_detail
             // addresses stable while preserving vector locality for handles.
             std::vector<TSDataErasedOwner>  elements_{};
             std::vector<DynamicTSLIndexEntry> ordinal_keys_{};
-            std::size_t                     live_size_{0};
+            std::int64_t                    live_size_{0};
             std::size_t                     previous_size_{0};
             // Derived from the ring on demand; never part of the list's state.
             mutable std::unique_ptr<ModifiedSnapshot> modified_snapshot_{};
@@ -469,6 +485,7 @@ namespace hgraph::ts_data_plan_factory_detail
 
         struct DynamicTSLContext
         {
+            friend struct hgraph::ts_data_plan_factory_detail::ListDeltaProjection<DynamicTSLContext>;
             const TSValueTypeMetaData      *schema{nullptr};
             const MemoryUtils::StoragePlan *plan{nullptr};
             FixedTSLDataLayout              list_layout{};
@@ -477,7 +494,8 @@ namespace hgraph::ts_data_plan_factory_detail
             MapValueOps                     delta_map_ops{};
             SetValueOps                     delta_key_set_ops{};
             SetValueOps                     removed_set_ops{};
-            IndexedValueOps                 delta_bundle_ops{};
+            IndexedValueOps                 list_delta_bundle_ops{};
+            ValueTypeRef removed_owned_binding{};
             TSRoleTypeRef                 element_type{};
             TypeRole                        role{TypeRole::Invalid};
             bool                            embedded{false};
@@ -535,11 +553,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     throw std::logic_error("dynamic TSL requires a List value schema");
                 }
-                // RFC 0031: a dynamic TSL can shrink, so its delta carries the
-                // same {removed, modified} shape a TSD does.
-                if (delta_schema->value_kind() != ValueTypeKind::Bundle || delta_schema->field_count != 2)
+                if (delta_schema->value_kind() != ValueTypeKind::Bundle || delta_schema->field_count != 3)
                 {
-                    throw std::logic_error("dynamic TSL delta schema must be Bundle{removed, modified}");
+                    throw std::logic_error("dynamic TSL delta schema must be Bundle{removed, modified, size_modified}");
                 }
                 const ValueTypeMetaData *removed_schema  = delta_schema->fields[0].type;
                 const ValueTypeMetaData *modified_schema = delta_schema->fields[1].type;
@@ -547,7 +563,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     removed_schema->value_kind() != ValueTypeKind::Set ||
                     modified_schema->value_kind() != ValueTypeKind::Map)
                 {
-                    throw std::logic_error("dynamic TSL delta schema must be Bundle{Set<int>, Map<int, delta>}");
+                    throw std::logic_error("dynamic TSL delta schema requires a removal set and an indexed child-delta map");
                 }
 
                 list_layout.value_binding = intern_value_type(*value_schema, *plan, value_list_ops);
@@ -559,9 +575,10 @@ namespace hgraph::ts_data_plan_factory_detail
                 }
                 const auto *key_set_schema = TypeRegistry::instance().set(modified_schema->key_type);
                 delta_key_set_binding = intern_value_type(*key_set_schema, *plan, delta_key_set_ops);
+                removed_owned_binding = ValuePlanFactory::instance().type_for(removed_schema);
                 removed_set_binding   = intern_value_type(*removed_schema, *plan, removed_set_ops);
                 modified_map_binding  = intern_value_type(*modified_schema, *plan, delta_map_ops);
-                list_layout.delta_binding = intern_value_type(*delta_schema, *plan, delta_bundle_ops);
+                list_layout.delta_binding = intern_value_type(*delta_schema, *plan, list_delta_bundle_ops);
                 list_layout.canonical_delta_binding = ts_data_detail::canonical_delta_binding_for(*schema);
             }
 
@@ -705,6 +722,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 ops.element_binding_impl        = &dynamic_indexed_element_binding;
                 ops.element_memory_impl         = &dynamic_indexed_element_memory;
                 ops.mutable_element_memory_impl = &dynamic_mutable_indexed_element_memory;
+                ops.removed_positions_impl = &ListDeltaProjection<DynamicTSLContext>::removed_indices;
                 ops.structural_delta_impl       = &dynamic_structural_delta;
                 ops.retained_element_memory_impl = &dynamic_retained_element_memory;
                 ops.resize_impl                 = &dynamic_resize;
@@ -772,42 +790,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 delta_key_set_ops.copy_construct_view_impl = &dynamic_delta_key_set_copy_construct_view;
                 delta_key_set_ops.copy_assign_view_impl    = &dynamic_delta_key_set_copy_assign_view;
 
-                removed_set_ops = SetValueOps{
-                    {{ValueOpsKind::Set, this, false, &dynamic_removed_set_hash, &dynamic_removed_set_equals,
-                      &dynamic_removed_set_compare, &dynamic_removed_set_to_string
-                      ,
-                      &python_ops_detail::forwarder<&PythonOps::TSData::dynamic_removed_set_projection_to_python>::call
-                     },
-                     &dynamic_removed_set_size,
-                     &dynamic_removed_set_key_at_index,
-                     &dynamic_delta_map_key_binding,
-                     &dynamic_removed_set_make_range,
-                     nullptr},
-                    &dynamic_removed_set_contains,
-                };
-                removed_set_ops.owning_type_impl           = &canonical_value_binding;
-                removed_set_ops.copy_construct_view_impl   = &dynamic_removed_set_copy_construct_view;
-                removed_set_ops.copy_assign_view_impl      = &dynamic_removed_set_copy_assign_view;
-
-                // The delta bundle is a two-field projection over the SAME
-                // storage: field 0 is the removed index set, field 1 the
-                // modified index map (mirrors the TSD dict delta bundle).
-                delta_bundle_ops = IndexedValueOps{
-                    {ValueOpsKind::Indexed, this, false, &dynamic_delta_bundle_hash,
-                     &dynamic_delta_bundle_equals, &dynamic_delta_bundle_compare,
-                     &dynamic_delta_bundle_to_string
-                     ,
-                     &python_ops_detail::forwarder<&PythonOps::TSData::dynamic_delta_bundle_to_python>::call
-                    },
-                    &dynamic_delta_bundle_size,
-                    &dynamic_delta_bundle_element_at,
-                    &dynamic_delta_bundle_element_binding,
-                    &dynamic_delta_bundle_make_range,
-                    nullptr,
-                };
-                delta_bundle_ops.owning_type_impl           = &canonical_value_binding;
-                delta_bundle_ops.copy_construct_view_impl   = &dynamic_delta_bundle_copy_construct_view;
-                delta_bundle_ops.copy_assign_view_impl      = &dynamic_delta_bundle_copy_assign_view;
+                ListDeltaProjection<DynamicTSLContext>::configure(*this);
             }
 
             [[nodiscard]] static const DynamicTSLContext *ctx(const void *context) noexcept
@@ -1197,7 +1180,14 @@ namespace hgraph::ts_data_plan_factory_detail
                                                                     const void *memory) noexcept
             {
                 static_cast<void>(context);
-                return storage(memory).modified_index_count();
+                const auto    &store       = storage(memory);
+                constexpr auto unavailable = static_cast<std::size_t>(-1);
+                const auto     count       = fallback_on_exception(unavailable, [&] { return store.published().size(); });
+                if (count != unavailable) return count;
+                std::size_t valid = 0;
+                for (std::size_t i = 0; i < store.size(); ++i)
+                    if (child_modified_for_parent_time(ctx(context), memory, i)) ++valid;
+                return valid;
             }
 
             [[nodiscard]] static std::size_t nth_modified_child(const DynamicTSLContext *state,
@@ -1205,7 +1195,7 @@ namespace hgraph::ts_data_plan_factory_detail
                                                                 std::size_t ordinal)
             {
                 static_cast<void>(state);
-                return storage(memory).modified_index_at(ordinal);
+                return storage(memory).published().at(ordinal);
             }
 
             [[nodiscard]] static const void *dynamic_delta_map_key_at_index(const void *context,
@@ -1335,9 +1325,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto *state = ctx(context);
                 const auto &store = storage(memory);
                 std::size_t result = 0;
-                for (std::size_t ordinal = 0; ordinal < store.modified_index_count(); ++ordinal)
+                for (const auto index : store.published())
                 {
-                    const auto index = store.modified_index_at(ordinal);
                     const auto key_hash = state->ordinal_key_binding.ops_ref().hash(&store.ordinal_key(index));
                     const auto value_hash = view_hash(child_delta_view(state, memory, index));
                     result ^= dynamic_combine_hash(key_hash, value_hash);
@@ -1390,9 +1379,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 fmt::memory_buffer out;
                 fmt::format_to(std::back_inserter(out), "{{");
                 bool first = true;
-                for (std::size_t ordinal = 0; ordinal < store.modified_index_count(); ++ordinal)
+                for (const auto index : store.published())
                 {
-                    const auto index = store.modified_index_at(ordinal);
                     if (!first) { fmt::format_to(std::back_inserter(out), ", "); }
                     first = false;
                     fmt::format_to(std::back_inserter(out), "{}: {}",
@@ -1443,9 +1431,8 @@ namespace hgraph::ts_data_plan_factory_detail
 
                 MapBuilder builder{key_binding, value_binding};
                 const auto &store = storage(memory);
-                for (std::size_t ordinal = 0; ordinal < store.modified_index_count(); ++ordinal)
+                for (const auto index : store.published())
                 {
-                    const auto index = store.modified_index_at(ordinal);
                     Value child_delta{child_delta_view(state, memory, index)};
                     if (child_delta.binding() != value_binding)
                     {
@@ -1468,9 +1455,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto *state = ctx(context);
                 const auto &store = storage(memory);
                 std::size_t result = 0;
-                for (std::size_t ordinal = 0; ordinal < store.modified_index_count(); ++ordinal)
+                for (const auto index : store.published())
                 {
-                    const auto index = store.modified_index_at(ordinal);
                     result ^= state->ordinal_key_binding.ops_ref().hash(&store.ordinal_key(index));
                 }
                 return result;
@@ -1515,9 +1501,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 fmt::memory_buffer out;
                 fmt::format_to(std::back_inserter(out), "{{");
                 bool first = true;
-                for (std::size_t ordinal = 0; ordinal < store.modified_index_count(); ++ordinal)
+                for (const auto index : store.published())
                 {
-                    const auto index = store.modified_index_at(ordinal);
                     if (!first) { fmt::format_to(std::back_inserter(out), ", "); }
                     first = false;
                     fmt::format_to(std::back_inserter(out), "{}", store.ordinal_key(index));
@@ -1560,9 +1545,8 @@ namespace hgraph::ts_data_plan_factory_detail
 
                 SetBuilder builder{key_binding};
                 const auto &store = storage(memory);
-                for (std::size_t ordinal = 0; ordinal < store.modified_index_count(); ++ordinal)
+                for (const auto index : store.published())
                 {
-                    const auto index = store.modified_index_at(ordinal);
                     builder.insert_copy(&store.ordinal_key(index));
                 }
                 return builder.build_storage();
@@ -1570,262 +1554,26 @@ namespace hgraph::ts_data_plan_factory_detail
 
             // --- removed index set (delta bundle field 0, RFC 0031) ---
 
-            [[nodiscard]] static std::size_t dynamic_removed_set_size(const void *,
-                                                                      const void *memory) noexcept
-            {
-                return storage(memory).removed_index_count();
+            ValueTypeRef canonical_delta() const { return list_layout.canonical_delta_binding; }
+            std::size_t  candidate_count(const void *m) const {
+                return storage(m).modified_index_count() + storage(m).removed_index_count();
             }
-
-            [[nodiscard]] static const void *dynamic_removed_set_key_at_index(const void *,
-                                                                              const void *memory,
-                                                                              std::size_t ordinal)
-            {
-                const auto &store = storage(memory);
-                return &store.ordinal_key(store.removed_index_at(ordinal));
+            std::size_t candidate(const void *m, std::size_t i) const {
+                const auto &v = storage(m);
+                auto count = v.modified_index_count();
+                return i < count ? v.modified_index_at(i) : v.removed_index_at(i-count);
             }
-
-            [[nodiscard]] static ValueView dynamic_removed_set_projector(const void *context,
-                                                                          const void *memory,
-                                                                          std::size_t ordinal)
+            bool is_removed(const void *m, std::size_t i) const
             {
-                return ValueView{ctx(context)->ordinal_key_binding,
-                                 dynamic_removed_set_key_at_index(context, memory, ordinal)};
+                const auto &v = storage(m);
+                if (i >= v.size()) return i - v.size() < v.removed_index_count();
+                const auto &o = element_type.ops_ref();
+                const auto &t = *o.tracking_impl(o.context, v.child_memory(i));
+                return t.last_modified_time == MIN_DT && t.last_empty_delta_time != MIN_DT &&
+                       t.last_empty_delta_time == v.tracking().last_modified_time;
             }
-
-            [[nodiscard]] static Range<ValueView> dynamic_removed_set_make_range(const void *context,
-                                                                                  const void *memory)
-            {
-                return Range<ValueView>{
-                    .context   = context,
-                    .memory    = memory,
-                    .limit     = dynamic_removed_set_size(context, memory),
-                    .predicate = nullptr,
-                    .projector = &dynamic_removed_set_projector,
-                };
-            }
-
-            [[nodiscard]] static bool dynamic_removed_set_contains(const void *, const void *memory,
-                                                                    const void *key)
-            {
-                const auto index = *MemoryUtils::cast<std::int64_t>(key);
-                if (index < 0) { return false; }
-                const auto &store = storage(memory);
-                const auto count = store.removed_index_count();
-                if (count == 0) { return false; }
-                const auto value = static_cast<std::size_t>(index);
-                return value >= store.size() && value < store.size() + count;
-            }
-
-            [[nodiscard]] static std::size_t dynamic_removed_set_hash(const void *context,
-                                                                       const void *memory)
-            {
-                const auto *state = ctx(context);
-                const auto &store = storage(memory);
-                std::size_t result = 0;
-                for (std::size_t ordinal = 0; ordinal < store.removed_index_count(); ++ordinal)
-                {
-                    result ^= state->ordinal_key_binding.ops_ref().hash(
-                        &store.ordinal_key(store.removed_index_at(ordinal)));
-                }
-                return result;
-            }
-
-            [[nodiscard]] static bool dynamic_removed_set_equals(const void *context, const void *lhs,
-                                                                  const void *rhs) noexcept
-            {
-                if (lhs == nullptr || rhs == nullptr) { return lhs == rhs; }
-                return fallback_on_exception(false, [&] {
-                    static_cast<void>(context);
-                    const auto &left  = storage(lhs);
-                    const auto &right = storage(rhs);
-                    return left.removed_index_count() == right.removed_index_count() &&
-                           (left.removed_index_count() == 0 || left.size() == right.size());
-                });
-            }
-
-            [[nodiscard]] static std::partial_ordering dynamic_removed_set_compare(
-                const void *context, const void *lhs, const void *rhs) noexcept
-            {
-                if (const auto order = value_ops_detail::null_order(lhs, rhs)) { return *order; }
-                const auto lhs_size = dynamic_removed_set_size(context, lhs);
-                const auto rhs_size = dynamic_removed_set_size(context, rhs);
-                if (lhs_size < rhs_size) { return std::partial_ordering::less; }
-                if (lhs_size > rhs_size) { return std::partial_ordering::greater; }
-                return dynamic_removed_set_equals(context, lhs, rhs) ? std::partial_ordering::equivalent
-                                                                      : std::partial_ordering::unordered;
-            }
-
-            [[nodiscard]] static std::string dynamic_removed_set_to_string(const void *, const void *memory)
-            {
-                const auto &store = storage(memory);
-                fmt::memory_buffer out;
-                fmt::format_to(std::back_inserter(out), "{{");
-                for (std::size_t ordinal = 0; ordinal < store.removed_index_count(); ++ordinal)
-                {
-                    if (ordinal > 0) { fmt::format_to(std::back_inserter(out), ", "); }
-                    fmt::format_to(std::back_inserter(out), "{}",
-                                   store.ordinal_key(store.removed_index_at(ordinal)));
-                }
-                fmt::format_to(std::back_inserter(out), "}}");
-                return fmt::to_string(out);
-            }
-
-            [[nodiscard]] static SetStorage build_dynamic_removed_set_storage(const void *context,
-                                                                              const ValueTypeRef &binding,
-                                                                              const void *memory)
-            {
-                const auto *state = ctx(context);
-                if (binding.schema() == nullptr || binding.schema()->value_kind() != ValueTypeKind::Set)
-                {
-                    throw std::logic_error("dynamic TSL removed-set copy requires a canonical set schema");
-                }
-                const auto key_binding = ValuePlanFactory::instance().type_for(binding.schema()->element_type);
-                if (key_binding == nullptr || key_binding != state->ordinal_key_binding)
-                {
-                    throw std::logic_error("dynamic TSL removed-set copy key binding is not resolved");
-                }
-
-                SetBuilder builder{key_binding};
-                const auto &store = storage(memory);
-                for (std::size_t ordinal = 0; ordinal < store.removed_index_count(); ++ordinal)
-                {
-                    builder.insert_copy(&store.ordinal_key(store.removed_index_at(ordinal)));
-                }
-                return builder.build_storage();
-            }
-
-            static void dynamic_removed_set_copy_construct_view(const void *context,
-                                                                 const ValueTypeRef &binding,
-                                                                 void *dst,
-                                                                 const void *memory)
-            {
-                auto storage = build_dynamic_removed_set_storage(context, binding, memory);
-                std::construct_at(static_cast<SetStorage *>(dst), std::move(storage));
-            }
-
-            static void dynamic_removed_set_copy_assign_view(const void *context,
-                                                              const ValueTypeRef &binding,
-                                                              void *dst,
-                                                              const void *memory)
-            {
-                *static_cast<SetStorage *>(dst) = build_dynamic_removed_set_storage(context, binding, memory);
-            }
-
-
-            // --- delta bundle {removed, modified} (RFC 0031) ---
-
-            [[nodiscard]] static std::size_t dynamic_delta_bundle_size(const void *, const void *) noexcept
-            {
-                return 2;
-            }
-
-            [[nodiscard]] static const void *dynamic_delta_bundle_element_at(const void *, const void *memory,
-                                                                             std::size_t index)
-            {
-                if (index < 2) { return memory; }
-                throw std::out_of_range("dynamic TSL delta bundle index out of range");
-            }
-
-            [[nodiscard]] static ValueTypeRef dynamic_delta_bundle_element_binding(
-                const void *context, const void *, std::size_t index) noexcept
-            {
-                const auto *state = ctx(context);
-                return index == 0 ? state->removed_set_binding : state->modified_map_binding;
-            }
-
-            [[nodiscard]] static ValueView dynamic_delta_bundle_projector(const void *context,
-                                                                          const void *memory,
-                                                                          std::size_t index)
-            {
-                return ValueView{dynamic_delta_bundle_element_binding(context, memory, index),
-                                 dynamic_delta_bundle_element_at(context, memory, index)};
-            }
-
-            [[nodiscard]] static Range<ValueView> dynamic_delta_bundle_make_range(const void *context,
-                                                                                  const void *memory)
-            {
-                return Range<ValueView>{
-                    .context   = context,
-                    .memory    = memory,
-                    .limit     = 2,
-                    .predicate = nullptr,
-                    .projector = &dynamic_delta_bundle_projector,
-                };
-            }
-
-            [[nodiscard]] static std::size_t dynamic_delta_bundle_hash(const void *context,
-                                                                        const void *memory)
-            {
-                const auto *state = ctx(context);
-                return dynamic_combine_hash(state->removed_set_binding.ops_ref().hash(memory),
-                                            state->modified_map_binding.ops_ref().hash(memory));
-            }
-
-            [[nodiscard]] static bool dynamic_delta_bundle_equals(const void *context, const void *lhs,
-                                                                   const void *rhs) noexcept
-            {
-                if (lhs == nullptr || rhs == nullptr) { return lhs == rhs; }
-                return fallback_on_exception(false, [&] {
-                    const auto *state = ctx(context);
-                    return state->removed_set_binding.ops_ref().equals(lhs, rhs) &&
-                           state->modified_map_binding.ops_ref().equals(lhs, rhs);
-                });
-            }
-
-            [[nodiscard]] static std::partial_ordering dynamic_delta_bundle_compare(
-                const void *context, const void *lhs, const void *rhs) noexcept
-            {
-                if (const auto order = value_ops_detail::null_order(lhs, rhs)) { return *order; }
-                return dynamic_delta_bundle_equals(context, lhs, rhs) ? std::partial_ordering::equivalent
-                                                                       : std::partial_ordering::unordered;
-            }
-
-            [[nodiscard]] static std::string dynamic_delta_bundle_to_string(const void *context,
-                                                                             const void *memory)
-            {
-                const auto *state = ctx(context);
-                return fmt::format("{{removed: {}, modified: {}}}",
-                                   state->removed_set_binding.ops_ref().to_string(memory),
-                                   state->modified_map_binding.ops_ref().to_string(memory));
-            }
-
-            static void dynamic_delta_bundle_copy_assign_view(const void *context,
-                                                               const ValueTypeRef &binding,
-                                                               void *dst,
-                                                               const void *memory)
-            {
-                if (binding.schema() == nullptr || binding.schema()->value_kind() != ValueTypeKind::Bundle ||
-                    binding.schema()->field_count != 2)
-                {
-                    throw std::logic_error("dynamic TSL delta copy requires canonical Bundle{removed, modified}");
-                }
-                const auto &plan = binding.checked_plan();
-                if (!plan.is_composite() || plan.component_count() < 2)
-                {
-                    throw std::logic_error("dynamic TSL delta copy requires a two-field structured plan");
-                }
-                copy_projected_bundle_fields(
-                    binding, dst, 2,
-                    [&](std::size_t index) {
-                        return dynamic_delta_bundle_element_binding(context, memory, index);
-                    },
-                    [&](std::size_t index) {
-                        return dynamic_delta_bundle_element_at(context, memory, index);
-                    });
-            }
-
-            static void dynamic_delta_bundle_copy_construct_view(const void *context,
-                                                                  const ValueTypeRef &binding,
-                                                                  void *dst,
-                                                                  const void *memory)
-            {
-                const auto &plan = binding.checked_plan();
-                plan.default_construct(dst);
-                auto rollback = make_scope_exit([&]() noexcept { plan.destroy(dst); });
-                dynamic_delta_bundle_copy_assign_view(context, binding, dst, memory);
-                rollback.release();
-            }
-
+            const std::int64_t &index_key(const void *m,std::size_t i) const { return storage(m).ordinal_key(i); }
+            const std::int64_t *changed_size(const void *m) const { return storage(m).changed_size(); }
 
             [[nodiscard]] static bool dynamic_copy_value_from(const void *context,
                                                               void *memory,
