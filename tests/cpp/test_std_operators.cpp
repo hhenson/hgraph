@@ -4804,7 +4804,10 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
     CHECK_OUTPUT(eval_node<stdlib::to_window>(values<Int>(1, 2, 3, 4, 5), MIN_TD * 2),
                  values<Value>(window_delta<Int>(1), window_delta<Int>(2), window_delta<Int>(3),
                                window_delta<Int>(4, {{1, MIN_ST}}),
-                               window_delta<Int>(5, {{2, MIN_ST + MIN_TD}})));
+                               window_delta<Int>(5, {{2, MIN_ST + MIN_TD}}),
+                               window_delta<Int>(std::nullopt, {{3, MIN_ST + 2 * MIN_TD}}),
+                               window_delta<Int>(std::nullopt, {{4, MIN_ST + 3 * MIN_TD}}),
+                               window_delta<Int>(std::nullopt, {{5, MIN_ST + 4 * MIN_TD}})));
     CHECK_THROWS_WITH(
         (eval_node<stdlib::to_window>(values<Int>(1), Int{0})),
         Catch::Matchers::ContainsSubstring("to_window: period must be positive"));
@@ -4818,7 +4821,7 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
     CHECK_OUTPUT(eval_node<SumOfAbsoluteWindow>(values<Int>(-3, -4, none, none, none, -5),
                                                 values<Bool>(none, none, none, true, none, none)),
                  values<Int>(3, 7, none, 4, none, 5));
-    CHECK_OUTPUT(eval_node<DurationReadinessGraph<true>>(values<Int>(2, 4, 6)), values<Float>(2., 3., 4.));
+    CHECK_OUTPUT(eval_node<DurationReadinessGraph<true>>(values<Int>(2, 4, 6)), values<Float>(2., 3., 4., 5., 6.));
     CHECK_OUTPUT(eval_node<DurationReadinessGraph<false>>(values<Int>(2, 4, 6)), values<Float>(none, none, 4.));
     CHECK_THROWS_WITH(
         (eval_node<stdlib::to_window>(values<Int>(1), MIN_TD * 2, -MIN_TD)),
@@ -4837,10 +4840,13 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
                      values<Int>(1, 2, 3),
                      values<Bool>(none, true, none)),
                  values<Int>(101, 102, 205));
+    auto reset_history = values<Int>(101, 203, 0, 103);
+    // The sample at t3 remains through t13. The cleared samples have no outstanding departures.
+    reset_history.resize(14);
+    reset_history.emplace_back(0);
     CHECK_OUTPUT(eval_node<ResettableDurationWindowGraph>(
                      values<Int>(1, 2, none, 3),
-                     values<Bool>(none, none, true, none)),
-                 values<Int>(101, 203, 0, 103));
+                     values<Bool>(none, none, true, none)), reset_history);
     CHECK_OUTPUT(eval_node<stdlib::dedup>(values<Int>(1, 2, 2, 3, 3, 3, 4)),
                  values<Int>(1, 2, none, 3, none, none, 4));
     CHECK_OUTPUT((eval_node<stdlib::dedup, TSS<Int>>(

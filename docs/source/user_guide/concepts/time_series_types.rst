@@ -375,15 +375,22 @@ Reading a window change
 -----------------------
 
 A window holds its samples oldest first. A count window rolls when it is
-full. A duration window drops samples older than its period when it receives
-a value. A sample exactly one period old still belongs to the window.
+full. A live duration window publishes a removal when its oldest sample first
+exceeds its period, even while the producer is silent. For a period of three
+microseconds, a sample arriving at offset zero is still present at three and
+leaves at four. An arrival at four shares that publication. Empty windows
+contribute no deadline. Windows replayed from recordings keep their original
+publication times. Sampling a complete window preserves the original times of
+its retained observations. A delayed removal likewise identifies the sample
+by its original time.
+
 For a duration minimum of zero the first sample is fully ready. Omitting
 the minimum requires the retained timestamps to span the whole period.
 
 Inside a Python node, ``window.window_delta`` exposes the change for the
-current evaluation. For example, if two observations of 7 arrived one
-microsecond apart and both leave when 9 arrives, the change contains
-``added=[9]`` and two ``removed`` samples. Each has ``value=7`` and its own
+current evaluation. For example, if two observations of 7 were assigned the same
+timestamp and both leave when 9 arrives, the change contains
+``added=[9]`` and two ``removed`` samples. Each has ``value=7`` and its
 original ``time``. An explicit reset sets ``cleared`` even if nothing was held.
 A whole-window assignment supplies ``replacement`` with the complete ordered
 sequence of timestamped samples. On an idle cycle ``window_delta`` is
@@ -400,5 +407,13 @@ A Python owner can publish a whole window with
 every replacement sample at the current evaluation. Assigning one element
 to ``_output.value`` appends it, including when that element is a sequence.
 A duration-window owner can explicitly call ``_output.expire()``. It
-returns true if any samples left and allows a subsequent append in the same
-evaluation.
+returns true if that call removes a sample. When the root has already
+processed a departure at the same time, the owner can still append or
+reset the window. Readers observe the resulting change once.
+
+A direct window output, a bundle field, or a fixed-list position uses the
+shared service, including when its producer runs in a nested graph.
+Operators such as ``lag`` and ``take`` that control the publication of
+captured changes follow their own event stream. A sample delayed by
+``lag`` keeps its source timestamp in the removal event. Window children
+created inside dynamic lists and dictionaries have a later lifecycle stage.

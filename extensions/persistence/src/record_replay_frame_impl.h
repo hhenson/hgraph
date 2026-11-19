@@ -561,6 +561,7 @@ namespace hgraph::persistence
     struct replay_frame_impl
     {
         static constexpr auto name = "replay";
+        static constexpr bool replays_output_events = true;
 
         static auto defaults()
         {
@@ -809,6 +810,7 @@ namespace hgraph::persistence
     struct replay_const_impl
     {
         static constexpr auto name = "replay_const";
+        static constexpr bool replays_output_events = true;
         static constexpr bool schedule_on_start = true;
 
         static auto defaults()

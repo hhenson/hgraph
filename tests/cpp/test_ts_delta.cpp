@@ -1072,6 +1072,61 @@ TEST_CASE("ts_delta: legacy window arrivals capture as canonical deltas") {
                {window_delta<Int>(1), window_delta<Int>(2), window_delta<Int>(3, {{1, MIN_ST}})});
 }
 
+TEST_CASE("captured duration change and local expiry drop their common prefix once") {
+  const auto *schema = schema_descriptor<TSWDuration<Int, 2, 0>>::ts_meta();
+  TSOutput output{schema};
+  const auto now = MIN_ST + 3 * MIN_TD;
+  apply_delta(output.view(MIN_ST), window_delta<Int>(7).view());
+  apply_delta(output.view(MIN_ST + MIN_TD), window_delta<Int>(8).view());
+  auto data = output.data_view();
+  auto window = data.as_window();
+  REQUIRE(window.begin_mutation(now).expire());
+
+  SECTION("the captured prefix includes the already expired sample") {
+    const auto change = window_delta<Int>(9, {{7, MIN_ST}, {8, MIN_ST + MIN_TD}});
+    apply_delta(output.view(now), change.view());
+    CHECK(capture_window_delta(window, now).equals(change));
+    REQUIRE(window.size() == 1);
+    CHECK(window.at(0).checked_as<Int>() == 9);
+  }
+  SECTION("an arrival-only change retains the local removal") {
+    apply_delta(output.view(now), window_delta<Int>(9).view());
+    CHECK(capture_window_delta(window, now).equals(window_delta<Int>(9, {{7, MIN_ST}})));
+    REQUIRE(window.size() == 2);
+    CHECK(window.at(0).checked_as<Int>() == 8);
+  }
+}
+
+TEST_CASE("an authoritative removal consumes the window's one replay write") {
+  const auto *schema = schema_descriptor<TSWDuration<Int, 2, 0>>::ts_meta();
+  TSOutput output{schema};
+  apply_delta(output.view(MIN_ST), window_delta<Int>(7).view());
+  const auto now = MIN_ST + MIN_TD;
+  const auto removal = window_delta<Int>(std::nullopt, {{7, MIN_ST}});
+  apply_delta(output.view(now), removal.view());
+  CHECK_THROWS_AS(apply_delta(output.view(now), removal.view()), std::logic_error);
+  auto data = output.data_view();
+  auto window = data.as_window();
+  ListBuilder empty{ValuePlanFactory::instance().type_for(schema->value_type)};
+  CHECK_THROWS_AS(window.begin_mutation(now).replace_samples(empty.build().view(), {}), std::logic_error);
+  CHECK(capture_window_delta(window, now).equals(removal));
+}
+
+TEST_CASE("duration window deadlines saturate at the runtime time limit") {
+  const auto *schema = schema_descriptor<TSWDuration<Int, 2, 0>>::ts_meta();
+  TSOutput output{schema};
+  auto data = output.data_view();
+  auto window = data.as_window();
+  CHECK(window.next_expiry_time() == MAX_DT);
+  const auto arrival = MAX_ET - 3 * MIN_TD;
+  window.begin_mutation(arrival).push(Value{Int{7}}.view());
+  CHECK(window.next_expiry_time() == MAX_ET);
+  auto last = window.begin_mutation(MAX_ET);
+  REQUIRE(last.expire());
+  last.push(Value{Int{8}}.view());
+  CHECK(window.next_expiry_time() == MAX_DT);
+}
+
 TEST_CASE("ts_delta: clear and mixed window edits survive codec and delayed apply") {
   const auto *schema = schema_descriptor<TSWDuration<Int, 2, 0>>::ts_meta();
   TSOutput source{schema}, target{schema};

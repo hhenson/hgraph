@@ -923,7 +923,7 @@ def test_to_window_delta_min_period():
 
 def test_to_window_delta_td():
     result = eval_node(to_window[SCALAR:int], [1, 2, 3, 4, 5], MIN_TD * 2)
-    assert result == [1, 2, 3, 4, 5]
+    assert result == [1, 2, 3, 4, 5, None, None, None]
 
 
 def test_to_window_value():

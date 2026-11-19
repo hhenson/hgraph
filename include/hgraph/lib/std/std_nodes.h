@@ -27,6 +27,7 @@ namespace hgraph::stdlib
     struct pass_through_node
     {
         static constexpr auto name = "pass_through_node";
+        static constexpr bool replays_output_events = true;
 
         static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"S">> out)
         {

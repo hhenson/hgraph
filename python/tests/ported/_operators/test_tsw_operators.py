@@ -81,7 +81,7 @@ def test_tsw_min_time_period_with_default():
         window = to_window(ts, MIN_TD * 2)
         return min_(window, default_value=99)
 
-    assert eval_node(g, [1, 2, 3, 4]) == [99, 99, 1, 2]
+    assert eval_node(g, [1, 2, 3, 4]) == [99, 99, 1, 2, 99, 99, 99]
 
 
 def test_tsw_max():
@@ -99,4 +99,4 @@ def test_tsw_max_time_period_with_default():
         window = to_window(ts, MIN_TD * 2)
         return max_(window, default_value=99)
 
-    assert eval_node(g, [1, 2, 3, 4]) == [99, 99, 3, 4]
+    assert eval_node(g, [1, 2, 3, 4]) == [99, 99, 3, 4, 99, 99, 99]

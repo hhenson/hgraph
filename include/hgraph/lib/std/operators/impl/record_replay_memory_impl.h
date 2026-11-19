@@ -288,6 +288,7 @@ namespace hgraph::stdlib
     struct replay_impl
     {
         static constexpr auto name = "replay_in_memory";
+        static constexpr bool replays_output_events = true;
         static constexpr bool schedule_on_start = true;
 
         /** Selected under BOTH in-memory backends (replay serves both). */

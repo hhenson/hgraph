@@ -1657,6 +1657,7 @@ struct op_py_generator
                Scalar<"stop_scalars", ScalarVar<"XSV">>, Out<TsVar<"O">>> {};
 struct harness_replay {
   static constexpr auto name = "__harness_replay";
+  static constexpr bool replays_output_events = stdlib::replay_impl::replays_output_events;
   static constexpr bool schedule_on_start = true;
 
   // The eval_node harness always replays a seeded plain-key (dense) buffer;

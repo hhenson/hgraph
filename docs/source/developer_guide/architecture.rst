@@ -60,6 +60,20 @@ binding.  That explicit binding is what lets distinct runs proceed on distinct
 threads.  The graph never borrows the Python seed and there is no alternate
 external-state path in ``GraphBuilder`` or the runtime.
 
+Duration-window deadlines belong to one root execution. The root global state
+holds the expiry service in a private typed field alongside the configuration
+map. The first owned duration window creates it before its producer starts.
+Nested owners retain a weak reference to that same service. A graph without
+eligible windows allocates no expiry service, subscription or deadline queue.
+Stopping the root releases the service.
+
+For example, start two roots ten microseconds apart and push one sample into a
+two-microsecond window in each at startup. The roots report their own next
+deadlines at offsets 3 and 13 from the first start. Copying the public
+configuration between the running roots copies only user values. Expiring
+or stopping the first root leaves the second window live until offset 13.
+The private field is also outside checkpoint images and Python enumeration.
+
 Prepared global entries
 ~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -233,6 +247,7 @@ schedule table:
    flowchart TD
       advance["executor ops: advance evaluation_time<br/>(Simulation jumps; RealTime waits on the wall clock)"]
       drain["drain pending push values into push-source outputs<br/>(real-time root graphs only)"]
+      expiry["root expires due window samples and notifies their readers"]
       scan["graph: scan nodes in rank order"]
       gate{"schedule[node] == evaluation_time?"}
       eval["node eval"]
@@ -242,13 +257,15 @@ schedule table:
       selfsched["NodeScheduler / schedule_on_start<br/>also write the schedule table"]
       next["fold next_scheduled_time (MAX_DT = idle);<br/>executor advances or sleeps until then"]
 
-      advance --> drain --> scan
+      refresh["after callbacks finish, refresh deadlines for touched windows"]
+
+      advance --> drain --> expiry --> scan
       scan --> gate
       gate -- "no" --> scan
       gate -- "yes" --> eval
       eval --> tick --> notify --> sched --> scan
       eval -.-> selfsched
-      scan --> next --> advance
+      scan --> refresh --> next --> advance
 
 Lifecycle Teardown
 ~~~~~~~~~~~~~~~~~~

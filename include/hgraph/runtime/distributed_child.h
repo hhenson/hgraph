@@ -80,6 +80,7 @@ namespace hgraph::distributed
     struct HGRAPH_CLASS_EXPORT boundary_source_impl
     {
         static constexpr auto name = boundary_source_name;
+        static constexpr bool replays_output_events = true;
         static const NodeCheckpointOps &checkpoint_ops() noexcept { return boundary_source_checkpoint_ops(); }
 
         static void eval(Scalar<"slot", Str> slot, TypeArg<"tp", TsVar<"S">, AutoResolve>,
@@ -117,6 +118,7 @@ namespace hgraph::distributed
     struct HGRAPH_CLASS_EXPORT boundary_transfer_source_impl
     {
         static constexpr auto name = boundary_source_name;
+        static constexpr bool replays_output_events = true;
         static const NodeCheckpointOps &checkpoint_ops() noexcept { return boundary_source_checkpoint_ops(); }
         static void eval(Scalar<"slot", Str> slot, Scalar<"transfer", BoundaryTransferPtr> transfer,
                          TypeArg<"tp", TsVar<"S">, AutoResolve>, GlobalStateView gs, Out<TsVar<"S">> out)

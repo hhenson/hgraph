@@ -1,6 +1,7 @@
 #include <hgraph/runtime/node.h>
 
 #include "registry_snapshot_detail.h"
+#include "window_expiry_subscriptions.h"
 
 #include <hgraph/runtime/executor.h>
 #include <hgraph/runtime/graph.h>
@@ -69,7 +70,22 @@ namespace hgraph
 
         inline constexpr std::uint8_t label_field{1};
         inline constexpr std::uint8_t checkpoint_field{2};
-        inline constexpr std::uint8_t both_fields{label_field | checkpoint_field};
+        inline constexpr std::uint8_t replay_field{4};
+        inline constexpr std::uint8_t replay_override_field{8};
+
+        void set_flag(std::uint8_t &fields, std::uint8_t flag, bool enabled) noexcept
+        {
+            if (enabled) { fields |= flag; }
+            else { fields &= static_cast<std::uint8_t>(~flag); }
+        }
+
+        // Moving the builder transfers its diagnostic payload. The source's
+        // byte can still describe the old payload until its next edit.
+        void set_diagnostic_fields(std::uint8_t &fields, bool has_label, bool has_checkpoint) noexcept
+        {
+            set_flag(fields, label_field, has_label);
+            set_flag(fields, checkpoint_field, has_checkpoint);
+        }
 
         struct LabelMetadata final : NodeRuntimeMetadata
         {
@@ -98,7 +114,7 @@ namespace hgraph
             const NodeRuntimeMetadata *metadata, std::uint8_t fields) noexcept
         {
             if (!metadata || (fields & label_field) == 0) { return empty_label; }
-            return fields == label_field ? static_cast<const LabelMetadata &>(*metadata).label
+            return (fields & checkpoint_field) == 0 ? static_cast<const LabelMetadata &>(*metadata).label
                                          : static_cast<const CompleteMetadata &>(*metadata).label;
         }
 
@@ -106,7 +122,7 @@ namespace hgraph
             const NodeRuntimeMetadata *metadata, std::uint8_t fields) noexcept
         {
             if (!metadata || (fields & checkpoint_field) == 0) { return empty_checkpoint_identity; }
-            return fields == checkpoint_field ? static_cast<const CheckpointMetadata &>(*metadata).identity
+            return (fields & label_field) == 0 ? static_cast<const CheckpointMetadata &>(*metadata).identity
                                               : static_cast<const CompleteMetadata &>(*metadata).identity;
         }
 
@@ -117,7 +133,7 @@ namespace hgraph
             const std::shared_ptr<NodeRuntimeMetadata> &metadata, std::uint8_t fields) noexcept
         {
             assert(metadata.use_count() == 1 && (fields & label_field) != 0);
-            return fields == label_field ? static_cast<LabelMetadata &>(*metadata).label
+            return (fields & checkpoint_field) == 0 ? static_cast<LabelMetadata &>(*metadata).label
                                          : static_cast<CompleteMetadata &>(*metadata).label;
         }
 
@@ -125,7 +141,7 @@ namespace hgraph
             const std::shared_ptr<NodeRuntimeMetadata> &metadata, std::uint8_t fields) noexcept
         {
             assert(metadata.use_count() == 1 && (fields & checkpoint_field) != 0);
-            return fields == checkpoint_field ? static_cast<CheckpointMetadata &>(*metadata).identity
+            return (fields & label_field) == 0 ? static_cast<CheckpointMetadata &>(*metadata).identity
                                               : static_cast<CompleteMetadata &>(*metadata).identity;
         }
 
@@ -2053,22 +2069,55 @@ namespace hgraph
         }
     }
 
+    bool node_replays_output_events(const NodeView &node) noexcept
+    {
+        // GraphBuilder constructs each of its nodes with this native storage.
+        const auto &storage = node_storage(runtime_context(node.type().ops_ref().context), node.data());
+        return (storage.metadata_fields & node_runtime_detail::replay_field) != 0;
+    }
+
+    NodeBuilder &NodeBuilder::replays_output_events(bool enabled) noexcept
+    {
+        node_runtime_detail::set_flag(metadata_fields_, node_runtime_detail::replay_field, enabled);
+        metadata_fields_ |= node_runtime_detail::replay_override_field;
+        return *this;
+    }
+
+    bool NodeBuilder::replays_output_events() const noexcept
+    {
+        return (metadata_fields_ & node_runtime_detail::replay_field) != 0;
+    }
+
+    NodeBuilder &NodeBuilder::replace_implementation(NodeBuilder replacement, bool replays_by_default)
+    {
+        replacement.metadata_ = std::move(metadata_);
+        replacement.metadata_fields_ = metadata_fields_;
+        if ((metadata_fields_ & node_runtime_detail::replay_override_field) == 0)
+        {
+            node_runtime_detail::set_flag(replacement.metadata_fields_, node_runtime_detail::replay_field, replays_by_default);
+        }
+        replacement.scalars_ = std::move(scalars_);
+        replacement.output_value_storage_ = output_value_storage_;
+        *this = std::move(replacement);
+        return *this;
+    }
+
     NodeBuilder &NodeBuilder::label(std::string label)
     {
         using namespace node_runtime_detail;
         if (label == this->label()) { return *this; }
+        const bool has_label = !label.empty();
         const bool has_checkpoint = metadata_ && (metadata_fields_ & checkpoint_field) != 0;
         const bool exclusive = metadata_.use_count() == 1;
-        if (label.empty())
+        if (!has_label)
         {
             if (has_checkpoint)
             {
                 metadata_ = exclusive
                     ? std::make_shared<CheckpointMetadata>(std::move(exclusive_identity(metadata_, metadata_fields_)))
                     : std::make_shared<CheckpointMetadata>(checkpoint_identity());
-                metadata_fields_ = checkpoint_field;
             }
-            else { metadata_.reset(); metadata_fields_ = 0; }
+            else { metadata_.reset(); }
         }
         else if (exclusive && (metadata_fields_ & label_field) != 0)
         {
@@ -2079,13 +2128,12 @@ namespace hgraph
             metadata_ = exclusive
                 ? std::make_shared<CompleteMetadata>(std::move(label), std::move(exclusive_identity(metadata_, metadata_fields_)))
                 : std::make_shared<CompleteMetadata>(std::move(label), checkpoint_identity());
-            metadata_fields_ = both_fields;
         }
         else
         {
             metadata_ = std::make_shared<LabelMetadata>(std::move(label));
-            metadata_fields_ = label_field;
         }
+        set_diagnostic_fields(metadata_fields_, has_label, has_checkpoint);
         return *this;
     }
 
@@ -2097,9 +2145,10 @@ namespace hgraph
     NodeBuilder &NodeBuilder::checkpoint_identity(NodeCheckpointIdentity identity)
     {
         using namespace node_runtime_detail;
+        const bool has_checkpoint = !empty_identity(identity);
         const bool has_label = metadata_ && (metadata_fields_ & label_field) != 0;
         const bool exclusive = metadata_.use_count() == 1;
-        if (empty_identity(identity))
+        if (!has_checkpoint)
         {
             if (has_label)
             {
@@ -2107,9 +2156,8 @@ namespace hgraph
                 metadata_ = exclusive
                     ? std::make_shared<LabelMetadata>(std::move(exclusive_label(metadata_, metadata_fields_)))
                     : std::make_shared<LabelMetadata>(std::string{label()});
-                metadata_fields_ = label_field;
             }
-            else { metadata_.reset(); metadata_fields_ = 0; }
+            else { metadata_.reset(); }
         }
         else if (exclusive && (metadata_fields_ & checkpoint_field) != 0)
         {
@@ -2120,13 +2168,12 @@ namespace hgraph
             metadata_ = exclusive
                 ? std::make_shared<CompleteMetadata>(std::move(exclusive_label(metadata_, metadata_fields_)), std::move(identity))
                 : std::make_shared<CompleteMetadata>(std::string{label()}, std::move(identity));
-            metadata_fields_ = both_fields;
         }
         else
         {
             metadata_ = std::make_shared<CheckpointMetadata>(std::move(identity));
-            metadata_fields_ = checkpoint_field;
         }
+        set_diagnostic_fields(metadata_fields_, has_label, has_checkpoint);
         return *this;
     }
 

@@ -75,6 +75,9 @@ namespace hgraph
 
         /** Time associated with the oldest element, or ``MIN_DT`` when empty. */
         [[nodiscard]] DateTime first_modified_time() const;
+        /** First representable time outside the oldest sample's closed duration span.
+            Empty, fixed-count and out-of-range deadlines return MAX_DT. */
+        [[nodiscard]] DateTime next_expiry_time() const;
 
         /** Time metadata and value access by oldest-to-newest index. */
         [[nodiscard]] DateTime time_at(std::size_t index) const;

@@ -866,6 +866,7 @@ namespace hgraph::distributed
     struct dmap_impl
     {
         static constexpr auto name = "dmap_";
+        static constexpr bool replays_output_events = true;
 
         static auto defaults()
         {

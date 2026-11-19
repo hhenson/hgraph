@@ -523,6 +523,11 @@ namespace hgraph
         template <typename TImplementation>
         NodeBuilder &implementation(const ResolutionMap &resolution);
 
+        /** Override whether this instance reproduces upstream window events.
+         * A replay owns its emitted history; its source supplies departure events. */
+        NodeBuilder &replays_output_events(bool enabled) noexcept;
+        [[nodiscard]] bool replays_output_events() const noexcept;
+
         NodeBuilder &label(std::string label);
         [[nodiscard]] std::string_view label() const noexcept;
         NodeBuilder &checkpoint_identity(NodeCheckpointIdentity identity);
@@ -605,6 +610,7 @@ namespace hgraph
                              TSEndpointSchema input_endpoint);
         NodeBuilder(NodeTypeRef type, TSEndpointSchema input_endpoint);
         void refresh_input_builder();
+        NodeBuilder &replace_implementation(NodeBuilder replacement, bool replays_by_default);
 
         NodeTypeRef            type_{};
         TSEndpointSchema       input_endpoint_{};
@@ -612,8 +618,8 @@ namespace hgraph
         TSEndpointSchema       output_endpoint_{};
         ValueStorageVariant    output_value_storage_{
             ValueStorageVariant::Native};
-        // Semantic field presence selects the cold snapshot payload. The tag
-        // fits beside the storage policy; no payload selection occurs per tick.
+        // Diagnostic field presence and per-instance output policy. This byte
+        // is initialized by every builder, including those compiled by older SDKs.
         std::uint8_t           metadata_fields_{0};
         // Runtime instances and builder copies share immutable diagnostics.
         // Setters detach shared snapshots and may edit builder-exclusive ones.

@@ -300,19 +300,19 @@ TSData implementation families
     ops project directly over the window storage instead of
     materialising a compact immutable value-layer ``ListStorage``.
 
-    Validity is minimum-gated for BOTH models: a tick window is TS-valid
-    only once it holds ``min_period`` elements, and a duration window
-    only once its span reaches ``min_time_range`` (with the unset
-    minimum defaulting to the full period — hgraph's rule). The delta
-    stream flows pre-validity for tick windows (the harness records
-    those ticks); duration windows stay silent below their span. Each
-    push also stashes the element it evicts (a full tick window rolling,
-    or the span drop) with its eviction time. Data-level
-    ``has_removed_value(evaluation_time)`` and
-    ``removed_value(evaluation_time)`` require the queried cycle explicitly;
-    input endpoint and Python ``TimeSeries`` conveniences supply their current
-    evaluation time. A later no-tick cycle cannot observe retained eviction
-    storage.
+    The first arrival or explicit clear makes a window valid. Full readiness
+    requires a nonempty window meeting its count or elapsed-span minimum.
+    A live duration owner at a fixed output path publishes due departures
+    during source silence. Tick-count owners roll on overflow. Both expose
+    every removed sample in order, with its original time. The singular
+    compatibility accessor reports the most recent eviction on its producing
+    cycle.
+
+    A single delayed event carries its original removal timestamps. When a
+    temporal operator releases several window events on the same tick, it
+    applies them to retained window history at their source times and emits
+    one timestamped replacement. This also handles a burst whose final state
+    is empty. A full replacement copies the retained samples once at release.
 
     Dynamic ``TSL`` and both window models use distinct canonical ABI-2
     records for Data, Input, and Output roles while sharing one physical plan

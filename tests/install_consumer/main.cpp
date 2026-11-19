@@ -404,6 +404,30 @@ struct ConsumerDistributedGraph {
         return wire<ConsumerReadKey>(w, result);
     }
 };
+using ConsumerDuration = TSWDuration<Int, 2, 0>;
+using ConsumerWindows = TSB<"ConsumerWindows", Field<"prices", ConsumerDuration>>;
+
+struct ConsumerWindowOwner {
+    static void eval(In<"sample", TS<Int>> input, Out<ConsumerWindows> out) {
+        out.field<"prices">().begin_mutation(out.evaluation_time()).push(input.base().value());
+    }
+};
+struct ConsumerWindowSize {
+    static void eval(In<"windows", ConsumerWindows> input, Out<TS<Int>> out) {
+        out.set(static_cast<Int>(input.field<"prices">().size()));
+    }
+};
+struct ConsumerWindowGraph {
+    static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> input) {
+        return wire<ConsumerWindowSize>(w, wire<ConsumerWindowOwner>(w, input));
+    }
+};
+void check_scheduled_window() {
+    const auto result = testing::eval_node<ConsumerWindowGraph>(std::vector<std::optional<Int>>{41});
+    if (result != std::vector<std::optional<Int>>{1, std::nullopt, std::nullopt, 0})
+        throw std::runtime_error("installed SDK window field missed its quiet departure");
+}
+
 struct ConsumerMixedState {
     static void start(State<Int> cache, RecordableState<TS<Int>> state) {
         if (!state.valid()) { state.set(Int{0}); }
@@ -878,6 +902,7 @@ int main(int argc, char **argv)
 
     check_typed_outcome();
     check_mixed_state();
+    check_scheduled_window();
     check_optional();
     check_distributed_client();
     check_probe_backend_round_trip();

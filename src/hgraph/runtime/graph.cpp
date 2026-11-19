@@ -1,7 +1,9 @@
 #include <hgraph/runtime/graph.h>
 
 #include "../types/time_series/ts_data/ownership.h"
+#include "window_expiry_subscriptions.h"
 #include "registry_snapshot_detail.h"
+#include "window_expiry_service.h"
 
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
@@ -183,6 +185,7 @@ struct GraphRuntimeBaseStorage {
   // short-lived nested graph would allocate even though trait lookup simply
   // bubbles to the parent.
   std::optional<GlobalState> traits{};
+  std::unique_ptr<WindowExpirySubscriptions> window_subscriptions{};
   /** The executor-owned lifecycle observer list, cached once at construction
       (root: from the root executor; nested: one hop to the parent graph's own
       cached pointer) so the hot path never walks the nested-parent chain. */
@@ -204,6 +207,13 @@ struct GraphRuntimeContext;
 /** Which engine queue currently holds a root's retired-graph expiry callback. */
 enum class RetiredExpiryQueue : std::uint8_t { None, After, Before };
 
+// Configuration is copied into and out of an execution. Runtime-only root
+// references use typed slots alongside it and never enter that value map.
+struct RootGraphGlobalState {
+  GlobalState configuration{};
+  std::shared_ptr<WindowExpiryService> window_expiry{};
+};
+
 struct RootGraphRuntimeStorage : GraphRuntimeBaseStorage {
   RootGraphRuntimeStorage() = default;
   ~RootGraphRuntimeStorage();
@@ -212,7 +222,7 @@ struct RootGraphRuntimeStorage : GraphRuntimeBaseStorage {
     return GraphExecutorView{root_executor_ptr};
   }
 
-  GlobalState global_state{};
+  RootGraphGlobalState global_state{};
   ExecutorPtr root_executor_ptr{};
   /** Nested graphs stopped under this root whose TS-23 expiry is still
       pending: an intrusive list through their own headers, so a stop
@@ -294,6 +304,7 @@ struct GraphRuntimeStorageLayout {
 struct GraphRuntimeContext {
   GraphRuntimeStorageLayout layout{};
   std::vector<GraphNodeRuntimeLocation> node_locations{};
+  std::vector<WindowExpiryPath> window_expiry_paths{};
   std::vector<GraphEdge>                                   initial_reference_edges{};
   std::vector<std::pair<std::size_t, GraphEdgeSourceKind>> owned_outputs{};
 };
@@ -365,6 +376,7 @@ graph_storage_plan_for(const std::vector<NodeBuilder> &nodes) {
             .type   = node_type,
             .offset = node_storage.offset + node_component.offset,
         });
+        plan_window_expiry(context.window_expiry_paths, node_builders[index], index);
         const auto *schema = node_builders[index].type().schema();
         if (schema->output_schema != nullptr) { context.owned_outputs.emplace_back(index, GraphEdgeSourceKind::Output); }
         if (schema->error_output_schema != nullptr) { context.owned_outputs.emplace_back(index, GraphEdgeSourceKind::ErrorOutput); }
@@ -745,8 +757,13 @@ DateTime evaluation_time_impl(const void *context,
 template <typename Storage>
 DateTime next_scheduled_time_impl(const void *context,
                                   const void *memory) noexcept {
-  return graph_header<Storage>(graph_context(context), memory)
-      .next_scheduled_time;
+  const auto &state = graph_header<Storage>(graph_context(context), memory);
+  if constexpr (std::is_same_v<Storage, RootGraphRuntimeStorage>) {
+    if (state.global_state.window_expiry) {
+      return std::min(state.next_scheduled_time, state.global_state.window_expiry->next_time(state.evaluation_time));
+    }
+  }
+  return state.next_scheduled_time;
 }
 
 template <typename Storage>
@@ -810,7 +827,7 @@ ValueView graph_trait_impl(const void *context, void *memory,
 
 GlobalStateView root_global_state_impl(const void *context, void *memory) {
   return graph_header<RootGraphRuntimeStorage>(graph_context(context), memory)
-      .global_state.view();
+      .global_state.configuration.view();
 }
 
 GlobalStateView nested_global_state_impl(const void *context, void *memory) {
@@ -1026,6 +1043,11 @@ void start_impl(const void *context, const GraphView &graph,
   state.starting = true;
   auto clear_starting = make_scope_exit([&] noexcept { state.starting = false; });
 
+  auto release_window_expiry_on_failure = UnwindCleanupGuard([&] {
+    if constexpr (std::is_same_v<Storage, RootGraphRuntimeStorage>) {
+      state.global_state.window_expiry.reset();
+    }
+  });
   auto graph_start_failed = UnwindCleanupGuard(
       [&] { state.lifecycle_observers->notify_start_graph_failed(graph); });
   state.lifecycle_observers->notify_before_start_graph(graph);
@@ -1043,6 +1065,8 @@ void start_impl(const void *context, const GraphView &graph,
       auto target = input_at_path(graph_node_view(runtime, graph.data(), edge.target_node).input(start_time), edge.target_path);
       target.bind_output_sampled(source, start_time);
   }
+  state.window_subscriptions = attach_window_expiry(graph, runtime.window_expiry_paths, start_time);
+  auto detach_windows_on_failure = UnwindCleanupGuard([&] { state.window_subscriptions.reset(); });
   std::size_t started_nodes = 0;
   auto rollback = UnwindCleanupGuard([&] {
     for (std::size_t index = started_nodes; index > 0; --index) {
@@ -1123,8 +1147,13 @@ void start_impl(const void *context, const GraphView &graph,
     }
   }
   state.started = true;
-  rollback.release();
   state.lifecycle_observers->notify_after_start_graph(graph);
+  if constexpr (std::is_same_v<Storage, RootGraphRuntimeStorage>) {
+    if (auto source = state.global_state.window_expiry) { source->refresh(); }
+  }
+  rollback.release();
+  detach_windows_on_failure.release();
+  release_window_expiry_on_failure.release();
   graph_start_failed.release();
 }
 
@@ -1146,6 +1175,7 @@ void stop_impl(const void *context, const GraphView &graph,
   auto graph_stop_failed = UnwindCleanupGuard(
       [&] { state.lifecycle_observers->notify_stop_graph_failed(graph); });
   state.lifecycle_observers->notify_before_stop_graph(graph);
+  state.window_subscriptions.reset();
 
   FirstExceptionRecorder exceptions;
   for (std::size_t index = runtime.layout.node_count; index > 0; --index) {
@@ -1210,6 +1240,9 @@ void stop_impl(const void *context, const GraphView &graph,
               root_state.retired_expiry_queue = RetiredExpiryQueue::After;
           }
       }
+  }
+  if constexpr (std::is_same_v<Storage, RootGraphRuntimeStorage>) {
+    state.global_state.window_expiry.reset();
   }
   if (exceptions.has_exception()) {
     state.lifecycle_observers->notify_stop_graph_failed(graph);
@@ -1282,7 +1315,7 @@ type_realization_impl(const void *context, const void *memory) noexcept {
 }
 
 template <typename Storage>
-bool evaluate_impl(const void *context, const GraphView &graph,
+bool evaluate_nodes(const void *context, const GraphView &graph,
                    DateTime evaluation_time) {
   const auto &runtime = graph_context(context);
   auto &state = graph_header<Storage>(runtime, graph.data());
@@ -1364,6 +1397,9 @@ bool evaluate_impl(const void *context, const GraphView &graph,
               graph);
         }
       }
+      // This root-owned pull source occupies the first normal rank. Its due
+      // nested consumers can still schedule their owning hosts in this cycle.
+      if (auto source = state.global_state.window_expiry) { source->evaluate(evaluation_time); }
     }
     state.evaluation_cursor = first_normal_node;
   }
@@ -1416,6 +1452,12 @@ bool evaluate_impl(const void *context, const GraphView &graph,
         graph_header<NestedGraphRuntimeStorage>(runtime, graph.data()));
   }
   return true;
+}
+
+bool evaluate_root_impl(const void *context, const GraphView &root, DateTime now) {
+  const bool completed = evaluate_nodes<RootGraphRuntimeStorage>(context, root, now);
+  if (completed) { finish_root_window_expiry(root, now); }
+  return completed;
 }
 
 struct GraphRuntimeRegistry {
@@ -1561,7 +1603,7 @@ struct GraphRuntimeRegistry {
         .attach_nodes_impl = &attach_nodes_impl<RootGraphRuntimeStorage>,
         .start_impl = &start_impl<RootGraphRuntimeStorage>,
         .stop_impl = &stop_impl<RootGraphRuntimeStorage>,
-        .evaluate_impl = &evaluate_impl<RootGraphRuntimeStorage>,
+        .evaluate_impl = &evaluate_root_impl,
         .schedule_node_impl = &schedule_node_impl<RootGraphRuntimeStorage>,
         .started_impl = &started_impl<RootGraphRuntimeStorage>,
         .starting_impl = &starting_impl<RootGraphRuntimeStorage>,
@@ -1598,7 +1640,7 @@ struct GraphRuntimeRegistry {
         .attach_nodes_impl = &attach_nodes_impl<NestedGraphRuntimeStorage>,
         .start_impl = &start_impl<NestedGraphRuntimeStorage>,
         .stop_impl = &stop_impl<NestedGraphRuntimeStorage>,
-        .evaluate_impl = &evaluate_impl<NestedGraphRuntimeStorage>,
+        .evaluate_impl = &evaluate_nodes<NestedGraphRuntimeStorage>,
         .schedule_node_impl = &nested_schedule_node_impl,
         .started_impl = &started_impl<NestedGraphRuntimeStorage>,
         .starting_impl = &starting_impl<NestedGraphRuntimeStorage>,
@@ -1649,6 +1691,25 @@ GraphRuntimeRegistry &graph_runtime_registry() {
 }
 
 } // namespace
+
+bool evaluate_root_nodes(const GraphView &root, DateTime now) {
+  TypeRealizationScope scope{root.type_realization()};
+  return evaluate_nodes<RootGraphRuntimeStorage>(root.type().ops_ref().context, root, now);
+}
+
+void finish_root_window_expiry(const GraphView &root, DateTime now) {
+  auto &state = graph_header<RootGraphRuntimeStorage>(graph_context(root.type().ops_ref().context), root.data());
+  if (auto source = state.global_state.window_expiry) { source->finish_cycle(now); }
+}
+
+std::weak_ptr<WindowExpiryService> root_window_expiry_service(const GraphView &graph) {
+  const auto root = graph.root();
+  auto &state = graph_header<RootGraphRuntimeStorage>(graph_context(root.type().ops_ref().context), root.data());
+  if (state.stopping) { throw std::logic_error("Cannot attach a duration window to a stopping root"); }
+  auto &source = state.global_state.window_expiry;
+  if (!source) { source = std::make_shared<WindowExpiryService>(); }
+  return source;
+}
 
 namespace {
 void validate_graph_record(const TypeRecord &record) {
@@ -2071,7 +2132,7 @@ GraphValue::GraphValue(const GraphBuilder &builder, ExecutorPtr root_executor) {
             throw std::invalid_argument(
                 "Root graph construction requires a live executor parent");
           }
-          state.global_state = builder.global_state_;
+          state.global_state.configuration = builder.global_state_;
           if (builder.traits_.as_value().view().as_map().size() != 0) {
             state.traits.emplace(builder.traits_);
           }

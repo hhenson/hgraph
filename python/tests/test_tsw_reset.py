@@ -41,7 +41,7 @@ def test_duration_window_supports_the_same_reset_contract():
         _duration_window,
         [1, 2, None, 3],
         [None, None, True, None],
-    ) == [(1,), (1, 2), (), (3,)]
+    ) == [(1,), (1, 2), (), (3,)] + [None] * 10 + [()]
 
 
 @pytest.mark.parametrize(("period", "minimum"), [(0, None), (-1, None), (3, -1), (3, 4)])

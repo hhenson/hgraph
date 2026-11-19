@@ -354,6 +354,28 @@ namespace hgraph
             return kind == TSTypeKind::TSW && data.tsw.is_duration_based;
         }
 
+        /** A window retains observation times in addition to its value sequence.
+            References carry a designation rather than the target's history. */
+        [[nodiscard]] constexpr bool contains_window(bool fixed_duration_only = false) const noexcept
+        {
+            if (kind == TSTypeKind::TSW) { return !fixed_duration_only || is_duration_based(); }
+            if (kind == TSTypeKind::TSL && fixed_size() != 0)
+                return (!fixed_duration_only || !is_unbounded_tsl()) && element_ts()->contains_window(fixed_duration_only);
+            if (kind == TSTypeKind::TSD && !fixed_duration_only) { return element_ts()->contains_window(); }
+            if (kind == TSTypeKind::TSB)
+            {
+                for (std::size_t i = 0; i < field_count(); ++i)
+                    if (fields()[i].type->contains_window(fixed_duration_only)) { return true; }
+            }
+            return false;
+        }
+
+        /** Whether a fixed owned path can reach a duration window. */
+        [[nodiscard]] constexpr bool contains_fixed_duration_window() const noexcept
+        {
+            return contains_window(true);
+        }
+
         /** Tick-count window period; zero for duration-based or non-window kinds. */
         [[nodiscard]] constexpr size_t period() const noexcept
         {
