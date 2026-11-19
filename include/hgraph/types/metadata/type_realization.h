@@ -2,6 +2,7 @@
 #define HGRAPH_TYPES_METADATA_TYPE_REALIZATION_H
 
 #include <hgraph/hgraph_export.h>
+#include <hgraph/types/storage_metrics.h>
 #include <hgraph/types/value/value_type_ref.h>
 
 #include <cstddef>
@@ -66,6 +67,11 @@ namespace hgraph
      * Bundle whose construction must be resolved to a concrete descendant.
      * Later registrations cannot change its alternatives or storage size.
      */
+    namespace detail
+    {
+        struct FromRefDescriptorCache;
+    }
+
     namespace realized_detail
     {
         struct UnionEntryAccess;
@@ -91,12 +97,16 @@ namespace hgraph
         [[nodiscard]] ValueTypeRef graph_type_for(const ValueTypeMetaData *schema) const;
         [[nodiscard]] TypeRealizationInspection
         inspect(const ValueTypeMetaData *schema) const;
+        /** Cold-path size of the root REF adapter descriptors and their index
+            owned by this realization. Endpoint-local storage is reported separately. */
+        [[nodiscard]] DynamicStorageMetrics from_ref_plan_storage_metrics() const;
 
       private:
         struct Impl;
         /** The bridge's realized-value seams reach the closed-Bundle entry
             through this access struct (RFC 0035, ``realized_value_seams.h``). */
         friend struct realized_detail::UnionEntryAccess;
+        friend struct detail::FromRefDescriptorCache;
         explicit TypeRealizationSnapshot(std::shared_ptr<Impl> impl) noexcept;
 
         std::shared_ptr<Impl> impl_;

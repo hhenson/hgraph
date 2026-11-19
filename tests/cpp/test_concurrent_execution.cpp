@@ -6,15 +6,18 @@
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/value.h>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <atomic>
+#include <barrier>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <future>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -227,4 +230,97 @@ TEST_CASE("a node builder publishes one immutable output type record per realiza
     plain.join();
     realized.join();
     CHECK_FALSE(mismatched);
+}
+
+TEST_CASE("concurrent root REF adapters share one descriptor per realization, schema pair and storage mode",
+          "[reference][concurrency]")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *scalar = registry.ts(scalar_descriptor<Int>::value_meta());
+    const auto *xy = registry.tsb("ConcurrentRootRefXY", {{"x", scalar}, {"y", scalar}});
+    const auto *yx = registry.tsb("ConcurrentRootRefYX", {{"y", scalar}, {"x", scalar}});
+    const auto *ref_xy = registry.ref(xy);
+    const auto *ref_yx = registry.ref(yx);
+    const auto *requested_xy = registry.un_named_tsb({{"x", scalar}, {"y", scalar}});
+    const auto *requested_yx = registry.un_named_tsb({{"y", scalar}, {"x", scalar}});
+    const auto snapshot = TypeRealizationSnapshot::capture(registry);
+    const auto other = TypeRealizationSnapshot::capture(registry, {PolymorphicCompoundStoragePolicy::Pooled});
+    REQUIRE(snapshot != other);
+
+    const auto bind = [](const TSValueTypeMetaData *source, const TSValueTypeMetaData *requested) {
+        TSOutput owner{source};
+        return owner.binding_for(owner.view(MIN_ST), *requested).bound();
+    };
+
+    // Both threads create their own endpoints for the same first cache entry.
+    std::barrier start{2};
+    const auto first_binding = [&] {
+        const TypeRealizationScope scope{snapshot.get()};
+        start.arrive_and_wait();
+        return bind(ref_xy, requested_xy);
+    };
+    const auto before = snapshot->from_ref_plan_storage_metrics().live_bytes;
+    const auto other_before = other->from_ref_plan_storage_metrics().live_bytes;
+    auto peer = std::async(std::launch::async, first_binding);
+    CHECK(first_binding());
+    REQUIRE(peer.get());
+
+    const auto first = snapshot->from_ref_plan_storage_metrics();
+    REQUIRE(first.live_bytes > before);
+    CHECK(other->from_ref_plan_storage_metrics().live_bytes == other_before);
+    {
+        const TypeRealizationScope scope{other.get()};
+        REQUIRE(bind(ref_xy, requested_xy));
+        // These two fresh realizations now each own exactly one descriptor,
+        // even though two threads asked for the same one in the first.
+        CHECK(other->from_ref_plan_storage_metrics().live_bytes - other_before == first.live_bytes - before);
+    }
+
+    const TypeRealizationScope scope{snapshot.get()};
+    REQUIRE(bind(ref_xy, requested_xy));
+    CHECK(snapshot->from_ref_plan_storage_metrics().live_bytes == first.live_bytes);
+    CHECK(snapshot->from_ref_plan_storage_metrics().reserved_bytes == first.reserved_bytes);
+
+    REQUIRE(bind(ref_yx, requested_xy));
+    const auto changed_source = snapshot->from_ref_plan_storage_metrics().live_bytes;
+    CHECK(changed_source > first.live_bytes);
+    REQUIRE(bind(ref_xy, requested_yx));
+    const auto changed_request = snapshot->from_ref_plan_storage_metrics().live_bytes;
+    CHECK(changed_request > changed_source);
+    {
+        const GraphValueRealizationScope graph_storage;
+        REQUIRE(bind(ref_xy, requested_xy));
+        CHECK(snapshot->from_ref_plan_storage_metrics().live_bytes > changed_request);
+    }
+}
+
+TEST_CASE("a root REF adapter retains its realization until the owning output releases it",
+          "[reference][lifetime]")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *scalar = registry.ts(scalar_descriptor<Int>::value_meta());
+    const auto *schema = registry.tsb("RootRefLifetime", {{"value", scalar}});
+    const auto *reference = registry.ref(schema);
+    const auto snapshot = TypeRealizationSnapshot::capture(registry);
+    const auto original_owners = snapshot.use_count();
+
+    TSOutput standalone{reference};
+    REQUIRE(standalone.binding_for(standalone.view(MIN_ST), *schema).bound());
+    const auto standalone_storage = standalone.dynamic_storage_metrics();
+    {
+        TSOutput owner{reference};
+        {
+            const TypeRealizationScope scope{snapshot.get()};
+            REQUIRE(owner.binding_for(owner.view(MIN_ST), *schema).bound());
+        }
+        CHECK(snapshot.use_count() > original_owners);
+        // Standalone outputs account for the plan they own. Under a realization
+        // the same plan is charged once to the snapshot.
+        const auto shared_storage = owner.dynamic_storage_metrics();
+        CHECK(shared_storage.live_bytes < standalone_storage.live_bytes);
+        CHECK(shared_storage.reserved_bytes < standalone_storage.reserved_bytes);
+    }
+    // The descriptor index remains populated without keeping its owner alive.
+    CHECK(snapshot->from_ref_plan_storage_metrics().live_bytes > 0);
+    CHECK(snapshot.use_count() == original_owners);
 }

@@ -1,3 +1,4 @@
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/time_series/ts_output.h>
@@ -5,6 +6,7 @@
 #include <hgraph/types/value/value.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <chrono>
@@ -106,6 +108,64 @@ TEST_CASE("REF adapter checkpoint retains alias identity and historical clocks w
     CHECK(observer.notifications == 1);
     CHECK(new_adapter.view(resume).value().checked_as<Int>() == 9);
     new_adapter.data_view().unsubscribe(&observer);
+}
+
+TEST_CASE("root REF bundle adapters preserve their own projection and restored target",
+          "[checkpoint][reference]")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *scalar = registry.ts(scalar_descriptor<Int>::value_meta());
+    const auto *xy = registry.tsb("RootRefXY", {{"x", scalar}, {"y", scalar}});
+    const auto *yx = registry.tsb("RootRefYX", {{"y", scalar}, {"x", scalar}});
+    const auto *requested = registry.un_named_tsb({{"x", scalar}, {"y", scalar}});
+    const auto *ref_xy = registry.ref(xy);
+    const auto *ref_yx = registry.ref(yx);
+    const auto snapshot = TypeRealizationSnapshot::capture(registry);
+    const TypeRealizationScope scope{snapshot.get()};
+    const auto retarget = MIN_ST + MIN_TD;
+    const auto resume = retarget + MIN_TD;
+
+    TSOutput first{xy}, second{yx};
+    write(first.view(MIN_ST).indexed_child_at(0), Value{Int{11}}, MIN_ST);
+    write(first.view(MIN_ST).indexed_child_at(1), Value{Int{12}}, MIN_ST);
+    write(second.view(MIN_ST).indexed_child_at(0), Value{Int{22}}, MIN_ST);
+    write(second.view(MIN_ST).indexed_child_at(1), Value{Int{21}}, MIN_ST);
+
+    const bool assembled = GENERATE(false, true);
+    CAPTURE(assembled);
+    const auto designation = TimeSeriesReference::peered(first.view(MIN_ST));
+    TSOutput surviving{ref_xy};
+    write(surviving.view(MIN_ST), Value{designation}, MIN_ST);
+    auto surviving_adapter = surviving.binding_for(surviving.view(MIN_ST), *requested);
+    {
+        const auto reversed = assembled
+            ? TimeSeriesReference::non_peered(yx, {TimeSeriesReference{second.view(MIN_ST).indexed_child_at(0)},
+                                                   TimeSeriesReference{second.view(MIN_ST).indexed_child_at(1)}})
+            : TimeSeriesReference::peered(second.view(MIN_ST));
+        TSOutput selected{ref_yx};
+        write(selected.view(MIN_ST), Value{reversed}, MIN_ST);
+        auto adapter = selected.binding_for(selected.view(MIN_ST), *requested);
+        CHECK(adapter.view(MIN_ST).indexed_child_at(0).value().checked_as<Int>() == 21);
+        CHECK(adapter.view(MIN_ST).indexed_child_at(1).value().checked_as<Int>() == 22);
+        CHECK(surviving_adapter.view(MIN_ST).indexed_child_at(0).value().checked_as<Int>() == 11);
+        write(selected.view(retarget), Value{TimeSeriesReference::empty(yx)}, retarget);
+        CHECK_FALSE(adapter.view(retarget).valid());
+    }
+    CHECK(surviving_adapter.view(retarget).indexed_child_at(1).value().checked_as<Int>() == 12);
+
+    const auto images = surviving.capture_checkpoint_alternatives();
+    REQUIRE(images.size() == 1);
+    TSOutput restored{ref_xy};
+    auto restored_adapter = restored.checkpoint_binding_for(restored.view(resume), *requested);
+    import_reference(restored, designation, MIN_ST);
+    restored.restore_checkpoint_alternative(restored.view(resume), *requested, images.front().clocks, resume);
+    CHECK_FALSE(restored_adapter.same_as(surviving_adapter));
+    CHECK(restored_adapter.view(resume).indexed_child_at(0).value().checked_as<Int>() == 11);
+    CHECK_FALSE(restored_adapter.view(resume).indexed_child_at(0).modified());
+    write(first.view(resume).indexed_child_at(1), Value{Int{13}}, resume);
+    CHECK(restored_adapter.view(resume).indexed_child_at(1).value().checked_as<Int>() == 13);
+    CHECK(restored_adapter.view(resume).indexed_child_at(1).modified());
+    CHECK_FALSE(restored_adapter.view(resume).indexed_child_at(0).modified());
 }
 
 TEST_CASE("REF adapter checkpoint describes chained adapters and fixed interior cursors", "[checkpoint][reference]")
