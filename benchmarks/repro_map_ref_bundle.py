@@ -43,7 +43,7 @@ def project(value: TS[int]) -> TSB[ReadingPair]:
 def run(keys):
     batch = {n: n for n in range(keys)}
     started = 0
-    elapsed = None
+    durations_ns: list[int] = []
 
     @generator
     def trigger() -> TS[bool]:
@@ -57,23 +57,21 @@ def run(keys):
 
     @sink_node
     def record(result: TSD[int, TSB[ReadingPair]]):
-        nonlocal elapsed
         duration = perf_counter_ns() - started
-        assert elapsed is None
         assert set(result.keys()) == batch.keys()
         for key, pair in result.items():
             expected = tuple(range(key, key + 4))
             for row, values in ((pair.forward, expected), (pair.reverse, expected[::-1])):
                 assert (row.a.value, row.b.value, row.c.value, row.d.value) == values
-        elapsed = duration
+        durations_ns.append(duration)
 
     @graph
     def scenario():
         record(map_(project, publish(trigger())))
 
     run_graph(scenario, start_time=MIN_ST, end_time=MIN_ST + 4 * MIN_TD)
-    assert elapsed is not None
-    return {"keys": keys, "first_tick_ms": elapsed / 1_000_000}
+    assert len(durations_ns) == 1, "expected exactly one published tick"
+    return {"keys": keys, "first_tick_ms": durations_ns[0] / 1_000_000}
 
 
 if __name__ == "__main__":
