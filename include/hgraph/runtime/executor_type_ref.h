@@ -1,6 +1,7 @@
 #ifndef HGRAPH_RUNTIME_EXECUTOR_TYPE_REF_H
 #define HGRAPH_RUNTIME_EXECUTOR_TYPE_REF_H
 
+#include <hgraph/hgraph_export.h>
 #include <hgraph/types/metadata/type_record.h>
 #include <hgraph/types/type_pointer.h>
 
@@ -56,14 +57,14 @@ namespace hgraph
 
         [[nodiscard]] ExecutorPtr typed_null() const noexcept;
         [[nodiscard]] ExecutorPtr read_only(const void *data) const noexcept;
-        [[nodiscard]] ExecutorPtr writable(void *data) const noexcept;
+        [[nodiscard]] HGRAPH_EXPORT ExecutorPtr writable(void *data) const noexcept;
 
         [[nodiscard]] friend constexpr bool operator==(ExecutorTypeRef, ExecutorTypeRef) noexcept = default;
 
       private:
-        friend ExecutorTypeRef intern_executor_type(const GraphExecutorTypeMetaData &,
-                                                    const MemoryUtils::StoragePlan &,
-                                                    const GraphExecutorOps &, std::string_view);
+        friend HGRAPH_EXPORT ExecutorTypeRef intern_executor_type(
+            const GraphExecutorTypeMetaData &, const MemoryUtils::StoragePlan &,
+            const GraphExecutorOps &, std::string_view);
         friend class GraphExecutorView;
         friend class GraphExecutorValue;
         friend class PushQueueEngineView;
@@ -74,10 +75,11 @@ namespace hgraph
     };
 
     [[nodiscard]] TypeCapabilities executor_type_capabilities(const MemoryUtils::StoragePlan &plan);
-    [[nodiscard]] ExecutorTypeRef intern_executor_type(const GraphExecutorTypeMetaData &schema,
-                                                       const MemoryUtils::StoragePlan &plan,
-                                                       const GraphExecutorOps &ops,
-                                                       std::string_view implementation_label = {});
+    [[nodiscard]] HGRAPH_EXPORT ExecutorTypeRef intern_executor_type(
+        const GraphExecutorTypeMetaData &schema,
+        const MemoryUtils::StoragePlan &plan,
+        const GraphExecutorOps &ops,
+        std::string_view implementation_label = {});
 
     static_assert(sizeof(ExecutorTypeRef) == sizeof(void *));
     static_assert(alignof(ExecutorTypeRef) == alignof(void *));
