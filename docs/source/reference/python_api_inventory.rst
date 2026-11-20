@@ -520,14 +520,14 @@ whose curated signatures remain authoritative.
      - ``6 overloads``
      - 6 native overloads; lazy operator
    * - :ref:`last_modified_date <python-operator-last_modified_date>`
-     - ``last_modified_date(ts: SIGNAL) -> TS[date]``
-     - 1 native overload; lazy operator
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - :ref:`last_modified_time <python-operator-last_modified_time>`
-     - ``last_modified_time(ts: SIGNAL) -> TS[datetime]``
-     - 1 native overload; lazy operator
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - :ref:`last_modified_wall_clock_time <python-operator-last_modified_wall_clock_time>`
-     - ``last_modified_wall_clock_time(ts: SIGNAL) -> TS[datetime]``
-     - 1 native overload; lazy operator
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - :ref:`le_ <python-operator-le_>`
      - ``9 overloads``
      - 9 native overloads; lazy operator
