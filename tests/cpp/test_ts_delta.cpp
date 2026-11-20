@@ -1415,7 +1415,7 @@ TEST_CASE("ts_delta: explicit empty sparse patches validate only their target", 
   const auto *scalar = registry.ts(integer);
   const std::vector<const TSValueTypeMetaData *> schemas{
       registry.tss(integer), registry.tsd(integer, scalar),
-      registry.tsl(scalar, 2), registry.tsl(scalar), registry.tsl(scalar, 0),
+      registry.tsl(scalar, 2), registry.tsl(scalar),
       registry.tsb("EmptyDeltaUnit", {}),
       registry.tsb("EmptyDeltaChildren", {{"list", registry.tsl(scalar, 2)}, {"scalar", scalar}})};
   for (const auto *schema : schemas) {
@@ -1554,7 +1554,7 @@ TEST_CASE("ts_delta: sampled rebinds retain previously empty fixed and bundle pu
   auto &registry = TypeRegistry::instance();
   const auto *scalar = schema_descriptor<TS<Int>>::ts_meta();
   const std::vector<const TSValueTypeMetaData *> schemas{
-      registry.tsl(scalar, 0), registry.tsl(scalar, 2),
+      registry.tsl(scalar), registry.tsl(scalar, 2),
       registry.tsb("SampledEmptyUnit", {}),
       registry.tsb("SampledEmptyFields", {{"value", scalar}})};
   for (const auto *schema : schemas) {

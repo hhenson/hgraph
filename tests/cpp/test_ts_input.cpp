@@ -3149,7 +3149,7 @@ TEST_CASE("TSInput sampled identity follows bindings through copy move and detac
     using detail::TSInputTargetLinkStorage;
     auto &registry = TypeRegistry::instance();
     const auto *scalar = registry.ts(registry.register_scalar<Int>("int"));
-    const auto *schema = registry.tsl(scalar, 0);
+    const auto *schema = registry.tsl(scalar);
     TSOutput output{schema};
     output.view(MIN_ST).data_view().begin_mutation(MIN_ST).mark_empty_delta();
     const auto now = MIN_ST + MIN_TD;

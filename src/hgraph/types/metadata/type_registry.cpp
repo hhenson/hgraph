@@ -2219,6 +2219,7 @@ namespace hgraph
 
     const TSValueTypeMetaData *TypeRegistry::tsl(const TSValueTypeMetaData *element_ts, size_t fixed_size)
     {
+        validate_tsl_size(fixed_size);
         const std::lock_guard lock(mutex_);
         const TSListKey key{element_ts, fixed_size};
         const TSValueTypeMetaData &meta = tsl_cache_.intern(key, [&]() {
