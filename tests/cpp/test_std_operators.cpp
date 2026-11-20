@@ -704,6 +704,56 @@ namespace
         }
     };
 
+    template <typename Members>
+    struct PublishKeyedReset
+    {
+        static void eval(In<"action", TS<Int>> action, Out<Members> out)
+        {
+            const Int value = action.value();
+            if (value <= 0) {
+                auto change = out.base().data_view().begin_mutation(out.evaluation_time());
+                if (value < 0) { static_cast<void>(change.invalidate()); }
+                else { change.mark_empty_delta(); }
+            } else if constexpr (std::is_same_v<Members, TSS<Int>>) {
+                out.add(value);
+            } else {
+                out[value].set(Int{7});
+            }
+        }
+    };
+
+    template <typename Members, bool Duration>
+    struct KeyedResetWindow
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> actions, Port<TS<Int>> prices)
+        {
+            const auto members = wire<PublishKeyedReset<Members>>(w, actions);
+            const auto window = [&] {
+                if constexpr (Duration) { return wire<stdlib::to_window>(w, prices, 20 * MIN_TD, TimeDelta{}, members); }
+                else { return wire<stdlib::to_window>(w, prices, Int{5}, Int{1}, members); }
+            }();
+            return wire<WindowSnapshot, TS<Int>>(w, window);
+        }
+    };
+
+    template <typename Members>
+    struct KeyedResetTake
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> actions, Port<TS<Int>> prices)
+        {
+            return wire<stdlib::take>(w, prices, wire<PublishKeyedReset<Members>>(w, actions), Int{1}).template as<TS<Int>>();
+        }
+    };
+
+    template <typename Members>
+    struct KeyedResetModified
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>> actions)
+        {
+            return wire<stdlib::modified, TS<Bool>>(w, wire<PublishKeyedReset<Members>>(w, actions));
+        }
+    };
+
     struct ResettableTickWindowGraph
     {
         static constexpr auto name = "resettable_tick_window_graph";
@@ -2265,6 +2315,34 @@ namespace
     };
 
 }  // namespace
+
+TEST_CASE("std operators: direct set and dictionary invalidation does not reset consumers", "[stdlib][keyed-reset]")
+{
+    stdlib::register_standard_operators();
+    const auto check_members = []<typename Members>() {
+        const auto actions = values<Int>(none, 0, none, -1, -1, none, 1, none, 2, none);
+        const EvalNodeRunOptions options{.end_time = MIN_ST + 10 * MIN_TD};
+        const auto check_window = [&]<bool Duration>() {
+            // WindowSnapshot returns size * 100 + sum, so 360 retains prices 10, 20 and 30.
+            CHECK_OUTPUT((eval_node_with_options<KeyedResetWindow<Members, Duration>>(
+                             options, actions, values<Int>(4, 10, 20, 30, none, none, none, 40, 50, 60))),
+                         values<Int>(104, 110, 230, 360, none, none, 0, 140, 150, 310));
+            CHECK_OUTPUT((eval_node_with_options<KeyedResetWindow<Members, Duration>>(
+                             options, actions, values<Int>(4, 10, 20, none, none, 30, none, 40, 50, 60))),
+                         values<Int>(104, 110, 230, none, none, 360, 0, 140, 150, 310));
+        };
+        check_window.template operator()<false>();
+        check_window.template operator()<true>();
+
+        const auto changes = values<Int>(none, 0, none, -1, -1, none, 1, none);
+        CHECK_OUTPUT(eval_node<KeyedResetModified<Members>>(changes),
+                     values<Bool>(false, true, false, false, none, none, true, false));
+        CHECK_OUTPUT(eval_node<KeyedResetTake<Members>>(changes, values<Int>(4, 10, 20, 30, none, 40, none, 50)),
+                     values<Int>(4, 10, none, none, none, none, none, 50));
+    };
+    SECTION("set") { check_members.template operator()<TSS<Int>>(); }
+    SECTION("dictionary") { check_members.template operator()<TSD<Int, TS<Int>>>(); }
+}
 
 TEST_CASE("std operators: add_ selects the int implementation for TS<Int> operands")
 {

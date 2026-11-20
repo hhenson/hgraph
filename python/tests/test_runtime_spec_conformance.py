@@ -1,6 +1,115 @@
 """Accepted runtime rules from runtime_spec/validation.md, DV-01/02/05/06/08/10."""
+from datetime import timedelta
+
+import pytest
+
 import hgraph as hg
 from hgraph.test import eval_node
+
+
+@pytest.fixture(params=[hg.TSS[int], hg.TSD[int, hg.TS[int]]], ids=["set", "dictionary"])
+def collection_source(request):
+    schema = request.param
+    is_set = schema == hg.TSS[int]
+
+    @hg.compute_node
+    def source(action: hg.TS[int], _output: hg.TS_OUT[schema] = None) -> schema:
+        if action.value < 0:
+            _output.invalidate()
+        elif action.value == 0:
+            return frozenset() if is_set else {}
+        else:
+            return {action.value} if is_set else {action.value: 7}
+
+    return schema, source
+
+
+@pytest.mark.parametrize("passive", [False, True], ids=["active", "passive"])
+def test_direct_collection_input_observes_whole_invalidation(collection_source, passive):
+    schema, source = collection_source
+    activity = ("probe",) if passive else ("watched", "probe")
+
+    @hg.compute_node(active=activity, valid=())
+    def read(watched: schema, probe: hg.TS[bool]) -> hg.TS[tuple[bool, bool]]:
+        assert watched.valid == watched.output.valid
+        assert watched.modified == watched.output.modified
+        return watched.valid, watched.modified
+
+    @hg.graph
+    def run(action: hg.TS[int], probe: hg.TS[bool]) -> hg.TS[tuple[bool, bool]]:
+        return read(source(action), probe)
+
+    # A coincident probe exposes the clear to a passive reader. The second
+    # effective clear has no independent wake.
+    assert eval_node(run, [1, -1, -1, 2, -1, None], [None, True, True, True, None, True]) == [
+        None if passive else (True, True), (False, False), (False, False),
+        (True, True), None if passive else (False, False), (False, False),
+    ]
+
+
+@pytest.mark.parametrize("simultaneous", [False, True], ids=["separate", "simultaneous"])
+@pytest.mark.parametrize("duration", [False, True], ids=["count-window", "duration-window"])
+def test_window_reset_depends_on_a_modified_collection(collection_source, duration, simultaneous):
+    _, source = collection_source
+    period, minimum = (timedelta(seconds=2), timedelta(0)) if duration else (5, 1)
+
+    @hg.compute_node
+    def snapshot(window: hg.TSW[int, hg.WINDOW_SIZE, hg.WINDOW_SIZE_MIN]) -> hg.TS[tuple[int, ...]]:
+        return tuple(window.value)
+
+    @hg.graph
+    def run(actions: hg.TS[int], price: hg.TS[int]) -> hg.TS[tuple[int, ...]]:
+        return snapshot(hg.to_window(price, period, minimum, reset=source(actions)))
+
+    # First a valid empty resets the existing window. Its subsequent clear and
+    # a repeated clear leave prices in place. A later publication resets with
+    # no price, and the final reset precedes its simultaneous price.
+    actions = [None, 0, None, -1, -1, None, 1, None, 2, None]
+    prices = [4, 10, 20, 30 if simultaneous else None, None, None if simultaneous else 30, None, 40, 50, 60]
+    retained = (10, 20, 30)
+    assert eval_node(run, actions, prices, __end_time__=hg.MIN_ST + len(actions) * hg.MIN_TD) == [
+        (4,), (10,), (10, 20), retained if simultaneous else None, None,
+        None if simultaneous else retained, (), (40,), (50,), (50, 60),
+    ]
+
+
+def test_collection_clear_wakes_modified_without_rearming_take(collection_source):
+    _, source = collection_source
+
+    @hg.graph
+    def modification(actions: hg.TS[int]) -> hg.TS[bool]:
+        return hg.modified(source(actions))
+
+    @hg.graph
+    def take_one(actions: hg.TS[int], price: hg.TS[int]) -> hg.TS[int]:
+        return hg.take(price, reset=source(actions), count=1)
+
+    actions = [None, 0, None, -1, -1, None, 1, None]
+    assert eval_node(modification, actions) == [False, True, False, False, None, None, True, False]
+    assert eval_node(take_one, actions, [4, 10, 20, 30, None, 40, None, 50]) == [
+        4, 10, None, None, None, None, None, 50,
+    ]
+
+
+def test_keyed_reference_withdrawal_wakes_with_its_removed_members(collection_source):
+    schema, source = collection_source
+
+    @hg.compute_node(active=("choose",), valid=("choose",))
+    def select(choose: hg.TS[bool], value: hg.REF[schema]) -> hg.REF[schema]:
+        return value.value if choose.value else hg.TimeSeriesReference.make()
+
+    @hg.compute_node(valid=())
+    def read(value: schema) -> hg.TS[object]:
+        removed = value.removed() if schema == hg.TSS[int] else value.removed_keys()
+        return value.valid, value.modified, tuple(sorted(removed))
+
+    @hg.graph
+    def run(actions: hg.TS[int], choose: hg.TS[bool]) -> hg.TS[object]:
+        return read(select(choose, source(actions)))
+
+    assert eval_node(run, [1, None, None, None], [True, False, None, True]) == [
+        (True, True, ()), (False, True, (1,)), None, (True, True, ()),
+    ]
 
 
 def test_dictionary_membership_and_key_set_clock():
