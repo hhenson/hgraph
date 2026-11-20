@@ -189,7 +189,7 @@ namespace hgraph
             const auto &source = route_node->observed.data_view();
             if (source.has_current_value()) { return true; }
             const auto *link = link_storage();
-            return link != nullptr && !link->empty_scalar_route() && !invalidated(source, evaluation_time);
+            return link != nullptr && !link->empty_scalar_route() && !source.invalidated(evaluation_time);
         }
         const auto &data = resolved_value_data(evaluation_time);
         if (is_target_position())
@@ -221,7 +221,7 @@ namespace hgraph
                     structural_sample_time(link) != evaluation_time) {
                     return false;
                 }
-                return !invalidated(data, evaluation_time) &&
+                return !data.invalidated(evaluation_time) &&
                        (!detail::has_input_children(data) || data.has_current_value());
             }
             return false;

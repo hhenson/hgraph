@@ -209,6 +209,47 @@ namespace
         }
     };
 
+    template <typename Trigger, InputActivity Activity = InputActivity::Passive>
+    struct PriceOnScalarPublication
+    {
+        static void eval(In<"clock", TS<Bool>>,
+                         In<"trigger", Trigger, InputValidity::Unchecked, Activity> trigger,
+                         In<"price", TS<Int>, InputActivity::Passive> price, Out<TS<Int>> out)
+        {
+            if constexpr (std::is_same_v<Trigger, SIGNAL>) { CHECK_FALSE(trigger.invalidated()); }
+            if (trigger.modified()) { out.set(price.value()); }
+        }
+    };
+
+    template <typename Trigger, InputActivity Activity = InputActivity::Passive>
+    struct DirectScalarPriceLatch
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> action, Port<TS<Bool>> clock, Port<TS<Int>> price)
+        {
+            return wire<PriceOnScalarPublication<Trigger, Activity>>(w, clock, wire<ApplyScalarAction>(w, action), price);
+        }
+    };
+
+    template <typename Trigger>
+    struct SelectedScalarPriceLatch
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> action, Port<TS<Int>> selection,
+                                     Port<TS<Bool>> clock, Port<TS<Int>> price)
+        {
+            auto source = wire<ApplyScalarAction>(w, action);
+            auto ref = wire<SelectScalar>(w, selection, source);
+            return wire<PriceOnScalarPublication<Trigger>>(w, clock, ref, price);
+        }
+    };
+
+    struct SampleOnScalarPublication
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> action, Port<TS<Int>> price)
+        {
+            return wire<stdlib::sample>(w, wire<ApplyScalarAction>(w, action), price).as<TS<Int>>();
+        }
+    };
+
     template <InputActivity Activity>
     struct ObserveScalarInvalidation
     {
@@ -360,6 +401,38 @@ namespace
             return wire<ObserveSavedReference>(w, step, wire<SaveReference>(w, step, ref)).as<TS<Int>>();
         }
     };
+}
+
+TEST_CASE("Native SIGNAL price latches read direct scalar publications on an independent clock", "[invalidation][signal]")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+    const auto actions = values<Int>(Clear, Publish, none, Clear, ClearTwice, Publish, Publish,
+                                     PublishThenClear, Publish, ClearThenPublish);
+    const auto clock = values<Bool>(true, true, true, true, true, true, true, true, true, true);
+    const auto prices = values<Int>(6, 10, 20, none, none, 30, 31, 40, 50, 60);
+    const auto expected = values<Int>(none, 10, none, none, none, 30, 31, none, 50, 60);
+    CHECK(eval_node<SampleOnScalarPublication>(actions, prices) == expected);
+    CHECK(eval_node<DirectScalarPriceLatch<TS<Int>>>(actions, clock, prices) == expected);
+    CHECK(eval_node<DirectScalarPriceLatch<SIGNAL>>(actions, clock, prices) == expected);
+    CHECK(eval_node<DirectScalarPriceLatch<SIGNAL, InputActivity::Active>>(actions, clock, prices) == expected);
+}
+
+TEST_CASE("Native scalar SIGNAL latches preserve sampled reference controls", "[invalidation][signal][reference]")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    const auto actions = values<Int>(Publish, none, Clear, none, Publish, none, Clear, Publish, none,
+                                     none, none, Clear, ClearThenPublish);
+    const auto selection = values<Int>(0, none, none, none, none, 1, none, none, 0, none, 1, 0, none);
+    const auto clock = values<Bool>(true, true, true, true, true, true, true, true, true, true, true, true, true);
+    const auto prices = values<Int>(10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130);
+    // The unbound owner publishes before its held value is sampled on rebind.
+    // Switching back to an invalidated owner at the twelfth clock stays quiet.
+    const auto expected = values<Int>(10, none, none, none, 50, none, none, none, 90, none, none, none, 130);
+    CHECK(eval_node<SelectedScalarPriceLatch<TS<Int>>>(actions, selection, clock, prices) == expected);
+    CHECK(eval_node<SelectedScalarPriceLatch<SIGNAL>>(actions, selection, clock, prices) == expected);
 }
 
 TEST_CASE("Runtime rules: membership and key set observations through native wiring", "[runtime-contract]")
