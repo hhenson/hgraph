@@ -5,9 +5,8 @@
 //
 // Checkpoints, recordings and store objects are written once and read rarely,
 // so they are compressed by default; bytes that cross a process boundary live
-// for one cycle and never are. The codec is Arrow's, which the core already
-// links, so this adds no dependency: zstd where the Arrow build provides it,
-// LZ4 otherwise.
+// for one cycle and never are. Arrow-enabled builds use zstd or LZ4 when
+// available. A runtime built without Arrow stores uncompressed blocks.
 //
 // A block is self-describing:
 //

@@ -226,6 +226,7 @@ namespace hgraph
                   typename = std::enable_if_t<!std::is_same_v<std::decay_t<T>, Value> &&
                                               !std::is_same_v<std::decay_t<T>, ValueTypeRef> &&
                                               !std::is_base_of_v<ValueView, std::decay_t<T>>>>
+        requires (!NativeBundleValue<T>)
         explicit Value(T value)
         {
             ValueTypeRef binding = TypeRegistry::instance().scalar_type<T>();
@@ -242,6 +243,8 @@ namespace hgraph
             // caller-side typed cast into its inline buffer.
             binding.move_assign_at(storage_.data(), std::addressof(value));
         }
+
+        template <NativeBundleValue T> explicit Value(const T &value);
 
         // Copy and move are inherited from ``ErasedOwner`` — copy
         // performs a deep allocation + copy-construct via the binding's
@@ -287,12 +290,12 @@ namespace hgraph
         [[nodiscard]] std::optional<AtomicView> try_as_atomic() { return view().try_as_atomic(); }
 
         template <typename T>
-        [[nodiscard]] const T &as() const
+        [[nodiscard]] decltype(auto) as() const
         {
             return view().template checked_as<T>();
         }
         template <typename T>
-        [[nodiscard]] const T &as()
+        [[nodiscard]] decltype(auto) as()
         {
             return view().template checked_as<T>();
         }

@@ -72,6 +72,7 @@ message(STATUS "hgraph release version: ${HGRAPH_RELEASE_VERSION_STRING}")
 file(MAKE_DIRECTORY "${HGRAPH_GENERATED_INCLUDE_DIR}/hgraph")
 configure_file("${HGRAPH_VERSION_HEADER_IN}" "${HGRAPH_VERSION_HEADER}" @ONLY)
 
+option(HGRAPH_WITH_ARROW "Build Frame, Series, table codecs and the standard library" ON)
 option(HGRAPH_BUILD_SHARED "Build hgraph_core as a shared library" OFF)
 option(HGRAPH_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(HGRAPH_FETCH_SIMDJSON "Fetch the supported simdjson release instead of using a system package" OFF)
@@ -443,17 +444,17 @@ else()
     target_link_libraries(hgraph_options INTERFACE fmt::fmt)
 endif()
 
-# Apache Arrow is a FORMAL dependency (design record: record_replay_table.rst,
-# ruling 2026-07-04): the Frame value kind and the table serialization family
-# are Arrow-native. A system/package-manager install is expected for normal
-# C++ builds (`brew install apache-arrow` / `apt install libarrow-dev`);
-include("${PROJECT_SOURCE_DIR}/cmake/HgraphArrow.cmake")
-
-# Dependency prefixes can also contain a different Arrow installation. Keep
-# the selected Arrow headers ahead of transitive fmt/spdlog include roots so
-# scalar vtables and other public types match the libraries we link.
-target_include_directories(hgraph_options SYSTEM BEFORE INTERFACE
-    "$<BUILD_INTERFACE:$<TARGET_PROPERTY:Arrow::arrow_shared,INTERFACE_INCLUDE_DIRECTORIES>>")
+if(HGRAPH_WITH_ARROW)
+    include("${PROJECT_SOURCE_DIR}/cmake/HgraphArrow.cmake")
+    set(_hgraph_arrow_targets Arrow::arrow_shared ArrowCompute::arrow_compute_shared ArrowAcero::arrow_acero_shared)
+else()
+    target_compile_definitions(hgraph_options INTERFACE HGRAPH_NO_ARROW)
+    if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_ENABLE_PYTHON_USER_NODES OR
+       HGRAPH_BUILD_KAFKA_EXTENSION OR HGRAPH_BUILD_ANALYTICS_EXTENSION OR
+       HGRAPH_BUILD_WEB_EXTENSION OR HGRAPH_BUILD_PERSISTENCE_EXTENSION OR HGRAPH_BUILD_FABRIC_EXTENSION)
+        message(FATAL_ERROR "The Python bridge and bundled extensions require the standard library. Set HGRAPH_WITH_ARROW=ON.")
+    endif()
+endif()
 
 function(hgraph_configure_test_runtime_paths test_name)
     if(NOT WIN32 OR NOT HGRAPH_PYARROW_RUNTIME_DIRS)
@@ -469,21 +470,6 @@ function(hgraph_configure_test_runtime_paths test_name)
     set_tests_properties("${test_name}" PROPERTIES
         ENVIRONMENT_MODIFICATION "${_hgraph_test_environment}")
 endfunction()
-
-set(_hgraph_arrow_targets
-    Arrow::arrow_shared
-    ArrowCompute::arrow_compute_shared
-    ArrowAcero::arrow_acero_shared)
-if(HGRAPH_BUILD_SHARED AND HGRAPH_BUILD_PYTHON_BINDINGS)
-    target_link_libraries(hgraph_private_dependencies INTERFACE ${_hgraph_arrow_targets})
-else()
-    target_link_libraries(hgraph_options INTERFACE ${_hgraph_arrow_targets})
-endif()
-
-# Parquet and S3 are DURABLE STORE policy: detection, linkage and feature
-# macros belong to hgraph-persistence, which owns the frame store (RFC 0025
-# checkpoint 5). Core links only the Arrow value/compute/acero runtime its
-# own Frame value kind needs.
 
 # spdlog backs the LOGGER injectable (ruling 2026-07-04), built in
 # SPDLOG_FMT_EXTERNAL mode against the fmt above so there is exactly one fmt
@@ -712,7 +698,10 @@ if(BUILD_TESTING AND EXISTS "${PROJECT_SOURCE_DIR}/tests/CMakeLists.txt")
     add_subdirectory(tests)
 endif()
 
-set(_hgraph_export_targets hgraph_options hgraph_runtime hgraph_wiring hgraph_stdlib hgraph_core)
+set(_hgraph_export_targets hgraph_options hgraph_runtime hgraph_wiring hgraph_core)
+if(TARGET hgraph_stdlib)
+    list(APPEND _hgraph_export_targets hgraph_stdlib)
+endif()
 set(_hgraph_runtime_destination "${CMAKE_INSTALL_BINDIR}")
 if(WIN32 AND HGRAPH_BUILD_SHARED AND HGRAPH_BUILD_PYTHON_BINDINGS)
     # Python loads dependent DLLs from beside the importing extension. Both
@@ -772,7 +761,7 @@ write_basic_package_version_file(
     COMPATIBILITY SameMajorVersion
 )
 
-set(_hgraph_config_dependencies "find_dependency(Threads)\n")
+set(_hgraph_config_dependencies "set(hgraph_WITH_ARROW ${HGRAPH_WITH_ARROW})\nfind_dependency(Threads)\n")
 if(NOT HGRAPH_BUILD_SHARED OR NOT HGRAPH_BUILD_PYTHON_BINDINGS)
     list(APPEND _hgraph_config_dependencies
         # A consumer must fetch the producer's dependency versions: selecting a
@@ -831,9 +820,10 @@ file(WRITE "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
     "${_hgraph_config_dependencies}"
     "include(\"\${CMAKE_CURRENT_LIST_DIR}/hgraphTargets.cmake\")\n"
 )
-if(NOT HGRAPH_BUILD_SHARED OR NOT HGRAPH_BUILD_PYTHON_BINDINGS)
+if(HGRAPH_WITH_ARROW AND (NOT HGRAPH_BUILD_SHARED OR NOT HGRAPH_BUILD_PYTHON_BINDINGS))
     file(APPEND "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
-        "target_include_directories(hgraph::options SYSTEM BEFORE INTERFACE \"$<TARGET_PROPERTY:Arrow::arrow_shared,INTERFACE_INCLUDE_DIRECTORIES>\")\n"
+        "target_link_libraries(hgraph::stdlib INTERFACE Arrow::arrow_shared ArrowCompute::arrow_compute_shared ArrowAcero::arrow_acero_shared)\n"
+        "target_include_directories(hgraph::stdlib SYSTEM BEFORE INTERFACE \"$<TARGET_PROPERTY:Arrow::arrow_shared,INTERFACE_INCLUDE_DIRECTORIES>\")\n"
     )
 endif()
 if(NOT HGRAPH_BUILD_SHARED)
@@ -854,7 +844,7 @@ elseif(NOT HGRAPH_BUILD_PYTHON_BINDINGS)
         # include/link surface. Python wheels instead ship the required
         # headers and keep implementation dependencies private.
         "if(TARGET hgraph::options)\n"
-        "  target_link_libraries(hgraph::options INTERFACE simdjson::simdjson fmt::fmt spdlog::spdlog Arrow::arrow_shared ArrowCompute::arrow_compute_shared ArrowAcero::arrow_acero_shared)\n"
+        "  target_link_libraries(hgraph::options INTERFACE simdjson::simdjson fmt::fmt spdlog::spdlog)\n"
         "endif()\n"
     )
 endif()
@@ -966,7 +956,7 @@ elseif(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_ENABLE_PYTHON_USER_NODES)
         "endif()\n"
     )
 endif()
-if(HGRAPH_BUILD_SHARED AND HGRAPH_USE_PYARROW_ARROW)
+if(HGRAPH_WITH_ARROW AND HGRAPH_BUILD_SHARED AND HGRAPH_USE_PYARROW_ARROW)
     file(APPEND "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
         # The wheel is also a native SDK. Resolve the exact Arrow runtime
         # supplied by its pyarrow dependency and publish it through unique
@@ -1034,9 +1024,9 @@ if(HGRAPH_BUILD_SHARED AND HGRAPH_USE_PYARROW_ARROW)
         "    set_target_properties(hgraph::pyarrow_acero PROPERTIES IMPORTED_IMPLIB \"\${_hgraph_arrow_acero_link}\")\n"
         "  endif()\n"
         "endif()\n"
-        "if(TARGET hgraph::options)\n"
-        "  target_link_libraries(hgraph::options INTERFACE hgraph::pyarrow_arrow hgraph::pyarrow_compute hgraph::pyarrow_acero)\n"
-        "  target_include_directories(hgraph::options SYSTEM BEFORE INTERFACE \"\${_hgraph_arrow_include}\")\n"
+        "if(TARGET hgraph::stdlib)\n"
+        "  target_link_libraries(hgraph::stdlib INTERFACE hgraph::pyarrow_arrow hgraph::pyarrow_compute hgraph::pyarrow_acero)\n"
+        "  target_include_directories(hgraph::stdlib SYSTEM BEFORE INTERFACE \"\${_hgraph_arrow_include}\")\n"
         "endif()\n"
     )
 endif()

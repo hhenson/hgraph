@@ -2021,6 +2021,23 @@ namespace
         }
     };
 
+    struct ReadSelectedPosition
+    {
+        static void eval(In<"item", TS<Int>, InputValidity::Unchecked> item, In<"clock", TS<Int>>, Out<TS<Int>> out)
+        {
+            out.set(item.valid() ? item.value() : Int{-1});
+        }
+    };
+
+    struct GrowingListSelection
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TSL<TS<Int>>> items, Port<TS<Int>> index, Port<TS<Int>> clock)
+        {
+            auto selected = wire<stdlib::getitem_>(w, items, index).as<TS<Int>>();
+            return wire<ReadSelectedPosition>(w, selected, clock);
+        }
+    };
+
     struct DynamicTsdGetitemGraph
     {
         static constexpr auto name = "dynamic_tsd_getitem_graph";
@@ -4238,6 +4255,17 @@ TEST_CASE("std operators: collection container operators support TSS TSD and fix
                                    list_delta<TS<Int>>({-1, 0, 1})),
                      values<Int>(2, 1))),
                  values<Int>(1, 0, -1, 2));
+}
+
+TEST_CASE("growing list selection becomes invalid outside the live extent and rebinds on regrowth")
+{
+    stdlib::register_standard_operators();
+    const auto input = values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}, {}, 3),
+                                     dynamic_list_delta<TS<Int>>({}, {1, 2}, 1), none,
+                                     dynamic_list_delta<TS<Int>>({{1, 7}}, {}, 2));
+    const auto clock = values<Int>(0, 1, 2, 3);
+    CHECK_OUTPUT(eval_node<GrowingListSelection>(input, values<Int>(1), clock), values<Int>(2, -1, -1, 7));
+    CHECK_OUTPUT(eval_node<GrowingListSelection>(input, values<Int>(-2), clock), values<Int>(2, -1, -1, 1));
 }
 
 TEST_CASE("std operators: index_of waits for a list with something in it")

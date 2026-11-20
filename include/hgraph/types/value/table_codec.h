@@ -1,6 +1,10 @@
 #ifndef HGRAPH_TYPES_VALUE_TABLE_CODEC_H
 #define HGRAPH_TYPES_VALUE_TABLE_CODEC_H
 
+#ifdef HGRAPH_NO_ARROW
+#error "The hgraph table codec requires HGRAPH_WITH_ARROW=ON"
+#endif
+
 #include <hgraph/hgraph_export.h>
 #include <hgraph/types/frame.h>
 #include <hgraph/types/series.h>

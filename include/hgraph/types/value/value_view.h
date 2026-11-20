@@ -2,6 +2,7 @@
 #define HGRAPH_CPP_ROOT_VALUE_VIEW_H
 
 #include <hgraph/types/value/value_ops.h>
+#include <hgraph/types/value/native_bundle_traits.h>
 #include <cassert>
 #include <compare>
 #include <cstddef>
@@ -242,14 +243,17 @@ namespace hgraph
         }
 
         // -- typed atomic access (debug-asserted) --
-        template <typename T>
+        template <NativeBundleValue T>
+        [[nodiscard]] T as() const { return checked_as<T>(); }
+
+        template <typename T> requires (!NativeBundleValue<T>)
         [[nodiscard]] const T &as() const noexcept
         {
             assert(valid() && "as<T>() on invalid ValueView");
             assert(holds_alternative<T>() && "as<T>() type mismatch");
             return *static_cast<const T *>(data());
         }
-        template <typename T>
+        template <typename T> requires (!NativeBundleValue<T>)
         [[nodiscard]] T &as()
         {
             return checked_mutable_as<T>();
@@ -277,7 +281,10 @@ namespace hgraph
         }
 
         /** ``checked_as<T>`` throws when the view is invalid, non-atomic, or T doesn't match. */
-        template <typename T>
+        template <NativeBundleValue T>
+        [[nodiscard]] T checked_as() const;
+
+        template <typename T> requires (!NativeBundleValue<T>)
         [[nodiscard]] const T &checked_as() const
         {
             if (!valid()) { throw std::logic_error("checked_as<T> on invalid ValueView"); }
@@ -297,7 +304,9 @@ namespace hgraph
             return *static_cast<T *>(const_cast<void *>(data()));
         }
 
-        template <typename T>
+        template <NativeBundleValue T> void set(const T &value);
+
+        template <typename T> requires (!NativeBundleValue<std::remove_cvref_t<T>>)
         void set(T &&value)
         {
             set_scalar(std::forward<T>(value));

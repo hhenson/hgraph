@@ -130,6 +130,29 @@ runtime — they exist purely to drive the descriptor traits.
     component. In a ``NominalTSB`` the edge is ``TS<Edge<TTarget>>``, one
     endpoint whose value is that owner.
 
+``native_bundle<T>`` and ``NativeTSB<T>``
+    Include ``<hgraph/types/native_bundle.h>`` to bind a concrete C++
+    aggregate to its nominal schema. List data members in schema field order.
+    Members may be atomic scalars or other mapped aggregates.
+
+    .. code-block:: cpp
+
+        struct Quote { hgraph::Int bid; hgraph::Int ask; };
+        template <> struct hgraph::native_bundle<Quote> {
+            using schema = NominalBundle<"prices", "Quote", false, BundleParents<>, BundleArguments<>,
+                                         Field<"bid", Int>, Field<"ask", Int>>;
+            static constexpr auto members = std::tuple{&Quote::bid, &Quote::ask};
+        };
+
+    ``Value{quote}`` packs the fields into the existing nominal representation.
+    ``view.checked_as<Quote>()`` copies fields into a default-initialized
+    aggregate and rejects an incomplete value or a different nominal schema.
+    ``Out<NativeTSB<Quote>>::set(quote)`` publishes every field, including
+    unchanged fields. ``In<"q", NativeTSB<Quote>>::value()`` reads the
+    aggregate once all fields are valid. Field selectors still support partial
+    publications and individual reads. Nested mapped aggregates have nested
+    bundle endpoints.
+
 ``Shared<T>``
     Immutable value-layer indirection for a direct Bundle target. Its runtime
     schema is ``TypeRegistry::shared(T)`` and its inline storage is one pointer
