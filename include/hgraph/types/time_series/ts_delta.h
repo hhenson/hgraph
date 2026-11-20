@@ -87,6 +87,10 @@ namespace hgraph
 
     HGRAPH_EXPORT void apply_delta(const TSOutputView &out, const ValueView &delta);
 
+    /** Apply a recorded publication. A present structural delta can publish without a
+        change to any child. An omitted child has no publication of its own. */
+    HGRAPH_EXPORT void apply_observed_delta(const TSOutputView &out, const ValueView &delta);
+
     /**
      * Apply a whole current value to a time-series output.
      *

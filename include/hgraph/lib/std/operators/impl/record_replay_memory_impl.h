@@ -76,7 +76,7 @@ namespace hgraph::stdlib
             Int         index{0};
             std::string fq_key{};
             testing::DenseEntryReader dense_reader{&testing::seeded_dense_entry};
-            bool observed_collection{false};
+            void (*apply_entry)(const TSOutputView &, const ValueView &){&apply_delta};
         };
 
         /** memory_compare's start-resolved summary key and counters.  An
@@ -313,7 +313,7 @@ namespace hgraph::stdlib
             // The sparse fq key is wiring-fixed; build the string once.
             auto current = cursor.get();
             const auto *schema = static_cast<const TSOutputView &>(out).schema();
-            current.observed_collection = testing::preserves_empty_collection_ticks(*schema);
+            bool observed = true;
             if (!recordable_id.value().empty())
             {
                 current.fq_key = record_replay_memory_detail::memory_recording_key(
@@ -326,31 +326,11 @@ namespace hgraph::stdlib
                 const auto buffer    = gs.get(key.value());
                 const auto layout = testing::dense_buffer_layout(buffer.binding());
                 current.dense_reader = testing::dense_entry_reader(buffer.binding(), layout);
-                current.observed_collection = current.observed_collection && layout != testing::DenseBufferLayout::Seeded;
+                observed = layout != testing::DenseBufferLayout::Seeded;
             }
+            current.apply_entry = observed && testing::preserves_empty_collection_ticks(*schema)
+                ? &apply_observed_delta : &apply_delta;
             cursor.set(std::move(current));
-        }
-
-        static void replay_entry(const TSOutputView &out, const ValueView &delta, bool observed_collection)
-        {
-            apply_delta(out, delta);
-            if (!observed_collection || out.modified()) { return; }
-            // An observed empty edit represents a publication. Raw sparse edits
-            // use the ordinary apply_delta path and keep their no-op semantics.
-            const auto edit = delta.as_bundle();
-            if (out.schema()->kind == TSTypeKind::TSS)
-            {
-                if (edit.at("added").as_indexed_view().size() == 0 && edit.at("removed").as_indexed_view().size() == 0)
-                {
-                    // Open the set's delta window before notifying readers of this tick.
-                    out.as_set().begin_mutation(out.evaluation_time()).touch();
-                }
-            }
-            else if (out.as_list().empty() && !edit.at("size_modified").has_value() &&
-                     edit.at("modified").as_map().empty() && edit.at("removed").as_set().empty())
-            {
-                out.data_view().begin_mutation(out.evaluation_time()).mark_empty_delta();
-            }
         }
 
         static void eval(Scalar<"key", Str> key, TypeArg<"tp", TsVar<"S">, AutoResolve>,
@@ -373,7 +353,7 @@ namespace hgraph::stdlib
                 if (i < size)
                 {
                     if (auto delta = state.dense_reader(list, static_cast<std::size_t>(i)); delta.has_value()) {
-                        replay_entry(out, delta->view(), state.observed_collection);
+                        state.apply_entry(out, delta->view());
                     }
                 }
                 state.index = i + 1;
@@ -393,7 +373,7 @@ namespace hgraph::stdlib
                 const DateTime when = entry.at(0).checked_as<DateTime>();
                 if (when < now) { ++current; continue; }
                 if (when > now) { break; }
-                replay_entry(out, entry.at(1), state.observed_collection);
+                state.apply_entry(out, entry.at(1));
                 ++current;
             }
             state.index = static_cast<Int>(current);
