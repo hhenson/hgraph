@@ -184,6 +184,7 @@ namespace hgraph::stdlib
         types.frame_type     = standard_types_detail::register_scalar_aliases<Frame>(registry, {"frame"});
         types.series_type    = standard_types_detail::register_scalar_aliases<Series>(registry, {"series"});
 #endif
+        const auto *tenor = standard_types_detail::register_scalar_aliases<Tenor>(registry, {"tenor"});
         types.period_type = standard_types_detail::register_scalar_aliases<Period>(
             registry, {"period"});
         types.civil_datetime_type =
@@ -276,6 +277,7 @@ namespace hgraph::stdlib
         standard_types_detail::register_ts_aliases(
             registry, types.civil_date_range_set_type, {"civil_date_range_set"},
             types.ts_civil_date_range_set, types.tss_civil_date_range_set);
+        standard_types_detail::register_ts_aliases(registry, tenor, {"tenor"}, unused_ts, unused_tss);
         standard_types_detail::register_ts_aliases(
             registry, types.month_end_policy_type, {"month_end_policy"},
             unused_ts, unused_tss);

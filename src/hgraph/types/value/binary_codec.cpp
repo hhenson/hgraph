@@ -1145,6 +1145,28 @@ namespace hgraph
             return static_cast<std::int64_t>(value >> 1) ^ -static_cast<std::int64_t>(value & 1);
         }
 
+        void write_tenor(const BinaryConverter &, const ValueView &view, BinaryWriter &writer)
+        {
+            const auto &value = view.checked_as<Tenor>();
+            writer.out.push_back(value.is_business() ? '\1' : '\0');
+            if (value.is_business()) { write_varint(zigzag(value.business()), writer.out); }
+            else
+            {
+                write_varint(zigzag(value.months()), writer.out);
+                write_varint(zigzag(value.days()), writer.out);
+            }
+        }
+
+        Value read_tenor(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const auto form = std::to_integer<unsigned>(*reader.take(1));
+            if (form > 1) { throw std::invalid_argument("binary codec: unknown tenor form"); }
+            const auto count = unzigzag(read_varint(reader));
+            const auto value = form == 1 ? Tenor::business_days(count)
+                                         : Tenor::months_days(count, unzigzag(read_varint(reader)));
+            return Value{self.binding, &value};
+        }
+
         [[nodiscard]] inline std::int64_t load_int(const void *memory) noexcept
         {
             std::int64_t value;
@@ -1991,6 +2013,12 @@ namespace hgraph
                         raw->write_ = &write_zone_id;
                         raw->hash_ = &hash_zone;
                         raw->read_ = &read_zone_id;
+                        break;
+                    }
+                    if (meta == scalar_descriptor<Tenor>::value_meta())
+                    {
+                        raw->write_ = &write_tenor;
+                        raw->read_ = &read_tenor;
                         break;
                     }
                     if (meta == scalar_descriptor<ZonedTime>::value_meta())

@@ -69,6 +69,7 @@ namespace hgraph
             CivilDateRangeSet,
             ZonedTime,
             Type,  ///< a type value (RFC 0042): its serialised name
+            Tenor,
         };
 
         WriteFn                            write_{nullptr};

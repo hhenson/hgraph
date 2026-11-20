@@ -135,6 +135,36 @@ namespace hgraph
                   "append zone id");
         }
 
+        [[nodiscard]] std::shared_ptr<arrow::DataType> tenor_type()
+        {
+            static const auto type = arrow::struct_({arrow::field("months", arrow::int64()),
+                                                     arrow::field("days", arrow::int64()),
+                                                     arrow::field("business_days", arrow::int64())});
+            return type;
+        }
+
+        void append_tenor(const Column &, const ValueView &leaf, arrow::ArrayBuilder &builder)
+        {
+            const auto &value = leaf.checked_as<Tenor>();
+            auto &structure = static_cast<arrow::StructBuilder &>(builder);
+            check(structure.Append(), "append tenor");
+            auto &months = *static_cast<arrow::Int64Builder *>(structure.field_builder(0));
+            auto &days = *static_cast<arrow::Int64Builder *>(structure.field_builder(1));
+            auto &business = *static_cast<arrow::Int64Builder *>(structure.field_builder(2));
+            if (value.is_business())
+            {
+                append_null(months);
+                append_null(days);
+                check(business.Append(value.business()), "append tenor business days");
+            }
+            else
+            {
+                check(months.Append(value.months()), "append tenor months");
+                check(days.Append(value.days()), "append tenor days");
+                append_null(business);
+            }
+        }
+
         [[nodiscard]] std::shared_ptr<arrow::DataType> zoned_time_type()
         {
             static const auto type = arrow::struct_({
@@ -485,6 +515,23 @@ namespace hgraph
                 static_cast<const arrow::StringArray &>(array).GetView(row)}};
         }
 
+        Value read_tenor(const Column &, const arrow::Array &array, std::int64_t row)
+        {
+            const auto &structure = static_cast<const arrow::StructArray &>(array);
+            const auto &months = static_cast<const arrow::Int64Array &>(*structure.field(0));
+            const auto &days = static_cast<const arrow::Int64Array &>(*structure.field(1));
+            const auto &business = static_cast<const arrow::Int64Array &>(*structure.field(2));
+            if (business.IsValid(row) && months.IsNull(row) && days.IsNull(row))
+            {
+                return Value{Tenor::business_days(business.Value(row))};
+            }
+            if (business.IsNull(row) && months.IsValid(row) && days.IsValid(row))
+            {
+                return Value{Tenor::months_days(months.Value(row), days.Value(row))};
+            }
+            throw std::invalid_argument("table codec: tenor requires months and days, or business_days");
+        }
+
         Value read_zoned_time(const Column &, const arrow::Array &array,
                              std::int64_t row)
         {
@@ -690,6 +737,7 @@ namespace hgraph
     X(Time, arrow::time64(arrow::TimeUnit::MICRO), time)                          \
     X(CivilDateTime, arrow::timestamp(arrow::TimeUnit::MICRO), civil_datetime)    \
     X(Period, arrow::month_day_nano_interval(), period)                           \
+    X(Tenor, tenor_type(), tenor)                                                 \
     X(ZoneId, arrow::utf8(), zone_id)                                             \
     X(ZonedTime, zoned_time_type(), zoned_time)                                  \
     X(ZonedDateTime, zoned_datetime_type(), zoned_datetime)                       \
