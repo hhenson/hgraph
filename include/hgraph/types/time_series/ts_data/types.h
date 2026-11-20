@@ -355,6 +355,10 @@ namespace hgraph
         // Explicit empty publication while valid, or the last clear of an
         // owned value while last_modified_time is MIN_DT.
         DateTime last_empty_delta_time{MIN_DT};
+        [[nodiscard]] bool cleared_at(DateTime time) const noexcept
+        {
+            return time != MIN_DT && last_modified_time == MIN_DT && last_empty_delta_time == time;
+        }
         TSParentLink parent{};
         TSDataObserverSet observers{};
     };

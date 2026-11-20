@@ -173,7 +173,7 @@ bool TSDataView::invalidated(DateTime evaluation_time) const {
   const auto &table = ops();
   if (table.kind != TSTypeKind::TS || table.is_target_link) { return false; }
   const auto &state = *table.tracking_impl(table.context, data());
-  return state.last_modified_time == MIN_DT && state.last_empty_delta_time == evaluation_time;
+  return state.cleared_at(evaluation_time);
 }
 
 void TSDataView::subscribe_key(const ValueView &key, Notifiable *observer) const {
