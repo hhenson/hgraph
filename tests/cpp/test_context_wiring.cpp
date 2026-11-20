@@ -270,6 +270,22 @@ namespace
         }
     };
 
+    struct MultiplyCapturedPrice
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> element) { return wire<ScaledConsumer>(w, element); }
+    };
+
+    struct CompiledMapWithContext
+    {
+        static Port<TSD<Str, TS<Int>>> compose(
+            Wiring &w, Port<TSD<Str, TS<Int>>> dict, Port<TS<Int>> price, Port<TSS<Str>> keys)
+        {
+            context::scope<"price"> ctx{w, price};
+            return Port<TSD<Str, TS<Int>>>{w, compiled::map_(w, dict, {}, compile_subgraph<MultiplyCapturedPrice>(w),
+                                                   MapKeyArg::None, keys.erased())};
+        }
+    };
+
     struct SwitchContextGraph
     {
         static constexpr auto name = "switch_context_graph";
@@ -532,4 +548,16 @@ TEST_CASE("context wiring: stacked try_except_ boundaries import context")
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<StackedTryContextGraph>(values<Int>(7, none, 9)),
                  values<Int>(7, none, 9));
+}
+
+
+TEST_CASE("compiled map: explicit keys control membership and captured prices broadcast")
+{
+    CHECK_OUTPUT((eval_node<CompiledMapWithContext>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 2}, {"b"s, 3}}), none, none),
+                     values<Int>(10, 20, none),
+                     values<Value>(set_delta<Str>({"a"s}, {}), none, set_delta<Str>({"b"s}, {})))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 20}}),
+                               dict_delta<Str, TS<Int>>({{"a"s, 40}}),
+                               dict_delta<Str, TS<Int>>({{"b"s, 60}})));
 }

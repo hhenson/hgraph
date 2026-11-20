@@ -133,6 +133,7 @@ endif()
 
 set(HGRAPH_WIRING_SOURCES
     hgraph/types/graph_wiring.cpp
+    hgraph/types/compiled_subgraph_wiring.cpp
     hgraph/types/wiring_inspection.cpp
     hgraph/types/operator_dispatch.cpp
     hgraph/types/record_replay.cpp

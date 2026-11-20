@@ -279,6 +279,48 @@ namespace hgraph
             nullptr, {}, std::forward_as_tuple(std::forward<ScalarArgs>(scalar_args)...));
     }
 
+    /** Compile with the enclosing wiring so the child can capture its ports. */
+    template <typename G, typename... ScalarArgs>
+    [[nodiscard]] CompiledSubGraph compile_subgraph(Wiring &parent, ScalarArgs &&...scalar_args)
+    {
+        static_assert(sizeof...(ScalarArgs) == StaticGraphSignature<G>::scalar_count(),
+                      "compile_subgraph<G>: supply the graph's Scalar parameters in compose order");
+        return subgraph_wiring_detail::compile_subgraph_impl<G>(
+            &parent, {}, std::forward_as_tuple(std::forward<ScalarArgs>(scalar_args)...));
+    }
+
+    struct SwitchBranchGraph
+    {
+        Value key;
+        CompiledSubGraph graph;
+        bool takes_key{false};
+    };
+
+    enum class MapKeyArg : std::uint8_t { None, First };
+
+    namespace compiled
+    {
+        /** Wire compiled children directly, without registering standard operators.
+         * Child inputs are positional. The optional leading key precedes ordinary
+         * inputs. Captured ports are bound whole. Each call owns its compiled graphs.
+         */
+        [[nodiscard]] HGRAPH_EXPORT WiringPortRef switch_(Wiring &w, WiringPortRef key,
+            std::span<const WiringPortRef> inputs, std::vector<SwitchBranchGraph> branches,
+            std::optional<SwitchBranchGraph> default_branch = {}, bool reload_on_ticked = false);
+        HGRAPH_EXPORT void switch_sink_(Wiring &w, WiringPortRef key, std::span<const WiringPortRef> inputs,
+            std::vector<SwitchBranchGraph> branches, std::optional<SwitchBranchGraph> default_branch = {},
+            bool reload_on_ticked = false);
+
+        /** The first non-key input is one dictionary element or dynamic list element.
+         * Each later input is a broadcast. Explicit lifecycle keys apply to dictionaries.
+         */
+        [[nodiscard]] HGRAPH_EXPORT WiringPortRef map_(Wiring &w, WiringPortRef collection,
+            std::span<const WiringPortRef> broadcast, CompiledSubGraph child,
+            MapKeyArg key = MapKeyArg::None, std::optional<WiringPortRef> keys = {});
+        HGRAPH_EXPORT void map_sink_(Wiring &w, WiringPortRef collection, std::span<const WiringPortRef> broadcast,
+            CompiledSubGraph child, MapKeyArg key = MapKeyArg::None, std::optional<WiringPortRef> keys = {});
+    }  // namespace compiled
+
     /**
      * Wire sub-graph ``G`` into ``w`` as a **nested-graph node** (non-flattening).
      *

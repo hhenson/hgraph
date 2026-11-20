@@ -19,6 +19,33 @@ their child graphs. The bridge exposes those public constructs rather than a
 second, user-facing ``nested_graph(...)`` mechanism.
 
 
+Wiring compiled children
+------------------------
+
+Include ``<hgraph/types/subgraph_wiring.h>`` and link ``hgraph::wiring`` to
+wire a compiled child directly. ``compile_subgraph<G>(w, scalar_args...)``
+compiles against the enclosing wiring and records the ports and services the
+child captures.
+
+.. code-block:: cpp
+
+    std::vector<SwitchBranchGraph> cases{
+        {Value{Int{1}}, compile_subgraph<Count>(w)},
+        {Value{Int{2}}, compile_subgraph<Double>(w)}};
+    auto selected = compiled::switch_(w, selector, std::array{input.erased()}, std::move(cases),
+                            SwitchBranchGraph{{}, compile_subgraph<Pass>(w)});
+
+    auto mapped = compiled::map_(w, dictionary, std::array{offset.erased()},
+                       compile_subgraph<PerKey>(w), MapKeyArg::First);
+
+A switch branch takes the ordinary inputs in order. Set its ``takes_key``
+member to pass the selector first. A map child takes an optional leading key or
+list index, the element, then the broadcasts. Dictionary membership comes from
+the collection or an explicit key set. Captures bind as whole ports. Use
+``compiled::switch_sink_`` and ``compiled::map_sink_`` for outputless children. Each direct call
+owns its compiled graphs. The registered operators continue to intern calls
+using their callable identity and arguments.
+
 The model
 ---------
 
