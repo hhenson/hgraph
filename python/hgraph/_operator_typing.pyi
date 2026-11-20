@@ -3634,7 +3634,7 @@ class _last_modified_date_Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``SIGNAL``
+    ``ts`` : time-series; ``SIGNAL``, ``REF[TIME_SERIES_TYPE]``
        The primary time-series input.
 
     Returns
@@ -3652,13 +3652,17 @@ class _last_modified_date_Operator(_Protocol):
     Accepted native overloads:
 
     - ``last_modified_date(ts: SIGNAL) -> TS[date]``
+    - ``last_modified_date(ts: REF[TIME_SERIES_TYPE]) -> TS[date]``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
+    @_overload
     def __call__(self, ts: _WiringPort) -> _WiringPort: ...
+    @_overload
+    def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 last_modified_date: _last_modified_date_Operator
@@ -3672,7 +3676,7 @@ class _last_modified_time_Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``SIGNAL``
+    ``ts`` : time-series; ``SIGNAL``, ``REF[TIME_SERIES_TYPE]``
        Signal whose modification time is observed.
 
     Returns
@@ -3690,13 +3694,17 @@ class _last_modified_time_Operator(_Protocol):
     Accepted native overloads:
 
     - ``last_modified_time(ts: SIGNAL) -> TS[datetime]``
+    - ``last_modified_time(ts: REF[TIME_SERIES_TYPE]) -> TS[datetime]``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
+    @_overload
     def __call__(self, ts: _WiringPort) -> _WiringPort: ...
+    @_overload
+    def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 last_modified_time: _last_modified_time_Operator
@@ -3710,7 +3718,7 @@ class _last_modified_wall_clock_time_Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``SIGNAL``
+    ``ts`` : time-series; ``SIGNAL``, ``REF[TIME_SERIES_TYPE]``
        Signal whose modification time is observed.
 
     Returns
@@ -3728,13 +3736,17 @@ class _last_modified_wall_clock_time_Operator(_Protocol):
     Accepted native overloads:
 
     - ``last_modified_wall_clock_time(ts: SIGNAL) -> TS[datetime]``
+    - ``last_modified_wall_clock_time(ts: REF[TIME_SERIES_TYPE]) -> TS[datetime]``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
+    @_overload
     def __call__(self, ts: _WiringPort) -> _WiringPort: ...
+    @_overload
+    def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 last_modified_wall_clock_time: _last_modified_wall_clock_time_Operator

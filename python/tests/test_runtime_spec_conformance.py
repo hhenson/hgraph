@@ -7,19 +7,32 @@ import hgraph as hg
 from hgraph.test import eval_node
 
 
-@pytest.fixture(params=[hg.TSS[int], hg.TSD[int, hg.TS[int]]], ids=["set", "dictionary"])
+class _ResetBundle(hg.TimeSeriesSchema):
+    field: hg.TS[int]
+
+
+_KEYED_RESET_TYPES = [hg.TSS[int], hg.TSD[int, hg.TS[int]]]
+_BUNDLE_RESET = hg.TSB[_ResetBundle]
+_WINDOW_RESET = hg.TSW[int, hg.WindowSize[2], hg.WindowSize[1]]
+
+
+@pytest.fixture(params=[*_KEYED_RESET_TYPES, _BUNDLE_RESET, _WINDOW_RESET],
+                ids=["set", "dictionary", "bundle", "window"])
 def collection_source(request):
     schema = request.param
-    is_set = schema == hg.TSS[int]
 
     @hg.compute_node
     def source(action: hg.TS[int], _output: hg.TS_OUT[schema] = None) -> schema:
         if action.value < 0:
             _output.invalidate()
-        elif action.value == 0:
-            return frozenset() if is_set else {}
-        else:
-            return {action.value} if is_set else {action.value: 7}
+            return
+        if schema == _BUNDLE_RESET:
+            return {"field": action.value}
+        if schema == _WINDOW_RESET:
+            return action.value
+        if schema == hg.TSS[int]:
+            return {action.value} if action.value else frozenset()
+        return {action.value: 7} if action.value else {}
 
     return schema, source
 
@@ -61,7 +74,7 @@ def test_window_reset_depends_on_a_modified_collection(collection_source, durati
     def run(actions: hg.TS[int], price: hg.TS[int]) -> hg.TS[tuple[int, ...]]:
         return snapshot(hg.to_window(price, period, minimum, reset=source(actions)))
 
-    # First a valid empty resets the existing window. Its subsequent clear and
+    # The first publication resets the existing window. Its subsequent clear and
     # a repeated clear leave prices in place. A later publication resets with
     # no price, and the final reset precedes its simultaneous price.
     actions = [None, 0, None, -1, -1, None, 1, None, 2, None]
@@ -91,6 +104,20 @@ def test_collection_clear_wakes_modified_without_rearming_take(collection_source
     ]
 
 
+def test_expiry_and_published_window_reset_still_rearm_take():
+    @hg.graph
+    def run(samples: hg.TS[int], reset: hg.SIGNAL, prices: hg.TS[int]) -> hg.TS[int]:
+        window = hg.to_window(samples, 2 * hg.MIN_TD, 0 * hg.MIN_TD, reset=reset)
+        return hg.take(prices, count=1, reset=window)
+
+    # The first sample expires on the fourth price. The explicit reset
+    # removes the second sample on the sixth price.
+    assert eval_node(run, [7, None, None, None, 8, None, None, None],
+                     [None, None, None, None, None, True, None, None],
+                     [10, 20, 30, 40, 50, 60, 70, 80]) == [10, None, None, 40, 50, 60, None, None]
+
+
+@pytest.mark.parametrize("collection_source", _KEYED_RESET_TYPES, ids=["set", "dictionary"], indirect=True)
 def test_keyed_reference_withdrawal_wakes_with_its_removed_members(collection_source):
     schema, source = collection_source
 
@@ -109,6 +136,34 @@ def test_keyed_reference_withdrawal_wakes_with_its_removed_members(collection_so
 
     assert eval_node(run, [1, None, None, None], [True, False, None, True]) == [
         (True, True, ()), (False, True, (1,)), None, (True, True, ()),
+    ]
+
+
+@pytest.mark.parametrize("collection_source", [_BUNDLE_RESET, _WINDOW_RESET], ids=["bundle", "window"], indirect=True)
+def test_bundle_window_reference_designation_and_followed_ticks(collection_source):
+    schema, source = collection_source
+
+    @hg.compute_node(active=("choose",), valid=("choose",))
+    def select(choose: hg.TS[bool], value: hg.REF[schema]) -> hg.REF[schema]:
+        return value.value if choose.value else hg.TimeSeriesReference.make()
+
+    @hg.compute_node(active=("clock",), valid=("clock",))
+    def read(clock: hg.TS[bool], designation: hg.REF[schema], value: schema, pulse: hg.SIGNAL) -> hg.TS[object]:
+        assert (value.valid, value.modified) == (pulse.valid, pulse.modified)
+        return designation.modified, value.valid, value.modified
+
+    @hg.graph
+    def run(actions: hg.TS[int], choose: hg.TS[bool], clock: hg.TS[bool]) -> hg.TS[object]:
+        ref = select(choose, source(actions))
+        return read(clock, ref, ref, ref)
+
+    # Withdraw the designation, rebind it to a concurrently cleared owner,
+    # publish again, then clear the still-designated target.
+    withdrawal = schema == _WINDOW_RESET
+    actions = [1, None, -1, 2, -1, None, 3]
+    assert eval_node(run, actions, [True, False, True, None, None, None, None], [True] * len(actions)) == [
+        (True, True, True), (True, False, withdrawal), (True, False, False),
+        (False, True, True), (False, False, withdrawal), (False, False, False), (False, True, True),
     ]
 
 

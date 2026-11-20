@@ -3729,7 +3729,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``SIGNAL``
+``ts`` : time-series; ``SIGNAL``, ``REF[TIME_SERIES_TYPE]``
    The primary time-series input.
 
 Returns
@@ -3749,6 +3749,7 @@ Accepted native overloads
 .. code-block:: text
 
    last_modified_date(ts: SIGNAL) -> TS[date]
+   last_modified_date(ts: REF[TIME_SERIES_TYPE]) -> TS[date]
 
 .. _python-operator-last_modified_time:
 
@@ -3765,7 +3766,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``SIGNAL``
+``ts`` : time-series; ``SIGNAL``, ``REF[TIME_SERIES_TYPE]``
    Signal whose modification time is observed.
 
 Returns
@@ -3785,6 +3786,7 @@ Accepted native overloads
 .. code-block:: text
 
    last_modified_time(ts: SIGNAL) -> TS[datetime]
+   last_modified_time(ts: REF[TIME_SERIES_TYPE]) -> TS[datetime]
 
 .. _python-operator-last_modified_wall_clock_time:
 
@@ -3801,7 +3803,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``SIGNAL``
+``ts`` : time-series; ``SIGNAL``, ``REF[TIME_SERIES_TYPE]``
    Signal whose modification time is observed.
 
 Returns
@@ -3821,6 +3823,7 @@ Accepted native overloads
 .. code-block:: text
 
    last_modified_wall_clock_time(ts: SIGNAL) -> TS[datetime]
+   last_modified_wall_clock_time(ts: REF[TIME_SERIES_TYPE]) -> TS[datetime]
 
 .. _python-operator-le_:
 
