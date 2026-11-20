@@ -13,6 +13,7 @@
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/temporal.h>
+#include <hgraph/types/time_series/ts_output/forwarding.h>
 
 #include <chrono>
 #include <cstddef>
@@ -928,7 +929,24 @@ namespace hgraph::stdlib
         }
     }
 
-    struct last_modified_time_impl
+    inline bool timestamp_has_reference_input(OperatorCallContext context)
+    {
+        const auto *schema = time_series_schema_at(context, 0, SchemaRefMode::Direct);
+        return schema != nullptr && schema->kind == TSTypeKind::REF;
+    }
+
+    template <typename T>
+    struct direct_modification_timestamp
+    {
+        using value_type = T;
+
+        static bool requires_(const ResolutionMap &, OperatorCallContext context)
+        {
+            return !timestamp_has_reference_input(context);
+        }
+    };
+
+    struct last_modified_time_impl : direct_modification_timestamp<DateTime>
     {
         static void eval(In<"ts", SIGNAL, InputValidity::Unchecked> ts, Out<TS<DateTime>> out)
         {
@@ -936,7 +954,7 @@ namespace hgraph::stdlib
         }
     };
 
-    struct last_modified_wall_clock_time_impl
+    struct last_modified_wall_clock_time_impl : direct_modification_timestamp<DateTime>
     {
         static void eval(In<"ts", SIGNAL, InputValidity::Unchecked> ts, EvaluationClockView clock,
                          Out<TS<DateTime>> out)
@@ -945,13 +963,63 @@ namespace hgraph::stdlib
         }
     };
 
-    struct last_modified_date_impl
+    struct last_modified_date_impl : direct_modification_timestamp<Date>
     {
         static void eval(In<"ts", SIGNAL, InputValidity::Unchecked> ts, Out<TS<Date>> out)
         {
             publish_modification_timestamp(ts, out, [&] {
                 return Date{std::chrono::floor<std::chrono::days>(ts.last_modified_time())};
             });
+        }
+    };
+
+    // Keep the ordinary signal active. The passive REF distinguishes an owned
+    // clear from an explicit selector publication at the same evaluation time.
+    template <typename Timestamp>
+    struct timestamp_ref_compute
+    {
+        using Stamp = typename Timestamp::value_type;
+
+        static void eval(In<"ts", SIGNAL, InputValidity::Unchecked> ts,
+                         In<"designation", REF<TsVar<"S">>, InputValidity::Unchecked, InputActivity::Passive> designation,
+                         EvaluationClockView clock, Out<TS<Stamp>> out)
+        {
+            if (!ts.valid() && designation.valid() && !designation.modified()) {
+                const auto ref = designation.value();
+                if (ref.is_peered() && ref.has_output()) {
+                    const auto now = ts.evaluation_time();
+                    const auto owner = resolve_forwarding_source(ref.target_output().view(now));
+                    if (owner.bound() && !owner.forwarding() && owner.data_view().tracking().cleared_at(now)) {
+                        static_cast<void>(out.begin_mutation(out.evaluation_time()).invalidate());
+                        return;
+                    }
+                }
+            }
+            if constexpr (std::is_same_v<Timestamp, last_modified_wall_clock_time_impl>) {
+                Timestamp::eval(std::move(ts), clock, std::move(out));
+            } else {
+                Timestamp::eval(std::move(ts), std::move(out));
+            }
+        }
+    };
+
+    template <typename Timestamp>
+    struct timestamp_ref_graph
+    {
+        using Stamp = typename Timestamp::value_type;
+
+        static bool requires_(const ResolutionMap &, OperatorCallContext context)
+        {
+            return timestamp_has_reference_input(context);
+        }
+
+        static Port<TS<Stamp>> compose(Wiring &w, NamedPort<"ts", REF<TsVar<"S">>> ts)
+        {
+            WiringPortRef designation = ts.erased();
+            WiringPortRef value = designation;
+            value.schema = designation.schema->referenced_ts();
+            return wire<timestamp_ref_compute<Timestamp>>(
+                w, Port<void>{w, std::move(value)}, Port<void>{w, std::move(designation)}).template as<TS<Stamp>>();
         }
     };
 

@@ -308,6 +308,28 @@ namespace
         }
     };
 
+    template <typename Owner>
+    struct SelectOwner
+    {
+        static void eval(In<"select", TS<Bool>> select,
+                         In<"owner", REF<Owner>, InputActivity::Passive, InputValidity::Unchecked> owner,
+                         Out<REF<Owner>> out)
+        {
+            out.set(select.value() ? owner.value() : TimeSeriesReference::empty());
+        }
+    };
+
+    template <typename Owner, typename Source, typename Timestamp>
+    struct SampleOnSelectedOwnerGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> select, Port<TS<Int>> action, Port<TS<Int>> price)
+        {
+            auto owner = wire<Source>(w, action);
+            auto selected = wire<SelectOwner<Owner>>(w, select, owner);
+            return wire<stdlib::sample, TS<Int>>(w, wire<Timestamp>(w, selected), price);
+        }
+    };
+
     struct SaveReference
     {
         static void eval(In<"step", TS<Int>> step,
@@ -439,4 +461,38 @@ TEST_CASE("Modification timestamps preserve sampled reference transitions", "[ru
     check.template operator()<stdlib::last_modified_time>();
     check.template operator()<stdlib::last_modified_wall_clock_time>();
     check.template operator()<stdlib::last_modified_date>();
+}
+
+TEST_CASE("A selected owner's invalidation withdraws its timestamps while the selector is held",
+          "[runtime-contract][invalidation]")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+    const auto select = values<Bool>(true, none, none, none, none, false, none, true, none);
+    const auto prices = values<Int>(1, 2, 3, 4, 5, 6, 7, 8, 9);
+    const auto check = [&]<typename Owner, typename Source>(const auto &actions) {
+        const auto check_stamp = [&]<typename Timestamp>() {
+            const auto result = eval_node<SampleOnSelectedOwnerGraph<Owner, Source, Timestamp>>(select, actions, prices);
+            if constexpr (std::is_same_v<Owner, StampFixedList> || std::is_same_v<Owner, StampBundle>) {
+                CHECK_OUTPUT(result, {1, none, none, none, 5, none, none, 8, 9});
+            } else {
+                CHECK_OUTPUT(result, {1, none, none, none, 5, 6, none, 8, 9});
+            }
+        };
+        check_stamp.template operator()<stdlib::last_modified_time>();
+        check_stamp.template operator()<stdlib::last_modified_wall_clock_time>();
+        check_stamp.template operator()<stdlib::last_modified_date>();
+    };
+    SECTION("scalar") {
+        check.template operator()<TS<Int>, ApplyScalarAction>(
+            values<Int>(Publish, none, Clear, none, Publish, none, Publish, none, Publish));
+    }
+    const auto actions = values<Int>(7, none, -1, none, 8, none, 9, none, 10);
+    SECTION("set") { check.template operator()<StampSet, ApplyOwnerAction<StampSet>>(actions); }
+    SECTION("dictionary") { check.template operator()<StampDict, ApplyOwnerAction<StampDict>>(actions); }
+    SECTION("fixed list") { check.template operator()<StampFixedList, ApplyOwnerAction<StampFixedList>>(actions); }
+    SECTION("growing list") { check.template operator()<StampGrowingList, ApplyOwnerAction<StampGrowingList>>(actions); }
+    SECTION("bundle") { check.template operator()<StampBundle, ApplyOwnerAction<StampBundle>>(actions); }
+    SECTION("window") { check.template operator()<StampWindow, ApplyOwnerAction<StampWindow>>(actions); }
 }
