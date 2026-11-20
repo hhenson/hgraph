@@ -296,3 +296,26 @@ def test_zoned_time_native_wrapper_and_owning_publications():
     assert retained == [first, first, None, alias]
     assert eval_node(identity, [alias]) == [alias]
     assert retained == [first, first, None, alias]
+
+
+def test_tenor_forms_keep_full_counts_through_native_wiring():
+    minimum, maximum = -(1 << 63), (1 << 63) - 1
+    calendar = hg.Tenor.months_days(months=minimum, days=maximum)
+    business = hg.Tenor.business_days(count=minimum)
+    assert (calendar.is_business, calendar.months, calendar.days, calendar.business) == (False, minimum, maximum, 0)
+    assert (business.is_business, business.months, business.days, business.business) == (True, 0, 0, minimum)
+    assert len({calendar, hg.Tenor.months_days(minimum, maximum), business}) == 2
+    assert hg.Tenor.months_days(0, 0) != hg.Tenor.business_days(0)
+    assert hg.Tenor.months_days(1, 0) != hg.Tenor.months_days(0, 30)
+    assert repr(business) == f"Tenor.business_days({minimum})"
+    with pytest.raises(AttributeError):
+        calendar.days = 0
+    with pytest.raises((OverflowError, TypeError)):
+        hg.Tenor.business_days(maximum + 1)
+
+    @hg.compute_node
+    def identity(value: hg.TS[hg.Tenor]) -> hg.TS[hg.Tenor]:
+        return value.value
+
+    values = [calendar, calendar, None, business, hg.Tenor.business_days(0)]
+    assert eval_node(identity, values) == values

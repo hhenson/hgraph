@@ -582,3 +582,27 @@ TEST_CASE("zoned time is an exact wall-clock and zone scalar", "[temporal][zoned
     CHECK(types.zoned_time_type == scalar_descriptor<ZonedTime>::value_meta());
     CHECK(types.ts_zoned_time == schema_descriptor<TS<ZonedTime>>::ts_meta());
 }
+
+TEST_CASE("tenor distinguishes signed calendar counts from business days", "[temporal][tenor]")
+{
+    constexpr auto months = std::numeric_limits<std::int64_t>::min();
+    constexpr auto days = std::numeric_limits<std::int64_t>::max();
+    constexpr auto civil = Tenor::months_days(months, days);
+    constexpr auto business = Tenor::business_days(months);
+    STATIC_CHECK_FALSE(civil.is_business());
+    STATIC_CHECK(civil.months() == months);
+    STATIC_CHECK(civil.days() == days);
+    STATIC_CHECK(civil.business() == 0);
+    STATIC_CHECK(business.is_business());
+    STATIC_CHECK(business.business() == months);
+    STATIC_CHECK(business.months() == 0);
+    STATIC_CHECK(business.days() == 0);
+    STATIC_CHECK(Tenor{} == Tenor::months_days(0, 0));
+    CHECK(Tenor{} != Tenor::business_days(0));
+    CHECK(Tenor::months_days(1, 0) != Tenor::months_days(0, 30));
+    CHECK(std::unordered_set<Tenor>{civil, civil, business}.size() == 2);
+    auto &registry = TypeRegistry::instance();
+    CHECK(registry.value_type("tenor") == scalar_descriptor<Tenor>::value_meta());
+    CHECK(registry.time_series_type("TS[tenor]") == schema_descriptor<TS<Tenor>>::ts_meta());
+    CHECK(registry.time_series_type("TSS[tenor]") == schema_descriptor<TSS<Tenor>>::ts_meta());
+}

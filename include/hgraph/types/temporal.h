@@ -136,6 +136,33 @@ namespace hgraph
         std::int32_t days_{0};
     };
 
+    /** Calendar months and days, or a count of business days (RFC 0051). */
+    class HGRAPH_CLASS_EXPORT Tenor
+    {
+      public:
+        constexpr Tenor() noexcept = default;
+        [[nodiscard]] static constexpr Tenor months_days(std::int64_t months, std::int64_t days) noexcept
+        {
+            return Tenor{false, months, days};
+        }
+        [[nodiscard]] static constexpr Tenor business_days(std::int64_t count) noexcept
+        {
+            return Tenor{true, count, 0};
+        }
+        [[nodiscard]] constexpr bool is_business() const noexcept { return business_; }
+        [[nodiscard]] constexpr std::int64_t months() const noexcept { return business_ ? 0 : count_; }
+        [[nodiscard]] constexpr std::int64_t days() const noexcept { return days_; }
+        [[nodiscard]] constexpr std::int64_t business() const noexcept { return business_ ? count_ : 0; }
+        friend constexpr bool operator==(const Tenor &, const Tenor &) noexcept = default;
+
+      private:
+        constexpr Tenor(bool business, std::int64_t count, std::int64_t days) noexcept
+            : count_{count}, days_{days}, business_{business} {}
+        std::int64_t count_{0};
+        std::int64_t days_{0};
+        bool business_{false};
+    };
+
     [[nodiscard]] HGRAPH_EXPORT Period checked_add(Period lhs, Period rhs);
     [[nodiscard]] HGRAPH_EXPORT Period checked_subtract(Period lhs, Period rhs);
     [[nodiscard]] HGRAPH_EXPORT Period checked_negate(Period value);
@@ -1047,6 +1074,7 @@ namespace hgraph
 
     HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const CivilDateTime &value);
     HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const Period &value);
+    HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const Tenor &value);
     HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const ZoneId &value);
     HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const ZonedTime &value);
     HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const ZonedDateTime &value);
@@ -1073,6 +1101,18 @@ namespace std
             size_t seed = hash<std::int32_t>{}(value.total_months());
             return seed ^ (hash<std::int32_t>{}(value.days()) + 0x9e3779b9U +
                            (seed << 6U) + (seed >> 2U));
+        }
+    };
+
+    template <>
+    struct hash<hgraph::Tenor>
+    {
+        size_t operator()(const hgraph::Tenor &value) const noexcept
+        {
+            size_t seed = hash<bool>{}(value.is_business());
+            const auto count = value.is_business() ? value.business() : value.months();
+            seed ^= hash<int64_t>{}(count) + 0x9e3779b9U + (seed << 6U) + (seed >> 2U);
+            return seed ^ (hash<int64_t>{}(value.days()) + 0x9e3779b9U + (seed << 6U) + (seed >> 2U));
         }
     };
 
@@ -1159,6 +1199,7 @@ namespace std
 
 static_assert(sizeof(hgraph::CivilDateTime) == 8);
 static_assert(sizeof(hgraph::Period) == 8);
+static_assert(std::is_trivially_copyable_v<hgraph::Tenor>);
 static_assert(sizeof(hgraph::ZoneIdPayload) == 8);
 static_assert(sizeof(hgraph::ZoneId) == 8);
 static_assert(sizeof(hgraph::ZonedTime) <= 16);
@@ -1172,6 +1213,8 @@ static_assert(sizeof(hgraph::CivilDateRangeSet) <= 40);
 
 namespace hgraph::static_schema_detail
 {
+    template <> struct scalar_name<hgraph::Tenor>
+    { static constexpr std::string_view value{"tenor"}; };
     template <> struct scalar_name<hgraph::Period>
     { static constexpr std::string_view value{"period"}; };
     template <> struct scalar_name<hgraph::CivilDateTime>
@@ -1207,6 +1250,7 @@ namespace hgraph
     extern template HGRAPH_EXPORT const ValueOps &ops_for<Type>() noexcept
 
     HGRAPH_DECLARE_TEMPORAL_SCALAR_BINDING(Period);
+    HGRAPH_DECLARE_TEMPORAL_SCALAR_BINDING(Tenor);
     HGRAPH_DECLARE_TEMPORAL_SCALAR_BINDING(CivilDateTime);
     HGRAPH_DECLARE_TEMPORAL_SCALAR_BINDING(ZoneId);
     HGRAPH_DECLARE_TEMPORAL_SCALAR_BINDING(ZonedDateTime);
