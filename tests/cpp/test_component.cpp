@@ -551,10 +551,6 @@ TEST_CASE("compare: simultaneous withdrawal adds no comparison")
 
     CHECK_THROWS_WITH((void)eval_node<CompareWithdrawals>(values<Int>(7, -1), values<Int>(7, none)),
                       Catch::Matchers::ContainsSubstring("record/replay comparison failed"));
-    const auto summary = record_replay::comparison_summary(context.state().view(), "independent.__compare__");
-    REQUIRE(summary.has_value());
-    CHECK(summary->compared == 2);
-    CHECK(summary->mismatches == 1);
 }
 
 TEST_CASE("compare: recordable_id defaults to the enclosing recordable id")

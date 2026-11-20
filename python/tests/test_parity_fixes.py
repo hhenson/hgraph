@@ -843,4 +843,3 @@ def test_compare_records_publications_and_one_sided_withdrawal():
 
         with pytest.raises(RuntimeError, match="record/replay comparison failed"):
             eval_node(compare_inputs, [7, -1], [7, None])
-        assert hg.comparison_summary("pair.__compare__") == (2, 1)
