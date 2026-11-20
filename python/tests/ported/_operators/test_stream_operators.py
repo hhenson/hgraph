@@ -10,6 +10,7 @@ from frozendict import frozendict as fd
 from hgraph import (
     TS,
     MIN_TD,
+    TS_OUT,
     const,
     graph,
     if_,
@@ -455,6 +456,31 @@ def test_schedule_ts_with_start():
                None,
                True,
            ]
+
+
+@pytest.mark.parametrize(
+    ("starts", "expected"),
+    [
+        ([0], [5, 10, 15, 20]),
+        ([0, None, -1], [5, 10, 15, 20]),
+        ([0, None, None, None, None, -1], [5, 10, 15, 20]),
+        ([0, None, 2], [7, 12, 17, 22]),
+        ([0, None, -1, None, None, None, 6], [5, 11, 16, 21, 26]),
+    ],
+)
+def test_schedule_start_withdrawal(starts, expected):
+    @compute_node
+    def start_at(offset: TS[int], _output: TS_OUT[datetime] = None) -> TS[datetime]:
+        if offset.value < 0:
+            _output.invalidate()
+        else:
+            return MIN_ST + MIN_TD * offset.value
+
+    @graph
+    def clock(offset: TS[int]) -> TS[bool]:
+        return schedule(const(MIN_TD * 5), start=start_at(offset), max_ticks=4)
+
+    assert [i for i, tick in enumerate(eval_node(clock, starts)) if tick] == expected
 
 
 def test_drop_dups():
