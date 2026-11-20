@@ -1483,7 +1483,7 @@ TEST_CASE("ts_delta: explicit empty sparse patches validate only their target", 
     const auto before = type_system_lock_count();
     apply_delta(output.view(MIN_ST), empty.view());
     CHECK(type_system_lock_count() == before);
-    if (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl() && schema->fixed_size() != 0) {
+    if (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl()) {
       CHECK_FALSE(output.view(MIN_ST).valid());
       CHECK_FALSE(output.view(MIN_ST).modified());
       CHECK(output.view(MIN_ST).last_modified_time() == MIN_DT);
@@ -1509,12 +1509,6 @@ TEST_CASE("ts_delta: explicit empty sparse patches validate only their target", 
         CHECK_FALSE(bundle.at(index).valid());
       }
       CHECK(output.view(later).all_valid() == (schema->field_count() == 0));
-    } else if (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl()) {
-      auto list = later_view.as_list();
-      for (std::size_t index = 0; index < schema->fixed_size(); ++index) {
-        CHECK_FALSE(list.at(index).valid());
-      }
-      CHECK(output.view(later).all_valid() == (schema->fixed_size() == 0));
     } else {
       CHECK(output.view(later).all_valid());
     }
@@ -1631,7 +1625,7 @@ TEST_CASE("ts_delta: sampled rebinds retain previously empty fixed and bundle pu
     CHECK_FALSE(input.view(nullptr, MIN_DT).delta_is_sampled_rebind());
     input.view(nullptr, sample_time).bind_output_sampled(second.view(sample_time), sample_time);
     auto sampled = input.view(nullptr, sample_time);
-    if (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl() && schema->fixed_size() != 0) {
+    if (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl()) {
       CHECK_FALSE(sampled.valid());
       CHECK_FALSE(sampled.modified());
       CHECK(sampled.last_modified_time() == MIN_DT);

@@ -563,7 +563,6 @@ namespace hgraph::ts_data_plan_factory_detail
         {
             if (!fixed_has_current_value(context, memory)) { return false; }
             const auto *state = ctx(context);
-            if (state->element_count() == 0) { return true; }
             const auto has_value = [&](std::size_t i) {
                 const auto &ops = child_ops(state->element_type(i));
                 return ops.has_current_value_impl(ops.context, child_data(state, memory, i));
