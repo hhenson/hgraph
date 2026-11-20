@@ -704,6 +704,32 @@ namespace
         }
     };
 
+    struct ReadAssembledList
+    {
+        static void eval(In<"clock", TS<Int>>, In<"items", NumberPair, InputActivity::Passive, InputValidity::Unchecked> items,
+                         Out<TS<Str>> out)
+        {
+            if (items.valid()) {
+                REQUIRE(items[0].valid());
+                out.set(std::to_string(items[0].value()));
+            } else {
+                CHECK_FALSE(items.modified());
+                CHECK(items.last_modified_time() == MIN_DT);
+                CHECK_FALSE(items.delta_value().has_value());
+                out.set("invalid");
+            }
+        }
+    };
+
+    struct ObserveAssembledList
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> clock, Port<TS<Str>> command, Port<TS<Int>> a, Port<TS<Int>> b)
+        {
+            auto selected = wire<SelectReference>(w, command, a, b);
+            return wire<ReadAssembledList>(w, clock, stdlib::to_tsl<PositionRefs>(w, selected, selected));
+        }
+    };
+
     struct MakeNumberPair
     {
         static void eval(In<"value", TS<Int>> value, Out<NumberPair> out)
@@ -809,6 +835,15 @@ TEST_CASE("REF rebinding: a saved position follows the fixed list while its sele
     CHECK_OUTPUT(eval_node<FollowSavedPosition>(values<Int>(1), values<Bool>(true, none, false),
                                                values<Int>(3, none, none, none, 4), values<Int>(10, none, none, 11)),
                  values<Str>("-10", none, "-3", none, "-4"));
+}
+
+TEST_CASE("REF rebinding: withdrawing the last child clears the assembled list observations")
+{
+    // Both positions follow one REF. An independent clock inspects the
+    // whole list on withdrawal, one quiet cycle later, and on recovery.
+    CHECK_OUTPUT(eval_node<ObserveAssembledList>(values<Int>(1, 1, 1, 1), values<Str>("a", "clear", none, "a"),
+                                                values<Int>(7), values<Int>()),
+                 values<Str>("7", "invalid", "invalid", "7"));
 }
 
 TEST_CASE("REF rebinding: a position reader observes designation changes through a value graph parameter")

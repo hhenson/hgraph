@@ -192,11 +192,6 @@ namespace hgraph
             return link != nullptr && !link->empty_scalar_route() && !invalidated(source, evaluation_time);
         }
         const auto &data = resolved_value_data(evaluation_time);
-        // A child withdrawal can wake an assembled fixed collection. If its
-        // last valid child left, TS-26 gives the collection no value delta.
-        const auto has_value_delta = [&data] {
-            return !detail::has_input_children(data) || data.has_current_value();
-        };
         if (is_target_position())
         {
             // A target can tick before its REF route becomes empty in this
@@ -207,17 +202,18 @@ namespace hgraph
             if (is_target_root() && link != nullptr && link->state()->scalar_target_link != nullptr &&
                 (!data.valid() || !data.has_current_value()) && link->empty_scalar_route()) { return false; }
             if (!data.valid()) { return raw_data.modified(evaluation_time); }
-            if (data.modified(evaluation_time)) { return has_value_delta(); }
+            if (data.modified(evaluation_time)) { return true; }
             if ((is_target_root() && raw_data.modified(evaluation_time)) ||
                 structural_sample_time(link) == evaluation_time)
             {
                 // A link can carry the producer's invalidation notification
                 // or a sampled rebind. Only the former suppresses modification.
-                return !invalidated(data, evaluation_time) && has_value_delta();
+                return !invalidated(data, evaluation_time) &&
+                       (!detail::has_input_children(data) || data.has_current_value());
             }
             return false;
         }
-        return data.valid() && data.modified(evaluation_time) && has_value_delta();
+        return data.valid() && data.modified(evaluation_time);
     }
 
     TSDataView &TSInputView::InputDataCursor::checked_value_data(const char *what) const
@@ -660,8 +656,7 @@ namespace hgraph
 
         // A REF-typed input's reference IS its VALUE (one dereference level:
         // hgraph's ts.value on a REF input) - an emptied upstream reference
-        // reads empty here, so assemblies observe invalidation without any
-        // unbind notification (UNBIND IS SILENT, linking_strategies.rst).
+        // reads empty here even while an independent input wakes the consumer.
         if (view_schema->kind == TSTypeKind::REF)
         {
             if (!valid()) { return TimeSeriesReference::empty(view_schema->referenced_ts()); }

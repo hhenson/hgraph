@@ -68,6 +68,26 @@ Pair = hg.TSL[hg.TS[int], hg.Size[2]]
 Positions = hg.TSL[hg.REF[hg.TS[int]], hg.Size[2]]
 
 
+def test_withdrawing_the_last_child_clears_the_assembled_list_observations():
+    @hg.compute_node(active=("clock",), valid=("clock",))
+    def inspect(clock: hg.TS[int], items: Pair) -> hg.TS[str]:
+        if items.valid:
+            return str(items[0].value)
+        assert not items.modified
+        assert items.last_modified_time == hg.MIN_DT
+        assert items.delta_value is None
+        return "invalid"
+
+    @hg.graph
+    def observe(clock: hg.TS[int], command: hg.TS[str], a: hg.TS[int], b: hg.TS[int]) -> hg.TS[str]:
+        item = select(command, a, b)
+        return inspect(clock, Positions.from_ts(item, item))
+
+    assert hg.eval_node(observe, [1, 1, 1, 1], ["a", "clear", None, "a"], [7], []) == [
+        "7", "invalid", "invalid", "7",
+    ]
+
+
 @hg.compute_node
 def pair(value: hg.TS[int]) -> Pair:
     return value.value, -value.value

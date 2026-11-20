@@ -144,9 +144,7 @@ ValueView TSDataView::delta_value(DateTime evaluation_time) const {
     return table.delta_view_impl(table.context, data(), evaluation_time);
   }
   const auto *data_layout = table.layout_impl(table.context);
-  const auto *data_tracking = table.tracking_impl(table.context, data());
-  if (evaluation_time == MIN_DT ||
-      data_tracking->last_modified_time != evaluation_time) {
+  if (!modified(evaluation_time)) {
     return ValueView{data_layout->delta_binding, nullptr};
   }
   return ValueView{data_layout->delta_binding,
@@ -156,12 +154,18 @@ ValueView TSDataView::delta_value(DateTime evaluation_time) const {
 
 
 DateTime TSDataView::last_modified_time() const {
-  return tracking().last_modified_time;
+  const auto &table = ops();
+  // An assembled input tracks child notifications even when the last child
+  // loses its value. Its public value then has no modification time (TS-26).
+  if (table.is_input_binding && !table.has_current_value_impl(table.context, data())) { return MIN_DT; }
+  return table.tracking_impl(table.context, data())->last_modified_time;
 }
 
 bool TSDataView::modified(DateTime evaluation_time) const {
+  const auto &table = ops();
   return evaluation_time != MIN_DT &&
-         tracking().last_modified_time == evaluation_time;
+         table.tracking_impl(table.context, data())->last_modified_time == evaluation_time &&
+         (!table.is_input_binding || table.has_current_value_impl(table.context, data()));
 }
 
 bool TSDataView::invalidated(DateTime evaluation_time) const {

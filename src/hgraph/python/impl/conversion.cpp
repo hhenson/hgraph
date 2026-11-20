@@ -145,11 +145,7 @@ namespace hgraph::python_bridge
     nb::object delta_value_to_python(const TSDataView &view, DateTime evaluation_time)
     {
         const auto &table = view.ops();
-        if (evaluation_time == MIN_DT ||
-            table.tracking_impl(table.context, view.data())->last_modified_time != evaluation_time)
-        {
-            return nb::none();
-        }
+        if (!view.modified(evaluation_time)) { return nb::none(); }
         return take(table.delta_to_python_impl(table.context, view.data(), evaluation_time));
     }
 

@@ -553,7 +553,16 @@ namespace hgraph::distributed
             throw error.with_context(needed_by, schema != nullptr ? schema->name() : std::string_view{});
         }
     }
-    bool BoundaryTransfer::has_update(const TSInputView &input) { return input.modified() || input.invalidated(); }
+    bool BoundaryTransfer::has_update(const TSInputView &input)
+    {
+        if (input.modified() || input.invalidated()) { return true; }
+        // An assembled list or bundle still has to transport a child clear
+        // when its last value disappears. Its public value is unmodified,
+        // while its input storage recorded the child notification this step.
+        const auto &data = input.data_view();
+        return data.valid() && data.ops().is_input_binding && input.evaluation_time() != MIN_DT &&
+               data.tracking().last_modified_time == input.evaluation_time();
+    }
     const TSValueTypeMetaData *BoundaryTransfer::schema() const noexcept { return plan_->schema; }
     const ValueTypeMetaData *BoundaryTransfer::payload_schema()
     { return TypeRegistry::instance().register_scalar<std::string>("str"); }
