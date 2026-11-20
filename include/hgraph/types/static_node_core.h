@@ -6,7 +6,7 @@
 #include <hgraph/runtime/node.h>
 #include <hgraph/runtime/node_scheduler_view.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
-#include <hgraph/types/static_schema.h>
+#include <hgraph/types/value/native_bundle_impl.h>
 #include <hgraph/types/time_series/ts_data/set_view.h>
 #include <hgraph/types/time_series/endpoint_schema.h>
 #include <hgraph/types/time_series/ts_input/bundle_view.h>
@@ -463,7 +463,7 @@ namespace hgraph
 
     /**
      * ``Args<C>`` is a node-authoring marker for call-site positional packing.
-     * At runtime it is the same view and metadata shape as ``TSL<C, SIZE<"args_len">>``.
+     * At runtime it uses a list view with one position per supplied argument.
      */
     template <fixed_string Name, typename TElementSchema, auto... TPolicies>
     class In<Name, Args<TElementSchema>, TPolicies...>
@@ -674,6 +674,22 @@ namespace hgraph
         template <fixed_string FieldName>
         [[nodiscard]] auto get() const { return field<FieldName>(); }
 
+        [[nodiscard]] auto value() const
+        {
+            if constexpr (requires { requires NativeBundleValue<typename TSchema::value_bundle>; }) {
+                if (!all_valid()) { throw std::logic_error("whole bundle read requires all fields to be valid"); }
+                using T = typename TSchema::value_bundle;
+                using Fields = static_schema_detail::native_bundle_fields<T>;
+                T result{};
+                [&]<std::size_t... I>(std::index_sequence<I...>) {
+                    ((result.*std::get<I>(Fields::members) = field<Fields::template field<I>::name_sv>().value()), ...);
+                }(typename Fields::indices{});
+                return result;
+            } else {
+                return TSBInputView::value();
+            }
+        }
+
         [[nodiscard]] ValueView delta() const { return delta_value(); }
     };
 
@@ -779,7 +795,13 @@ namespace hgraph
 
         /** Write ``value`` into the output and tick it at the current evaluation time. */
         template <typename U>
-        void set(U &&value) const
+        void set(U &&value) const requires NativeBundleValue<TValue>
+        {
+            apply(Value{TValue{std::forward<U>(value)}}.view());
+        }
+
+        template <typename U>
+        void set(U &&value) const requires (!NativeBundleValue<TValue>)
         {
             // Prepared route (RFC 0008 stage 6): the output's native slot and
             // tracking were resolved at start; this is the typed fast path
@@ -1352,6 +1374,14 @@ namespace hgraph
             return Out<typename lookup::type>{TSBOutputView::at(lookup::index), evaluation_time()};
         }
         template <fixed_string FieldName> [[nodiscard]] auto get() const { return field<FieldName>(); }
+
+        void set(const TValueBundle &value) const requires NativeBundleValue<TValueBundle>
+        {
+            using Fields = static_schema_detail::native_bundle_fields<TValueBundle>;
+            [&]<std::size_t... I>(std::index_sequence<I...>) {
+                (field<Fields::template field<I>::name_sv>().set(value.*std::get<I>(Fields::members)), ...);
+            }(typename Fields::indices{});
+        }
     };
 
     /**
@@ -1444,7 +1474,7 @@ namespace hgraph
         /** Borrowed read — no copy. Valid until the next set()/modify().
             Prefer this over get() when the state holds owning containers:
             get() deep-copies the whole value out per call. */
-        [[nodiscard]] const value_type &ref() const
+        [[nodiscard]] const value_type &ref() const requires (!NativeBundleValue<TValue>)
         {
             return view_.template checked_as<TValue>();
         }
@@ -1455,7 +1485,7 @@ namespace hgraph
             copy for every node holding a deque/vector in state (std-operator
             audit 2026-08-15). The reference stays valid for the remainder of
             the current hook invocation. */
-        [[nodiscard]] value_type &modify()
+        [[nodiscard]] value_type &modify() requires (!NativeBundleValue<TValue>)
         {
             auto mutation = view_.begin_mutation();
             return mutation.template checked_mutable_as<TValue>();
@@ -1465,7 +1495,7 @@ namespace hgraph
         void set(U &&value)
         {
             auto mutation = view_.begin_mutation();
-            mutation.set_scalar(std::forward<U>(value));
+            mutation.set(std::forward<U>(value));
         }
 
         [[nodiscard]] ValueView       &view() noexcept { return view_; }
@@ -1497,7 +1527,12 @@ namespace hgraph
         }
 
         /** Borrow from the immutable node scalar storage (node hook path). */
-        explicit Scalar(const ValueView &view)
+        explicit Scalar(const ValueView &view) requires NativeBundleValue<TValue>
+            : owned_(view.template checked_as<TValue>())
+        {
+        }
+
+        explicit Scalar(const ValueView &view) requires (!NativeBundleValue<TValue>)
             : borrowed_(std::addressof(view.template checked_as<TValue>()))
         {
         }

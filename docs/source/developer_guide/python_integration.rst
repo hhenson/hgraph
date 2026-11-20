@@ -451,11 +451,12 @@ Recorded divergences / gaps (the morning-summary list):
   are restored to bare ``X`` before any pattern is lowered; the bare ``DEFAULT``
   class remains ``switch_``'s default-branch key.
   ``resolvers={...}`` binds typevars from scalars on compute, sink, graph,
-  generator, component, service, adaptor, and push-queue declarations. TSS returns follow
-  upstream exactly: an exact ``frozenset`` REPLACES the whole set, a
-  ``set_delta``/``Removed``-marked set applies as a delta, and a net
-  no-change on a valid output does NOT tick (``contains_`` re-publishes
-  on item ticks only). TSB sugar: ``.as_schema`` (both wiring and runtime
+  generator, component, service, adaptor, and push-queue declarations.
+  Returning an exact ``frozenset`` publishes the whole TSS and ticks even
+  when its membership is unchanged. A ``set_delta`` or a set with
+  ``Removed`` markers applies a membership delta. An empty or redundant
+  delta on an already valid set is silent. ``contains_`` re-publishes
+  on item ticks only. TSB sugar: ``.as_schema`` (both wiring and runtime
   views), ``keys()``/``dict(**tsb)``, inline ``TSB["a": TS[int], ...]``
   schemas, ``TSL.from_ts(iterable | *ports, tp=...)``. The signature
   introspection surface (``WiringNodeSignature``/``extract_signature``/

@@ -4,6 +4,18 @@
 
 namespace
 {
+    struct SelectorConfig { hgraph::Int key; };
+}
+
+template <> struct hgraph::native_bundle<SelectorConfig>
+{
+    using schema = NominalBundle<"test.generated", "SelectorConfig", false, BundleParents<>,
+                                 BundleArguments<>, Field<"key", Int>>;
+    static constexpr auto members = std::tuple{&SelectorConfig::key};
+};
+
+namespace
+{
     using namespace hgraph;
     using Number = TS<Int>;
     using Numbers = TSD<Int, Number>;
@@ -12,6 +24,12 @@ namespace
     {
         static constexpr bool schedule_on_start = true;
         static void eval(Scalar<"value", Int> value, Out<Number> out) { out.set(value.value()); }
+    };
+
+    struct Selector
+    {
+        static constexpr bool schedule_on_start = true;
+        static void eval(Scalar<"config", SelectorConfig> config, Out<Number> out) { out.set(config.value().key); }
     };
 
     struct Dictionary
@@ -62,7 +80,7 @@ namespace
 TEST_CASE("generated header alone wires and runs concrete nodes, a switch and a keyed map")
 {
     Wiring wiring;
-    auto selector = wire<Constant>(wiring, Int{1});
+    auto selector = wire<Selector>(wiring, SelectorConfig{1});
     auto offset = compiled::switch_(wiring, selector, std::array{selector.erased()},
                           {{Value{Int{1}}, compile_subgraph<PlusConstant>(wiring, Int{2})}});
     auto collection = wire<Dictionary>(wiring);

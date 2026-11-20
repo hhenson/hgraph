@@ -268,8 +268,6 @@ namespace hgraph
             }
             if (family == "TSL" && (parts.size() == 1 || parts.size() == 2))
             {
-                // The registry leaves the extent out only for the unbounded list;
-                // ``TSL[T,0]`` is the fixed empty one.
                 return registry.tsl(parse_ts(parts[0], depth + 1),
                                     parts.size() == 2 ? static_cast<std::size_t>(parse_count(parts[1], name))
                                                       : unbounded_tsl_size);

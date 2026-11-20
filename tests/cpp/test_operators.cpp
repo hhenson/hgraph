@@ -1147,12 +1147,14 @@ TEST_CASE("operators: native concrete TypePatterns lower recursively")
     ResolutionMap unbounded_list_match;
     REQUIRE(ts_pattern_match(list_pattern, ts_type<TSL<TS<Int>>>(), unbounded_list_match));
 
-    const TypePattern fixed_empty_pattern = to_pattern<TSL<TS<Int>, 0>>();
-    CHECK(ts_pattern_to_string(fixed_empty_pattern) == "TSL[TS[int], 0]");
-    ResolutionMap fixed_empty_match;
-    REQUIRE(ts_pattern_match(fixed_empty_pattern, ts_type<TSL<TS<Int>, 0>>(), fixed_empty_match));
-    ResolutionMap nonempty_mismatch;
-    CHECK_FALSE(ts_pattern_match(fixed_empty_pattern, ts_type<TSL<TS<Int>, 2>>(), nonempty_mismatch));
+    CHECK_THROWS_AS((to_pattern<TSL<TS<Int>, 0>>()), std::invalid_argument);
+    ResolutionMap zero_size;
+    zero_size.bind_size("N", 0);
+    const auto sized_list = to_pattern<TSL<TS<Int>, SIZE<"N">>>();
+    CHECK_THROWS_AS(ts_pattern_resolve(sized_list, zero_size), std::invalid_argument);
+    const auto generic_list = to_pattern<TSL<TsVar<"Element">, SIZE<"N">>>();
+    CHECK_THROWS_AS(substitute_size_patterns(generic_list, {{"N", DimensionPattern::fixed(0)}}),
+                    std::invalid_argument);
 
     ResolutionMap list_mismatch;
     CHECK_FALSE(ts_pattern_match(list_pattern, ts_type<TSL<TS<Float>, 2>>(), list_mismatch));
@@ -1821,8 +1823,8 @@ TEST_CASE("operators: packed VarIn tails prefer variadic overloads over converte
     WiringArg packed;
     packed.kind               = WiringArg::Kind::TimeSeries;
     packed.from_variadic_tail = true;
-    packed.port = WiringPortRef::structural_source(TypeRegistry::instance().tsl(element, children.size()),
-                                                   std::move(children));
+    const auto *schema = TypeRegistry::instance().tsl(element, children.size());
+    packed.port = WiringPortRef::structural_source(schema, std::move(children));
 
     std::array<WiringArg, 1> args{std::move(packed)};
     auto [impl, map, call_args, call_kwargs] =

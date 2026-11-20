@@ -352,8 +352,15 @@ namespace hgraph
     };
 
     template <typename C>
-    struct ts_resolver<Args<C>> : ts_resolver<TSL<C, SIZE<"args_len">>>
+    struct ts_resolver<Args<C>>
     {
+        [[nodiscard]] static const TSValueTypeMetaData *resolve(const ResolutionMap &m)
+        {
+            const auto count = size_resolver<SIZE<"args_len">>::resolve(m);
+            // An empty argument pack uses an unwired growing list. Keep its actual
+            // cardinality in the resolution map for other size-dependent arguments.
+            return TypeRegistry::instance().tsl(ts_resolver<C>::resolve(m), count == 0 ? unbounded_tsl_size : count);
+        }
     };
 
     template <typename V, std::size_t Period, std::size_t MinPeriod>

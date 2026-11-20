@@ -2295,16 +2295,16 @@ namespace hgraph
                                     if constexpr (arg_index != call_args_detail::npos)
                                     {
                                         using V = typename P::value_type;
-                                        mutation[P::field_name.sv()].template checked_mutable_as<V>() =
+                                        mutation[P::field_name.sv()].set(
                                             graph_wiring_detail::coerce_scalar_value<V>(
-                                                call_args_detail::payload_at<arg_index>(arg_tuple));
+                                                call_args_detail::payload_at<arg_index>(arg_tuple)));
                                     }
                                     else if constexpr (default_index != call_args_detail::npos)
                                     {
                                         using V = typename P::value_type;
-                                        mutation[P::field_name.sv()].template checked_mutable_as<V>() =
+                                        mutation[P::field_name.sv()].set(
                                             graph_wiring_detail::coerce_scalar_value<V>(
-                                                call_args_detail::payload_at<default_index>(default_args));
+                                                call_args_detail::payload_at<default_index>(default_args)));
                                     }
                                 }
                             }(),

@@ -1,4 +1,5 @@
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
+#include "detail/list_validity.h"
 
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
@@ -75,6 +76,7 @@ namespace hgraph::ts_data_plan_factory_detail
         std::vector<std::size_t>       element_data_offsets{};
         std::vector<std::int64_t>       ordinal_keys{};
         bool                           projected_value_surface{false};
+        std::size_t                    validity_offset{ListValidity::unknown};
 
         FixedTSDataContext(const TSValueTypeMetaData &schema_, const MemoryUtils::StoragePlan &plan_, TypeRole role_,
                            std::size_t value_offset, std::size_t aux_offset, std::size_t tracking_offset,
@@ -321,6 +323,12 @@ namespace hgraph::ts_data_plan_factory_detail
             list_layout.element_value_stride = value_plan->array_stride();
 
             const auto &aux_plan           = ts_data_aux_plan(*schema);
+            const auto *validity = aux_plan.find_component("list_validity");
+            if (validity && std::ranges::all_of(element_types, [](const auto &child) {
+                return !child.ops()->is_target_link && !child.ops()->is_input_binding;
+            })) {
+                validity_offset = aux_offset + validity->offset;
+            }
             const auto *elements_component = aux_plan.find_component("elements");
             if (elements_component == nullptr || elements_component->plan == nullptr ||
                 !elements_component->plan->is_array())
@@ -381,7 +389,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 .layout_impl               = &fixed_layout,
                 .tracking_impl             = &fixed_tracking,
                 .mutable_tracking_impl     = &fixed_mutable_tracking,
-                .has_current_value_impl    = &fixed_has_current_value,
+                .has_current_value_impl    = bundle ? &fixed_has_current_value : &fixed_list_has_current_value,
                 .all_valid_impl            = &fixed_all_valid,
                 .dynamic_storage_metrics_impl = &fixed_dynamic_storage_metrics,
                 .value_memory_impl         = &fixed_value_memory,
@@ -551,6 +559,23 @@ namespace hgraph::ts_data_plan_factory_detail
             return fixed_tracking(context, memory)->last_modified_time != MIN_DT;
         }
 
+        [[nodiscard]] static bool fixed_list_has_current_value(const void *context, const void *memory)
+        {
+            if (!fixed_has_current_value(context, memory)) { return false; }
+            const auto *state = ctx(context);
+            const auto has_value = [&](std::size_t i) {
+                const auto &ops = child_ops(state->element_type(i));
+                return ops.has_current_value_impl(ops.context, child_data(state, memory, i));
+            };
+            if (state->validity_offset != ListValidity::unknown) {
+                return static_cast<const ListValidity *>(advance(memory, state->validity_offset))->any(state->element_count(), has_value);
+            }
+            for (std::size_t i = 0; i < state->element_count(); ++i) {
+                if (has_value(i)) { return true; }
+            }
+            return false;
+        }
+
         // ``all_valid`` is a one-level check: each direct child is asked for
         // ``valid``, never for its own ``all_valid``. A partially populated
         // collection nested inside this one therefore leaves this one
@@ -610,7 +635,11 @@ namespace hgraph::ts_data_plan_factory_detail
 
         static void fixed_record_child_modified(const void *context, void *memory, std::size_t child_id, DateTime)
         {
-            mark_tsb_value_field_valid(ctx(context), memory, child_id);
+            const auto *state = ctx(context);
+            if (state->validity_offset != ListValidity::unknown) {
+                static_cast<ListValidity *>(advance(memory, state->validity_offset))->changed(child_id);
+            }
+            mark_tsb_value_field_valid(state, memory, child_id);
         }
 
         [[nodiscard]] static const void *fixed_delta_memory(const void *, const void *memory) noexcept
@@ -1540,7 +1569,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     {
                         throw std::logic_error("fixed TSData child reported a duplicate modification");
                     }
-                    mark_tsb_value_field_valid(state, memory, index);
+                    fixed_record_child_modified(state, memory, index, modified_time);
                     newly_modified = true;
                 }
             }
@@ -1607,7 +1636,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     {
                         throw std::logic_error("fixed TSData child reported a duplicate modification");
                     }
-                    mark_tsb_value_field_valid(state, memory, index);
+                    fixed_record_child_modified(state, memory, index, modified_time);
                     newly_modified = true;
                 }
             }

@@ -196,7 +196,11 @@ namespace hgraph
 
     Range<std::size_t> IndexedTSDataView::removed_positions(DateTime time) const {
         const auto &ops = indexed_ops();
-        if (!modified(time) || !ops.removed_positions_impl) { return empty_index_range(); }
+        // Positional withdrawals can invalidate the aggregate while still changing
+        // the list stored by replay and structural consumers.
+        if (time == MIN_DT || base().tracking().last_modified_time != time || !ops.removed_positions_impl) {
+            return empty_index_range();
+        }
         return ops.removed_positions_impl(ops.context, storage_.data());
     }
 

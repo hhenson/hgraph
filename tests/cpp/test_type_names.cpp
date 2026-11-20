@@ -95,7 +95,6 @@ TEST_CASE("type names: every time-series schema's name parses back to the schema
         registry.tsd(s, ts_int),
         registry.tsd(s, registry.tsd(i, registry.tss(s))),
         registry.tsl(ts_int, 3),
-        registry.tsl(ts_int, 0),
         registry.tsl(ts_int, unbounded_tsl_size),
         registry.tsw(i, 5, 2),
         registry.tsw_duration(i, std::chrono::seconds{10}, std::chrono::seconds{1}),
@@ -123,6 +122,7 @@ TEST_CASE("type names: an unknown or malformed name is an error, not a guess")
     CHECK_THROWS_AS(parse_value_type_name("Map[int]"), std::invalid_argument);
     CHECK_THROWS_AS(parse_value_type_name("List[int,x]"), std::invalid_argument);
     CHECK_THROWS_AS(parse_ts_type_name("TS[int"), std::invalid_argument);
+    CHECK_THROWS_AS(parse_ts_type_name("TSL[TS[int],0]"), std::invalid_argument);
     CHECK_THROWS_AS(parse_ts_type_name("TSX[int]"), std::invalid_argument);
     CHECK_THROWS_AS(parse_type_value("int"), std::invalid_argument);  // no kind
 }

@@ -1196,7 +1196,8 @@ namespace hgraph
         };
         template <typename ValueBundle, typename... TFields> struct dereferenced_static_schema<NominalTSB<ValueBundle, TFields...>>
         {
-            using type = NominalTSB<ValueBundle, typename dereferenced_static_field<TFields>::type...>;
+            using type = NominalTSB<typename static_schema_detail::native_field_schema<ValueBundle>::type,
+                                    typename dereferenced_static_field<TFields>::type...>;
         };
 
         template <auto Lhs, auto Rhs>
@@ -1410,8 +1411,7 @@ namespace hgraph
             {
                 using T = typename Param::value_type;
                 auto mutation = scalars.as_bundle().begin_mutation();
-                mutation[Param::field_name.sv()].template checked_mutable_as<T>() =
-                    graph_wiring_detail::coerce_scalar_value<T>(argument);
+                mutation[Param::field_name.sv()].set(graph_wiring_detail::coerce_scalar_value<T>(argument));
             }
         };
         [&]<std::size_t... I>(std::index_sequence<I...>) {

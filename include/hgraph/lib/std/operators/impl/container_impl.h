@@ -584,9 +584,15 @@ struct getitem_tsl_by_index {
     // re-targeting its winner) must re-emit the item reference, not
     // only key ticks. Same-reference re-publishes are deduped so
     // ordinary element value ticks do not retrigger consumers.
-    const std::size_t index = container_impl_detail::normalize_item_index(
-        key.value(), ts.size(), "TSL");
-    TimeSeriesReference reference = ts[index].base().reference();
+    const auto index = key.value();
+    const auto size = static_cast<Int>(ts.size());
+    const auto position = index < 0 ? size + index : index;
+    TimeSeriesReference reference;
+    if (position >= 0 && position < size) {
+      reference = ts[static_cast<std::size_t>(position)].base().reference();
+    } else if (!ts.base().schema()->is_unbounded_tsl()) {
+      throw std::out_of_range("getitem_: TSL index out of range");
+    }
     if (out.valid() &&
         out.value().checked_as<TimeSeriesReference>() == reference) {
       return;

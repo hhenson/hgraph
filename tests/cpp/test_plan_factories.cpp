@@ -984,26 +984,6 @@ TEST_CASE("TSDataPlanFactory: fixed TSL stores current values as a fixed value-l
     REQUIRE(delta.key_set().contains(key_view));
 }
 
-TEST_CASE("TSDataPlanFactory: a zero-size TSL is fixed and empty")
-{
-    using namespace hgraph;
-    auto       &registry = TypeRegistry::instance();
-    auto       &factory  = TSDataPlanFactory::instance();
-    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
-    const auto *tsl      = registry.tsl(registry.ts(int_meta), 0);
-
-    REQUIRE_FALSE(tsl->is_unbounded_tsl());
-    REQUIRE(tsl->fixed_size() == 0);
-    REQUIRE(tsl->value_schema->is_fixed_size());
-
-    const auto type = factory.data_type_for(tsl);
-    REQUIRE(type);
-    TSData data{type};
-    auto   view = data.view();
-    REQUIRE(view.as_list().empty());
-    REQUIRE(view.value().as_list().empty());
-}
-
 TEST_CASE("TSDataPlanFactory: fixed TSL owns embedded TSS child storage")
 {
     using namespace hgraph;

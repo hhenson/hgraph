@@ -13,6 +13,7 @@
 
 #include "detail/ts_data_seams.h"
 #include "detail/window_change.h"
+#include "../time_series/ts_data/ownership.h"
 #include "../../runtime/window_removals.h"
 #include <hgraph/util/tagged_ptr.h>
 
@@ -441,14 +442,19 @@ namespace hgraph::ts_data_plan_factory_detail
              */
             void restore_checkpoint(const IndexedValueView &values, std::span<const DateTime> times)
             {
-                invalidate_delta_projection();
-                clear();
-                tick_ = {};
+                discard_history();
                 reserve_exact(values.size());
                 for (std::size_t index = 0; index < values.size(); ++index)
                 {
                     append(values.at(index), times[index]);
                 }
+            }
+
+            void discard_history() noexcept
+            {
+                invalidate_delta_projection();
+                clear();
+                tick_ = {};
             }
 
             [[nodiscard]] const void *element_at(std::size_t index) const
@@ -1243,12 +1249,18 @@ namespace hgraph::ts_data_plan_factory_detail
           public:  // the RFC 0035 seams below reach these; nothing else outside the TU can
             void configure_ts_ops()
             {
+                static const detail::TSDataOwnershipOps ownership{
+                    .discard_child_history = [](const void *context, void *memory) noexcept {
+                        storage<Storage>(window_mutable_value_memory(context, memory)).discard_history();
+                    },
+                };
                 ops = TSWDataOps{};
                 TSDataOps &base_ops = ops;
                 base_ops = TSDataOps{
                     .context                   = this,
                     .kind                      = TSTypeKind::TSW,
                     .allows_mutation           = true,
+                    .ownership_ops             = &ownership,
                     .current_state_ops =
                         &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSW),
                     .checkpoint_ops             = &window_checkpoint_ops(),

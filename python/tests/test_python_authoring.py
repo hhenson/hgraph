@@ -190,6 +190,33 @@ def test_naked_state_matches_attribute_dictionary_compatibility_surface():
     check(lifecycle == [("start", 10), ("stop", 16)], f"state lifecycle: {lifecycle}")
 
 
+def test_captured_set_seeds_preserve_concrete_subtypes_across_events():
+    @dataclass(frozen=True)
+    class Item(hg.CompoundScalar, abstract=True):
+        name: str
+
+    @dataclass(frozen=True)
+    class Number(Item):
+        count: int
+
+    @dataclass(frozen=True)
+    class Text(Item):
+        label: str
+
+    @dataclass(frozen=True)
+    class Selection(hg.CompoundScalar):
+        item: Item
+
+    @hg.compute_node
+    def inspect(items: hg.TSS[Selection]) -> hg.TS[str]:
+        item = next(iter(items.value)).item
+        return str(item.count) if isinstance(item, Number) else item.label
+
+    number = Selection(Number("number", 7))
+    text = Selection(Text("text", "seven"))
+    assert hg.eval_node(inspect, [frozenset({number}), None, frozenset({text})]) == ["7", None, "seven"]
+
+
 def test_python_compute_consumes_and_produces_dynamic_tsl():
     # Size[-1] preserves hgraph's original spelling for the unbounded TSL shape.
     @hg.compute_node

@@ -258,6 +258,7 @@ hgraph_add_test_objects(hgraph_wiring_test_objects
     test_service_runtime.cpp
     test_service_wiring.cpp
     test_static_node.cpp
+    test_native_bundle.cpp
     test_runtime_spec_conformance.cpp
     test_wiring_contract.cpp
     test_type_arguments.cpp

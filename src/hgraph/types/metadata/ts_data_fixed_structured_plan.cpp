@@ -1,5 +1,6 @@
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
 #include <hgraph/types/time_series/ts_data/ts_labels.h>
+#include "detail/list_validity.h"
 
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/type_realization.h>
@@ -184,10 +185,13 @@ namespace hgraph::ts_data_plan_factory_detail
                 throw std::logic_error("TSDataPlanFactory: fixed TSL element schema is not resolved");
             }
             const auto &element_aux_plan = ts_data_aux_plan_for_role(*element_schema, role);
-            builder.reserve(2);
+            builder.reserve(3);
             builder.add_field(tsl_elements_component_name(),
                               MemoryUtils::array_plan(element_aux_plan, schema.fixed_size()));
             builder.add_field("tracking", MemoryUtils::plan_for<TSDataTracking>());
+            if (element_schema->kind == TSTypeKind::TS) {
+                builder.add_field("list_validity", MemoryUtils::plan_for<ListValidity>());
+            }
             return builder.build();
         }
     }
