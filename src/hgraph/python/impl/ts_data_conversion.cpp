@@ -279,7 +279,8 @@ namespace hgraph::python_bridge
                 return value;
             };
 
-            if (PyFrozenSet_CheckExact(result.ptr()) != 0)
+            const bool whole_value = PyFrozenSet_CheckExact(result.ptr()) != 0;
+            if (whole_value)
             {
                 // Class identity selects semantics: a frozenset is the FULL
                 // membership, so additions are result-minus-current and
@@ -334,10 +335,9 @@ namespace hgraph::python_bridge
                 }
             }
 
-            // The has-effect gate (was set_delta_changes_valid_output): a
-            // valid set only ticks when membership actually changes; a fresh
-            // one validates on any result, including an explicitly empty one.
-            bool changes = !output.valid();
+            // A whole membership is a publication even when the diff is empty.
+            // Sparse updates to an existing set must change membership.
+            bool changes = whole_value || !output.valid();
             for (auto it = to_add.begin(); !changes && it != to_add.end(); ++it)
             {
                 changes = !set_out.contains(it->view());
@@ -565,9 +565,8 @@ namespace hgraph::python_bridge
                     }
                 }
             }
-            // Touch LAST, only when something applied — mirrors
-            // apply_delta_tsd's trailing touch behind the has-effect gate.
-            if (mutation) { mutation->touch(); }
+            // Insertion, removal and effective child writes notify the dictionary.
+            // Looking up an existing child to apply a sparse patch is not a write.
         }
 
         [[nodiscard]] TSRoleTypeRef list_element_type(TSRoleTypeRef type,
@@ -705,10 +704,15 @@ namespace hgraph::python_bridge
             for (auto [key, item] : delta.modified) child_ops.apply_result_impl(list.at(nb::cast<std::size_t>(key)), borrow(item));
         }
 
+        [[nodiscard]] bool positional_bundle(nb::handle source)
+        {
+            return nb::isinstance<nb::tuple>(source) || nb::isinstance<nb::list>(source);
+        }
+
         [[nodiscard]] nb::object bundle_field_source(nb::handle source,
                                                      bool mapping,
                                                      nb::dict fields,
-                                                     const char *name)
+                                                     const char *name, std::size_t index)
         {
             nb::str key{name};
             if (mapping)
@@ -717,6 +721,7 @@ namespace hgraph::python_bridge
                            ? nb::borrow<nb::object>(fields[key])
                            : nb::object{};
             }
+            if (positional_bundle(source)) { return nb::borrow<nb::sequence>(source)[index]; }
             return nb::hasattr(source, key) ? nb::getattr(source, key)
                                             : nb::object{};
         }
@@ -726,11 +731,17 @@ namespace hgraph::python_bridge
         {
             if (mapping) { return; }
             const auto &schema = schema_of(type, "TSB delta_from_python");
+            if (positional_bundle(source))
+            {
+                if (nb::len(source) != schema.field_count())
+                    throw std::invalid_argument("TSB positional delta has the wrong field count");
+                return;
+            }
             const auto mapped = tsb_compound_value_registry().find(&schema);
             if (mapped == tsb_compound_value_registry().end())
             {
                 throw nb::type_error(
-                    "a TSB delta must be a dict unless the TSB represents a "
+                    "a TSB delta must be a dict or a positional field sequence unless the TSB represents a "
                     "CompoundScalar");
             }
             const auto info = bundle_class_info_registry().find(mapped->second);
@@ -757,7 +768,7 @@ namespace hgraph::python_bridge
             for (std::size_t index = 0; index < schema.field_count(); ++index)
             {
                 nb::object item = bundle_field_source(
-                    source, mapping, fields, schema.fields()[index].name);
+                    source, mapping, fields, schema.fields()[index].name, index);
                 if (!item.is_valid() || item.is_none()) { continue; }
                 if (requires_authored(layout.field(index).type, item))
                 {
@@ -785,7 +796,7 @@ namespace hgraph::python_bridge
             for (std::size_t index = 0; index < schema.field_count(); ++index)
             {
                 nb::object item = bundle_field_source(
-                    source, mapping, fields, schema.fields()[index].name);
+                    source, mapping, fields, schema.fields()[index].name, index);
                 if (!item.is_valid() || item.is_none()) { continue; }
                 Value child =
                     build_delta(layout.field(index).type, item, authored);
@@ -796,12 +807,9 @@ namespace hgraph::python_bridge
 
         void apply_bundle_result(const TSOutputView &output, nb::handle result)
         {
-            // Mapping sources apply per field with DELTA semantics: each named
-            // child receives the item through its own erased apply, so nested
-            // collections keep delta/REMOVE behaviour at every level.
-            // Sequences and registered CompoundScalar snapshots are whole-value
-            // shapes and keep replacement semantics.
-            if (!nb::isinstance<nb::dict>(result))
+            const bool mapping = nb::isinstance<nb::dict>(result);
+            const bool positional = positional_bundle(result);
+            if (!mapping && !positional)
             {
                 apply_replacement_result(output, result);
                 return;
@@ -811,29 +819,47 @@ namespace hgraph::python_bridge
             const auto &layout = static_cast<const FixedTSBDataLayout &>(
                 layout_of(type, "TSB apply result"));
             auto bundle_out = output.as_bundle();
-            for (auto [key, item] : nb::cast<nb::dict>(result))
-            {
-                if (item.is_none()) { continue; }
-                const auto name = nb::cast<std::string>(key);
-                std::size_t index = schema.field_count();
-                for (std::size_t candidate = 0; candidate < schema.field_count();
-                     ++candidate)
-                {
-                    const char *field_name = schema.fields()[candidate].name;
-                    if (field_name != nullptr && name == field_name)
-                    {
-                        index = candidate;
-                        break;
-                    }
-                }
-                if (index == schema.field_count())
-                {
-                    throw std::invalid_argument(
-                        "TSB apply result names unknown field '" + name + "'");
-                }
+            const auto apply_field = [&](std::size_t index, nb::handle item) {
+                if (item.is_none()) { return; }
                 python_ops_for(layout.field(index).type)
                     .apply_result_impl(bundle_out.at(index), borrow(item));
+            };
+            if (positional)
+            {
+                validate_bundle_source(type, result, false);
+                const auto fields = nb::borrow<nb::sequence>(result);
+                for (std::size_t index = 0; index < schema.field_count(); ++index)
+                    apply_field(index, fields[index]);
             }
+            else
+            {
+                for (auto [key, item] : nb::cast<nb::dict>(result))
+                {
+                    if (item.is_none()) { continue; }
+                    const auto name = nb::cast<std::string>(key);
+                    std::size_t index = schema.field_count();
+                    for (std::size_t candidate = 0; candidate < schema.field_count();
+                         ++candidate)
+                    {
+                        const char *field_name = schema.fields()[candidate].name;
+                        if (field_name != nullptr && name == field_name)
+                        {
+                            index = candidate;
+                            break;
+                        }
+                    }
+                    if (index == schema.field_count())
+                    {
+                        throw std::invalid_argument(
+                            "TSB apply result names unknown field '" + name + "'");
+                    }
+                    apply_field(index, item);
+                }
+            }
+            // An explicit empty patch initializes a fresh bundle. A nonempty
+            // sequence/mapping of omitted (None) fields does not publish.
+            if (nb::len(result) == 0 && !output.valid())
+                output.data_view().begin_mutation(output.evaluation_time()).mark_empty_delta();
         }
 
         void apply_delta_result(const TSOutputView &output, nb::handle result)

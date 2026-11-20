@@ -399,7 +399,7 @@ TEST_CASE("TS checkpoint: set import preserves holes without publishing membersh
     target.unsubscribe(&observer);
 }
 
-TEST_CASE("TS checkpoint: invalid containers retain their structural membership", "[checkpoint]")
+TEST_CASE("TS checkpoint: an invalidated dictionary restores with no keys", "[checkpoint]")
 {
     auto &registry = TypeRegistry::instance();
     const auto *ts = checkpoint_int_schema();
@@ -416,12 +416,12 @@ TEST_CASE("TS checkpoint: invalid containers retain their structural membership"
     REQUIRE(source_view.begin_mutation(now).invalidate());
     CHECK_FALSE(source_view.has_current_value());
     CHECK_FALSE(source.view(now).invalidated());
-    CHECK(source_view.as_dict().size() == 1);
+    CHECK(source_view.as_dict().size() == 0);
     restore_ts_checkpoint(target.data_view(), capture_ts_checkpoint(source.data_view()));
     auto target_view = target.data_view();
     CHECK_FALSE(target_view.has_current_value());
-    CHECK(target_view.as_dict().size() == 1);
-    CHECK_FALSE(target_view.as_dict().at(key.view()).has_current_value());
+    CHECK(target_view.as_dict().size() == 0);
+    CHECK_FALSE(target_view.as_dict().contains(key.view()));
 }
 
 TEST_CASE("TS checkpoint: unsupported state fails closed through nested structures", "[checkpoint]")

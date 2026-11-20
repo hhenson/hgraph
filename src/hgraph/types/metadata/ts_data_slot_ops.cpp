@@ -296,6 +296,14 @@ namespace hgraph::ts_data_plan_factory_detail
                 return mutation_result(slot);
             }
 
+            void discard_contents(DateTime now)
+            {
+                prepare_delta(now);
+                for (std::size_t slot = 0; slot < slot_capacity(); ++slot)
+                    if (slot_live(slot)) { static_cast<void>(remove_slot(slot, now)); }
+                tracking_.observers.notify_keys(now);
+            }
+
             void reset_delta() noexcept
             {
                 added_.reset();
@@ -564,6 +572,7 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 validate_mutation_time(modified_time);
                 prepare_delta(modified_time);
+                reset_retained_child_before_insert(key, modified_time);
 
                 const auto result = keys_.insert(key);
                 ensure_delta_capacity();
@@ -571,15 +580,11 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (membership_removed_.test(result.slot)) membership_removed_.reset(result.slot);
                 else membership_added_.set(result.slot);
 
-                if (slot_removed(result.slot))
+                if (child_valid(result.slot))
                 {
-                    removed_.reset(result.slot);
+                    if (slot_removed(result.slot)) { removed_.reset(result.slot); }
+                    else { added_.set(result.slot); }
                     value_published_.set(result.slot);
-                }
-                else if (child_valid(result.slot))
-                {
-                    value_published_.set(result.slot);
-                    added_.set(result.slot);
                 }
                 key_set_tracking_.observers.notify_key(
                     ValueView{key_binding_, keys_.key_memory(result.slot)}, modified_time);
@@ -591,6 +596,7 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 validate_mutation_time(modified_time);
                 prepare_delta(modified_time);
+                reset_retained_child_before_insert(key, modified_time);
 
                 // See TSSSlotStorage::insert_key_move: the enclosing TSData
                 // move, rather than the element view, owns the source.
@@ -602,15 +608,11 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (membership_removed_.test(result.slot)) membership_removed_.reset(result.slot);
                 else membership_added_.set(result.slot);
 
-                if (slot_removed(result.slot))
+                if (child_valid(result.slot))
                 {
-                    removed_.reset(result.slot);
+                    if (slot_removed(result.slot)) { removed_.reset(result.slot); }
+                    else { added_.set(result.slot); }
                     value_published_.set(result.slot);
-                }
-                else if (child_valid(result.slot))
-                {
-                    value_published_.set(result.slot);
-                    added_.set(result.slot);
                 }
                 key_set_tracking_.observers.notify_key(
                     ValueView{key_binding_, keys_.key_memory(result.slot)}, modified_time);
@@ -707,6 +709,23 @@ namespace hgraph::ts_data_plan_factory_detail
                 modified_.set(slot);
             }
 
+            void discard_contents(DateTime now)
+            {
+                // Keep removal-cycle cursors alive. If the output is written
+                // again in this cycle, its published delta must also withdraw
+                // keys held by consumers at the start of the cycle.
+                prepare_delta(now);
+                for (const auto slot : keys_.pending_erase_slots())
+                {
+                    if (keys_.slot_pending_erase(slot)) { value_published_.set(slot); }
+                }
+                for (std::size_t slot = 0; slot < slot_capacity(); ++slot)
+                    if (slot_live(slot)) { static_cast<void>(remove_slot(slot, now)); }
+                key_set_tracking_.last_modified_time = MIN_DT;
+                key_set_tracking_.observers.notify_keys(now);
+                key_set_tracking_.observers.notify(now);
+            }
+
             void reset_delta() noexcept
             {
                 added_.reset();
@@ -745,6 +764,19 @@ namespace hgraph::ts_data_plan_factory_detail
                 }
             }
 
+            void reset_retained_child_before_insert(const ValueView &key, DateTime now)
+            {
+                if (tracking_.last_empty_delta_time != now) { return; }
+                const auto slot = keys_.find_stored_slot(key);
+                if (slot == KeySlotStore::npos || slot_live(slot) || !slot_value_published(slot)) { return; }
+
+                // An ordinary remove clears the published bit. On a retained
+                // slot the bit therefore distinguishes a removal that preceded
+                // a whole-owner reset. The old child stays readable up to here.
+                detail::discard_collection_child(TSDataView{element_type_, values_.value_memory(slot)}, now);
+                value_published_.reset(slot);
+            }
+
             void prepare_delta(DateTime modified_time)
             {
                 // Monotonic delta window — see the slot-set variant above.
@@ -757,6 +789,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 for (const std::size_t slot : keys_.pending_erase_slots())
                 {
                     if (!keys_.slot_pending_erase(slot)) { continue; }
+                    value_published_.reset(slot);
                     detail::invalidate_owned_ts_data_tree(
                         TSDataView{element_type_, values_.value_memory(slot)});
                 }
@@ -1843,6 +1876,12 @@ namespace hgraph::ts_data_plan_factory_detail
                        bool embedded)
             {
                 initialise_tss_common(schema, plan, key_binding, true);
+                static const detail::TSDataOwnershipOps ownership{
+                    .discard_contents = [](const void *, void *memory, DateTime now) {
+                        storage<TSSSlotStorage>(memory).discard_contents(now);
+                    },
+                };
+                set_ops.ownership_ops = &ownership;
                 set_ops.checkpoint_ops = &checkpoint_ops();
                 root_type = TSRoleTypeRef{intern_ts_type(
                     schema, role, plan, set_ops, keyed_root_label(schema.kind, role, embedded))};
@@ -1918,12 +1957,16 @@ namespace hgraph::ts_data_plan_factory_detail
                             .type = state->dict_layout.element_type,
                             .data = store.child_memory_for_write(slot),
                             .parent_child_id = slot,
+                            .retained_after_removal = !store.slot_live(slot),
                         };
                     },
                     .child_alive_at = [](const void *, const void *memory, std::size_t slot, DateTime time) noexcept {
                         const auto &store = storage<TSDSlotStorage>(memory);
                         return store.slot_live(slot) ||
                                (store.slot_occupied(slot) && store.structural_delta_current(time));
+                    },
+                    .discard_contents = [](const void *, void *memory, DateTime now) {
+                        storage<TSDSlotStorage>(memory).discard_contents(now);
                     },
                 };
                 return ops;

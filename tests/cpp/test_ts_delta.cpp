@@ -1818,3 +1818,328 @@ TEST_CASE("TSL replay reads the positional maps and two-field deltas from earlie
   auto after = later.as_list();
   CHECK(after.at(0).value().checked_as<Int>() == 10);
 }
+
+namespace {
+struct WholeSetPublisher {
+  static constexpr auto name = "whole_set_publisher";
+  static void eval(In<"step", TS<Int>> step, Out<TSS<Int>> out) {
+    if (step.value() == 2) {
+      apply_delta(out.base(), set_delta<Int>({1}, {}).view());
+      return;
+    }
+    SetBuilder whole{ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta())};
+    if (step.value() < 2) { whole.insert(Int{1}); }
+    apply_current_value(out.base(), whole.build().view());
+  }
+};
+
+struct CountChangedMembers {
+  static constexpr auto name = "count_changed_members";
+  static void eval(In<"members", TSS<Int>> members, Out<TS<Int>> out) {
+    out.set(static_cast<Int>(members.added().size() + members.removed().size()));
+  }
+};
+
+struct SetPublicationGraph {
+  static constexpr auto name = "set_publication_graph";
+  static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> step) {
+    return wire<CountChangedMembers>(w, wire<WholeSetPublisher>(w, step));
+  }
+};
+
+using PublicationBook = TSD<Int, Quote>;
+using PublicationShelf = TSB<"PublicationShelf", Field<"tag", TS<Int>>, Field<"book", PublicationBook>,
+                             Field<"members", TSS<Int>>>;
+
+struct ReadShelf {
+  static constexpr auto name = "read_publication_shelf";
+  static void eval(In<"shelf", PublicationShelf> shelf, Out<TS<Int>> out) {
+    auto book = shelf.field<"book">();
+    REQUIRE(shelf.field<"tag">().value() == 9);
+    REQUIRE(shelf.field<"members">().size() == 1);
+    for (const auto &[key, quote] : book.items()) { REQUIRE(quote.valid()); }
+    out.set(static_cast<Int>(book.size()));
+  }
+};
+
+using OwnedCollections = TSB<"OwnedPublicationCollections",
+    Field<"book", TSD<Int, TS<Int>>>, Field<"members", TSS<Int>>, Field<"readings", TSL<TS<Int>>>>;
+
+struct WriteCollections {
+  static constexpr auto name = "write_publication_collections";
+  static void eval(In<"step", TS<Int>> step, Out<OwnedCollections> out) {
+    auto book = out.field<"book">();
+    auto members = out.field<"members">();
+    auto readings = out.field<"readings">();
+    if (step.value() == 1 || step.value() == 3) {
+      auto now = out.evaluation_time();
+      REQUIRE(book.base().begin_mutation(now).invalidate());
+      REQUIRE(members.base().begin_mutation(now).invalidate());
+      REQUIRE(readings.base().begin_mutation(now).invalidate());
+      if (step.value() == 1) { return; }
+    }
+    book.set(step.value(), Int{5});
+    members.add(step.value());
+    readings.set(0, Int{5});
+    if (step.value() == 0) { readings.set(1, Int{6}); }
+  }
+};
+
+struct ReadCollections {
+  static constexpr auto name = "read_publication_collections";
+  static void eval(In<"clock", TS<Int>> clock,
+                   In<"collections", OwnedCollections, InputActivity::Passive, InputValidity::Unchecked> collections,
+                   Out<TS<Int>> out) {
+    auto book = collections.field<"book">();
+    auto members = collections.field<"members">();
+    auto readings = collections.field<"readings">();
+    if (clock.value() == 1) {
+      for (const auto *endpoint : {&book.base(), &members.base(), &readings.base()}) {
+        CHECK_FALSE(endpoint->valid());
+        CHECK_FALSE(endpoint->modified());
+        CHECK(endpoint->last_modified_time() == MIN_DT);
+      }
+    } else {
+      CHECK(book.contains(clock.value()));
+      CHECK(members.contains(clock.value()));
+      CHECK(readings[0].value() == 5);
+    }
+    out.set(static_cast<Int>(book.size() + members.size() + readings.size()));
+  }
+};
+
+struct CollectionInvalidationGraph {
+  static constexpr auto name = "collection_invalidation_graph";
+  static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> step) {
+    return wire<ReadCollections>(w, step, wire<WriteCollections>(w, step));
+  }
+};
+} // namespace
+
+TEST_CASE("collection publication: a repeated whole set ticks with an empty membership delta") {
+  CHECK_OUTPUT(eval_node<SetPublicationGraph>(values<Int>(0, 1, 2, 3, 4)), values<Int>(1, 0, none, 1, 0));
+}
+
+TEST_CASE("collection publication: sparse bundle fields update only effective dictionary children") {
+  const auto empty_quote = [] { return tsb_delta<Quote>(std::nullopt, std::nullopt); };
+  const auto new_quote = [&] { return dict_delta<Int, Quote>({{1, empty_quote()}}); };
+  const auto remove_first = [] { return dict_delta<Int, Quote>({}, {1}); };
+  const auto no_membership_change = [] { return set_delta<Int>({}, {}); };
+
+  for (const bool named : {false, true}) {
+    CAPTURE(named);
+    const auto book_patch = [&](Value child) {
+      if (!named) { return tsb_delta<PublicationShelf>(std::nullopt, std::move(child), std::nullopt); }
+      BundleBuilder patch{ValuePlanFactory::instance().type_for(schema_descriptor<PublicationShelf>::ts_meta()->delta_value_schema)};
+      patch.set("book", std::move(child));
+      return patch.build();
+    };
+    const auto first = tsb_delta<PublicationShelf>(Int{9}, new_quote(), set_delta<Int>({4}, {}));
+    const auto empty_set_patch = tsb_delta<PublicationShelf>(std::nullopt, std::nullopt, no_membership_change());
+    CHECK_OUTPUT(eval_node<ReadShelf>(values<Value>(first, book_patch(new_quote()), empty_set_patch,
+                    book_patch(dict_delta<Int, Quote>({{2, empty_quote()}})), book_patch(remove_first()), book_patch(remove_first()))),
+                 values<Int>(1, none, none, 2, 1, none));
+  }
+}
+
+TEST_CASE("collection publication: invalidation discards owned keys members and growing positions") {
+  CHECK_OUTPUT(eval_node<CollectionInvalidationGraph>(values<Int>(0, 1, 2, 3)), values<Int>(4, 0, 3, 3));
+}
+
+TEST_CASE("collection publication: whole invalidation preserves removal-cycle child references") {
+  const auto exercise = []<typename S>() {
+    const auto *schema = schema_descriptor<S>::ts_meta();
+    TSOutput output{schema};
+    TSInput observer{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+    const auto start = MIN_ST;
+    observer.view(nullptr, start).bind_output(output.view(start));
+    const auto now = start + MIN_TD;
+    const auto later = now + MIN_TD;
+    const auto write = [&](DateTime at, Int key, Int value) {
+      if constexpr (std::is_same_v<S, HeldBook>) {
+        apply_delta(output.view(at), dict_delta<Int, TS<Int>>({{key, value}}).view());
+      } else {
+        apply_delta(output.view(at), dynamic_list_delta<TS<Int>>({{static_cast<std::size_t>(key), value}}).view());
+      }
+    };
+    const auto child = [&](DateTime at, Int key) {
+      auto parent = output.view(at);
+      if constexpr (std::is_same_v<S, HeldBook>) {
+        auto dict = parent.as_dict();
+        return dict.at(Value{key}.view());
+      } else {
+        auto list = parent.as_list();
+        return list.at(static_cast<std::size_t>(key));
+      }
+    };
+    write(start, 0, 10);
+    write(start, 1, 20);
+    auto first = child(now, 0);
+    auto second = child(now, 1);
+    const TimeSeriesReference first_ref{first}, second_ref{second};
+
+    if constexpr (std::is_same_v<S, HeldBook>) {
+      apply_delta(output.view(now), dict_delta<Int, TS<Int>>({}, {1}).view());
+    } else {
+      auto parent = output.view(now);
+      parent.as_list().resize(1);
+    }
+    REQUIRE(output.view(now).begin_mutation(now).invalidate());
+    CHECK_FALSE(first_ref.is_valid(now));
+    REQUIRE(second_ref.is_valid(now));
+    CHECK(second.value().template checked_as<Int>() == 20);
+    CHECK(second.last_modified_time() == start);
+
+    write(now, 0, 30);
+    const auto delta = capture_delta(observer.view(nullptr, now));
+    if constexpr (std::is_same_v<S, HeldBook>) {
+      CHECK((delta.view() == dict_delta<Int, TS<Int>>({{0, 30}}, {1}).view()));
+    } else {
+      CHECK((delta.view() == dynamic_list_delta<TS<Int>>({{0, 30}}, {1}, 1).view()));
+    }
+    REQUIRE(first_ref.is_valid(now));
+    CHECK(first.value().template checked_as<Int>() == 30);
+    CHECK(second_ref.is_valid(now));
+    CHECK_FALSE(second_ref.is_valid(later));
+    write(later, 1, 40);
+    CHECK_FALSE(second_ref.is_valid(later));
+    CHECK(child(later, 1).value().template checked_as<Int>() == 40);
+  };
+  SECTION("dictionary") { exercise.template operator()<HeldBook>(); }
+  SECTION("growing list") { exercise.template operator()<TSL<TS<Int>>>(); }
+}
+
+namespace {
+using RetainedBook = TSD<Int, Quote>;
+using RetainedRows = TSL<Quote>;
+
+template <typename S> struct WriteRetainedQuote {
+  static constexpr auto name = "write_retained_quote";
+  static void eval(In<"step", TS<Int>> step, Out<S> out) {
+    const auto now = out.evaluation_time();
+    const auto write_quote = [&](Int index, Value quote) {
+      if constexpr (std::is_same_v<S, RetainedBook>) {
+        apply_delta(out.base(), dict_delta<Int, Quote>({{index, std::move(quote)}}).view());
+      } else {
+        apply_delta(out.base(), dynamic_list_delta<Quote>({{static_cast<std::size_t>(index), std::move(quote)}}).view());
+      }
+    };
+    const auto remove_second = [&] {
+      if constexpr (std::is_same_v<S, RetainedBook>) {
+        apply_delta(out.base(), dict_delta<Int, Quote>({}, {1}).view());
+      } else {
+        out.resize(1);
+      }
+    };
+    if (step.value() == 0) {
+      write_quote(0, tsb_delta<Quote>(Int{10}, std::nullopt));
+      write_quote(1, tsb_delta<Quote>(Int{20}, std::nullopt));
+      return;
+    }
+    remove_second();
+    auto removed = out.removed_items();
+    auto entry = *removed.begin();
+    auto retained = entry.second.as_bundle();
+    auto bid = retained.at("bid");
+    REQUIRE(bid.valid());
+    const auto saved_price = bid.value().template checked_as<Int>();
+    const auto saved_time = bid.last_modified_time();
+
+    REQUIRE(out.base().begin_mutation(now).invalidate());
+    CHECK_FALSE(out.base().begin_mutation(now).invalidate());
+    CHECK_FALSE(out.valid());
+    CHECK_FALSE(out.modified());
+    CHECK(bid.value().template checked_as<Int>() == saved_price);
+    CHECK(bid.last_modified_time() == saved_time);
+
+    write_quote(0, tsb_delta<Quote>(std::nullopt, Int{7}));
+    if constexpr (std::is_same_v<S, RetainedBook>) {
+      CHECK_FALSE(out[1].valid());
+      auto removed_values = out.base().delta_value().as_bundle().at("removed").as_set();
+      CHECK(removed_values.contains(Value{Int{1}}.view()));
+    }
+    write_quote(1, tsb_delta<Quote>(std::nullopt, std::nullopt));
+    REQUIRE(out[1].valid());
+    CHECK_FALSE(out[1].template field<"bid">().valid());
+    if (step.value() == 1) {
+      write_quote(1, tsb_delta<Quote>(Int{30}, std::nullopt));
+      remove_second();
+      write_quote(1, tsb_delta<Quote>(std::nullopt, std::nullopt));
+    }
+  }
+};
+
+template <typename S> struct ReadRetainedQuote {
+  static constexpr auto name = "read_retained_quote";
+  static void eval(In<"quotes", S> quotes, Out<TS<Int>> out) {
+    auto bid = quotes[1].template field<"bid">();
+    out.set(bid.valid() ? bid.value() : Int{-1});
+  }
+};
+
+template <typename S> struct RetainedQuoteGraph {
+  static constexpr auto name = "retained_quote_graph";
+  static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> step) {
+    return wire<ReadRetainedQuote<S>>(w, wire<WriteRetainedQuote<S>>(w, step));
+  }
+};
+} // namespace
+
+TEST_CASE("collection publication: whole-owner invalidation resets previously removed children only upon revival") {
+  const auto steps = values<Int>(0, 1, 2);
+  CHECK_OUTPUT(eval_node<RetainedQuoteGraph<RetainedBook>>(steps), values<Int>(20, 30, -1));
+  CHECK_OUTPUT(eval_node<RetainedQuoteGraph<RetainedRows>>(steps), values<Int>(20, 30, -1));
+}
+
+namespace {
+template <typename S> struct WriteOwnedWindows {
+  static constexpr auto name = "write_recreated_windows";
+  static void eval(In<"step", TS<Int>> step, Out<S> out) {
+    const auto now = out.evaluation_time();
+    if (step.value() == 0) {
+      out[0].push(Int{1});
+    } else if (step.value() == 1) {
+      if constexpr (std::is_same_v<S, TSL<TSWDuration<Int, 4, 0>>>) {
+        out.resize(1);
+      } else {
+        static_cast<void>(out.erase(Int{1}));
+      }
+      auto removed = out.removed_items();
+      auto entry = *removed.begin();
+      auto retained = entry.second.as_window();
+      REQUIRE(out.base().begin_mutation(now).invalidate());
+      CHECK(retained.at(0).template checked_as<Int>() == 20);
+      CHECK(retained.time_at(0) == now - MIN_TD);
+    } else {
+      REQUIRE(out.base().begin_mutation(now).invalidate());
+    }
+    out[1].push(Int{20} + step.value());
+  }
+};
+
+template <typename S> struct ReadOwnedWindow {
+  static constexpr auto name = "read_recreated_window";
+  static void eval(In<"items", S> items, Out<TS<Int>> out) {
+    auto window = items[1];
+    if (window.empty()) { out.set(Int{-1}); return; }
+    REQUIRE(window.size() == 1);
+    CHECK(window.time_at(0) == items.evaluation_time());
+    out.set(window.at(0));
+  }
+};
+
+template <typename S> struct RecreatedWindowGraph {
+  static constexpr auto name = "recreated_window_graph";
+  static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> step) {
+    return wire<ReadOwnedWindow<S>>(w, wire<WriteOwnedWindows<S>>(w, step));
+  }
+};
+} // namespace
+
+TEST_CASE("collection publication: recreated count and duration window children start with fresh history") {
+  using CountBook = TSD<Int, TSW<Int, 4, 0>>;
+  using DurationRows = TSL<TSWDuration<Int, 4, 0>>;
+  const auto steps = values<Int>(0, 1, 2, none, none, none, none, none);
+  CHECK_OUTPUT(eval_node<RecreatedWindowGraph<CountBook>>(steps), values<Int>(20, 21, 22, none, none, none, none, none));
+  CHECK_OUTPUT(eval_node<RecreatedWindowGraph<DurationRows>>(steps), values<Int>(20, 21, 22, none, none, none, none, -1));
+}

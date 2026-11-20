@@ -1736,15 +1736,15 @@ namespace hgraph
             const auto bundle = delta.as_bundle();
             assert(delta_field_is(delta, tss_delta_added, "added"));
             assert(delta_field_is(delta, tss_delta_removed, "removed"));
-            if (bundle.at(tss_delta_added).as_indexed_view().size() != 0 ||
-                bundle.at(tss_delta_removed).as_indexed_view().size() != 0)
-            {
-                return true;
-            }
-            // An explicitly EMPTY tick VALIDATES a fresh set (hgraph: the
-            // TSS becomes valid with the empty value); on an already-valid
-            // set it stays a no-op (dedup).
-            return !out.valid();
+            if (!out.valid()) { return true; }
+            const auto set = out.as_set();
+            const auto added = bundle.at(tss_delta_added).as_indexed_view();
+            const auto removed = bundle.at(tss_delta_removed).as_indexed_view();
+            for (std::size_t i = 0; i < added.size(); ++i)
+                if (!set.contains(added.at(i))) { return true; }
+            for (std::size_t i = 0; i < removed.size(); ++i)
+                if (set.contains(removed.at(i))) { return true; }
+            return false;
         }
 
         bool delta_has_effect_tsd(const TSOutputView &out, const ValueView &delta)

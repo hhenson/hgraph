@@ -141,8 +141,23 @@ namespace hgraph::ts_data_plan_factory_detail
                     index = std::exchange(elements_[index].next_modified, no_modified_index);
                 }
                 flush_retained();
+                if (modified_snapshot_) { modified_snapshot_->reset_end = 0; }
                 delta_time_ = modified_time;
                 previous_size_ = this->size();
+            }
+
+            void discard_contents(DateTime now)
+            {
+                // Truncation retains child cursors through this cycle and
+                // preserves the delta baseline if another write follows.
+                prepare_delta(now);
+                if (size() < retained_size())
+                {
+                    if (!modified_snapshot_) { modified_snapshot_ = std::make_unique<ModifiedSnapshot>(); }
+                    modified_snapshot_->reset_begin = size();
+                    modified_snapshot_->reset_end = retained_size();
+                }
+                truncate_to(0);
             }
 
             void record_child_modified(std::size_t index, DateTime modified_time)
@@ -347,6 +362,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 std::vector<std::size_t> visible{};
                 std::vector<std::size_t> published{};
                 bool                     valid{false};
+                // Retained before the last whole-owner reset: clear on revival.
+                std::size_t              reset_begin{0};
+                std::size_t              reset_end{0};
             };
 
             [[nodiscard]] const ModifiedSnapshot &modified_snapshot() const
@@ -415,6 +433,17 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     const auto index = elements_.size();
                     elements_.emplace_back(*element_type.record(), index);
+                }
+                if (modified_snapshot_)
+                {
+                    auto &pending = *modified_snapshot_;
+                    const auto end = std::min(size, pending.reset_end);
+                    while (pending.reset_begin < end)
+                    {
+                        TSDataView child{element_type_, child_memory(pending.reset_begin)};
+                        detail::discard_collection_child(std::move(child), delta_time());
+                        ++pending.reset_begin;
+                    }
                 }
                 live_size_ = static_cast<std::int64_t>(size);
                 if (modified_snapshot_ && !modified_snapshot_->slots.empty())
@@ -617,6 +646,13 @@ namespace hgraph::ts_data_plan_factory_detail
                 static const detail::TSDataOwnershipOps ops{
                     .child_count = &owned_child_count,
                     .child_at = &owned_child_at,
+                    .child_alive_at = [](const void *, const void *memory, std::size_t index, DateTime now) noexcept {
+                        const auto &store = storage(memory);
+                        return index < store.size() || (index < store.retained_size() && store.delta_time() == now);
+                    },
+                    .discard_contents = [](const void *, void *memory, DateTime now) {
+                        storage(memory).discard_contents(now);
+                    },
                 };
                 return ops;
             }
@@ -642,6 +678,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .data = store.child_memory(index),
                     .parent_child_id = index,
                     .attach_parent = true,
+                    .retained_after_removal = index >= store.size(),
                 };
             }
 
