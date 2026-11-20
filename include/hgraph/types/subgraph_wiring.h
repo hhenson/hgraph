@@ -1,6 +1,7 @@
 #ifndef HGRAPH_TYPES_SUBGRAPH_WIRING_H
 #define HGRAPH_TYPES_SUBGRAPH_WIRING_H
 
+#include <hgraph/runtime/canonical_error.h>
 #include <hgraph/runtime/nested_graph_node.h>
 #include <hgraph/runtime/node_error.h>
 #include <hgraph/runtime/try_except_node.h>
@@ -512,34 +513,43 @@ namespace hgraph
      * sub-graph (no output) yields a bare ``TS<NodeError>``. Arguments follow the
      * same rule as ``nested_<G>``. Returns the (erased) output port.
      *
+     * In canonical mode the child forwards its output to the first field,
+     * ``value``, and evaluation failures publish to ``error`` (or the sink
+     * wrapper's sole output) as ``TS<CanonicalError>``.
      * See the developer guide *Error handling*.
      */
     template <typename G, typename... Args>
-    [[nodiscard]] Port<void> try_except_(Wiring &w, const Args &...args)
+        requires (sizeof...(Args) == StaticGraphSignature<G>::param_count())
+    [[nodiscard]] Port<void> try_except_(Wiring &w, ErrorCaptureOptions options, const Args &...args)
     {
-        using sig = StaticGraphSignature<G>;
-        static_assert(sizeof...(Args) == sig::param_count(),
-                      "try_except_<G>: argument count must match the sub-graph's Port + Scalar parameters "
-                      "(in compose order)");
-
         auto plan = subgraph_wiring_detail::build_subgraph_call<G>(w, args...);
 
         auto       &registry     = TypeRegistry::instance();
-        const auto *error_ts     = node_error_ts_meta();
+        const auto *error_ts     = options.canonical_errors ? ts_type<TS<CanonicalError>>() : node_error_ts_meta();
         const auto *child_output = plan.compiled.output_schema;
         const bool  has_out      = child_output != nullptr;
 
-        // Output schema: TSB{exception, out} for a value sub-graph, else a bare
-        // TS<NodeError> for a sink. For value sub-graphs, ``exception`` is owned
-        // local storage and ``out`` forwards the child graph output.
         const TSValueTypeMetaData *output_schema = error_ts;
-        std::size_t                out_index     = 0;
+        const std::size_t out_index = options.canonical_errors ? 0 : 1;
         if (has_out)
         {
-            std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields{
-                {"exception", error_ts}, {"out", child_output}};
-            output_schema = registry.un_named_tsb(fields);
-            out_index     = 1;
+            output_schema = options.canonical_errors
+                ? registry.un_named_tsb({{"value", child_output}, {"error", error_ts}})
+                : registry.un_named_tsb({{"exception", error_ts}, {"out", child_output}});
+        }
+
+        // Equal graph calls with different capture policies are distinct nodes.
+        if (options != ErrorCaptureOptions{})
+        {
+            Value depth{static_cast<std::uint64_t>(options.trace_back_depth)};
+            Value values{options.capture_values};
+            std::vector<std::pair<std::string, const ValueTypeMetaData *>> fields{
+                {"depth", depth.schema()}, {"capture_values", values.schema()}};
+            if (plan.scalars.has_value()) { fields.emplace_back("arguments", plan.scalars.schema()); }
+            BundleBuilder key{ValuePlanFactory::instance().type_for(registry.un_named_bundle(fields))};
+            key.set("depth", std::move(depth)).set("capture_values", std::move(values));
+            if (plan.scalars.has_value()) { key.set("arguments", std::move(plan.scalars)); }
+            plan.scalars = key.build();
         }
 
         WiringNodeSchema node_schema;
@@ -568,13 +578,20 @@ namespace hgraph
                     spec.output_binding->target_path = {out_index};
                 }
 
-                NodeBuilder builder = try_except_node(std::move(meta), std::move(spec));
+                NodeBuilder builder = try_except_node(std::move(meta), std::move(spec), {}, options);
                 builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
                     plan.input_schema, std::span<const WiringPortRef>{plan.inputs.data(), plan.inputs.size()}));
                 return builder;
             });
 
         return Port<void>{w, std::move(out)};
+    }
+
+    template <typename G, typename... Args>
+        requires (sizeof...(Args) == StaticGraphSignature<G>::param_count())
+    [[nodiscard]] Port<void> try_except_(Wiring &w, const Args &...args)
+    {
+        return try_except_<G>(w, ErrorCaptureOptions{}, args...);
     }
 
     /** Per-key error capture for a TSD ``map_`` output. */
