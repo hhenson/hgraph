@@ -2080,6 +2080,39 @@ TEST_CASE("graph wiring: scalar values participate in node interning")
     CHECK(graph.graph().node_count() == 4);   // two distinct sources + two sinks
 }
 
+TEST_CASE("graph wiring: eager builders retain runtime scalars independently of their interning key")
+{
+    using namespace hgraph;
+
+    Wiring authoring;
+    const auto configured = wire<ScaledSource>(authoring, Int{7}).node()->builder;
+    Wiring w;
+    const std::span<const WiringPortRef> inputs;
+    const auto first = w.add_node(typeid(ScaledSource), configured, inputs, Value{});
+    const auto same = w.add_node(typeid(ScaledSource), configured, inputs, Value{});
+    const auto other = w.add_node(typeid(ScaledSource), configured, inputs, Value{Int{4}});
+    const auto unique = w.add_unique_node(typeid(ScaledSource), configured, inputs, Value{Int{5}});
+
+    CHECK(first.peered_node() == same.peered_node());
+    CHECK(first.peered_node() != other.peered_node());
+    for (const auto &port : {first, other, unique}) {
+        wire<WiringOutputSink>(w, Port<TS<Int>>{w, port});
+    }
+
+    GraphExecutorBuilder exec;
+    exec.graph_builder(std::move(w).finish()).start_time(MIN_ST).end_time(MIN_ST + MIN_TD);
+    auto executor = exec.make_executor();
+    executor.view().run();
+    const auto graph = executor.view().graph();
+    REQUIRE(graph.node_count() == 6);
+    for (std::size_t i = 0; i < graph.node_count(); ++i) {
+        auto node = graph.node_at(i);
+        if (node.has_output()) {
+            CHECK(node.output(MIN_ST).value().checked_as<Int>() == Int{7});
+        }
+    }
+}
+
 TEST_CASE("graph wiring: StaticGraphSignature reflects a graph's compose parameters")
 {
     using namespace hgraph;
