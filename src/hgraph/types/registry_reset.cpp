@@ -1,7 +1,10 @@
 #include "time_series/ts_output/nullable.h"
 #include <hgraph/types/value/binary_codec.h>
 #include <hgraph/types/value/json_codec.h>
+#ifndef HGRAPH_NO_ARROW
 #include <hgraph/types/value/table_codec.h>
+#endif
+
 #include <hgraph/types/registry_reset.h>
 #include <hgraph/types/temporal.h>
 
@@ -44,6 +47,7 @@ namespace hgraph
         ValueConversionRegistry::instance().reset();
         clear_json_converters();   // interns by meta/binding pointer — must precede the lenders below
         clear_binary_converters();  // same rule: it caches a ValueTypeRef per meta
+#ifndef HGRAPH_NO_ARROW
         // NOT here: the table type-ops overrides and their cached layouts.
         // They live in hgraph_stdlib, ABOVE this function in the link order,
         // and naming them here made hgraph_wiring reference a symbol it does
@@ -51,6 +55,7 @@ namespace hgraph
         // it to load time). They self-invalidate on TypeRegistry's reset
         // generation instead — the exception the header documents.
         clear_table_converters();  // same rule (also captures record_replay config keys)
+#endif
         clear_time_zone_provider_cache();  // borrows ZoneId handles; withdraw before names
         clear_zone_name_registry();  // invalidates process-local ZoneId handles between tests
         // Records borrow plan/ops contexts from the endpoint and TSData

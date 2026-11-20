@@ -42,8 +42,6 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/runtime/shared_output_node.cpp
     hgraph/runtime/switch_node.cpp
     hgraph/runtime/try_except_node.cpp
-    hgraph/types/frame.cpp
-    hgraph/types/series.cpp
     hgraph/types/temporal.cpp
     hgraph/types/time_zone_provider.cpp
     hgraph/types/type_pointer.cpp
@@ -107,13 +105,17 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/value/binary_compression.cpp
     hgraph/types/value/binary_session.cpp
     hgraph/types/value/json_codec.cpp
-    hgraph/types/value/table_codec.cpp
     hgraph/types/value/python_repr.cpp
     hgraph/types/value/value_view.cpp
     hgraph/types/value/value_conversion.cpp
     hgraph/types/value/value_type_ref.cpp
     hgraph/util/date_time.cpp
 )
+
+if(HGRAPH_WITH_ARROW)
+    list(APPEND HGRAPH_RUNTIME_SOURCES
+        hgraph/types/frame.cpp hgraph/types/series.cpp hgraph/types/value/table_codec.cpp)
+endif()
 
 if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_ENABLE_PYTHON_USER_NODES)
     list(APPEND HGRAPH_RUNTIME_SOURCES
@@ -199,19 +201,58 @@ if(MSVC AND HGRAPH_BUILD_SHARED)
     # exceeds MSVC's 65,535-object library limit. Keep the public component
     # targets, but place their implementation in one explicitly exported DLL.
     set(HGRAPH_WINDOWS_UNIFIED_SHARED ON)
-    add_library(hgraph_runtime INTERFACE)
+    if(HGRAPH_WITH_ARROW)
+        set(_unified hgraph_stdlib)
+        add_library(hgraph_runtime INTERFACE)
+    else()
+        set(_unified hgraph_runtime)
+        set(HGRAPH_STDLIB_SOURCES "")
+    endif()
+    add_library(${_unified} SHARED ${HGRAPH_RUNTIME_SOURCES} ${HGRAPH_WIRING_SOURCES} ${HGRAPH_STDLIB_SOURCES})
+    target_link_libraries(${_unified} PUBLIC hgraph::options)
+    if(HGRAPH_WITH_ARROW)
+        # Runtime-only clients need the unified DLL's import library. Using the
+        # stdlib target here would also link every public frame dependency.
+        add_dependencies(hgraph_runtime hgraph_stdlib)
+        target_link_libraries(hgraph_runtime INTERFACE hgraph::options
+            $<BUILD_INTERFACE:$<TARGET_LINKER_FILE:hgraph_stdlib>>
+            $<INSTALL_INTERFACE:$<TARGET_LINKER_FILE:hgraph::stdlib>>)
+    endif()
     add_library(hgraph_wiring INTERFACE)
-    add_library(hgraph_stdlib SHARED
-        ${HGRAPH_RUNTIME_SOURCES}
-        ${HGRAPH_WIRING_SOURCES}
-        ${HGRAPH_STDLIB_SOURCES}
-    )
+    target_link_libraries(hgraph_wiring INTERFACE hgraph_runtime hgraph::options)
+    set(_compiled_targets ${_unified})
 else()
     add_library(hgraph_runtime ${HGRAPH_CORE_TARGET_TYPE} ${HGRAPH_RUNTIME_SOURCES})
     add_library(hgraph_wiring ${HGRAPH_CORE_TARGET_TYPE} ${HGRAPH_WIRING_SOURCES})
-    add_library(hgraph_stdlib ${HGRAPH_CORE_TARGET_TYPE} ${HGRAPH_STDLIB_SOURCES})
+    target_link_libraries(hgraph_runtime PUBLIC hgraph::options)
+    target_link_libraries(hgraph_wiring PUBLIC hgraph_runtime hgraph::options)
+    set(_compiled_targets hgraph_runtime hgraph_wiring)
+    if(HGRAPH_WITH_ARROW)
+        add_library(hgraph_stdlib ${HGRAPH_CORE_TARGET_TYPE} ${HGRAPH_STDLIB_SOURCES})
+        target_link_libraries(hgraph_stdlib PUBLIC hgraph_wiring hgraph::options)
+        list(APPEND _compiled_targets hgraph_stdlib)
+    endif()
 endif()
+
 add_library(hgraph_core INTERFACE)
+if(HGRAPH_WITH_ARROW)
+    add_library(hgraph::stdlib ALIAS hgraph_stdlib)
+    set_target_properties(hgraph_stdlib PROPERTIES EXPORT_NAME stdlib)
+    target_link_libraries(hgraph_core INTERFACE hgraph_stdlib)
+    # stdlib's public frame operators include Arrow headers. Runtime consumers
+    # using just the wiring and value interfaces need no Arrow headers or flags.
+    foreach(_arrow_target IN LISTS _hgraph_arrow_targets)
+        target_link_libraries(hgraph_stdlib PUBLIC "$<BUILD_INTERFACE:${_arrow_target}>")
+    endforeach()
+    set(_arrow_includes "$<BUILD_INTERFACE:$<TARGET_PROPERTY:Arrow::arrow_shared,INTERFACE_INCLUDE_DIRECTORIES>>")
+    target_include_directories(hgraph_stdlib SYSTEM BEFORE PUBLIC "${_arrow_includes}")
+    if(NOT HGRAPH_WINDOWS_UNIFIED_SHARED)
+        target_link_libraries(hgraph_runtime PRIVATE Arrow::arrow_shared ArrowCompute::arrow_compute_shared)
+        target_include_directories(hgraph_runtime SYSTEM BEFORE PRIVATE "${_arrow_includes}")
+    endif()
+else()
+    target_link_libraries(hgraph_core INTERFACE hgraph_wiring)
+endif()
 
 if(BUILD_TESTING AND HGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS AND UNIX)
     # Debugger navigation needs endpoint types and notification targets whose
@@ -222,19 +263,6 @@ endif()
 
 add_library(hgraph::runtime ALIAS hgraph_runtime)
 add_library(hgraph::wiring ALIAS hgraph_wiring)
-add_library(hgraph::stdlib ALIAS hgraph_stdlib)
-
-if(HGRAPH_WINDOWS_UNIFIED_SHARED)
-    target_link_libraries(hgraph_stdlib PUBLIC hgraph::options)
-    target_link_libraries(hgraph_runtime INTERFACE hgraph_stdlib hgraph::options)
-    target_link_libraries(hgraph_wiring INTERFACE hgraph_stdlib hgraph::options)
-else()
-    target_link_libraries(hgraph_runtime PUBLIC hgraph::options)
-    target_link_libraries(hgraph_wiring PUBLIC hgraph_runtime hgraph::options)
-    target_link_libraries(hgraph_stdlib PUBLIC hgraph_wiring hgraph::options)
-endif()
-target_link_libraries(hgraph_core INTERFACE hgraph_stdlib hgraph::options)
-
 if(HGRAPH_BUILD_SHARED)
     if(UNIX AND NOT APPLE)
         include(CheckCXXCompilerFlag)
@@ -250,7 +278,7 @@ if(HGRAPH_BUILD_SHARED)
             # PLT calls and prevents local optimization throughout the runtime
             # hot path. The public symbols remain exported for SDK consumers,
             # but hgraph does not support replacing its C++ ABI via LD_PRELOAD.
-            foreach(_hgraph_target IN ITEMS hgraph_runtime hgraph_wiring hgraph_stdlib)
+            foreach(_hgraph_target IN LISTS _compiled_targets)
                 target_compile_options(${_hgraph_target} PRIVATE
                     $<$<CONFIG:Release>:-fno-semantic-interposition>
                     $<$<CONFIG:RelWithDebInfo>:-fno-semantic-interposition>
@@ -271,7 +299,7 @@ if(HGRAPH_BUILD_SHARED)
             # Python-enabled builds are excluded: their runtime legitimately
             # leaves interpreter symbols to be resolved by the process that
             # imports the extension module.
-            foreach(_hgraph_target IN ITEMS hgraph_runtime hgraph_wiring hgraph_stdlib)
+            foreach(_hgraph_target IN LISTS _compiled_targets)
                 target_link_options(${_hgraph_target} PRIVATE LINKER:--no-undefined)
             endforeach()
         endif()
@@ -292,7 +320,7 @@ if(HGRAPH_BUILD_SHARED)
             LANGUAGES CXX
         )
         if(HGRAPH_HAS_INTERPROCEDURAL_OPTIMIZATION)
-            set_target_properties(hgraph_runtime hgraph_wiring hgraph_stdlib PROPERTIES
+            set_target_properties(${_compiled_targets} PROPERTIES
                 INTERPROCEDURAL_OPTIMIZATION_RELEASE ON
                 INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO ON
                 INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL ON
@@ -300,20 +328,13 @@ if(HGRAPH_BUILD_SHARED)
         endif()
     endif()
 
-    if(HGRAPH_WINDOWS_UNIFIED_SHARED)
-        target_link_libraries(hgraph_stdlib PRIVATE hgraph_private_dependencies)
-        target_compile_definitions(hgraph_stdlib PRIVATE hgraph_EXPORTS)
-    else()
-        set_target_properties(hgraph_runtime hgraph_wiring hgraph_stdlib PROPERTIES
-            WINDOWS_EXPORT_ALL_SYMBOLS ON
-        )
-        target_link_libraries(hgraph_runtime PRIVATE hgraph_private_dependencies)
-        target_link_libraries(hgraph_wiring PRIVATE hgraph_private_dependencies)
-        target_link_libraries(hgraph_stdlib PRIVATE hgraph_private_dependencies)
-        target_compile_definitions(hgraph_runtime PRIVATE hgraph_EXPORTS)
-        target_compile_definitions(hgraph_wiring PRIVATE hgraph_EXPORTS)
-        target_compile_definitions(hgraph_stdlib PRIVATE hgraph_EXPORTS)
+    if(NOT HGRAPH_WINDOWS_UNIFIED_SHARED)
+        set_target_properties(${_compiled_targets} PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
     endif()
+    foreach(_hgraph_target IN LISTS _compiled_targets)
+        target_link_libraries(${_hgraph_target} PRIVATE hgraph_private_dependencies)
+        target_compile_definitions(${_hgraph_target} PRIVATE hgraph_EXPORTS)
+    endforeach()
 
     # The shared components reference each other through their install names
     # (@rpath/... on macOS, bare sonames on ELF), so each carries a relative
@@ -339,7 +360,7 @@ if(HGRAPH_BUILD_SHARED)
             list(PREPEND _hgraph_core_install_rpath ${CMAKE_INSTALL_RPATH})
             list(REMOVE_DUPLICATES _hgraph_core_install_rpath)
         endif()
-        set_target_properties(hgraph_runtime hgraph_wiring hgraph_stdlib PROPERTIES
+        set_target_properties(${_compiled_targets} PROPERTIES
             INSTALL_RPATH "${_hgraph_core_install_rpath}"
         )
     endif()
@@ -350,19 +371,14 @@ if(MSVC)
     # complete class while retaining producer-side exports. C4251/C4275 then
     # describe private representation that is not part of the supported DLL
     # boundary. Keep this documented exception on the producing targets only.
-    target_compile_options(hgraph_stdlib PRIVATE /bigobj /wd4251 /wd4275)
-    if(NOT HGRAPH_WINDOWS_UNIFIED_SHARED)
-        target_compile_options(hgraph_runtime PRIVATE /bigobj /wd4251 /wd4275)
-        target_compile_options(hgraph_wiring PRIVATE /bigobj /wd4251 /wd4275)
-    endif()
+    foreach(_hgraph_target IN LISTS _compiled_targets)
+        target_compile_options(${_hgraph_target} PRIVATE /bigobj /wd4251 /wd4275)
+    endforeach()
 endif()
 
-hgraph_enable_private_pch(hgraph_stdlib)
-if(NOT HGRAPH_WINDOWS_UNIFIED_SHARED)
-    hgraph_enable_private_pch(hgraph_runtime)
-    hgraph_enable_private_pch(hgraph_wiring)
-endif()
+foreach(_hgraph_target IN LISTS _compiled_targets)
+    hgraph_enable_private_pch(${_hgraph_target})
+endforeach()
 
 set_target_properties(hgraph_runtime PROPERTIES EXPORT_NAME runtime)
 set_target_properties(hgraph_wiring PROPERTIES EXPORT_NAME wiring)
-set_target_properties(hgraph_stdlib PROPERTIES EXPORT_NAME stdlib)

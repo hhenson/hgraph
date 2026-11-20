@@ -1,6 +1,8 @@
 #include <hgraph/types/value/binary_compression.h>
 
+#ifndef HGRAPH_NO_ARROW
 #include <arrow/util/compression.h>
+#endif
 
 #include <fmt/format.h>
 
@@ -11,6 +13,7 @@ namespace hgraph
 {
     namespace
     {
+#ifndef HGRAPH_NO_ARROW
         [[nodiscard]] arrow::Compression::type arrow_kind(BinaryCompression compression)
         {
             switch (compression)
@@ -32,7 +35,7 @@ namespace hgraph
             }
             return std::move(codec).ValueUnsafe();
         }
-
+#endif
         void write_stored(std::string_view raw, std::string &out)
         {
             out.push_back(static_cast<char>(BinaryCompression::None));
@@ -43,7 +46,11 @@ namespace hgraph
 
     bool binary_compression_available(BinaryCompression compression) noexcept
     {
+#ifdef HGRAPH_NO_ARROW
+        return compression == BinaryCompression::None;
+#else
         return compression == BinaryCompression::None || arrow::util::Codec::IsAvailable(arrow_kind(compression));
+#endif
     }
 
     BinaryCompression default_binary_compression() noexcept
@@ -66,6 +73,10 @@ namespace hgraph
 
     void write_compressed_block(std::string_view raw, BinaryCompression compression, std::string &out)
     {
+#ifdef HGRAPH_NO_ARROW
+        static_cast<void>(compression);
+        write_stored(raw, out);
+#else
         if (compression == BinaryCompression::None || raw.size() < binary_compression_threshold ||
             !binary_compression_available(compression))
         {
@@ -103,6 +114,7 @@ namespace hgraph
         }
         out.resize(scratch_at + stored);
         out.insert(scratch_at, header_tail);
+#endif
     }
 
     std::string_view read_compressed_block(BinaryReader &reader, std::string &storage, std::size_t max_raw_bytes)
@@ -126,26 +138,30 @@ namespace hgraph
             throw std::runtime_error(fmt::format("binary codec: block claims {} bytes, more than the {} allowed", raw,
                                                  max_raw_bytes));
         }
-        if (!binary_compression_available(compression))
+#ifdef HGRAPH_NO_ARROW
+        static_cast<void>(storage);
+#else
+        if (binary_compression_available(compression))
         {
-            throw std::runtime_error(fmt::format("binary codec: block is {} compressed and this build cannot read it",
-                                                 binary_compression_name(compression)));
+            const auto *bytes = reader.take(stored);
+            const auto  codec = make_codec(compression);
+            storage.resize(static_cast<std::size_t>(raw));
+            const auto read = codec->Decompress(static_cast<std::int64_t>(stored), reinterpret_cast<const std::uint8_t *>(bytes),
+                                                static_cast<std::int64_t>(raw),
+                                                reinterpret_cast<std::uint8_t *>(storage.data()));
+            if (!read.ok())
+            {
+                throw std::runtime_error(fmt::format("binary codec: {} block is damaged: {}",
+                                                     binary_compression_name(compression), read.status().ToString()));
+            }
+            if (static_cast<std::uint64_t>(*read) != raw)
+            {
+                throw std::runtime_error("binary codec: block length disagrees with its contents");
+            }
+            return storage;
         }
-        const auto *bytes = reader.take(stored);
-        const auto  codec = make_codec(compression);
-        storage.resize(static_cast<std::size_t>(raw));
-        const auto read = codec->Decompress(static_cast<std::int64_t>(stored), reinterpret_cast<const std::uint8_t *>(bytes),
-                                            static_cast<std::int64_t>(raw),
-                                            reinterpret_cast<std::uint8_t *>(storage.data()));
-        if (!read.ok())
-        {
-            throw std::runtime_error(fmt::format("binary codec: {} block is damaged: {}",
-                                                 binary_compression_name(compression), read.status().ToString()));
-        }
-        if (static_cast<std::uint64_t>(*read) != raw)
-        {
-            throw std::runtime_error("binary codec: block length disagrees with its contents");
-        }
-        return storage;
+#endif
+        throw std::runtime_error(fmt::format("binary codec: block is {} compressed and this build cannot read it",
+                                             binary_compression_name(compression)));
     }
 }  // namespace hgraph

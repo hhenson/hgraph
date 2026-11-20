@@ -88,6 +88,14 @@ namespace hgraph
     /** Row count (0 for an empty frame) without exposing Arrow headers. */
     [[nodiscard]] HGRAPH_EXPORT std::int64_t frame_rows(const Frame &value) noexcept;
 
+#ifdef HGRAPH_NO_ARROW
+    template <>
+    inline const ValueTypeMetaData *TypeRegistry::register_scalar<Frame>(std::string_view, ValueTypeFlags)
+    {
+        throw std::logic_error("Frame requires HGRAPH_WITH_ARROW=ON");
+    }
+#endif
+
     namespace static_schema_detail
     {
         template <>
