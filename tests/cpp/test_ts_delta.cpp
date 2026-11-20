@@ -17,6 +17,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/types/time_series/ts_data/checkpoint.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/output_mutation.h>
 #include <hgraph/types/utils/counted_mutex.h>
@@ -293,7 +294,7 @@ TEST_CASE("whole empty growing list publications tick while repeated sparse zero
                values<Value>(empty, none, none));
 }
 
-TEST_CASE("owned lists retain validity through empty publications, size-only growth and positional clears") {
+TEST_CASE("owned lists derive validity from live positions and a published zero-length growing extent") {
   using Growing = TSL<TS<Int>>;
   TSOutput growing{schema_descriptor<Growing>::ts_meta()};
   const auto zero = dynamic_list_delta<TS<Int>>({}, {}, 0);
@@ -320,7 +321,12 @@ TEST_CASE("owned lists retain validity through empty publications, size-only gro
   auto list = sized.as_list();
   list.resize(2);
   CHECK(list.size() == 2);
-  CHECK(sized.valid());
+  CHECK_FALSE(sized.valid());
+  CHECK_FALSE(sized.modified());
+  CHECK(sized.last_modified_time() == MIN_DT);
+  CHECK_FALSE(sized.value().has_value());
+  CHECK_FALSE(sized.delta_value().has_value());
+  CHECK(list.size_modified() == 2);
   CHECK_FALSE(sized.all_valid());
   CHECK_FALSE(list.at(0).valid());
   CHECK_FALSE(list.at(1).valid());
@@ -332,7 +338,11 @@ TEST_CASE("owned lists retain validity through empty publications, size-only gro
     auto cleared = owner.view(MIN_ST + 6 * MIN_TD);
     apply_delta(cleared, dynamic_list_delta<TS<Int>>({}, {0, 1}).view());
     auto positions = cleared.as_list();
-    CHECK(cleared.valid());
+    CHECK_FALSE(cleared.valid());
+    CHECK_FALSE(cleared.modified());
+    CHECK(cleared.last_modified_time() == MIN_DT);
+    CHECK_FALSE(cleared.value().has_value());
+    CHECK_FALSE(cleared.delta_value().has_value());
     CHECK_FALSE(cleared.all_valid());
     CHECK(positions.size() == 2);
     CHECK_FALSE(positions.at(0).valid());
@@ -343,6 +353,12 @@ TEST_CASE("owned lists retain validity through empty publications, size-only gro
   check_clear(growing);
   TSOutput fixed{schema_descriptor<TSL<TS<Int>, 2>>::ts_meta()};
   check_clear(fixed);
+  auto restored = fixed.view(MIN_ST + 7 * MIN_TD);
+  apply_delta(restored, list_delta<TS<Int>>({{1, 4}}).view());
+  CHECK(restored.valid());
+  CHECK_FALSE(restored.all_valid());
+  CHECK(restored.modified());
+  CHECK(restored.last_modified_time() == restored.evaluation_time());
 
   auto shrunk = growing.view(MIN_ST + 7 * MIN_TD);
   apply_current_value(shrunk, empty.view());
@@ -352,6 +368,42 @@ TEST_CASE("owned lists retain validity through empty publications, size-only gro
   CHECK(final.size_modified() == 0);
   auto removed = final.removed_indices();
   CHECK(std::vector<std::size_t>(removed.begin(), removed.end()) == std::vector<std::size_t>{0, 1});
+}
+
+TEST_CASE("owned list vacancy follows same-cycle child rewrites and checkpoint restores") {
+  auto &registry = TypeRegistry::instance();
+  const auto *scalar = schema_descriptor<TS<Int>>::ts_meta();
+  for (const auto *schema : {registry.tsl(scalar, 8), registry.tsl(scalar)}) {
+    TSOutput owner{schema};
+    auto root = owner.view(MIN_ST);
+    auto list = root.as_list();
+    if (schema->is_unbounded_tsl()) { list.resize(8); }
+    CHECK_FALSE(root.valid());
+    auto tail = list.at(7);
+    apply_delta(tail, Value{Int{7}}.view());
+    CHECK(root.valid());
+    REQUIRE(tail.begin_mutation(MIN_ST).invalidate());
+    CHECK_FALSE(root.valid());
+    CHECK_FALSE(root.modified());
+    apply_delta(list.at(4), Value{Int{4}}.view());
+    CHECK(root.valid());
+    CHECK(root.modified());
+
+    // Restoring into fresh storage is silent and builds validity from held
+    // children, including a sparse slot away from the beginning of the list.
+    TSOutput restored{schema};
+    auto read = restored.view(MIN_ST + MIN_TD);
+    CHECK_FALSE(read.valid());
+    restore_ts_checkpoint(read.data_view(), capture_ts_checkpoint(root.data_view()));
+    CHECK(read.valid());
+    CHECK_FALSE(read.all_valid());
+    CHECK_FALSE(read.modified());
+    CHECK(read.last_modified_time() == MIN_ST);
+    auto restored_list = read.as_list();
+    REQUIRE(restored_list.at(4).begin_mutation(read.evaluation_time()).invalidate());
+    CHECK_FALSE(read.valid());
+    CHECK(read.last_modified_time() == MIN_DT);
+  }
 }
 
 TEST_CASE("held collection observations preserve invalid child holes", "[held-child-validity]") {
@@ -617,7 +669,7 @@ TEST_CASE("full current-state reconciliation truncates a dynamic TSL to the sour
           std::vector<std::size_t>{1});
 }
 
-TEST_CASE("observable-delta policy reports fixed-list invalidation") {
+TEST_CASE("withdrawing the last fixed-list position preserves its structural edit without publishing an aggregate delta") {
   (void)TypeRegistry::instance().register_scalar<Int>("int");
   using One = TSL<TS<Int>, 1>;
   const auto *schema = schema_descriptor<One>::ts_meta();
@@ -638,11 +690,12 @@ TEST_CASE("observable-delta policy reports fixed-list invalidation") {
     REQUIRE(mutation.invalidate());
   }
   auto source_input = input.view(nullptr, t2);
-  REQUIRE(source_input.modified());
+  REQUIRE_FALSE(source_input.modified());
+  REQUIRE_FALSE(source_input.delta_value().has_value());
   Value delta = capture_delta(source_input);
   REQUIRE(delta.view().as_bundle().at("modified").as_map().empty());
   REQUIRE(delta.view().as_bundle().at("removed").as_set().contains(Value{Int{0}}.view()));
-  REQUIRE(delta_is_observable(source_input, delta.view()));
+  REQUIRE_FALSE(delta_is_observable(source_input, delta.view()));
 }
 
 TEST_CASE(
@@ -1430,6 +1483,13 @@ TEST_CASE("ts_delta: explicit empty sparse patches validate only their target", 
     const auto before = type_system_lock_count();
     apply_delta(output.view(MIN_ST), empty.view());
     CHECK(type_system_lock_count() == before);
+    if (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl() && schema->fixed_size() != 0) {
+      CHECK_FALSE(output.view(MIN_ST).valid());
+      CHECK_FALSE(output.view(MIN_ST).modified());
+      CHECK(output.view(MIN_ST).last_modified_time() == MIN_DT);
+      CHECK_FALSE(output.view(MIN_ST).delta_value().has_value());
+      continue;
+    }
     CHECK(output.view(MIN_ST).valid());
     CHECK(output.view(MIN_ST).modified());
     auto captured = capture_delta(input.view(nullptr, MIN_ST));
@@ -1468,7 +1528,7 @@ TEST_CASE("ts_delta: explicit empty sparse patches validate only their target", 
 }
 
 TEST_CASE("ts_delta: nested empty patches publish only effective children", "[empty-delta]") {
-  using Child = TSL<TS<Int>, 2>;
+  using Child = TSL<TS<Int>>;
   using Bundle = TSB<"EmptyNestedBundle", Field<"child", Child>, Field<"other", TS<Int>>>;
   const Value empty = list_delta<TS<Int>>(std::initializer_list<std::pair<std::size_t, Int>>{});
   const auto verify = [&](const TSValueTypeMetaData *schema, const Value &patch) {
@@ -1536,15 +1596,15 @@ TEST_CASE("ts_delta: empty publication markers preserve same-cycle ticks and lis
     invalidate_child(MIN_ST);
     auto delta = capture_delta(input.view(nullptr, MIN_ST));
     CHECK((delta.view() == (schema->kind == TSTypeKind::TSL ? list_delta<TS<Int>>({}, {0}) : empty).view()));
-    CHECK(delta_is_observable(input.view(nullptr, MIN_ST), delta.view()));
+    CHECK(delta_is_observable(input.view(nullptr, MIN_ST), delta.view()) == (schema->kind == TSTypeKind::TSB));
     const auto later = MIN_ST + MIN_TD;
     apply_delta(output.view(later), patch.view());
     invalidate_child(later);
     delta = capture_delta(input.view(nullptr, later));
     CHECK((delta.view() == (schema->kind == TSTypeKind::TSL ? list_delta<TS<Int>>({}, {0}) : empty).view()));
-    CHECK(delta_is_observable(input.view(nullptr, later), delta.view()) == (schema->kind == TSTypeKind::TSL));
+    CHECK_FALSE(delta_is_observable(input.view(nullptr, later), delta.view()));
     apply_delta(output.view(later), empty.view());
-    CHECK(delta_is_observable(input.view(nullptr, later), delta.view()) == (schema->kind == TSTypeKind::TSL));
+    CHECK_FALSE(delta_is_observable(input.view(nullptr, later), delta.view()));
   };
   verify(schema_descriptor<TSL<TS<Int>, 1>>::ts_meta(), list_delta<TS<Int>>({{0, 1}}));
   verify(schema_descriptor<Quote>::ts_meta(), tsb_delta<Quote>(Int{1}, std::nullopt));
@@ -1571,6 +1631,12 @@ TEST_CASE("ts_delta: sampled rebinds retain previously empty fixed and bundle pu
     CHECK_FALSE(input.view(nullptr, MIN_DT).delta_is_sampled_rebind());
     input.view(nullptr, sample_time).bind_output_sampled(second.view(sample_time), sample_time);
     auto sampled = input.view(nullptr, sample_time);
+    if (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl() && schema->fixed_size() != 0) {
+      CHECK_FALSE(sampled.valid());
+      CHECK_FALSE(sampled.modified());
+      CHECK(sampled.last_modified_time() == MIN_DT);
+      continue;
+    }
     REQUIRE(sampled.valid());
     REQUIRE(sampled.modified());
     CHECK(sampled.last_modified_time() == sample_time);
@@ -1598,6 +1664,16 @@ TEST_CASE("ts_delta: sampling an invalidated child notification publishes the va
     auto producer = output.view(now);
     auto child = producer.data_view().indexed_child_at(0);
     REQUIRE(child.begin_mutation(now).invalidate());
+    if (schema->kind == TSTypeKind::TSL) {
+      CHECK_FALSE(producer.valid());
+      CHECK_FALSE(producer.modified());
+      sample.view(nullptr, now).bind_output_sampled(producer, now);
+      const auto sampled = sample.view(nullptr, now);
+      CHECK_FALSE(sampled.valid());
+      CHECK_FALSE(sampled.modified());
+      CHECK(sampled.last_modified_time() == MIN_DT);
+      return;
+    }
     REQUIRE(producer.valid());
     REQUIRE(producer.modified());
     auto direct = ordinary.view(nullptr, now);

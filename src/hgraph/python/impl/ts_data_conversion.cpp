@@ -1034,7 +1034,12 @@ namespace hgraph::python_bridge
                 static_cast<void>(delta_from_python(&schema, item));
                 auto output = authored.view(now);
                 apply_python_result(output, item);
-                deltas.emplace_back(output.modified()
+                // A size change or final positional clear can leave the whole list
+                // without a value. Replay the edit so subsequent ticks see the same
+                // extent and holes as the original owner.
+                const bool list_edit = schema.kind == TSTypeKind::TSL &&
+                    output.data_view().tracking().last_modified_time == now;
+                deltas.emplace_back((list_edit || output.modified())
                                         ? std::optional<Value>{capture_delta(observed.view(nullptr, now))}
                                         : std::nullopt);
             }

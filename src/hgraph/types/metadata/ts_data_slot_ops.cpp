@@ -685,7 +685,11 @@ namespace hgraph::ts_data_plan_factory_detail
                 // dictionary delta, but not membership or its key-set clock.
                 if (!child_has_current_value(slot))
                 {
-                    modified_.reset(slot);
+                    const auto &ops = element_type_.ops_ref();
+                    // A list can retain an addressable extent after losing its last
+                    // value. Its key carries the structural edit through replay.
+                    modified_.set(slot, ops.kind == TSTypeKind::TSL &&
+                        ops.tracking_impl(ops.context, values_.value_memory(slot))->last_modified_time == modified_time);
                     if (!slot_value_published(slot)) { return; }
 
                     value_published_.reset(slot);

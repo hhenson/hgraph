@@ -3984,7 +3984,7 @@ TEST_CASE("partitioned TSL map preserves ndx and phantom peers", "[map][partitio
         values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}, {}, 2), none),
         values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}}, {}, 1), dynamic_list_delta<TS<Int>>({{1, 20}}, {}, 2)),
         values<Int>(100, none)),
-        values<Value>(dynamic_list_delta<TS<Int>>({}, {}, 2), dynamic_list_delta<TS<Int>>({{1, 123}})));
+        values<Value>(none, dynamic_list_delta<TS<Int>>({{1, 123}})));
 }
 
 TEST_CASE("partitioned TSL map keeps whole pass-through lists", "[map][partition]")

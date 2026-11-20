@@ -1,3 +1,4 @@
+#include "detail/list_validity.h"
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
 #include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
@@ -147,6 +148,7 @@ namespace hgraph::ts_data_plan_factory_detail
 
             void record_child_modified(std::size_t index, DateTime modified_time)
             {
+                validity_.changed(index);
                 // A stale record cannot join the ring either (re-appending an
                 // already-linked entry would corrupt it), so it is dropped.
                 if (modified_time < delta_time()) { return; }
@@ -290,10 +292,14 @@ namespace hgraph::ts_data_plan_factory_detail
                     throw std::invalid_argument(
                         "dynamic TSL resize requires a concrete evaluation time");
                 }
+                validity_.changed();
                 prepare_delta(modified_time);
                 if (size > this->size()) { grow_to(size, element_type); }
                 else if (size < this->size()) { truncate_to(size); }
             }
+
+            template <typename Valid>
+            bool any_valid(Valid valid) const { return validity_.any(size(), valid); }
 
             [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
             {
@@ -471,6 +477,7 @@ namespace hgraph::ts_data_plan_factory_detail
             std::vector<DynamicTSLIndexEntry> ordinal_keys_{};
             std::int64_t                    live_size_{0};
             std::size_t                     previous_size_{0};
+            ListValidity                    validity_{};
             // Transient slot subscriptions and a snapshot derived from the modified ring.
             mutable std::unique_ptr<ModifiedSnapshot> modified_snapshot_{};
         };
@@ -852,16 +859,27 @@ namespace hgraph::ts_data_plan_factory_detail
                 return &storage(memory).mutable_tracking();
             }
 
-            [[nodiscard]] static bool dynamic_has_current_value(const void *, const void *memory) noexcept
+            [[nodiscard]] static bool dynamic_has_current_value(const void *context, const void *memory)
             {
-                return storage(memory).tracking().last_modified_time != MIN_DT;
+                const auto &store = storage(memory);
+                if (store.tracking().last_modified_time == MIN_DT) { return false; }
+                if (store.size() == 0) { return true; }
+                const auto &ops = child_ops(ctx(context)->element_type);
+                const auto has_value = [&](std::size_t i) { return ops.has_current_value_impl(ops.context, store.child_memory(i)); };
+                if (ops.kind == TSTypeKind::TS && !ops.is_target_link && !ops.is_input_binding) {
+                    return store.any_valid(has_value);
+                }
+                for (std::size_t i = 0; i < store.size(); ++i) {
+                    if (has_value(i)) { return true; }
+                }
+                return false;
             }
 
             // One-level check: ask each direct child for ``valid``, not for its
             // own ``all_valid``. See fixed_all_valid for the contract.
             [[nodiscard]] static bool dynamic_all_valid(const void *context, const void *memory)
             {
-                if (!dynamic_has_current_value(context, memory)) { return false; }
+                if (storage(memory).tracking().last_modified_time == MIN_DT) { return false; }
 
                 const auto *state = ctx(context);
                 const auto &store = storage(memory);

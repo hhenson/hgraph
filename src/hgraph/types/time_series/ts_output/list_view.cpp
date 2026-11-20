@@ -210,7 +210,7 @@ namespace hgraph
         }
         if (list.size() == size) {
             // The extent starts at zero even before the list owns a value.
-            if (!view_.valid()) { base.begin_mutation(evaluation_time).mark_empty_delta(); }
+            if (size == 0 && !view_.valid()) { base.begin_mutation(evaluation_time).mark_empty_delta(); }
             return;
         }
         list.resize(size, evaluation_time);
@@ -218,7 +218,13 @@ namespace hgraph
         // only visible while the storage window and the parent's modification
         // agree.
         auto mutation = base.begin_mutation(evaluation_time);
-        mutation.mark_modified();
+        if (size != 0 && !view_.valid()) {
+            // Subscribers can inspect the new extent. A child may then supply
+            // the first current value later in this same evaluation.
+            mutation.mark_empty_delta();
+        } else {
+            mutation.mark_modified();
+        }
     }
 
     TSOutputView TSLOutputView::at(std::size_t index) &
