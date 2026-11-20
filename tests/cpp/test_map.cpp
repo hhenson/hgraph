@@ -1392,14 +1392,13 @@ TEST_CASE("map_ over TSL: applies func per index, partial ticks stay element-wis
                                list_delta<TS<Int>>({none, 21, none})));
 }
 
-TEST_CASE("map_ over TSL: a fixed-empty input wires without indexing a child")
+TEST_CASE("map_ rejects a fixed TSL of size zero at wiring")
 {
     using namespace hgraph;
     stdlib::register_standard_operators();
 
-    CHECK_OUTPUT((eval_node<stdlib::map_, TSL<TS<Int>, 0>>(
-                     fn<AddOneG>(), values<Value>(list_delta<TS<Int>>({})))),
-                 values<Value>(none));
+    CHECK_THROWS_WITH((eval_node<stdlib::map_, TSL<TS<Int>, 0>>(fn<AddOneG>(), values<Value>(none))),
+                      Catch::Matchers::ContainsSubstring("fixed TSL must have positive size"));
 }
 
 TEST_CASE("map_ over TSL: the function may consume the Int index as its first argument")
@@ -3118,14 +3117,17 @@ namespace
     };
 
     inline std::vector<std::pair<Int, Int>> dynamic_tsl_sink_values;
+    inline std::vector<Int> dynamic_tsl_sink_stops;
 
     struct DynamicTslSinkNode
     {
         static constexpr auto name = "dynamic_tsl_sink_node";
 
-        static void eval(In<"ndx", TS<Int>> ndx, In<"ts", TS<Int>> ts) {
+        static void eval(In<"ndx", TS<Int>> ndx, In<"ts", TS<Int>> ts, State<Int> first) {
+            if (first.get() == 0) { first.set(ts.value()); }
             dynamic_tsl_sink_values.emplace_back(ndx.value(), ts.value());
         }
+        static void stop(State<Int> first) { dynamic_tsl_sink_stops.push_back(first.get()); }
     };
 
     struct MapDynamicSinkG
@@ -3155,21 +3157,11 @@ namespace
         static void eval(In<"ndx", TS<Int>>, In<"ts", TS<Str>>) {}
     };
 
-    struct MapFixedEmptyTslSinkG
+    struct MapMismatchedTslSinkG
     {
-        static constexpr auto name = "map_fixed_empty_tsl_sink_g";
+        static constexpr auto name = "map_mismatched_tsl_sink_g";
 
-        static Port<TSL<TS<Int>, 0>> compose(Wiring &w, Port<TSL<TS<Int>, 0>> ts) {
-            wire<stdlib::map_sink_>(w, fn<DynamicTslSinkNode>(), ts);
-            return ts;
-        }
-    };
-
-    struct MapFixedEmptyTslMismatchedSinkG
-    {
-        static constexpr auto name = "map_fixed_empty_tsl_mismatched_sink_g";
-
-        static Port<TSL<TS<Int>, 0>> compose(Wiring &w, Port<TSL<TS<Int>, 0>> ts) {
+        static Port<TSL<TS<Int>, 2>> compose(Wiring &w, Port<TSL<TS<Int>, 2>> ts) {
             wire<stdlib::map_sink_>(w, fn<StringTslSinkNode>(), ts);
             return ts;
         }
@@ -3726,6 +3718,25 @@ TEST_CASE("map_ over dynamic TSL: sink functions use the same indexed child "
     CHECK(dynamic_tsl_sink_values == std::vector<std::pair<Int, Int>>{{0, 10}, {1, 20}, {0, 30}});
 }
 
+TEST_CASE("map_ over a growing list stops dropped sink children and starts fresh ones on regrowth") {
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    dynamic_tsl_sink_stops.clear();
+    dynamic_tsl_sink_values.clear();
+    const auto input = values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}, {1, 20}, {2, 30}}, {}, 3),
+                                     dynamic_list_delta<TS<Int>>({}, {1, 2}, 1),
+                                     dynamic_list_delta<TS<Int>>({{1, 40}}, {}, 2),
+                                     dynamic_list_delta<TS<Int>>({{0, 50}}));
+    CHECK_OUTPUT(eval_node<MapDynamicSinkG>(input), input);
+    std::sort(dynamic_tsl_sink_values.begin(), dynamic_tsl_sink_values.end());
+    CHECK(dynamic_tsl_sink_values == std::vector<std::pair<Int, Int>>{{0, 10}, {0, 50}, {1, 20}, {1, 40}, {2, 30}});
+    // The first value identifies a child across evaluations. Siblings may stop in either order.
+    REQUIRE(dynamic_tsl_sink_stops.size() == 4);
+    std::sort(dynamic_tsl_sink_stops.begin(), dynamic_tsl_sink_stops.begin() + 2);
+    std::sort(dynamic_tsl_sink_stops.begin() + 2, dynamic_tsl_sink_stops.end());
+    CHECK(dynamic_tsl_sink_stops == std::vector<Int>{20, 30, 10, 40});
+}
+
 TEST_CASE("map_ over fixed TSL: sink functions expand once per index") {
     using namespace hgraph;
     stdlib::register_standard_operators();
@@ -3736,13 +3747,11 @@ TEST_CASE("map_ over fixed TSL: sink functions expand once per index") {
     CHECK(dynamic_tsl_sink_values == std::vector<std::pair<Int, Int>>{{0, 10}, {1, 20}, {1, 30}});
 }
 
-TEST_CASE("map_ over a fixed-empty TSL validates the sink input schema") {
+TEST_CASE("map_ over a fixed TSL validates the sink input schema") {
     using namespace hgraph;
     stdlib::register_standard_operators();
 
-    const auto input = values<Value>(list_delta<TS<Int>>({}), list_delta<TS<Int>>({}));
-    CHECK_OUTPUT(eval_node<MapFixedEmptyTslSinkG>(input), values<Value>(list_delta<TS<Int>>({}), none));
-    REQUIRE_THROWS(eval_node<MapFixedEmptyTslMismatchedSinkG>(input));
+    REQUIRE_THROWS(eval_node<MapMismatchedTslSinkG>(values<Value>(list_delta<TS<Int>>({1, 2}))));
 }
 
 TEST_CASE("map_ over dynamic TSL: pass_through broadcasts the whole peer list") {
@@ -3962,7 +3971,7 @@ TEST_CASE("partitioned TSL map preserves ndx and phantom peers", "[map][partitio
         values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}, {}, 2), none),
         values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}}, {}, 1), dynamic_list_delta<TS<Int>>({{1, 20}}, {}, 2)),
         values<Int>(100, none)),
-        values<Value>(dynamic_list_delta<TS<Int>>({}, {}, 2), dynamic_list_delta<TS<Int>>({{1, 123}})));
+        values<Value>(none, dynamic_list_delta<TS<Int>>({{1, 123}})));
 }
 
 TEST_CASE("partitioned TSL map keeps whole pass-through lists", "[map][partition]")

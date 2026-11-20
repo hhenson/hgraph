@@ -69,6 +69,7 @@ namespace hgraph
     }
 
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(Period);
+    HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(Tenor);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(CivilDateTime);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(ZoneId);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(ZonedDateTime);
@@ -2219,6 +2220,7 @@ namespace hgraph
 
     const TSValueTypeMetaData *TypeRegistry::tsl(const TSValueTypeMetaData *element_ts, size_t fixed_size)
     {
+        validate_tsl_size(fixed_size);
         const std::lock_guard lock(mutex_);
         const TSListKey key{element_ts, fixed_size};
         const TSValueTypeMetaData &meta = tsl_cache_.intern(key, [&]() {

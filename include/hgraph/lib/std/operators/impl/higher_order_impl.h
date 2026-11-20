@@ -4372,11 +4372,6 @@ namespace hgraph::stdlib
                 }
             }
             if (!found_fixed) { throw std::invalid_argument("map_: at least one input must be a fixed-size TSL"); }
-            if (func.has_output != output_required) {
-                throw std::invalid_argument(output_required ? "map_: 'func' must produce an output"
-                                                            : "map_sink_: 'func' must be a sink");
-            }
-
             const auto *key_meta = scalar_descriptor<Int>::value_meta();
             const auto *key_ts   = registry.ts(key_meta);
 
@@ -4434,7 +4429,10 @@ namespace hgraph::stdlib
                 }
 
                 WiringPortRef out = func.wire(w, {args.data(), args.size()});
-                if (!output_required) { continue; }
+                if (!output_required) {
+                    if (out.schema != nullptr) { throw std::invalid_argument("map_sink_: 'func' must be a sink"); }
+                    continue;
+                }
                 if (out.schema == nullptr) { throw std::invalid_argument("map_: 'func' must produce an output"); }
                 if (!children.empty() && !time_series_value_equivalent(out.schema, children.front().schema)) {
                     throw std::invalid_argument("map_: 'func' produced differing output schemas across the TSL indices");
@@ -4651,60 +4649,43 @@ namespace hgraph::stdlib
             return wire_fixed_map_tsl(w, func, takes_key, std::move(ordered), output_required, partition);
         }
 
-        /** Bind the output var ``O`` for the resolver: ``TSL<OUT(func), SIZE>``. */
-        inline void resolve_map_tsl_output(ResolutionMap &resolution, OperatorCallContext context) {
-            if (resolution.find_ts("__out__") != nullptr) { return; }
-
-            const WiredFn *func = context.scalar_as<WiredFn>("func");
-            if (func == nullptr) { return; }
+        /** Resolve the terminal of a list-mapped child. An engaged null is an
+            outputless graph; an empty optional leaves resolution to wiring. */
+        [[nodiscard]] inline std::optional<const TSValueTypeMetaData *> try_map_tsl_output(
+            OperatorCallContext context)
+        {
+            const auto *func = context.scalar_as<WiredFn>("func");
+            const auto *list = time_series_schema_as<AnyTSL>(first_map_collection(context));
+            auto ordered = ordered_map_schemas(context, "ndx");
+            if (!func || !list || !ordered) { return std::nullopt; }
+            if (!func->has_output) { return nullptr; }
 
             auto &registry = TypeRegistry::instance();
-            auto  ordered  = ordered_map_schemas(context, "ndx");
-            if (!ordered.has_value()) { return; }
+            const auto size = list->fixed_size();
+            return fallback_on_exception(std::optional<const TSValueTypeMetaData *>{}, [&] {
+                std::vector<const TSValueTypeMetaData *> schemas;
+                schemas.reserve(func->arity);
+                if (ordered->takes_key) { schemas.push_back(registry.ts(scalar_descriptor<Int>::value_meta())); }
+                for (std::size_t i = 0; i < ordered->schemas.size(); ++i) {
+                    const auto tag = i < ordered->arg_tags.size()
+                        ? static_cast<WiringPortRef::ArgTag>(ordered->arg_tags[i]) : WiringPortRef::ArgTag::None;
+                    const auto *schema = ordered->schemas[i];
+                    schemas.push_back(tag != WiringPortRef::ArgTag::PassThrough && tsl_arg_is_multiplexed(schema, size)
+                        ? time_series_schema_as<AnyTSL>(schema)->element_ts() : schema);
+                }
+                Wiring probe = output_probe_parent(context.wiring);
+                const auto *child = func->probe_compile(probe, schemas);
+                const auto *output = child ? child->output_schema : func->compile(probe, schemas).output_schema;
+                return std::optional<const TSValueTypeMetaData *>{output ? registry.tsl(output, size) : nullptr};
+            });
+        }
 
-            // Leave the output unresolved on any failure; the real wiring path reports the error.
-            static_cast<void>(fallback_on_exception(false, [&] {
-                auto tag_at = [&](std::size_t index) {
-                        return index < ordered->arg_tags.size() ? static_cast<WiringPortRef::ArgTag>(ordered->arg_tags[index])
-                                                                : WiringPortRef::ArgTag::None;
-                    };
-
-                    // A no_key TSL still anchors the size here so resolution
-                    // succeeds and compose can reject it with the clear message.
-                    bool        found_collection = false;
-                    std::size_t size             = 0;
-                    for (std::size_t i = 0; i < ordered->schemas.size(); ++i) {
-                        if (tag_at(i) == WiringPortRef::ArgTag::PassThrough) { continue; }
-                        const auto *tsl = time_series_schema_as<AnyTSL>(ordered->schemas[i]);
-                        if (tsl != nullptr) {
-                            found_collection = true;
-                            size             = tsl->fixed_size();
-                            break;
-                        }
-                    }
-                    if (!found_collection) { return true; }
-
-                    std::vector<const TSValueTypeMetaData *> schemas;
-                    schemas.reserve(func->arity);
-                    if (ordered->takes_key) { schemas.push_back(registry.ts(scalar_descriptor<Int>::value_meta())); }
-                    for (std::size_t i = 0; i < ordered->schemas.size(); ++i) {
-                        if (tag_at(i) != WiringPortRef::ArgTag::PassThrough && tsl_arg_is_multiplexed(ordered->schemas[i], size)) {
-                            schemas.push_back(time_series_schema_as<AnyTSL>(ordered->schemas[i])->element_ts());
-                        } else {
-                            schemas.push_back(ordered->schemas[i]);
-                        }
-                    }
-
-                    const auto child_schemas =
-                        std::span<const TSValueTypeMetaData *const>{schemas.data(),
-                                                                   schemas.size()};
-                    Wiring probe = output_probe_parent(context.wiring);
-                    CompiledSubGraph compiled = func->compile(probe, child_schemas);
-                    if (compiled.output_schema != nullptr) {
-                        bind_graph_output(resolution, registry.tsl(compiled.output_schema, size), "O");
-                    }
-                return true;
-            }));
+        inline void resolve_map_tsl_output(ResolutionMap &resolution, OperatorCallContext context) {
+            if (resolution.find_ts("__out__") == nullptr) {
+                if (auto output = try_map_tsl_output(context); output && *output) {
+                    bind_graph_output(resolution, *output, "O");
+                }
+            }
         }
 
         inline void resolve_lifted_map_tsl_output(ResolutionMap &resolution, OperatorCallContext context) {
@@ -4793,7 +4774,9 @@ namespace hgraph::stdlib
                 const auto *collection = first_map_collection(context);
                 if (time_series_schema_as<AnyTSL>(collection) == nullptr) { return false; }
                 const auto *func = context.scalar_as<WiredFn>("func");
-                return func != nullptr && !func->has_output;
+                if (!func || func->output_schema() != nullptr) { return false; }
+                const auto output = try_map_tsl_output(context);
+                return output && *output == nullptr;
             }
 
             static auto defaults()

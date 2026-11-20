@@ -38,8 +38,7 @@ namespace hgraph::python_bridge
 
         /** A Python pattern as the carried pattern of a ``TypeArg`` parameter:
             a ``TypePattern`` (time-series form), a ``ScalarPattern`` (scalar
-            form) or a ``SizePattern`` (size form, kept as the ``TSL`` shell the
-            size matcher reads). */
+            form) or a ``SizePattern`` (size form). */
         ParamPattern carried_param_from_python(nb::handle pattern, const char *method)
         {
             ParamPattern param;
@@ -58,9 +57,10 @@ namespace hgraph::python_bridge
             {
                 const auto &size = nb::cast<PySizePattern &>(pattern);
                 param.carrier    = ResolutionKind::Size;
-                param.ts = size.variable
-                               ? TypePattern::tsl_var(TypePattern::var("__type_arg_size_element__"), size.name)
-                               : TypePattern::tsl(TypePattern::var("__type_arg_size_element__"), size.value);
+                // A size argument can be zero independently of its eventual use.
+                param.ts.size_var = size.variable;
+                param.ts.size_name = size.name;
+                param.ts.fixed_size = size.value;
             }
             else
             {
@@ -422,6 +422,21 @@ namespace hgraph::python_bridge
             return std::hash<Period>{}(self);
         })
         .def("__repr__", [](const Period &self) {
+            std::ostringstream out;
+            out << self;
+            return out.str();
+        });
+
+    nb::class_<Tenor>(m, "Tenor", "Calendar months and days, or a signed count of business days.")
+        .def_static("months_days", &Tenor::months_days, nb::arg("months"), nb::arg("days"))
+        .def_static("business_days", &Tenor::business_days, nb::arg("count"))
+        .def_prop_ro("is_business", &Tenor::is_business)
+        .def_prop_ro("months", &Tenor::months)
+        .def_prop_ro("days", &Tenor::days)
+        .def_prop_ro("business", &Tenor::business)
+        .def("__eq__", [](const Tenor &self, const Tenor &other) { return self == other; }, nb::is_operator())
+        .def("__hash__", [](const Tenor &self) { return std::hash<Tenor>{}(self); })
+        .def("__repr__", [](const Tenor &self) {
             std::ostringstream out;
             out << self;
             return out.str();
@@ -808,6 +823,7 @@ namespace hgraph::python_bridge
     register_temporal_type(
         "CivilDateTime",
         scalar_descriptor<CivilDateTime>::value_meta());
+    register_temporal_type("Tenor", scalar_descriptor<Tenor>::value_meta());
     register_temporal_type("Period",
                            scalar_descriptor<Period>::value_meta());
     register_temporal_type("ZoneId",

@@ -36,11 +36,12 @@ namespace hgraph::testing
     // "no tick". These are schema-agnostic — they move ``Value``s, not typed wrappers.
     // -----------------------------------------------------------------
 
-    /** Seed a replay buffer from a sequence of canonical delta ``Value``s (nullopt = no tick). */
+    /** Seed a replay buffer from canonical deltas (nullopt = no tick). Set
+        observed when the caller has already applied the edits and captured the ticks. */
     inline void set_replay_deltas(const GlobalStateView &gs, std::string_view key,
-                                  const std::vector<std::optional<Value>> &deltas)
+                                  const std::vector<std::optional<Value>> &deltas, bool observed = false)
     {
-        Value buffer   = make_buffer();
+        Value buffer   = make_buffer(observed);
         auto  mutation = buffer.as_list().begin_mutation();
         for (const auto &delta : deltas)
         {

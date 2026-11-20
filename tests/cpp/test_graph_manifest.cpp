@@ -319,6 +319,10 @@ TEST_CASE("temporal scalar arguments have canonical encodings", "[manifest]")
         return writer.take();
     };
 
+    CHECK(encode(Value{Tenor::months_days(0, 0)}) != encode(Value{Tenor::business_days(0)}));
+    CHECK(encode(Value{Tenor::months_days(-12, 7)}) == encode(Value{Tenor::months_days(-12, 7)}));
+    CHECK(encode(Value{Tenor::business_days(-2)}) != encode(Value{Tenor::business_days(2)}));
+
     const auto period = encode(Value{Period{1, 2, 3}});
     CHECK_FALSE(period.empty());
     CHECK(period == encode(Value{Period{1, 2, 3}}));

@@ -364,6 +364,11 @@ A producer of ``hg.TSL[hg.TS[int], hg.Size[-1]]`` can return these updates:
    hg.TSLDelta(size_modified=3)       # (10, None, None), no child values published
    hg.TSLDelta({2: 31})               # (10, None, 31), length 3
 
+Use a positive ``Size[N]`` for a fixed time-series list. To publish an
+empty list, declare a growing list with ``Size[-1]`` and return ``()`` or
+``hg.TSLDelta(size_modified=0)``. A positive-length list becomes invalid
+when its final valid position is cleared. Its positions remain addressable.
+
 Bounded lists accept positional updates and clears. A growing list also
 accepts a shorter sequence, an explicit length, or ``_output.resize(n)``.
 To truncate old producer code that returned ``{n: hg.REMOVE}``, return

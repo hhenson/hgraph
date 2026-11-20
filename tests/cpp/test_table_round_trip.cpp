@@ -91,6 +91,7 @@ namespace
         result.push_back(sample_of<TimeDelta>("TimeDelta", Duration{123'456}));
         result.push_back(sample_of<Time>("Time", time_of_day(13, 45, 30, 250'000)));
         result.push_back(sample_of<CivilDateTime>("CivilDateTime", CivilDateTime{day, 1, 30}));
+        result.push_back(sample_of<Tenor>("Tenor calendar", Tenor::months_days(std::numeric_limits<std::int64_t>::min(), 7)));
         result.push_back(sample_of<Period>("Period", Period{1, -2, 3}));
         result.push_back(sample_of<ZoneId>("ZoneId", ZoneId{"America/New_York"}));
         result.push_back(sample_of<ZonedTime>(
@@ -177,6 +178,32 @@ TEST_CASE("table codec: the round trip covers every supported leaf type")
     // Catches the reverse too: a leaf REMOVED from the codec leaves a sample
     // behind that no longer proves anything.
     CHECK(covered.size() == supported.size());
+}
+
+TEST_CASE("table codec: tenor preserves its form and refuses ambiguous counts")
+{
+    const auto business = sample_of<Tenor>("business days", Tenor::business_days(std::numeric_limits<std::int64_t>::max()));
+    check_recorder_round_trip(business);
+    check_converter_round_trip(business);
+    const auto type = table_converter(business.meta).columns.front().type;
+    const auto schema = arrow::schema({arrow::field("value", type)});
+    const auto decode = [&](const std::array<std::optional<Int>, 3> &counts) {
+        std::unique_ptr<arrow::ArrayBuilder> builder;
+        REQUIRE(arrow::MakeBuilder(arrow::default_memory_pool(), type, &builder).ok());
+        auto &structure = static_cast<arrow::StructBuilder &>(*builder);
+        REQUIRE(structure.Append().ok());
+        for (int i = 0; i < 3; ++i)
+        {
+            auto &column = static_cast<arrow::Int64Builder &>(*structure.field_builder(i));
+            REQUIRE((counts[i] ? column.Append(*counts[i]) : column.AppendNull()).ok());
+        }
+        std::shared_ptr<arrow::Array> array;
+        REQUIRE(builder->Finish(&array).ok());
+        return read_table_cell(business.meta, *array, *schema, 0);
+    };
+    CHECK_THROWS_AS(decode({0, 0, 0}), std::invalid_argument);
+    CHECK_THROWS_AS(decode({0, std::nullopt, std::nullopt}), std::invalid_argument);
+    CHECK_THROWS_AS(decode({std::nullopt, std::nullopt, std::nullopt}), std::invalid_argument);
 }
 
 TEST_CASE("table codec: zoned time retains exact wall time and zone without an instant")
