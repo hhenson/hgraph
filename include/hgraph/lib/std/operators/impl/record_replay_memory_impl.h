@@ -433,7 +433,10 @@ namespace hgraph::stdlib
             State<record_replay_memory_detail::MemoryCompareState> state, GlobalStateView gs)
         {
             static_cast<void>(recordable_id);
-            const bool equal = lhs.valid() && rhs.valid() && lhs.value().equals(rhs.value());
+            const bool lhs_valid = lhs.valid();
+            const bool rhs_valid = rhs.valid();
+            if (!lhs_valid && !rhs_valid) { return; }  // simultaneous withdrawal has no values to compare
+            const bool equal = lhs_valid && rhs_valid && lhs.value().equals(rhs.value());
             auto &counters = state.modify();
             counters.compared += 1;
             if (!equal) { counters.mismatches += 1; }
