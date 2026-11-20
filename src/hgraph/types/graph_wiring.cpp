@@ -4,6 +4,7 @@
 #include <hgraph/manifest/schema_descriptor.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_realization.h>
+#include <hgraph/types/prepared_graph.h>
 #include <hgraph/types/operator_dispatch.h> // context scope stack (OperatorRegistry)
 #include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/time_series/ts_input/impl/reference_publication.h>
@@ -675,6 +676,25 @@ void collect_outer_captures(
   }
 }
 
+void collect_child_captures(
+    const std::vector<const WiringInstance *> &all,
+    const std::optional<WiringPortRef> &output,
+    const std::unordered_set<const WiringInstance *> &owned_instances,
+    const std::unordered_set<const WiringInstance *> &external_instance_set,
+    OuterCaptureCollector &captures) {
+  for (const WiringInstance *instance : all) {
+    for (const WiringInputRef &input : instance->inputs) {
+      collect_outer_captures(input.source, owned_instances,
+                             external_instance_set, captures);
+    }
+  }
+  if (output.has_value()) {
+    collect_outer_captures(*output, owned_instances, external_instance_set,
+                           captures);
+  }
+  captures.frozen = true;
+}
+
 void emit_edges(
     const WiringPortRef &source, const std::vector<std::size_t> &target_path,
     const std::unordered_map<const WiringInstance *, std::size_t> &index_of,
@@ -689,6 +709,10 @@ void emit_edges(
                captures);
     return;
   }
+  const auto *view_schema = source.declared_source_view();
+  if (view_schema != nullptr && view_schema->kind == TSTypeKind::SIGNAL) {
+    view_schema = nullptr;
+  }
   if (source.is_peered_source()) {
     if (external_sources != nullptr) {
       const auto external = external_sources->find(source.peered_node());
@@ -697,8 +721,7 @@ void emit_edges(
             .source_path = {external->second},
             .target =
                 NestedGraphEndpoint{.node = target_node, .path = target_path},
-            .source_view_schema = source.declared_source_view() != nullptr && source.declared_source_view()->kind != TSTypeKind::SIGNAL
-                                      ? source.declared_source_view() : nullptr,
+            .source_view_schema = view_schema,
         });
         return;
       }
@@ -717,6 +740,7 @@ void emit_edges(
           .source_path = {captures->base_index + captures->index_for(source)},
           .target =
               NestedGraphEndpoint{.node = target_node, .path = target_path},
+          .source_view_schema = view_schema,
       });
       return;
     }
@@ -726,8 +750,7 @@ void emit_edges(
         .source_path = source.peered_path(),
         .target_node = target_node,
         .target_path = target_path,
-    }, source.declared_source_view() != nullptr && source.declared_source_view()->kind != TSTypeKind::SIGNAL
-           ? source.declared_source_view() : nullptr);
+    }, view_schema);
     return;
   }
   if (source.is_null_source()) {
@@ -750,8 +773,7 @@ void emit_edges(
     boundary_bindings->push_back(NestedGraphInputBinding{
         .source_path = std::move(source_path),
         .target = NestedGraphEndpoint{.node = target_node, .path = target_path},
-        .source_view_schema = source.declared_source_view() != nullptr && source.declared_source_view()->kind != TSTypeKind::SIGNAL
-                                      ? source.declared_source_view() : nullptr,
+        .source_view_schema = view_schema,
     });
     return;
   }
@@ -986,7 +1008,9 @@ build_ranked_graph(std::deque<WiringInstance> &instances,
                    const std::unordered_map<const WiringInstance *, std::size_t>
                        *external_sources = nullptr,
                    const std::unordered_set<const WiringInstance *>
-                       *escaped_outputs = nullptr) {
+                       *escaped_outputs = nullptr,
+                   const std::unordered_map<const WiringInstance *, std::size_t>
+                       *logical_ids = nullptr) {
   std::unordered_set<const WiringInstance *> owned{all.begin(), all.end()};
   validate_checkpoint_ingress_consumers(all, owned, escaped_outputs);
   select_output_value_storage(instances, owned, escaped_outputs);
@@ -1031,7 +1055,8 @@ build_ranked_graph(std::deque<WiringInstance> &instances,
   {
     if (is_push_source(instance) && indegree[instance] != 0) {
       throw std::invalid_argument(
-          "Push source nodes cannot have rank dependencies");
+          "Push source nodes cannot have rank dependencies" +
+          (logical_ids ? " (node " + std::to_string(logical_ids->at(instance)) + ")" : ""));
     }
     if (indegree[instance] == 0) {
       (is_push_source(instance) ? ready_push_sources : ready)
@@ -1055,9 +1080,9 @@ build_ranked_graph(std::deque<WiringInstance> &instances,
   }
 
   if (ranked.size() != all.size()) {
-    auto name_of = [](const WiringInstance *instance) {
-      if (instance == nullptr) {
-        return std::string{"<null>"};
+    auto name_of = [logical_ids](const WiringInstance *instance) {
+      if (logical_ids != nullptr) {
+        return "node " + std::to_string(logical_ids->at(instance));
       }
       const auto &builder = instance->builder;
       std::string label = std::string{builder.label()};
@@ -1070,58 +1095,47 @@ build_ranked_graph(std::deque<WiringInstance> &instances,
                  : std::string{"<unnamed>"};
     };
 
-    std::string message = "Wiring::finish detected a cycle in the wiring graph";
-    std::size_t shown = 0;
-    for (const auto &[instance, degree] : indegree) {
-      if (degree == 0) {
-        continue;
-      }
-      message += shown == 0 ? ": " : ", ";
-      message += name_of(instance);
-      if (++shown == 8) {
-        break;
-      }
-    }
-    shown = 0;
-    for (const auto &[instance, degree] : indegree) {
-      if (degree == 0 || shown == 4) {
-        continue;
-      }
-      message += "; ";
-      message += name_of(instance);
-      message += " waits on ";
-      bool first = true;
-      for (const auto &input : instance->inputs) {
+    // Follow one unresolved predecessor per blocked node. This identifies an
+    // actual cycle, even if the first blocked node is merely downstream of one.
+    std::unordered_map<const WiringInstance *, std::size_t> visited;
+    std::vector<std::string> waits;
+    const WiringInstance *current = *std::ranges::find_if(all, [&](const auto *item) {
+      return indegree.at(item) != 0;
+    });
+    while (!visited.contains(current)) {
+      visited.emplace(current, waits.size());
+      const WiringInstance *previous = nullptr;
+      std::string reason = " ordering";
+      for (const auto &input : current->inputs) {
         if (!input.rank_dependency) {
           continue;
         }
         std::vector<const WiringInstance *> producers;
         collect_producers(input.source, producers, owned);
-        for (const WiringInstance *producer : producers) {
-          if (indegree[producer] == 0) {
-            continue;
+        const auto it = std::ranges::find_if(producers, [&](const auto *item) {
+          return indegree.at(item) != 0;
+        });
+        if (it != producers.end()) {
+          previous = *it;
+          reason = " input";
+          for (auto part : input.target_path) {
+            reason += "[" + std::to_string(part) + "]";
           }
-          if (!first) {
-            message += ", ";
-          }
-          message += name_of(producer);
-          first = false;
+          break;
         }
       }
-      for (const WiringInstance *producer : instance->rank_dependencies) {
-        if (producer == nullptr || indegree[producer] == 0) {
-          continue;
-        }
-        if (!first) {
-          message += ", ";
-        }
-        message += name_of(producer);
-        first = false;
+      if (!previous) {
+        previous = *std::ranges::find_if(current->rank_dependencies, [&](const auto *item) {
+          return owned.contains(item) && indegree.at(item) != 0;
+        });
       }
-      if (first) {
-        message += "<none in cycle>";
-      }
-      ++shown;
+      waits.push_back(name_of(current) + reason + " waits on " + name_of(previous));
+      current = previous;
+    }
+    std::string message = logical_ids ? "prepared graph has a same-cycle loop"
+                                      : "Wiring::finish detected a cycle in the wiring graph";
+    for (std::size_t i = visited.at(current); i < waits.size(); ++i) {
+      message += "; " + waits[i];
     }
     throw std::runtime_error(message);
   }
@@ -1149,7 +1163,212 @@ build_ranked_graph(std::deque<WiringInstance> &instances,
   }
   return build;
 }
+
+void bind_ranked_output(
+    CompiledSubGraph &compiled, const std::optional<WiringPortRef> &output,
+    const TSValueTypeMetaData *logical_output_schema,
+    const std::unordered_map<const WiringInstance *, std::size_t> &index_of,
+    const std::unordered_map<const WiringInstance *, std::size_t> &external_sources,
+    OuterCaptureCollector &captures) {
+  if (output.has_value()) {
+    compiled.output_schema = logical_output_schema;
+    // Boundary and projected endpoints already carry their physical schema.
+    // A whole child-node output can expose a dereferenced logical view (for
+    // example Port<TS<T>> over an operator whose declared output is
+    // REF<TS<T>>), so replace this below from the terminal node metadata.
+    compiled.terminal_output_schema = output->schema;
+    if (output->is_boundary_source()) {
+      // Pass-through: the sub-graph returns a boundary input directly
+      // (alias_parent_input) — the outer output aliases the upstream
+      // output the outer input is bound to.
+      std::vector<std::size_t> parent_path;
+      parent_path.reserve(1 + output->boundary_path().size());
+      parent_path.push_back(captures.boundary_ordinal(*output));
+      parent_path.insert(parent_path.end(), output->boundary_path().begin(),
+                         output->boundary_path().end());
+      auto &binding = compiled.output_binding.emplace();
+      binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
+      binding.parent_source_path = std::move(parent_path);
+    } else if (output->is_peered_source()) {
+      const auto external = external_sources.find(output->peered_node());
+      if (external != external_sources.end()) {
+        auto &binding = compiled.output_binding.emplace();
+        binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
+        binding.parent_source_path = {external->second};
+      } else {
+        if (output->peered_output_kind() != GraphEdgeSourceKind::Output) {
+          throw std::invalid_argument(
+              "Wiring::finish_subgraph: error/recordable-state outputs cannot "
+              "be a sub-graph output");
+        }
+        const auto it = index_of.find(output->peered_node());
+        if (it == index_of.end()) {
+          auto &binding = compiled.output_binding.emplace();
+          binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
+          binding.parent_source_path = {captures.base_index + captures.index_for(*output)};
+        } else {
+          const NodeTypeMetaData *terminal_meta =
+              compiled.graph_builder.node_at(it->second).type().schema();
+          if (terminal_meta == nullptr || terminal_meta->output_schema == nullptr) {
+            throw std::logic_error(
+                "Wiring::finish_subgraph: child output terminal has no output schema");
+          }
+          if (output->peered_path().empty()) {
+            compiled.terminal_output_schema = terminal_meta->output_schema;
+            compiled.terminal_is_structural_adapter =
+                output->peered_node()->definition ==
+                std::type_index(typeid(StructuralRefNodeTag));
+          }
+          compiled.output_binding = NestedGraphOutputBinding{
+              .source = NestedGraphEndpoint{.node = it->second,
+                                            .path = output->peered_path()},
+          };
+        }
+      }
+    } else if (const auto ordinal =
+                   structural_boundary_ordinal(*output, captures);
+               ordinal.has_value() && *ordinal < compiled.input_schemas.size() &&
+               compiled.input_schemas[*ordinal] == output->schema) {
+      // A fixed TSB/TSL argument is represented by a structural root whose
+      // leaves are boundary projections. Returning that argument directly is
+      // the structural form of an ordinary parent-input pass-through.
+      auto &binding = compiled.output_binding.emplace();
+      binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
+      binding.parent_source_path = {*ordinal};
+    } else {
+      throw std::invalid_argument(
+          "Wiring::finish_subgraph: the sub-graph output must be a node output "
+          "or an unchanged boundary input");
+    }
+  }
+}
+
+// The compiler supplies identities instead of Wiring's interned node pointers.
+// The translation lasts only for this call. No temporary pointer is returned.
+PreparedChildResult finish_prepared(const PreparedGraph &plan,
+                                    std::optional<std::size_t> arguments,
+                                    const std::optional<PreparedSource> &output) {
+  std::deque<WiringInstance> instances;
+  std::unordered_map<std::size_t, WiringInstance *> local;
+  std::unordered_map<const WiringInstance *, std::size_t> ids;
+  for (const auto &[id, builder] : plan.nodes) {
+    if (builder.type().schema() == nullptr) {
+      throw std::invalid_argument("prepared node " + std::to_string(id) + " has no schema");
+    }
+    auto &instance = instances.emplace_back(WiringInstance{.builder = builder, .inputs = {}, .rank_dependencies = {}});
+    if (!local.emplace(id, &instance).second) {
+      throw std::invalid_argument("duplicate prepared node " + std::to_string(id));
+    }
+    ids.emplace(&instance, id);
+  }
+  const auto node = [&](std::size_t id) {
+    const auto it = local.find(id);
+    if (it == local.end()) {
+      throw std::invalid_argument("unknown prepared node " + std::to_string(id));
+    }
+    return it->second;
+  };
+
+  // Separate identity space for enclosing outputs, even when IDs match locally.
+  // Foreign sources are discovered, deduplicated and bound by the usual child pass.
+  std::unordered_map<std::size_t, WiringInstance> outer_nodes;
+  std::unordered_map<const WiringInstance *, std::size_t> outer_ids;
+  const auto source_ref = [&](const PreparedSource &source) {
+    if (const auto *out = std::get_if<PreparedOutput>(&source)) {
+      return WiringPortRef::peered_source(node(out->node), out->path, out->view_schema, out->kind);
+    }
+    if (!arguments) {
+      throw std::invalid_argument("a parent input or capture requires finish_child");
+    }
+    if (const auto *input = std::get_if<PreparedParentInput>(&source)) {
+      if (input->argument >= *arguments) {
+        throw std::invalid_argument("unknown prepared parent argument " + std::to_string(input->argument));
+      }
+      if (!input->view_schema) {
+        throw std::invalid_argument("prepared parent argument " + std::to_string(input->argument) +
+                                    " requires its projected schema");
+      }
+      return WiringPortRef::boundary_source(input->argument, input->path, input->view_schema);
+    }
+    const auto &capture = std::get<PreparedCapture>(source).outer;
+    const auto *outer = &outer_nodes[capture.node];
+    outer_ids.emplace(outer, capture.node);
+    return WiringPortRef::peered_source(outer, capture.path, capture.view_schema, capture.kind);
+  };
+  for (const auto &connection : plan.connections) {
+    auto *target = node(connection.target.node);
+    if (connection.target.path.empty()) {
+      throw std::invalid_argument("empty input path on prepared node " + std::to_string(connection.target.node));
+    }
+    target->inputs.push_back(WiringInputRef{
+        .source = source_ref(connection.source),
+        .target_path = connection.target.path,
+        .rank_dependency = connection.timing == PreparedEdgeTiming::SameCycle,
+    });
+  }
+  for (const auto &[before, after] : plan.ordering) {
+    node(after)->rank_dependencies.push_back(node(before));
+  }
+  std::optional<WiringPortRef> terminal;
+  std::unordered_set<const WiringInstance *> escaped;
+  if (output) {
+    terminal = source_ref(*output);
+    if (const auto *out = std::get_if<PreparedOutput>(&*output);
+        out && out->path.empty() && out->kind == GraphEdgeSourceKind::Output && !terminal->schema) {
+      terminal->schema = output_schema_of(*node(out->node));
+    }
+    if (!terminal->schema) {
+      throw std::invalid_argument("a projected or parent child result requires its view schema");
+    }
+    collect_escaped_output_producers(*terminal, {}, escaped);
+  }
+  const auto live = reachable_instances(instances, &escaped);
+  std::unordered_set<const WiringInstance *> owned{live.begin(), live.end()};
+  OuterCaptureCollector captures{.base_index = arguments.value_or(0)};
+  if (arguments) {
+    collect_child_captures(live, terminal, owned, {}, captures);
+  }
+  CompiledSubGraph compiled;
+  const auto realization = compiled.graph_builder.type_realization();
+  const TypeRealizationScope realization_scope{realization.get()};
+  auto build = build_ranked_graph(instances, live,
+                                  arguments ? &compiled.input_bindings : nullptr,
+                                  &captures, nullptr, &escaped, &ids);
+  if (arguments) {
+    // Children inherit root state. Retain its realization policy, as finish_subgraph does.
+    build.graph_builder.global_state(GlobalState{});
+  }
+  build.graph_builder.type_realization(realization);
+  compiled.graph_builder = std::move(build.graph_builder);
+  bind_ranked_output(compiled, terminal, terminal ? terminal->schema : nullptr, build.index_of, {}, captures);
+  PreparedChildResult result;
+  result.child = SingleNestedGraphNodeSpec{
+      .graph_builder = std::move(compiled.graph_builder),
+      .input_bindings = std::move(compiled.input_bindings),
+      .output_binding = std::move(compiled.output_binding),
+      .output_terminal_is_reference = compiled.terminal_output_schema != nullptr &&
+                                      compiled.terminal_output_schema->kind == TSTypeKind::REF,
+  };
+  for (const auto &[instance, index] : build.index_of) {
+    result.index_of.emplace(ids.at(instance), index);
+  }
+  for (const auto &capture : captures.captured) {
+    result.captures.push_back(PreparedOutput{outer_ids.at(capture.peered_node()), capture.peered_path(),
+                                             capture.schema, capture.peered_output_kind()});
+  }
+  return result;
+}
 } // namespace
+
+PreparedGraphResult PreparedGraph::finish() const {
+  auto result = finish_prepared(*this, std::nullopt, std::nullopt);
+  return {std::move(result.child.graph_builder), std::move(result.index_of)};
+}
+
+PreparedChildResult PreparedGraph::finish_child(
+    std::size_t declared_arguments, std::optional<PreparedSource> output) const {
+  return finish_prepared(*this, declared_arguments, output);
+}
 
 namespace {
 // ``value_consumer`` is true while the declared input being adapted asks for
@@ -3509,17 +3728,7 @@ CompiledSubGraph Wiring::finish_subgraph(
   const auto all = reachable_instances(impl_->instances, &escaped_outputs,
                                        &external_instance_set);
   prune_outer_captures(captures, all, output);
-  for (const WiringInstance *instance : all) {
-    for (const WiringInputRef &input : instance->inputs) {
-      collect_outer_captures(input.source, owned_instances,
-                             external_instance_set, captures);
-    }
-  }
-  if (output.has_value()) {
-    collect_outer_captures(*output, owned_instances, external_instance_set,
-                           captures);
-  }
-  captures.frozen = true;
+  collect_child_captures(all, output, owned_instances, external_instance_set, captures);
   for (std::size_t index = 0; index < external_instances.size(); ++index) {
     external_sources.emplace(external_instances[index],
                              captures.base_index + captures.captured.size() +
@@ -3548,77 +3757,8 @@ CompiledSubGraph Wiring::finish_subgraph(
   compiled.graph_builder = std::move(build.graph_builder);
   const auto &index_of = build.index_of;
 
-  if (output.has_value()) {
-    compiled.output_schema = logical_output_schema;
-    // Boundary and projected endpoints already carry their physical schema.
-    // A whole child-node output can expose a dereferenced logical view (for
-    // example Port<TS<T>> over an operator whose declared output is
-    // REF<TS<T>>), so replace this below from the terminal node metadata.
-    compiled.terminal_output_schema = output->schema;
-    if (output->is_boundary_source()) {
-      // Pass-through: the sub-graph returns a boundary input directly
-      // (alias_parent_input) — the outer output aliases the upstream
-      // output the outer input is bound to.
-      std::vector<std::size_t> parent_path;
-      parent_path.reserve(1 + output->boundary_path().size());
-      parent_path.push_back(captures.boundary_ordinal(*output));
-      parent_path.insert(parent_path.end(), output->boundary_path().begin(),
-                         output->boundary_path().end());
-      auto &binding = compiled.output_binding.emplace();
-      binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
-      binding.parent_source_path = std::move(parent_path);
-    } else if (output->is_peered_source()) {
-      const auto external = external_sources.find(output->peered_node());
-      if (external != external_sources.end()) {
-        auto &binding = compiled.output_binding.emplace();
-        binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
-        binding.parent_source_path = {external->second};
-      } else {
-        if (output->peered_output_kind() != GraphEdgeSourceKind::Output) {
-          throw std::invalid_argument(
-              "Wiring::finish_subgraph: error/recordable-state outputs cannot "
-              "be a sub-graph output");
-        }
-        const auto it = index_of.find(output->peered_node());
-        if (it == index_of.end()) {
-          auto &binding = compiled.output_binding.emplace();
-          binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
-          binding.parent_source_path = {captures.base_index + captures.index_for(*output)};
-        } else {
-          const NodeTypeMetaData *terminal_meta =
-              compiled.graph_builder.node_at(it->second).type().schema();
-          if (terminal_meta == nullptr || terminal_meta->output_schema == nullptr) {
-            throw std::logic_error(
-                "Wiring::finish_subgraph: child output terminal has no output schema");
-          }
-          if (output->peered_path().empty()) {
-            compiled.terminal_output_schema = terminal_meta->output_schema;
-            compiled.terminal_is_structural_adapter =
-                output->peered_node()->definition ==
-                std::type_index(typeid(StructuralRefNodeTag));
-          }
-          compiled.output_binding = NestedGraphOutputBinding{
-              .source = NestedGraphEndpoint{.node = it->second,
-                                            .path = output->peered_path()},
-          };
-        }
-      }
-    } else if (const auto ordinal =
-                   structural_boundary_ordinal(*output, captures);
-               ordinal.has_value() && *ordinal < compiled.input_schemas.size() &&
-               compiled.input_schemas[*ordinal] == output->schema) {
-      // A fixed TSB/TSL argument is represented by a structural root whose
-      // leaves are boundary projections. Returning that argument directly is
-      // the structural form of an ordinary parent-input pass-through.
-      auto &binding = compiled.output_binding.emplace();
-      binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
-      binding.parent_source_path = {*ordinal};
-    } else {
-      throw std::invalid_argument(
-          "Wiring::finish_subgraph: the sub-graph output must be a node output "
-          "or an unchanged boundary input");
-    }
-  }
+  bind_ranked_output(compiled, output, logical_output_schema, index_of,
+                     external_sources, captures);
 
   for (const WiringPortRef &outer : captures.captured) {
     compiled.input_schemas.push_back(outer.schema);

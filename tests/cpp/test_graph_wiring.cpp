@@ -9,7 +9,10 @@
 #include <hgraph/lib/testing/mock_runtime.h>
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/runtime/runtime.h>
+#include <hgraph/runtime/map_node.h>
+#include <hgraph/types/time_series/output_mutation.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/prepared_graph.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/time_series/ts_delta.h>
@@ -2547,4 +2550,241 @@ TEST_CASE("graph wiring: a graph declaring an output cannot produce an empty por
     // closing separately -- pinning the current wording here would enshrine it.
     REQUIRE_THROWS(testing::eval_node<DeclaresOutputReturnsEmptyPort>(testing::values<Int>(1, 2)));
     REQUIRE_THROWS(testing::eval_node<ConsumesAnEmptyPort>(testing::values<Int>(1, 2)));
+}
+
+namespace {
+    template <class N> hgraph::NodeBuilder prepared_node()
+    {
+        hgraph::NodeBuilder builder;
+        builder.implementation<N>();
+        return builder;
+    }
+
+    using PreparedTrace = std::vector<std::pair<hgraph::DateTime, hgraph::Int>>;
+
+    hgraph::NodeBuilder trace_sink(PreparedTrace &trace)
+    {
+        using namespace hgraph;
+        NodeTypeMetaData meta;
+        meta.display_name = "trace_sink";
+        meta.node_kind = NodeKind::Sink;
+        meta.input_schema = TypeRegistry::instance().un_named_tsb({{"in", ts_type<TS<Int>>()}});
+        NodeCallbacks callbacks;
+        callbacks.evaluate = [&trace](const NodeView &view, DateTime time) {
+            auto root = view.input(time);
+            auto bundle = root.as_bundle();
+            auto input = bundle[0];
+            trace.emplace_back(time, input.value().checked_as<Int>());
+        };
+        return NodeBuilder::native(std::move(meta), std::move(callbacks));
+    }
+}
+
+TEST_CASE("prepared graph ranks a diamond and preserves the wiring trace", "[prepared_graph]")
+{
+    using namespace hgraph;
+    const auto *schema = ts_type<TS<Int>>();
+    PreparedTrace expected, actual;
+    Wiring wiring;
+    auto source = wiring.add_unique_node(typeid(ConstantSource), ticking_int_source(schema, 3),
+                                         std::span<const WiringPortRef>{}, {});
+    auto add = wire<AddOne>(wiring, Port<TS<Int>>{wiring, source});
+    auto pass = wiring.add_unique_node(typeid(void), counting_passthrough(schema, std::make_shared<int>()),
+                                       std::span<const WiringPortRef>{&source, 1}, {});
+    auto sum = wire<Sum>(wiring, add, Port<TS<Int>>{wiring, pass}).erased();
+    wiring.add_unique_node(typeid(DropInt), trace_sink(expected), std::span<const WiringPortRef>{&sum, 1}, {});
+    static_cast<void>(testing::run_graph(std::move(wiring).finish()));
+
+    PreparedGraph plan{
+        .nodes = {{60, trace_sink(actual)}, {50, prepared_node<Sum>()}, {30, prepared_node<AddOne>()},
+                  {20, counting_passthrough(schema, std::make_shared<int>())},
+                  {15, ticking_int_source(schema, 3)}, {99, prepared_node<ConstantSource>()}},
+        .connections = {{PreparedOutput{15}, {30, {0}}}, {PreparedOutput{15}, {20, {0}}},
+                        {PreparedOutput{30}, {50, {0}}}, {PreparedOutput{20}, {50, {1}}},
+                        {PreparedOutput{50}, {60, {0}}}},
+        .ordering = {{20, 30}},
+    };
+    const auto result = plan.finish();
+    CHECK(result.index_of.at(20) < result.index_of.at(30));
+    CHECK_FALSE(result.index_of.contains(99));
+    REQUIRE(result.graph_builder.edges().size() == 5);
+    static_cast<void>(testing::run_graph(result.graph_builder));
+    REQUIRE(expected.size() == 3);
+    CHECK(expected.back().second == 5);
+    CHECK(actual == expected);
+}
+
+TEST_CASE("prepared graph ranks push sources from builder metadata", "[prepared_graph]")
+{
+    using namespace hgraph;
+    auto push = make_push_source_node(*ts_type<TS<Int>>());
+    PreparedGraph plan{
+        .nodes = {{2, prepared_node<DropInt>()}, {3, prepared_node<DropInt>()},
+                  {1, prepared_node<ConstantSource>()}, {4, push}},
+        .connections = {{PreparedOutput{1}, {2, {0}}}, {PreparedOutput{4}, {3, {0}}}},
+    };
+    CHECK(plan.finish().index_of.at(4) == 0);
+    plan.ordering.push_back({1, 4});
+    CHECK_THROWS_WITH(plan.finish(), Catch::Matchers::ContainsSubstring("node 4"));
+}
+
+TEST_CASE("prepared graph diagnoses a same-cycle loop and executes its explicitly delayed data edge", "[prepared_graph]")
+{
+    using namespace hgraph;
+    const auto *schema = ts_type<TS<Int>>();
+    NodeTypeMetaData meta;
+    meta.display_name = "previous_tick";
+    meta.node_kind = NodeKind::Compute;
+    meta.input_schema = TypeRegistry::instance().un_named_tsb({{"previous", schema}});
+    meta.output_schema = schema;
+    meta.schedule_on_start = true;
+    meta.active_inputs = std::vector<std::size_t>{};
+    meta.valid_inputs = std::vector<std::size_t>{};
+    NodeCallbacks callbacks;
+    callbacks.evaluate = [](const NodeView &view, DateTime now) {
+        auto root = view.input(now);
+        auto bundle = root.as_bundle();
+        auto previous = bundle[0];
+        auto value = previous.valid() ? previous.value().checked_as<Int>() : Int{0};
+        write_int(view, now, value);
+        if (value < 2) { view.graph_value()->schedule_node(view.node_index(), now + MIN_TD); }
+    };
+    PreparedTrace trace;
+    PreparedGraph plan{
+        .nodes = {{33, trace_sink(trace)}, {22, prepared_node<AddOne>()},
+                  {11, NodeBuilder::native(std::move(meta), std::move(callbacks))}},
+        .connections = {{PreparedOutput{22}, {11, {0}}}, {PreparedOutput{11}, {22, {0}}},
+                        {PreparedOutput{22}, {33, {0}}}},
+    };
+    CHECK_THROWS_WITH(plan.finish(), Catch::Matchers::ContainsSubstring("node 11 input[0] waits on node 22")
+                                      && Catch::Matchers::ContainsSubstring("node 22 input[0] waits on node 11"));
+    plan.connections.front().timing = PreparedEdgeTiming::NoRankDependency;
+    auto result = plan.finish();
+    REQUIRE(result.graph_builder.edges().size() == 3);
+    static_cast<void>(testing::run_graph(result.graph_builder));
+    CHECK(trace == PreparedTrace{{MIN_ST, 1}, {MIN_ST + MIN_TD, 2}, {MIN_ST + MIN_TD + MIN_TD, 3}});
+}
+
+TEST_CASE("prepared child resolves parent arguments and captures in both graph index spaces", "[prepared_graph]")
+{
+    using namespace hgraph;
+    const auto *schema = ts_type<TS<Int>>();
+    PreparedGraph child_plan{
+        .nodes = {{9, prepared_node<Sum>()}, {7, prepared_node<AddOne>()}},
+        .connections = {{PreparedParentInput{0, {}, schema}, {7, {0}}},
+                        {PreparedCapture{{7, {}, schema}}, {9, {1}}}, {PreparedOutput{7}, {9, {0}}}},
+    };
+    auto child = child_plan.finish_child(1, PreparedOutput{9});
+    REQUIRE(child.captures.size() == 1);
+    REQUIRE(child.child.input_bindings.size() == 2);
+    CHECK(child.child.input_bindings[0].target.node == child.index_of.at(7));
+    CHECK(child.child.input_bindings[1].target.node == child.index_of.at(9));
+    CHECK(child.child.input_bindings[1].source_view_schema == schema);
+    CHECK(child.child.input_bindings[1].source_path == std::vector<std::size_t>{1});
+    REQUIRE(child.child.output_binding);
+    CHECK(child.child.output_binding->source.node == child.index_of.at(9));
+    NodeTypeMetaData meta;
+    meta.display_name = "nested_sum";
+    meta.input_schema = TypeRegistry::instance().un_named_tsb({{"arg", schema}, {"capture", schema}});
+    meta.output_schema = schema;
+    PreparedTrace trace;
+    PreparedGraph parent{
+        .nodes = {{9, trace_sink(trace)}, {4, single_nested_graph_node(std::move(meta), std::move(child.child))},
+                  {7, ticking_int_source(schema, 3)}},
+        .connections = {{PreparedOutput{4}, {9, {0}}}, {PreparedOutput{7}, {4, {0}}},
+                        {child.captures[0], {4, {1}}}},
+    };
+    auto ranked = parent.finish();
+    CHECK(ranked.index_of.at(7) == 0);
+    static_cast<void>(testing::run_graph(ranked.graph_builder));
+    CHECK(trace == PreparedTrace{{MIN_ST, 1}, {MIN_ST + MIN_TD, 3}, {MIN_ST + MIN_TD + MIN_TD, 5}});
+}
+
+namespace {
+    struct PreparedPrices
+    {
+        static void eval(hgraph::In<"tick", hgraph::TS<hgraph::Int>> tick,
+                         hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Int>>> out)
+        {
+            using namespace hgraph;
+            if (tick.value() == 2) { remove(out, Str{"a"}); }
+            else { upsert(out, Str{"a"}, tick.value()); }
+        }
+    };
+}
+
+TEST_CASE("prepared keyed sink binds key and element through removal and re-addition", "[prepared_graph]")
+{
+    using namespace hgraph;
+    const auto *dict = ts_type<TSD<Str, TS<Int>>>();
+    const auto *keys = ts_type<TSS<Str>>();
+    const auto *key = ts_type<TS<Str>>();
+    const auto *value = ts_type<TS<Int>>();
+
+    std::vector<std::pair<Str, Int>> observations;
+    int stops = 0;
+    NodeTypeMetaData sink;
+    sink.display_name = "price";
+    sink.node_kind = NodeKind::Sink;
+    sink.input_schema = TypeRegistry::instance().un_named_tsb({{"key", key}, {"value", value}});
+    NodeCallbacks callbacks;
+    callbacks.evaluate = [&](const NodeView &view, DateTime now) {
+        auto root = view.input(now);
+        auto bundle = root.as_bundle();
+        auto key_input = bundle[0];
+        auto value_input = bundle[1];
+        observations.emplace_back(key_input.value().checked_as<Str>(), value_input.value().checked_as<Int>());
+    };
+    callbacks.stop = [&](const NodeView &, DateTime) { ++stops; };
+    PreparedGraph body{
+        .nodes = {{57, NodeBuilder::native(std::move(sink), std::move(callbacks))}},
+        .connections = {{PreparedParentInput{0, {}, key}, {57, {0}}},
+                        {PreparedParentInput{1, {}, value}, {57, {1}}}},
+    };
+    auto child = body.finish_child(2);
+    CHECK_FALSE(child.child.output_binding);
+    NodeTypeMetaData map;
+    map.display_name = "each_price";
+    map.node_kind = NodeKind::Sink;
+    map.input_schema = TypeRegistry::instance().un_named_tsb({{"prices", dict}, {"__keys__", keys}});
+    MapNodeSpec spec;
+    spec.child = std::move(child.child);
+    spec.args = {{MapArgSourceKind::Key, 0}, {MapArgSourceKind::Element, 0}};
+    spec.multiplexed_inputs = {0};
+    spec.keys_input_index = 1;
+    spec.key_output_schema = key;
+    PreparedGraph plan{
+        .nodes = {{10, map_node(std::move(map), std::move(spec))}, {25, prepared_node<PreparedPrices>()},
+                  {32, ticking_int_source(value, 4)}},
+        .connections = {{PreparedOutput{25, {ts_key_set_path_component}, keys}, {10, {1}}},
+                        {PreparedOutput{25}, {10, {0}}}, {PreparedOutput{32}, {25, {0}}}},
+    };
+    auto graph = plan.finish();
+    static_cast<void>(testing::run_graph(graph.graph_builder, MIN_ST, MIN_ST + MIN_TD * 4));
+    CHECK(observations == std::vector<std::pair<Str, Int>>{{"a", 0}, {"a", 1}, {"a", 3}});
+    CHECK(stops == 2);
+}
+
+TEST_CASE("prepared child passes through a projected capture and reports invalid declarations", "[prepared_graph]")
+{
+    using namespace hgraph;
+    const auto *key_schema = ts_type<TSS<Str>>();
+    PreparedCapture outer{{71, {ts_key_set_path_component}, key_schema}};
+    PreparedGraph aliases;
+    const auto child = aliases.finish_child(0, outer);
+    REQUIRE(child.captures.size() == 1);
+    CHECK(child.captures.front().node == 71);
+    CHECK(child.captures.front().path == outer.outer.path);
+    CHECK(child.captures.front().view_schema == key_schema);
+    REQUIRE(child.child.output_binding);
+    CHECK(child.child.output_binding->kind == NestedGraphOutputBinding::Kind::ParentInput);
+    CHECK(child.child.output_binding->parent_source_path == std::vector<std::size_t>{0});
+
+    PreparedGraph plan{.nodes = {{2, prepared_node<DropInt>()}, {1, prepared_node<ConstantSource>()}},
+                       .connections = {{PreparedOutput{99}, {2, {0}}}}};
+    CHECK_THROWS_WITH(plan.finish(), Catch::Matchers::ContainsSubstring("unknown prepared node 99"));
+    plan.connections[0].source = PreparedParentInput{3, {}, key_schema};
+    CHECK_THROWS_WITH(plan.finish_child(3), Catch::Matchers::ContainsSubstring("parent argument 3"));
+    plan.nodes.push_back(plan.nodes.front());
+    CHECK_THROWS_WITH(plan.finish(), Catch::Matchers::ContainsSubstring("duplicate prepared node 2"));
 }

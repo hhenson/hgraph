@@ -24,6 +24,7 @@
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_record.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/prepared_graph.h>
 #include <hgraph/types/service_wiring.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
@@ -585,6 +586,17 @@ void register_spawn_consumer_recipes();
 
 int main(int argc, char **argv)
 {
+    {
+        hgraph::NodeTypeMetaData meta;
+        meta.display_name = "installed_sink";
+        meta.node_kind = hgraph::NodeKind::Sink;
+        hgraph::PreparedGraph graph{.nodes = {{31, hgraph::NodeBuilder::native(std::move(meta), {})}}};
+        auto result = graph.finish();
+        if (result.index_of.at(31) != 0 || result.graph_builder.node_count() != 1) {
+            throw std::runtime_error("installed prepared graph ranking failed");
+        }
+    }
+
     register_spawn_consumer_recipes();
     if (hgraph::distributed::run_worker_if_requested(argc, argv)) return 0;
     check_spawn_consumer();
