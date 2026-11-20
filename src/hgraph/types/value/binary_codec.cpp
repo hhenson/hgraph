@@ -18,9 +18,11 @@
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/scope.h>
 
+#ifndef HGRAPH_NO_ARROW
 #include <arrow/api.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/api.h>
+#endif
 
 #include <ankerl/unordered_dense.h>
 #include <fmt/format.h>
@@ -341,6 +343,7 @@ namespace hgraph
             return Value{self.binding, &result};
         }
 
+#ifndef HGRAPH_NO_ARROW
         template <typename T> T arrow_value(arrow::Result<T> result)
         {
             if (!result.ok()) throw std::runtime_error("binary codec: " + result.status().ToString());
@@ -415,7 +418,7 @@ namespace hgraph
             }
             return Value{self.binding, &value};
         }
-
+#endif
         void write_indirect(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
         {
             auto &out = writer.out;
@@ -1991,6 +1994,7 @@ namespace hgraph
             switch (meta->value_kind())
             {
                 case ValueTypeKind::Atomic: {
+#ifndef HGRAPH_NO_ARROW
                     if (TypeRegistry::instance().is_frame(meta))
                     {
                         raw->write_ = &write_frame;
@@ -2003,6 +2007,7 @@ namespace hgraph
                         raw->read_ = &read_series;
                         break;
                     }
+#endif
                     if (meta == scalar_descriptor<ZoneId>::value_meta())
                     {
                         raw->write_ = &write_zone_id;

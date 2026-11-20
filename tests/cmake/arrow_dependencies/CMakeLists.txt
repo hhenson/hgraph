@@ -7,6 +7,7 @@ foreach(_target IN ITEMS fmt::fmt spdlog::spdlog simdjson::simdjson)
     add_library("${_target}" INTERFACE IMPORTED)
 endforeach()
 set(HGRAPH_FETCH_MISSING_DEPENDENCIES OFF)
+set(hgraph_WITH_ARROW ON)
 
 foreach(_component IN ITEMS Arrow ArrowCompute ArrowAcero)
     if(_component STREQUAL "Arrow")

@@ -1,4 +1,7 @@
 add_subdirectory(cpp)
+if(NOT HGRAPH_WITH_ARROW)
+    return()
+endif()
 
 # Exercise SDK dependency discovery without fetching or compiling dependencies.
 foreach(_arrow_kind IN ITEMS shared static)
