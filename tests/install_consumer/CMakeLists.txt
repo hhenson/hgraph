@@ -8,6 +8,10 @@ if(DEFINED hgraph_WITH_ARROW AND NOT hgraph_WITH_ARROW)
     target_link_libraries(hgraph_runtime_consumer PRIVATE hgraph::wiring)
     enable_testing()
     add_test(NAME hgraph.install_consumer.runtime COMMAND hgraph_runtime_consumer)
+    if(WIN32)
+        set_tests_properties(hgraph.install_consumer.runtime PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:hgraph::runtime>")
+    endif()
     return()
 endif()
 

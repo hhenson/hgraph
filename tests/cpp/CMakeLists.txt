@@ -2,6 +2,10 @@ if(NOT HGRAPH_WITH_ARROW)
     add_executable(hgraph_runtime_consumer runtime_consumer.cpp)
     target_link_libraries(hgraph_runtime_consumer PRIVATE hgraph::wiring)
     add_test(NAME hgraph.runtime_consumer COMMAND hgraph_runtime_consumer)
+    if(WIN32)
+        set_tests_properties(hgraph.runtime_consumer PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:hgraph_runtime>")
+    endif()
     if(HGRAPH_BUILD_SHARED AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_test(NAME hgraph.runtime_has_no_arrow COMMAND "${CMAKE_COMMAND}"
             "-DREADELF=${CMAKE_READELF}" "-DRUNTIME=$<TARGET_FILE:hgraph_runtime>"
