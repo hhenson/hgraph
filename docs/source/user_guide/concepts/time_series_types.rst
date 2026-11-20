@@ -401,6 +401,13 @@ for all values that left. C++ nodes can iterate ``removed_values()`` and
 ``removed_value_times()`` in parallel, or keep an owned change with
 ``capture_delta(input)``.
 
+A completed root step keeps its removals readable while the caller inspects
+it, including after a same-time continuation. The next accepted evaluation
+at a later time releases that payload, even for a quiet window. A caller
+can release it earlier with ``release_completed_step()`` on the C++ executor
+view or on the Python ``Run`` returned by ``Wiring.run()``. After release the
+next evaluation must use a later time. Save ``window_delta()`` in C++ or
+``window.window_delta`` in Python to keep an owned event beyond that boundary.
 
 A Python owner can publish a whole window with
 ``_output.replace_samples(values, times)``. Omitting ``times`` timestamps

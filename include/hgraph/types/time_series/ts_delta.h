@@ -44,7 +44,8 @@ namespace hgraph
      */
     [[nodiscard]] HGRAPH_EXPORT Value capture_delta(const TSInputView &in);
 
-    /** Capture the same portable change set directly from owned or bound window storage. */
+    /** Capture the portable change directly from owned or bound window storage.
+        The returned value owns its removed samples and their original timestamps. */
     [[nodiscard]] HGRAPH_EXPORT Value capture_window_delta(const TSWDataView &window, DateTime evaluation_time);
 
     /** Accepts or rejects one key of a TSD while its delta is captured. */

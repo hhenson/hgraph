@@ -26,6 +26,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <array>
+#include <memory>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -508,4 +511,576 @@ TEST_CASE("externally driven: time may not run backwards, and a step needs a sta
     CHECK_THROWS_WITH(view.step(MIN_ST + TimeDelta{5}),
                       Catch::Matchers::ContainsSubstring("backwards"));
     view.stop_external();
+}
+
+namespace
+{
+    using ClockWindow = TSWDuration<Int, 2, 0>;
+    using CountWindow = TSW<Int, 1, 1>;
+
+    struct TwoWindowSamples
+    {
+        static void start(NodeScheduler clock) { clock.schedule(clock.now()); }
+
+        static void eval(Out<ClockWindow> out, NodeScheduler clock)
+        {
+            const auto now = clock.now();
+            const bool first = now == MIN_ST;
+            out.begin_mutation(now).push(Value{first ? Int{4} : Int{5}}.view());
+            if (first) { clock.schedule(MIN_TD); }
+        }
+    };
+
+    template<typename Owner>
+    GraphExecutorValue window_executor(GraphExecutorMode mode = GraphExecutorMode::ExternallyDriven,
+                                       bool cleanup_on_error = true)
+    {
+        NodeBuilder node;
+        node.implementation<Owner>();
+        GraphBuilder graph;
+        graph.add_node(node);
+        GraphExecutorBuilder builder;
+        builder.graph_builder(graph).mode(mode).start_time(MIN_ST).end_time(MIN_ST + 8 * MIN_TD)
+            .cleanup_on_error(cleanup_on_error);
+        return builder.make_executor();
+    }
+
+    void check_departure(const TSWDataView &window, DateTime tick, Int value, DateTime sample_time)
+    {
+        const auto removed = window.removed_values(tick);
+        const auto times = window.removed_value_times(tick);
+        REQUIRE(removed.limit == 1);
+        REQUIRE(times.limit == 1);
+        CHECK((*removed.begin()).checked_as<Int>() == value);
+        CHECK(*times.begin() == sample_time);
+    }
+
+    struct ClearReplayedWindow
+    {
+        static constexpr bool replays_output_events = true;
+        static void start(NodeScheduler clock) { clock.schedule(clock.now()); }
+        static void eval(Out<ClockWindow> out, NodeScheduler clock)
+        {
+            if (clock.now() == MIN_ST)
+            {
+                out.apply(window_delta<Int>(7).view());
+                clock.schedule(5 * MIN_TD);
+            }
+            else
+            {
+                out.apply(window_delta<Int>(9, {{7, MIN_ST}}, true).view());
+            }
+        }
+    };
+
+    using CountBook = TSD<Str, CountWindow>;
+
+    struct ReusedCountWindow
+    {
+        static void start(NodeScheduler clock) { clock.schedule(clock.now()); }
+        static void eval(Out<CountBook> book, NodeScheduler clock)
+        {
+            const auto now = clock.now();
+            const auto offset = (now - MIN_ST) / MIN_TD;
+            book["desk"].begin_mutation(now).push(Value{Int{10} + offset}.view());
+            // The replaced value is still published by the removed child at t1.
+            // At t2 the same key has new storage and its own removal at t3.
+            if (offset == 1) { static_cast<void>(book.erase("desk")); }
+            if (offset < 3) { clock.schedule(MIN_TD); }
+        }
+    };
+}
+
+TEST_CASE("completed window step: repeated and refused times preserve the borrowed departure until a later step")
+{
+    const auto first_due = MIN_ST + 3 * MIN_TD;
+    const auto second_due = first_due + MIN_TD;
+    Value owned;
+    {
+        auto executor = window_executor<TwoWindowSamples>();
+        auto engine = executor.view();
+        engine.start_external(MIN_ST);
+        REQUIRE(engine.step(MIN_ST));
+        REQUIRE(engine.step(MIN_ST + MIN_TD));
+        REQUIRE(engine.step(first_due));
+        auto out = engine.graph().node_at(0).output(first_due);
+        auto window = out.as_window().data_view();
+        check_departure(window, first_due, 4, MIN_ST);
+        owned = capture_window_delta(window, first_due);
+
+        CHECK_THROWS_AS(engine.step(first_due - MIN_TD), std::invalid_argument);
+        CHECK_THROWS_AS(engine.step(second_due + MIN_TD), std::invalid_argument);
+        REQUIRE(engine.step(first_due));
+        check_departure(window, first_due, 4, MIN_ST);
+
+        REQUIRE(engine.step(second_due));
+        check_departure(window, second_due, 5, MIN_ST + MIN_TD);
+        REQUIRE(engine.graph().next_scheduled_time() == MAX_DT);
+        // The clock advances, but no window or node mutates at this time.
+        engine.engine_control().add_before_evaluation_notification([&] {
+            CHECK(window.removed_values(second_due).limit == 0);
+        });
+        REQUIRE(engine.step(second_due + MIN_TD));
+        CHECK(window.removed_values(second_due).limit == 0);
+        CHECK(window.removed_value_times(second_due).limit == 0);
+        CHECK_FALSE(capture_window_delta(window, second_due).has_value());
+        CHECK(window.last_modified_time() == second_due);
+        engine.stop_external();
+    }
+    CHECK(owned.equals(window_delta<Int>(std::nullopt, {{4, MIN_ST}})));
+}
+
+TEST_CASE("completed window step: explicit release closes only the completed timestamp")
+{
+    auto executor = window_executor<TwoWindowSamples>();
+    auto engine = executor.view();
+    CHECK_THROWS_AS(engine.release_completed_step(), std::logic_error);
+    engine.start_external(MIN_ST);
+    CHECK_THROWS_AS(engine.release_completed_step(), std::logic_error);
+    REQUIRE(engine.step(MIN_ST));
+    REQUIRE(engine.step(MIN_ST + MIN_TD));
+    const auto first_due = MIN_ST + 3 * MIN_TD;
+    engine.engine_control().add_after_evaluation_notification([&] {
+        auto out = engine.graph().node_at(0).output(first_due);
+        check_departure(out.as_window().data_view(), first_due, 4, MIN_ST);
+        CHECK_THROWS_AS(engine.release_completed_step(), std::logic_error);
+    });
+    REQUIRE(engine.step(first_due));
+    auto out = engine.graph().node_at(0).output(first_due);
+    auto window = out.as_window().data_view();
+    check_departure(window, first_due, 4, MIN_ST);
+
+    engine.graph().as_root().release_completed_step();
+    engine.release_completed_step();
+    CHECK(window.removed_values(first_due).limit == 0);
+    REQUIRE(window.size() == 1);
+    CHECK(window.time_at(0) == MIN_ST + MIN_TD);
+    CHECK_THROWS(engine.step(first_due));
+    const auto second_due = first_due + MIN_TD;
+    REQUIRE(engine.step(second_due));
+    check_departure(window, second_due, 5, MIN_ST + MIN_TD);
+    engine.stop_external();
+    check_departure(window, second_due, 5, MIN_ST + MIN_TD);
+    SECTION("the driver closes the stopped graph's last step")
+    {
+        engine.release_completed_step();
+        CHECK(window.removed_values(second_due).limit == 0);
+        CHECK_NOTHROW(engine.release_completed_step());
+    }
+    SECTION("a fresh start has no completed step until its first evaluation")
+    {
+        const auto next_start = second_due + 2 * MIN_TD;
+        engine.start_external(next_start);
+        CHECK_THROWS_AS(engine.release_completed_step(), std::logic_error);
+        CHECK(window.removed_values(second_due).limit == 0);
+        REQUIRE(engine.step(next_start));
+        CHECK_NOTHROW(engine.release_completed_step());
+        engine.stop_external();
+    }
+}
+
+TEST_CASE("completed window step: normal loop completion leaves its final authoritative clear inspectable")
+{
+    for (auto mode : {GraphExecutorMode::Simulation, GraphExecutorMode::RealTime})
+    {
+        CAPTURE(static_cast<int>(mode));
+        auto executor = window_executor<ClearReplayedWindow>(mode);
+        auto engine = executor.view();
+        engine.run();
+        const auto cleared = MIN_ST + 5 * MIN_TD;
+        auto out = engine.graph().node_at(0).output(cleared);
+        auto window = out.as_window().data_view();
+        check_departure(window, cleared, 7, MIN_ST);
+        const auto owned = capture_window_delta(window, cleared);
+        engine.release_completed_step();
+        CHECK(window.removed_values(cleared).limit == 0);
+        CHECK_FALSE(out.as_window().window_delta().has_value());
+        CHECK_FALSE(capture_window_delta(window, cleared).has_value());
+        REQUIRE(window.size() == 1);
+        CHECK(window.back().checked_as<Int>() == 9);
+        CHECK(owned.equals(window_delta<Int>(9, {{7, MIN_ST}}, true)));
+    }
+}
+
+TEST_CASE("completed window step: a failed repeated evaluation preserves diagnostics and cannot be released")
+{
+    for (bool cleanup : {false, true})
+    {
+        CAPTURE(cleanup);
+        auto executor = window_executor<TwoWindowSamples>(GraphExecutorMode::ExternallyDriven, cleanup);
+        auto engine = executor.view();
+        engine.start_external(MIN_ST);
+        REQUIRE(engine.step(MIN_ST));
+        REQUIRE(engine.step(MIN_ST + MIN_TD));
+        const auto due = MIN_ST + 3 * MIN_TD;
+        REQUIRE(engine.step(due));
+        engine.engine_control().add_after_evaluation_notification([] { throw std::runtime_error("test failure"); });
+        CHECK_THROWS_WITH(engine.step(due), Catch::Matchers::ContainsSubstring("test failure"));
+        CHECK(engine.graph().started() == !cleanup);
+        CHECK_THROWS_AS(engine.release_completed_step(), std::logic_error);
+        auto out = engine.graph().node_at(0).output(due);
+        check_departure(out.as_window().data_view(), due, 4, MIN_ST);
+        engine.stop_external();
+    }
+}
+
+TEST_CASE("completed window step: deleting and reusing a key keeps fixed-window removals in their own generation")
+{
+    auto executor = window_executor<ReusedCountWindow>();
+    auto engine = executor.view();
+    engine.start_external(MIN_ST);
+    REQUIRE(engine.step(MIN_ST));
+    const auto removed_at = MIN_ST + MIN_TD;
+    REQUIRE(engine.step(removed_at));
+    auto out = engine.graph().node_at(0).output(removed_at);
+    auto book = out.as_dict();
+    auto removed = book.removed_items();
+    REQUIRE(removed.begin() != removed.end());
+    auto [key, child] = *removed.begin();
+    CHECK(key.checked_as<Str>() == "desk");
+    const auto saved = child.as_window().window_delta();
+    CHECK(saved.equals(window_delta<Int>(11, {{10, MIN_ST}})));
+
+    // Advancing retires the old child's borrowed data before slot reuse.
+    REQUIRE(engine.step(removed_at + MIN_TD));
+    const auto replaced_at = removed_at + 2 * MIN_TD;
+    REQUIRE(engine.step(replaced_at));
+    auto now = engine.graph().node_at(0).output(replaced_at);
+    auto live = now.as_dict().at(Value{Str{"desk"}}.view());
+    auto window = live.as_window().data_view();
+    check_departure(window, replaced_at, 12, removed_at + MIN_TD);
+    engine.release_completed_step();
+    REQUIRE(window.size() == 1);
+    CHECK(window.back().checked_as<Int>() == 13);
+    CHECK(window.removed_values(replaced_at).limit == 0);
+    CHECK(saved.equals(window_delta<Int>(11, {{10, MIN_ST}})));
+    engine.stop_external();
+}
+
+namespace
+{
+    using WindowBatch = TSB<"CompletedWindowBatch", Field<"prices", ClockWindow>>;
+
+    struct SeedWindowBatch
+    {
+        static void eval(Out<WindowBatch>) {}
+        static void start(Out<WindowBatch> out)
+        {
+            const auto now = out.evaluation_time();
+            ListBuilder values{ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta())};
+            for (const Int value : {4, 5, 6}) { values.push_back(Int{value}); }
+            const std::array timestamps{now, now, now};
+            out.field<"prices">().begin_mutation(now).replace_samples(values.build().view(), timestamps);
+        }
+    };
+}
+
+TEST_CASE("completed window step: the directly driven root reclaims the departure batch and its cached projection")
+{
+    auto executor = window_executor<SeedWindowBatch>();
+    auto engine = executor.view();
+    engine.start_external(MIN_ST);
+    auto root = engine.graph().as_root();
+    const auto due = MIN_ST + 3 * MIN_TD;
+    REQUIRE(root.next_scheduled_time() == due);
+    REQUIRE(root.evaluate(due));
+    auto endpoint = root.node_at(0).output(due);
+    auto bundle = endpoint.as_bundle();
+    auto prices = bundle.at(0);
+    const auto &data = prices.data_view();
+    auto window = data.as_window();
+    // A bundle projects its window field's canonical delta lazily. Read it
+    // before release so the memory check includes the borrowed projection.
+    auto fields = endpoint.data_view().delta_value(due).as_bundle();
+    REQUIRE(fields.at("prices").as_bundle().at("removed").as_indexed_view().size() == 3);
+    const auto saved = capture_window_delta(window, due);
+    const auto before = data.dynamic_storage_metrics();
+    REQUIRE(before.live_bytes > 0);
+
+    SECTION("explicit release") { root.release_completed_step(); }
+    SECTION("another root evaluation, with no node scheduled") { REQUIRE(root.evaluate(due + MIN_TD)); }
+    const auto after = data.dynamic_storage_metrics();
+    CHECK(after.live_bytes < before.live_bytes);
+    CHECK(after.reserved_bytes < before.reserved_bytes);
+    CHECK(window.removed_values(due).limit == 0);
+    CHECK_FALSE(data.delta_value(due).has_value());
+    CHECK_FALSE(capture_window_delta(window, due).has_value());
+    CHECK(saved.equals(window_delta<Int>(std::nullopt, {{4, MIN_ST}, {5, MIN_ST}, {6, MIN_ST}})));
+    CHECK(root.next_scheduled_time() == MAX_DT);
+    engine.stop_external();
+}
+
+TEST_CASE("completed window step: a later replacement without removals keeps its original observation")
+{
+    auto executor = window_executor<TwoWindowSamples>();
+    auto engine = executor.view();
+    engine.start_external(MIN_ST);
+    REQUIRE(engine.step(MIN_ST));
+    REQUIRE(engine.step(MIN_ST + MIN_TD));
+    REQUIRE(engine.step(MIN_ST + 3 * MIN_TD));
+    const auto last_due = MIN_ST + 4 * MIN_TD;
+    REQUIRE(engine.step(last_due));
+    auto endpoint = engine.graph().node_at(0).output(last_due);
+    auto window = endpoint.as_window().data_view();
+    engine.release_completed_step();
+
+    const auto next = last_due + MIN_TD;
+    engine.engine_control().add_before_evaluation_notification([&] {
+        ListBuilder samples{ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta())};
+        samples.push_back(Int{11});
+        window.begin_mutation(next).replace_samples(samples.build().view(), std::array{next});
+    });
+    REQUIRE(engine.step(next));
+    const auto replacement = capture_window_delta(window, next);
+    REQUIRE(replacement.has_value());
+    auto sample = replacement.view().as_bundle().at("replacement").as_indexed_view().at(0).as_bundle();
+    CHECK(sample.at("value").checked_as<Int>() == 11);
+    CHECK(sample.at("time").checked_as<DateTime>() == next);
+    engine.release_completed_step();
+    CHECK(capture_window_delta(window, next).equals(replacement));
+    engine.stop_external();
+}
+
+TEST_CASE("completed window step: a write at a closed time cannot reopen a removal-bearing change")
+{
+    auto executor = window_executor<SeedWindowBatch>();
+    auto engine = executor.view();
+    engine.start_external(MIN_ST);
+    const auto idle = MIN_ST + MIN_TD;
+    REQUIRE(engine.step(idle));
+    engine.release_completed_step();
+
+    auto out = engine.graph().node_at(0).output(idle);
+    auto bundle = out.as_bundle();
+    auto prices = bundle.at(0);
+    auto window = prices.as_window().data_view();
+    REQUIRE(window.size() == 3);
+    {
+        auto cursor = window.begin_mutation(idle);
+        cursor.clear();
+        cursor.push(Value{Int{99}}.view());
+    }
+    REQUIRE(window.size() == 1);
+    CHECK(window.back().checked_as<Int>() == 99);
+    CHECK(window.removed_values(idle).limit == 0);
+    CHECK_FALSE(prices.as_window().window_delta().has_value());
+    engine.stop_external();
+}
+
+namespace
+{
+    using FourCountWindows = TSL<CountWindow, 4>;
+
+    struct SeedFourWindows
+    {
+        static void eval(Out<FourCountWindows>) {}
+        static void start(Out<FourCountWindows> out)
+        {
+            for (Int index = 0; index < 4; ++index)
+                out[index].begin_mutation(out.evaluation_time()).push(Value{index}.view());
+        }
+    };
+}
+
+TEST_CASE("completed window step: destroying a nested owner leaves other outstanding departures inspectable")
+{
+    auto executor = window_executor<SeedFourWindows>();
+    auto engine = executor.view();
+    engine.start_external(MIN_ST);
+    auto root = engine.graph();
+    NodeBuilder node;
+    node.implementation<SeedFourWindows>();
+    GraphBuilder graph;
+    graph.add_node(node);
+    const auto tick = MIN_ST + MIN_TD;
+    auto anchor = root.node_at(0);
+    Out<FourCountWindows> survivor{anchor.output(tick), tick};
+    {
+        auto child = graph.make_nested_graph(anchor.pointer());
+        child.view().start(MIN_ST);
+        Out<FourCountWindows> retired{child.view().node_at(0).output(tick), tick};
+        engine.engine_control().add_before_evaluation_notification([&] {
+            // Both graphs share one completed step. Alternate the owners so
+            // destroying the child must leave non-adjacent survivors intact.
+            for (Int index = 0; index < 4; ++index)
+            {
+                retired[index].begin_mutation(tick).push(Value{Int{100} + index}.view());
+                survivor[index].begin_mutation(tick).push(Value{Int{200} + index}.view());
+            }
+        });
+        REQUIRE(engine.step(tick));
+        for (Int index = 0; index < 4; ++index)
+            check_departure(retired[index].data_view(), tick, index, MIN_ST);
+    }
+    for (Int index = 0; index < 4; ++index)
+        check_departure(survivor[index].data_view(), tick, index, MIN_ST);
+    engine.release_completed_step();
+    for (Int index = 0; index < 4; ++index)
+    {
+        auto window = survivor[index];
+        CHECK(window.removed_values().limit == 0);
+        CHECK(window.back().checked_as<Int>() == 200 + index);
+    }
+    engine.stop_external();
+}
+
+namespace
+{
+    using CountRings = TSB<"CompletedFixedWindows", Field<"numbers", TSW<Int, 3, 1>>, Field<"labels", TSW<Str, 3, 1>>>;
+
+    template<typename T>
+    struct ExternallyPopulatedCountWindow
+    {
+        static void eval(Out<TSW<T, 1, 1>>) {}
+    };
+
+    struct RollCountRings
+    {
+        static void start(NodeScheduler clock) { clock.schedule(clock.now()); }
+        static void eval(Out<CountRings> out, NodeScheduler clock)
+        {
+            const auto time = clock.now();
+            const Int index = (time - MIN_ST) / MIN_TD;
+            out.field<"numbers">().begin_mutation(time).push(Value{index}.view());
+            const Str label(256, static_cast<char>('a' + index));
+            out.field<"labels">().begin_mutation(time).push(Value{label}.view());
+            if (index < 6) { clock.schedule(MIN_TD); }
+        }
+    };
+}
+
+TEST_CASE("completed window step: fixed ring departures and projected caches retire together")
+{
+    const auto last = MIN_ST + 6 * MIN_TD;
+    const auto departed = MIN_ST + 3 * MIN_TD;
+    Value saved;
+    std::optional<TSOutput> detached;
+    {
+        auto executor = window_executor<RollCountRings>();
+        auto engine = executor.view();
+        engine.start_external(MIN_ST);
+        for (Int i = 0; i < 6; ++i) { REQUIRE(engine.step(MIN_ST + i * MIN_TD)); }
+        auto output = engine.graph().node_at(0).output(last);
+        auto fields = output.as_bundle();
+        auto numbers = fields.at(0);
+        auto labels = fields.at(1);
+        auto numeric = numbers.as_window().data_view();
+        auto text = labels.as_window().data_view();
+        const auto front = text.front();
+        const void *old_slot = front.data();
+        const void *old_characters = front.checked_as<Str>().data();
+        REQUIRE(engine.step(last));
+        check_departure(numeric, last, 3, departed);
+        const auto word = text.removed_value(last);
+        CHECK(word.data() == old_slot);
+        CHECK(static_cast<const void *>(word.checked_as<Str>().data()) == old_characters);
+        REQUIRE(word.checked_as<Str>() == Str(256, 'd'));
+        const auto times = text.removed_value_times(last);
+        REQUIRE(times.limit == 1);
+        CHECK(*times.begin() == departed);
+        saved = capture_window_delta(text, last);
+        detached.emplace(*output.output());
+
+        const auto before_projection = numbers.data_view().dynamic_storage_metrics().live_bytes;
+        const auto owning_bytes = labels.data_view().dynamic_storage_metrics().live_bytes;
+        // Reading the bundle asks each window for its borrowed canonical projection.
+        auto delta = output.data_view().delta_value(last).as_bundle();
+        REQUIRE(delta.at("numbers").as_bundle().at("removed").as_indexed_view().size() == 1);
+        REQUIRE(numbers.data_view().dynamic_storage_metrics().live_bytes > before_projection);
+
+        SECTION("explicit release") { engine.release_completed_step(); }
+        SECTION("quiet root advance") { REQUIRE(engine.step(last + MIN_TD)); }
+        CHECK_FALSE(capture_window_delta(numeric, last).has_value());
+        CHECK_FALSE(capture_window_delta(text, last).has_value());
+        CHECK_FALSE(numeric.delta_value(last).has_value());
+        CHECK_FALSE(numeric.has_removed_value(last));
+        CHECK(numeric.removed_value_times(last).limit == 0);
+        CHECK(text.removed_values(last).limit == 0);
+        CHECK(numbers.data_view().dynamic_storage_metrics().live_bytes <= before_projection);
+        CHECK(labels.data_view().dynamic_storage_metrics().live_bytes < owning_bytes);
+        CHECK(numeric.back().checked_as<Int>() == 6);
+        CHECK(text.back().checked_as<Str>() == Str(256, 'g'));
+        engine.stop_external();
+    }
+    CHECK(saved.equals(window_delta<Str>(Str(256, 'g'), {{Str(256, 'd'), departed}})));
+    auto copied_output = detached->view(last);
+    auto fields = copied_output.as_bundle();
+    auto labels = fields.at(1);
+    CHECK(labels.as_window().window_delta().equals(saved));
+}
+
+TEST_CASE("completed window step: restarting at or before a fixed ring departure cannot revive it")
+{
+    auto executor = window_executor<ExternallyPopulatedCountWindow<Int>>();
+    auto engine = executor.view();
+    engine.start_external(MIN_ST);
+    const auto rolled = MIN_ST + MIN_TD;
+    auto out = engine.graph().node_at(0).output(rolled);
+    auto window = out.as_window().data_view();
+    engine.engine_control().add_before_evaluation_notification([&] {
+        window.begin_mutation(MIN_ST).push(Value{Int{4}}.view());
+    });
+    REQUIRE(engine.step(MIN_ST));
+    engine.engine_control().add_before_evaluation_notification([&] {
+        window.begin_mutation(rolled).push(Value{Int{5}}.view());
+    });
+    REQUIRE(engine.step(rolled));
+    check_departure(window, rolled, 4, MIN_ST);
+    engine.stop_external();
+
+    SECTION("restart at the final timestamp") { engine.start_external(rolled); }
+    SECTION("rewind and visit the final timestamp again")
+    {
+        engine.start_external(MIN_ST);
+        REQUIRE(engine.step(MIN_ST));
+    }
+    REQUIRE(engine.step(rolled));
+    CHECK(window.removed_values(rolled).limit == 0);
+    CHECK_FALSE(capture_window_delta(window, rolled).has_value());
+    CHECK(window.back().checked_as<Int>() == 5);
+    TSOutput detached{*out.output()};
+    auto copy_output = detached.view(rolled);
+    auto copy = copy_output.as_window().data_view();
+    CHECK(copy.removed_values(rolled).limit == 0);
+    CHECK_FALSE(copy.delta_value(rolled).has_value());
+    CHECK(copy.back().checked_as<Int>() == 5);
+    engine.stop_external();
+}
+
+namespace hgraph::static_schema_detail
+{
+    template<>
+    struct scalar_name<std::shared_ptr<int>>
+    {
+        static constexpr std::string_view value{"window_removal_lifetime"};
+    };
+}
+
+TEST_CASE("completed window step: a fixed window drops its last owner of a departed resource")
+{
+    using Resource = std::shared_ptr<int>;
+    auto executor = window_executor<ExternallyPopulatedCountWindow<Resource>>();
+    auto engine = executor.view();
+    engine.start_external(MIN_ST);
+    auto output = engine.graph().node_at(0).output(MIN_ST);
+    auto window = output.as_window().data_view();
+    std::weak_ptr<int> departed;
+    const auto push = [&](DateTime time, int value) {
+        auto resource = std::make_shared<int>(value);
+        window.begin_mutation(time).push(Value{window.layout().element_binding, &resource}.view());
+        return std::weak_ptr<int>{resource};
+    };
+    engine.engine_control().add_before_evaluation_notification([&] { departed = push(MIN_ST, 4); });
+    REQUIRE(engine.step(MIN_ST));
+    const auto rolled = MIN_ST + MIN_TD;
+    engine.engine_control().add_before_evaluation_notification([&] { push(rolled, 5); });
+    REQUIRE(engine.step(rolled));
+    REQUIRE_FALSE(departed.expired());
+    REQUIRE(window.removed_value(rolled).checked_as<Resource>() == departed.lock());
+
+    SECTION("explicit release") { engine.release_completed_step(); }
+    SECTION("quiet root advance") { REQUIRE(engine.step(rolled + MIN_TD)); }
+    CHECK(departed.expired());
+    CHECK(*window.back().checked_as<Resource>() == 5);
+    engine.stop_external();
 }

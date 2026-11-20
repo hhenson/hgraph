@@ -338,6 +338,13 @@ namespace hgraph
         [[nodiscard]] bool step(DateTime evaluation_time) const;
         void stop_external() const;
 
+        /** Release the completed step's transient window removals on the driving
+            thread. Borrowed removal ranges expire. Captured window_delta() values
+            remain owned by the caller. Idempotent after a successful step, even
+            after stop or run returns. Further evaluation must use a later time.
+            Throws when there is no completed step or evaluation is in progress. */
+        void release_completed_step() const;
+
         /**
          * Whole-graph recovery of a stepped graph (RFC 0039).
          *

@@ -1,6 +1,7 @@
 #include <hgraph/types/time_series/ts_delta.h>
 
 #include "../metadata/detail/window_change.h"
+#include "../../runtime/window_removals.h"
 
 #include <hgraph/types/time_series/endpoint_schema.h>
 
@@ -677,10 +678,24 @@ namespace hgraph
 
         Value build_window_delta(const TSWDataView &window, DateTime now, bool snapshot)
         {
+            const bool cleared = !snapshot && window.cleared(now);
+            auto arrival = snapshot ? ValueView{} : window.delta_value(now);
+            const auto samples = snapshot ? window.values() : window.removed_values(now);
+            // An observer can still hold an old view after the root has closed
+            // the event. An empty fabricated change would be unsafe to replay.
+            if (!snapshot && !cleared && !arrival.has_value() && samples.limit == 0)
+            {
+                const auto data = window.base();
+                if (window_removals_closed(data.parent_link(), now)) { return {}; }
+                const auto &ops = static_cast<const TSWDataOps &>(data.ops());
+                if (data.last_modified_time() == now && ops.change_view_impl)
+                {
+                    const auto change = ops.change_view_impl(ops.context, data.data(), now, false);
+                    return change.has_value() ? Value{change} : Value{};
+                }
+            }
             return ts_data_detail::build_window_change(
-                window.base().layout().canonical_delta_binding, !snapshot && window.cleared(now),
-                snapshot ? ValueView{} : window.delta_value(now), snapshot,
-                snapshot ? window.values() : window.removed_values(now),
+                window.base().layout().canonical_delta_binding, cleared, std::move(arrival), snapshot, samples,
                 snapshot ? window.value_times() : window.removed_value_times(now));
         }
 

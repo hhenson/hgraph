@@ -275,3 +275,82 @@ def test_recreating_a_mapped_graph_schedules_only_its_new_dynamic_windows():
     assert hg.eval_node(desks, [{"desk": 7}, {"desk": hg.REMOVE}, {"desk": 9}]) == [
         {"desk": 1}, {"desk": hg.REMOVE}, {"desk": 1}, None, None, {"desk": 0},
     ]
+
+
+@pytest.mark.parametrize("run_mode", [hg.EvaluationMode.SIMULATION, hg.EvaluationMode.REAL_TIME])
+def test_window_removal_is_readable_by_after_graph_observers_and_its_copy_outlives_the_run(run_mode):
+    snapshots = []
+    owners = set()
+
+    class InspectWindow(hg.EvaluationLifeCycleObserver):
+        def on_after_graph_evaluation(self, graph):
+            for node in graph.nodes:
+                if node.node_id in owners:
+                    change = node.output.window_delta
+                    if change and change["removed"]:
+                        snapshots.append(change)
+
+    @hg.compute_node
+    def owner(value: hg.TS[int], node: hg.NODE = None) -> _TwoMicrosecondWindow:
+        owners.add(node.node_id)
+        return value.value
+
+    @hg.compute_node
+    def size(window: _TwoMicrosecondWindow) -> hg.TS[int]:
+        return len(window)
+
+    @hg.graph
+    def app(value: hg.TS[int]) -> hg.TS[int]:
+        return size(owner(value))
+
+    assert hg.eval_node(app, [4, 5], __run_mode__=run_mode, __start_time__=hg.MIN_ST,
+                        __end_time__=hg.MIN_ST + 6 * hg.MIN_TD, __observers__=[InspectWindow()]) == [
+        1, 2, None, 1, 0,
+    ]
+    assert [change["removed"] for change in snapshots] == [
+        [{"value": 4, "time": hg.MIN_ST}], [{"value": 5, "time": hg.MIN_ST + hg.MIN_TD}],
+    ]
+
+
+def test_releasing_a_completed_run_twice_preserves_its_recorded_fixed_window_eviction():
+    import _hgraph
+
+    window = hg.TSW[int, hg.WindowSize[1], hg.WindowSize[1]]
+    wiring = _hgraph.Wiring()
+    source = wiring.wire("replay", ("entries",), {}, output_type=window.handle)
+    wiring.set_replay("entries", [4, 9], window.handle)
+    wiring.wire("record", (source, "prices"), {})
+    run = wiring.run()
+    captured = run.recorded("prices")[1]
+    run.release_completed_step()
+    run.release_completed_step()
+
+    # Both the independent Python object and a new read of the stored record
+    # still describe the sample that left the fixed-count window.
+    expected = [{"value": 4, "time": hg.MIN_ST}]
+    assert captured["removed"] == expected
+    assert run.recorded("prices")[1]["removed"] == expected
+    assert list(captured["added"]) == [9]
+
+
+def test_fixed_window_departure_copies_keep_their_original_values_and_times_after_ring_wraps():
+    departures = []
+
+    @hg.compute_node
+    def observe(window: hg.TSW[int, hg.WINDOW_SIZE, hg.WINDOW_SIZE_MIN]) -> hg.TS[tuple[int, ...]]:
+        change = window.window_delta
+        if change["removed"]:
+            departures.append(change)
+        return tuple(window.value)
+
+    @hg.graph
+    def rolling(value: hg.TS[int]) -> hg.TS[tuple[int, ...]]:
+        return observe(hg.to_window(value, 2, 1))
+
+    assert hg.eval_node(rolling, [10, 20, 30, 40, 50, 60]) == [
+        (10,), (10, 20), (20, 30), (30, 40), (40, 50), (50, 60),
+    ]
+    assert [change["removed"] for change in departures] == [
+        [{"value": value, "time": hg.MIN_ST + offset * hg.MIN_TD}]
+        for offset, value in enumerate((10, 20, 30, 40))
+    ]

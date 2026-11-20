@@ -49,7 +49,7 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
     static_assert(sizeof(GraphTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<GraphTypeRef>);
-    static_assert(GRAPH_OPS_ABI_VERSION == 10);
+    static_assert(GRAPH_OPS_ABI_VERSION == 11);
     static_assert(sizeof(ExecutorTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<ExecutorTypeRef>);
     // ABI 6 adds external_start/step/stop for the ExternallyDriven mode.

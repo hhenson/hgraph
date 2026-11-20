@@ -4,6 +4,7 @@
 #include <hgraph/runtime/graph_checkpoint_coordinator.h>
 
 #include "registry_snapshot_detail.h"
+#include "root_evaluation_step.h"
 #include "window_expiry_service.h"
 
 #include <hgraph/runtime/lifecycle_observer.h>
@@ -834,8 +835,10 @@ namespace hgraph
                     recorded_cycle = false;
                 }
                 const bool recording_this_cycle = guard_tripped && !recorded_cycle;
+                RootEvaluationStep step{graph, evaluation_time};
                 bool completed = false;
                 run_executor_phase(state, GraphExecutorPhase::Evaluation, [&] {
+                    step.retire_previous();
                     if (recording_this_cycle) { state.lifecycle_observers.add(&recorder); }
                     auto remove_recorder = UnwindCleanupGuard([&] {
                         if (recording_this_cycle) { state.lifecycle_observers.remove(&recorder); }
@@ -854,6 +857,7 @@ namespace hgraph
                     throw std::logic_error("root graph evaluation paused with no resolver");
                 }
                 state.activities.completed(evaluation_time);
+                step.finish(true);
             }
 
             if (!state.stop_requested.load(std::memory_order_acquire)) { recovery.capture(graph); }
@@ -1008,6 +1012,7 @@ namespace hgraph
                     "GraphExecutorView::step would skip work already due: step at "
                     "next_scheduled_time() before advancing past it");
             }
+            RootEvaluationStep step{graph, evaluation_time};
             state.set_evaluation_time(evaluation_time);
 
             bool completed = false;
@@ -1019,6 +1024,7 @@ namespace hgraph
                 if (state.cleanup_on_error) { stop_storage(state); }
             });
             run_executor_phase(state, GraphExecutorPhase::Evaluation, [&] {
+                step.retire_previous();
                 drain_evaluation_notifications(state.before_evaluation_notifications, true);
                 completed = evaluate_root_with_notifications(graph, evaluation_time, state.after_evaluation_notifications);
             });
@@ -1032,6 +1038,7 @@ namespace hgraph
                 throw std::logic_error("root graph evaluation paused with no resolver");
             }
             stop_on_error.release();
+            step.finish(true);
             return completed;
         }
 
@@ -1883,6 +1890,11 @@ namespace hgraph
     {
         const auto &ops = external_ops(*this, "step");
         return ops.external_step_impl(ops.context, *this, evaluation_time);
+    }
+
+    void GraphExecutorView::release_completed_step() const
+    {
+        graph().as_root().release_completed_step();
     }
 
     void GraphExecutorView::stop_external() const

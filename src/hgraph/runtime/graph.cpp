@@ -3,7 +3,9 @@
 #include "../types/time_series/ts_data/ownership.h"
 #include "window_expiry_subscriptions.h"
 #include "registry_snapshot_detail.h"
+#include "root_evaluation_step.h"
 #include "window_expiry_service.h"
+#include "window_removals.h"
 
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
@@ -31,7 +33,84 @@
 #include <utility>
 
 namespace hgraph {
+namespace { class WindowRemovalQueue; }
+
+// The four low address bits also carry tick flags in the storage-side handle.
+struct alignas(16) WindowRemovalRegistration {
+  WindowRemovalQueue *queue{};
+  void *window{};
+  SetWindowRemovalRegistration set_registration{};
+  DateTime time{MIN_DT};
+};
+
 namespace {
+// Keep the first removal inline for the common single count-window roll.
+// Concurrently removing windows occupy a dense array. Its indices never
+// escape: when the array moves, the registered windows receive their new slot.
+class WindowRemovalQueue {
+public:
+  ~WindowRemovalQueue() {
+    if (first_.window) { retire(first_); }
+    while (!more_.empty()) { retire(more_.back()); }
+  }
+
+  WindowRemovalRegistration *add(void *window, DateTime time, SetWindowRemovalRegistration set_registration) {
+    WindowRemovalRegistration entry{this, window, set_registration, time};
+    if (!first_.window) {
+      first_ = entry;
+      return &first_;
+    }
+    const bool growing = more_.size() == more_.capacity();
+    // The mutation has already formed the change. If the array cannot grow,
+    // retire the untracked payload as the allocation failure propagates.
+    auto rollback = make_scope_exit([&] noexcept { set_registration(window, nullptr); });
+    more_.push_back(entry);
+    rollback.release();
+    if (growing) {
+      for (std::size_t i = 0; i + 1 < more_.size(); ++i) { rebind(more_[i]); }
+    }
+    return &more_.back();
+  }
+
+  void cancel(WindowRemovalRegistration &entry) noexcept {
+    if (&entry == &first_) { first_ = {}; return; }
+    if (&entry != &more_.back()) {
+      entry = more_.back();
+      rebind(entry);
+    }
+    more_.pop_back();
+  }
+
+  void retire_before(DateTime time, bool inclusive) noexcept {
+    const auto due = [=](const auto &entry) { return entry.time < time || (inclusive && entry.time == time); };
+    if (first_.window && due(first_)) { retire(first_); }
+    // Ordinarily every entry is due. Popping from the end avoids rewriting
+    // a peer's registration on each retirement. A payload destructor may
+    // dispose another registered owner, so the current size bounds the cursor.
+    for (std::size_t i = more_.size(); i != 0;) {
+      if (due(more_[--i])) {
+        retire(more_[i]);
+        i = std::min(i, more_.size());
+      }
+    }
+    // A caller explicitly releasing a completed step may never drive another.
+    // Ordinary clock advances keep the allocation for the next batch.
+    if (inclusive && more_.empty()) { std::vector<WindowRemovalRegistration>{}.swap(more_); }
+  }
+
+private:
+  static void rebind(WindowRemovalRegistration &entry) noexcept {
+    entry.set_registration(entry.window, &entry);
+  }
+  void retire(WindowRemovalRegistration &entry) noexcept {
+    const auto copy = entry;
+    cancel(entry);
+    copy.set_registration(copy.window, nullptr);
+  }
+  WindowRemovalRegistration first_{};
+  std::vector<WindowRemovalRegistration> more_;
+};
+
 constexpr std::size_t invalid_cursor = std::numeric_limits<std::size_t>::max();
 
 [[nodiscard]] GlobalState initial_graph_builder_state() {
@@ -212,6 +291,11 @@ enum class RetiredExpiryQueue : std::uint8_t { None, After, Before };
 struct RootGraphGlobalState {
   GlobalState configuration{};
   std::shared_ptr<WindowExpiryService> window_expiry{};
+  WindowRemovalQueue window_removals{};
+  std::shared_ptr<WindowRemovalClock> ring_removal_clock{};
+  void close_ring_removal_clock() noexcept {
+    if (ring_removal_clock) { ring_removal_clock->step = nullptr; ring_removal_clock.reset(); }
+  }
 };
 
 struct RootGraphRuntimeStorage : GraphRuntimeBaseStorage {
@@ -223,6 +307,7 @@ struct RootGraphRuntimeStorage : GraphRuntimeBaseStorage {
   }
 
   RootGraphGlobalState global_state{};
+  RootStepInspection step_inspection{};
   ExecutorPtr root_executor_ptr{};
   /** Nested graphs stopped under this root whose TS-23 expiry is still
       pending: an intrusive list through their own headers, so a stop
@@ -275,6 +360,7 @@ void unlink_retired(NestedGraphRuntimeStorage &graph) noexcept {
 }
 
 RootGraphRuntimeStorage::~RootGraphRuntimeStorage() {
+  global_state.close_ring_removal_clock();
   // Node storage, and with it every nested header, is destroyed before the
   // root header, so the list is normally empty here; never leave an entry
   // pointing at a destroyed root.
@@ -1048,6 +1134,13 @@ void start_impl(const void *context, const GraphView &graph,
       state.global_state.window_expiry.reset();
     }
   });
+  if constexpr (std::is_same_v<Storage, RootGraphRuntimeStorage>) {
+    state.global_state.close_ring_removal_clock();
+    if (state.step_inspection.time != MIN_DT) {
+      state.global_state.window_removals.retire_before(MAX_DT, true);
+      state.step_inspection = {};
+    }
+  }
   auto graph_start_failed = UnwindCleanupGuard(
       [&] { state.lifecycle_observers->notify_start_graph_failed(graph); });
   state.lifecycle_observers->notify_before_start_graph(graph);
@@ -1458,9 +1551,27 @@ bool evaluate_nodes(const void *context, const GraphView &graph,
 }
 
 bool evaluate_root_impl(const void *context, const GraphView &root, DateTime now) {
+  RootEvaluationStep step{root, now};
+  step.retire_previous();
   const bool completed = evaluate_nodes<RootGraphRuntimeStorage>(context, root, now);
   if (completed) { finish_root_window_expiry(root, now); }
+  step.finish(completed);
   return completed;
+}
+
+void release_completed_root_step(const void *context, const GraphView &root) {
+  auto &state = graph_header<RootGraphRuntimeStorage>(graph_context(context), root.data());
+  auto &step = state.step_inspection;
+  if (step.status == StepInspection::Released || step.status == StepInspection::Releasing) { return; }
+  if (step.status != StepInspection::Completed || state.starting || state.stopping) {
+    throw std::logic_error("release_completed_step requires a completed root evaluation");
+  }
+  if (state.started && root.next_scheduled_time() <= step.time) {
+    throw std::logic_error("release_completed_step cannot close a time with pending work");
+  }
+  step.status = StepInspection::Releasing;
+  state.global_state.window_removals.retire_before(step.time, true);
+  step.status = StepInspection::Released;
 }
 
 struct GraphRuntimeRegistry {
@@ -1633,6 +1744,7 @@ struct GraphRuntimeRegistry {
             &type_realization_impl<RootGraphRuntimeStorage>,
         .logger_impl = &logger_impl<RootGraphRuntimeStorage>,
         .logger_ops_impl = &logger_ops_impl<RootGraphRuntimeStorage>,
+        .release_completed_step_impl = &release_completed_root_step,
     };
   }
 
@@ -1695,6 +1807,32 @@ GraphRuntimeRegistry &graph_runtime_registry() {
 
 } // namespace
 
+RootEvaluationStep::RootEvaluationStep(const GraphView &root, DateTime now)
+    : inspection_(graph_header<RootGraphRuntimeStorage>(
+          graph_context(root.type().ops_ref().context), root.data()).step_inspection), root_(root), time_(now) {
+  if (!root.started() || root.is_stopping()) {
+    throw std::logic_error("Graph must be started before evaluation");
+  }
+  if (inspection_.status == StepInspection::Evaluating || inspection_.status == StepInspection::Releasing) {
+    throw std::logic_error("Root evaluation is already in progress");
+  }
+  if ((inspection_.status == StepInspection::Released && now == inspection_.time) || now < inspection_.time) {
+    throw std::invalid_argument("Cannot evaluate a released or earlier root time");
+  }
+  if (inspection_.status == StepInspection::Paused && now != inspection_.time) {
+    throw std::logic_error("A paused root must resume at the same evaluation time");
+  }
+  inspection_.status = StepInspection::Evaluating;
+}
+
+void RootEvaluationStep::retire_previous() const {
+  if (time_ != inspection_.time) {
+    inspection_.time = time_;
+    auto &state = graph_header<RootGraphRuntimeStorage>(graph_context(root_.type().ops_ref().context), root_.data());
+    state.global_state.window_removals.retire_before(time_, false);
+  }
+}
+
 bool evaluate_root_nodes(const GraphView &root, DateTime now) {
   TypeRealizationScope scope{root.type_realization()};
   return evaluate_nodes<RootGraphRuntimeStorage>(root.type().ops_ref().context, root, now);
@@ -1703,6 +1841,57 @@ bool evaluate_root_nodes(const GraphView &root, DateTime now) {
 void finish_root_window_expiry(const GraphView &root, DateTime now) {
   auto &state = graph_header<RootGraphRuntimeStorage>(graph_context(root.type().ops_ref().context), root.data());
   if (auto source = state.global_state.window_expiry) { source->finish_cycle(now); }
+}
+
+namespace {
+RootGraphRuntimeStorage *removal_owner(const TSParentLink &parent) {
+  auto link = parent;
+  while (link.has_ts_data_parent()) { link = link.parent_link(); }
+  auto graph = link.parent_graph();
+  if (!graph.valid()) { return nullptr; }
+  const auto &ops = graph.type().ops_ref();
+  if (ops.release_completed_step_impl != &release_completed_root_step) {
+    if (!ops.root_impl) { return nullptr; }
+    graph = graph.root();
+    if (!graph.valid() || graph.type().ops_ref().release_completed_step_impl != &release_completed_root_step) {
+      return nullptr;
+    }
+  }
+  return &graph_header<RootGraphRuntimeStorage>(graph_context(graph.type().ops_ref().context), graph.data());
+}
+
+} // namespace
+
+void observe_window_removal(const TSParentLink &parent, std::shared_ptr<const WindowRemovalClock> &clock) {
+  auto *state = removal_owner(parent);
+  if (!state) { clock.reset(); return; }
+  auto &run = state->global_state.ring_removal_clock;
+  if (!run) { run = std::make_shared<WindowRemovalClock>(&state->step_inspection); }
+  if (clock.get() != run.get()) { clock = run; }
+}
+
+bool window_removals_closed(const TSParentLink &parent, DateTime time) {
+  const auto *state = removal_owner(parent);
+  return state && WindowRemovalClock{&state->step_inspection}.closed(time);
+}
+
+WindowRemovalRegistration *track_window_removals(const TSParentLink &parent, DateTime time,
+                                                void *window, SetWindowRemovalRegistration set_registration) {
+  auto *state = removal_owner(parent);
+  if (!state) { return nullptr; }
+  if (WindowRemovalClock{&state->step_inspection}.closed(time)) {
+    set_registration(window, nullptr);
+    return nullptr;
+  }
+  return state->global_state.window_removals.add(window, time, set_registration);
+}
+
+void cancel_window_removals(WindowRemovalRegistration *registration) noexcept {
+  registration->queue->cancel(*registration);
+}
+
+void relocate_window_removals(WindowRemovalRegistration *registration, void *window) noexcept {
+  registration->window = window;
 }
 
 std::weak_ptr<WindowExpiryService> root_window_expiry_service(const GraphView &graph) {
@@ -2102,6 +2291,11 @@ GraphExecutorView RootGraphView::executor() const {
     throw std::logic_error("Root graph is missing its graph executor");
   }
   return executor;
+}
+
+void RootGraphView::release_completed_step() const {
+  if (!valid()) { throw std::logic_error("release_completed_step requires a live root"); }
+  ops().release_completed_step_impl(ops().context, *this);
 }
 
 NestedGraphView::NestedGraphView() noexcept : GraphView() {}

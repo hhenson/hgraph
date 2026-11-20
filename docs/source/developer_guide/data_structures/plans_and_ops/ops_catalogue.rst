@@ -154,7 +154,7 @@ registration signatures also prevent older unversioned callers from linking.
      - 10
      - ``include/hgraph/runtime/node_type_ref.h``
    * - ``GRAPH_OPS_ABI_VERSION``
-     - 10
+     - 11
      - ``include/hgraph/runtime/graph_type_ref.h``
    * - ``EXECUTOR_OPS_ABI_VERSION``
      - 7

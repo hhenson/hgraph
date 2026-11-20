@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -1558,6 +1559,97 @@ TEST_CASE("TSDataPlanFactory: duration TSW stores a timestamped queue current wi
     REQUIRE(window.capacity() == retained_capacity);
 }
 
+TEST_CASE("TSDataPlanFactory: fixed scalar windows expose the outgoing ring slot across wraparound")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *schema = registry.tsw(registry.register_scalar<std::int32_t>("int32"), 3, 1);
+    TSData data{TSDataPlanFactory::instance().data_type_for(schema)};
+    auto root = data.view();
+    auto window = root.as_window();
+    REQUIRE(window.capacity() == 3);
+
+    for (std::int32_t value = 0; value < 10; ++value)
+    {
+        const auto time = MIN_ST + value * MIN_TD;
+        const void *outgoing_slot = window.full() ? window.front().data() : nullptr;
+        window.begin_mutation(time).push(Value{value}.view());
+        if (!outgoing_slot) { continue; }
+
+        // A plain scalar roll keeps the old head in its own physical slot.
+        // The public live range already starts at the following sample.
+        const auto removed = window.removed_values(time);
+        const auto times = window.removed_value_times(time);
+        REQUIRE(removed.limit == 1);
+        REQUIRE(times.limit == 1);
+        const auto previous = *removed.begin();
+        CHECK(previous.data() == outgoing_slot);
+        CHECK(previous.checked_as<std::int32_t>() == value - 3);
+        CHECK(*times.begin() == time - 3 * MIN_TD);
+        CHECK(window.front().checked_as<std::int32_t>() == value - 2);
+        CHECK(window.back().checked_as<std::int32_t>() == value);
+    }
+}
+
+TEST_CASE("TSDataPlanFactory: a copy of a rolled fixed window owns its current departure")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *schema = registry.tsw(registry.register_scalar<std::int32_t>("int32"), 2, 1);
+    const auto type = TSDataPlanFactory::instance().data_type_for(schema);
+    const auto last = MIN_ST + 4 * MIN_TD;
+    std::optional<TSData> constructed;
+    TSData assigned{type};
+    {
+        TSData source{type};
+        auto root = source.view();
+        auto window = root.as_window();
+        for (std::int32_t i = 0; i <= 4; ++i)
+            window.begin_mutation(MIN_ST + i * MIN_TD).push(Value{i}.view());
+        constructed.emplace(source);
+        assigned = source;
+        window.begin_mutation(last + MIN_TD).clear();
+    }
+    for (const auto *copy : {&*constructed, &assigned})
+    {
+        auto root = copy->view();
+        auto window = root.as_window();
+        CHECK(window.front().checked_as<std::int32_t>() == 3);
+        CHECK(window.back().checked_as<std::int32_t>() == 4);
+        const auto removed = window.removed_values(last);
+        const auto times = window.removed_value_times(last);
+        REQUIRE(removed.limit == 1);
+        REQUIRE(times.limit == 1);
+        CHECK((*removed.begin()).checked_as<std::int32_t>() == 2);
+        CHECK(*times.begin() == MIN_ST + 2 * MIN_TD);
+    }
+}
+
+TEST_CASE("TSDataPlanFactory: a standalone fixed window can reinsert its previous departure")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    auto *schema = registry.tsw(registry.register_scalar<std::string>("str"), 1, 1);
+    TSData data{TSDataPlanFactory::instance().data_type_for(schema)};
+    auto root = data.view();
+    auto window = root.as_window();
+    const std::string first(256, 'a'), second(256, 'b');
+    const auto rolled = MIN_ST + MIN_TD;
+    window.begin_mutation(MIN_ST).push(Value{first}.view());
+    window.begin_mutation(rolled).push(Value{second}.view());
+
+    // No graph step retired the first departure before this push.
+    auto previous = window.removed_value(rolled);
+    REQUIRE(previous.checked_as<std::string>() == first);
+    window.begin_mutation(rolled + MIN_TD).push(previous);
+    CHECK(window.back().checked_as<std::string>() == first);
+    CHECK(window.time_at(0) == rolled + MIN_TD);
+    CHECK(window.removed_value(rolled + MIN_TD).checked_as<std::string>() == second);
+    const auto times = window.removed_value_times(rolled + MIN_TD);
+    REQUIRE(times.limit == 1);
+    CHECK(*times.begin() == rolled);
+}
+
 TEST_CASE("window removal storage releases owned payloads on cycle rollover and teardown")
 {
     using namespace hgraph;
@@ -1639,16 +1731,17 @@ TEST_CASE("TSDataPlanFactory: TSW dynamic storage metrics distinguish live and r
                aligned_size(layout.time_binding.checked_plan());
     };
 
-    SECTION("fixed window reserves its configured capacity and keeps it after clear")
+    SECTION("plain fixed window reserves one spare for rollover and keeps its ring after clear")
     {
         const auto *schema = registry.tsw(int_meta, 3, 1);
         TSData      data{factory.data_type_for(schema)};
         auto        view   = data.view();
         auto        window = view.as_window();
         const auto  stride = slot_bytes(window.layout());
+        const auto  ring_bytes = 4 * stride; // Three live positions and the outgoing slot.
 
         CHECK(view.dynamic_storage_metrics().live_bytes == 0);
-        CHECK(view.dynamic_storage_metrics().reserved_bytes == 3 * stride);
+        CHECK(view.dynamic_storage_metrics().reserved_bytes == ring_bytes);
 
         for (std::int32_t value = 1; value <= 4; ++value)
         {
@@ -1656,19 +1749,19 @@ TEST_CASE("TSDataPlanFactory: TSW dynamic storage metrics distinguish live and r
             auto mutation = window.begin_mutation(MIN_ST + TimeDelta{value});
             mutation.push(item.view());
         }
-        CHECK(view.dynamic_storage_metrics().live_bytes == 3 * stride);
-        CHECK(view.dynamic_storage_metrics().reserved_bytes == 3 * stride);
-        CHECK(view.value().dynamic_storage_metrics().live_bytes == 3 * stride);
+        CHECK(view.dynamic_storage_metrics().live_bytes == ring_bytes);
+        CHECK(view.dynamic_storage_metrics().reserved_bytes == ring_bytes);
+        CHECK(view.value().dynamic_storage_metrics().live_bytes == ring_bytes);
 
         window.begin_mutation(MIN_ST + TimeDelta{5}).clear();
         CHECK(window.removed_values(MIN_ST + TimeDelta{5}).limit == 3);
         const auto removal_bytes = 3 * (sizeof(Value) + sizeof(DateTime));
         CHECK(view.dynamic_storage_metrics().live_bytes == removal_bytes);
-        CHECK(view.dynamic_storage_metrics().reserved_bytes >= 3 * stride + removal_bytes);
+        CHECK(view.dynamic_storage_metrics().reserved_bytes >= ring_bytes + removal_bytes);
         // An empty clear on the next cycle releases the multi-removal buffer.
         window.begin_mutation(MIN_ST + TimeDelta{6}).clear();
         CHECK(view.dynamic_storage_metrics().live_bytes == 0);
-        CHECK(view.dynamic_storage_metrics().reserved_bytes == 3 * stride);
+        CHECK(view.dynamic_storage_metrics().reserved_bytes == ring_bytes);
     }
 
     SECTION("duration window reports geometric capacity retained after eviction and clear")
