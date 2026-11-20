@@ -690,6 +690,24 @@ namespace
         }
     };
 
+    struct ScheduleStartOffset
+    {
+        static void eval(In<"offset", TS<Int>> offset, Out<TS<DateTime>> out, DateTime now)
+        {
+            if (offset.value() < 0) { static_cast<void>(out.begin_mutation(now).invalidate()); }
+            else { out.set(MIN_ST + MIN_TD * offset.value()); }
+        }
+    };
+
+    struct ScheduleWithClearableStart
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<TimeDelta>> delay, Port<TS<Int>> offset)
+        {
+            auto start = wire<ScheduleStartOffset>(w, offset);
+            return wire<stdlib::schedule>(w, delay, start, Bool{true}, Int{4}, Bool{false}).as<TS<Bool>>();
+        }
+    };
+
     struct WindowSnapshot
     {
         static constexpr auto name = "window_snapshot";
@@ -4921,6 +4939,29 @@ TEST_CASE("std operators: structural proxy lag recursively preserves nested TSD 
         eval_node<TslNestedTsdProxyLagFeedbackGraph>(
             target, rebase, prices, trigger),
         feedback_expected);
+}
+
+TEST_CASE("std operators: clearing the optional start preserves scheduled alarms")
+{
+    stdlib::register_standard_operators();
+    const auto offsets = [](const std::vector<std::optional<Int>> &starts) {
+        auto ticks = eval_node<ScheduleWithClearableStart>(values<TimeDelta>(MIN_TD * 5), starts);
+        std::vector<std::size_t> result;
+        for (std::size_t i = 0; i < ticks.size(); ++i)
+        {
+            if (ticks[i])
+            {
+                CHECK(*ticks[i]);
+                result.push_back(i);
+            }
+        }
+        return result;
+    };
+    const std::vector<std::size_t> original{5, 10, 15, 20};
+    CHECK(offsets(values<Int>(0)) == original);
+    CHECK(offsets(values<Int>(0, none, -1)) == original);
+    CHECK(offsets(values<Int>(0, none, none, none, none, -1)) == original);
+    CHECK(offsets(values<Int>(0, none, 2)) == std::vector<std::size_t>{7, 12, 17, 22});
 }
 
 TEST_CASE("std operators: schedule is bounded by executor end time")

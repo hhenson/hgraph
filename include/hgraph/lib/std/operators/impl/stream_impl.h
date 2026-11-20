@@ -1520,7 +1520,7 @@ namespace hgraph::stdlib
     namespace stream_impl_detail
     {
         /* The shared body of the TS-delay ``schedule`` overloads (hgraph's
-           schedule_ts): reschedules on every evaluation; emits on the
+           schedule_ts): reschedules on a delay/start tick or a due alarm; emits on the
            schedule firing (or immediately when the delay ticks and
            ``initial_delay`` is off); a ``start`` tick re-bases the grid and
            resets the tick budget. */
@@ -1533,6 +1533,7 @@ namespace hgraph::stdlib
             if (max_ticks <= 0 || (recorded_index(ticks) >= max_ticks && !start_modified)) { return; }  // no remaining budget
             // A fresh start replaces the old grid, including an alarm due now.
             const bool scheduled = !start_modified && scheduler.is_scheduled_now();
+            if (!start_modified && !delay.modified() && !scheduled) { return; }
             if (start_modified) { scheduler.reset(); }
 
             if (start != nullptr && start->valid())
