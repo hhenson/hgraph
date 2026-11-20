@@ -203,13 +203,20 @@ if(MSVC AND HGRAPH_BUILD_SHARED)
     if(HGRAPH_WITH_ARROW)
         set(_unified hgraph_stdlib)
         add_library(hgraph_runtime INTERFACE)
-        target_link_libraries(hgraph_runtime INTERFACE $<LINK_ONLY:hgraph_stdlib> hgraph::options)
     else()
         set(_unified hgraph_runtime)
         set(HGRAPH_STDLIB_SOURCES "")
     endif()
     add_library(${_unified} SHARED ${HGRAPH_RUNTIME_SOURCES} ${HGRAPH_WIRING_SOURCES} ${HGRAPH_STDLIB_SOURCES})
     target_link_libraries(${_unified} PUBLIC hgraph::options)
+    if(HGRAPH_WITH_ARROW)
+        # Runtime-only clients need the unified DLL's import library. Using the
+        # stdlib target here would also link every public frame dependency.
+        add_dependencies(hgraph_runtime hgraph_stdlib)
+        target_link_libraries(hgraph_runtime INTERFACE hgraph::options
+            $<BUILD_INTERFACE:$<TARGET_LINKER_FILE:hgraph_stdlib>>
+            $<INSTALL_INTERFACE:$<TARGET_LINKER_FILE:hgraph::stdlib>>)
+    endif()
     add_library(hgraph_wiring INTERFACE)
     target_link_libraries(hgraph_wiring INTERFACE hgraph_runtime hgraph::options)
     set(_compiled_targets ${_unified})
