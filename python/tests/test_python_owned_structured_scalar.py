@@ -154,6 +154,178 @@ def test_explicit_accessor_type_can_read_a_pre_inflation_field_value():
     assert eval_node(spec_symbol, [Series(spec="ICE_H")]) == ["ICE_H"]
 
 
+@pytest.mark.parametrize("slotted", [False, True])
+def test_wiring_preserves_stored_signed_zero_and_pre_inflation_fields(slotted):
+    from math import copysign
+
+    @dataclass(frozen=True, slots=slotted)
+    class Rate:
+        divisors: tuple[float, float]
+        pending: float
+
+    @compute_node
+    def read(a: TS[Rate], b: TS[Rate]) -> TS[tuple[float, float]]:
+        assert a.value.pending == b.value.pending == "pending"
+        return (copysign(1.0, a.value.divisors[0]), copysign(1.0, b.value.divisors[0]))
+
+    @graph
+    def app() -> TS[tuple[float, float]]:
+        return read(const(Rate((0.0, -0.0), "pending")), const(Rate((-0.0, 0.0), "pending")))
+
+    assert eval_node(app) == [(1.0, -1.0)]
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize("nested", [False, True])
+def test_wiring_preserves_registered_object_signed_zero(explicit, nested):
+    from math import copysign
+
+    class Rate:
+        divisor: float
+
+        def __init__(self, divisor):
+            self.divisor = divisor
+
+        def __eq__(self, other):
+            return type(self) is type(other) and self.divisor == other.divisor
+
+        def __hash__(self):
+            return hash(self.divisor)
+
+    if explicit:
+        Rate.__annotations__.clear()
+        register_python_object_type(Rate, fields={"divisor": float})
+    else:
+        register_python_object_type(Rate)
+
+    @dataclass(frozen=True)
+    class Config:
+        rates: tuple[Rate, ...]
+
+    @compute_node
+    def sign(rate: TS[Rate]) -> TS[float]:
+        return copysign(1.0, rate.value.divisor)
+
+    @compute_node
+    def nested_sign(config: TS[Config]) -> TS[float]:
+        return copysign(1.0, config.value.rates[0].divisor)
+
+    @compute_node
+    def pair(a: TS[float], b: TS[float]) -> TS[tuple[float, float]]:
+        return a.value, b.value
+
+    @graph
+    def app(first: float, second: float) -> TS[tuple[float, float]]:
+        if nested:
+            return pair(nested_sign(const(Config((Rate(first),)))), nested_sign(const(Config((Rate(second),)))))
+        return pair(sign(const(Rate(first))), sign(const(Rate(second))))
+
+    assert eval_node(app, first=0.0, second=-0.0) == [(1.0, -1.0)]
+    assert eval_node(app, first=-0.0, second=0.0) == [(-1.0, 1.0)]
+
+
+@pytest.mark.parametrize("boolean_backing", [False, True])
+def test_signed_zero_wiring_does_not_evaluate_custom_descriptors(boolean_backing):
+    from math import copysign
+
+    reads = []
+
+    @register_python_object_type(fields={"divisor": float})
+    class PropertyRate:
+        def __init__(self, divisor):
+            self._stored = copysign(1.0, divisor) < 0.0 if boolean_backing else divisor
+
+        def _number(self):
+            if boolean_backing:
+                return -0.0 if self._stored else 0.0
+            return self._stored
+
+        def __eq__(self, other):
+            return type(self) is type(other) and self._number() == other._number()
+
+        def __hash__(self):
+            return hash(self._number())
+
+        @property
+        def divisor(self):
+            reads.append(self)
+            return self._number()
+
+    @compute_node
+    def signs(a: TS[PropertyRate], b: TS[PropertyRate]) -> TS[tuple[float, float]]:
+        return copysign(1.0, a.value.divisor), copysign(1.0, b.value.divisor)
+
+    @graph
+    def app() -> TS[tuple[float, float]]:
+        return signs(const(PropertyRate(0.0)), const(PropertyRate(-0.0)))
+
+    assert eval_node(app) == [(1.0, -1.0)]
+    assert len(reads) == 2
+
+
+@pytest.mark.parametrize("kind", ["stored", "float_property", "string_property"])
+def test_equal_registered_configurations_share_nodes(kind):
+    @dataclass(frozen=True, slots=True)
+    class Stored:
+        divisor: float
+
+    @register_python_object_type(fields={"divisor": float})
+    class Computed:
+        def __init__(self, divisor):
+            self.saved = divisor
+
+        def __eq__(self, other):
+            return type(self) is type(other) and self.saved == other.saved
+
+        def __hash__(self):
+            return hash(self.saved)
+
+        @property
+        def divisor(self):
+            return self.saved
+
+    @register_python_object_type(fields={"symbol": str})
+    class Instrument:
+        def __init__(self, symbol):
+            self.code = symbol
+            self.scratch = object()
+
+        def __eq__(self, other):
+            return type(self) is type(other) and self.code == other.code
+
+        def __hash__(self):
+            return hash(self.code)
+
+        @property
+        def symbol(self):
+            return self.code
+
+    scalar = {"stored": Stored, "float_property": Computed, "string_property": Instrument}[kind]
+    sample = "XX" if kind == "string_property" else 2.0
+    calls = []
+
+    @compute_node
+    def read(value: TS[scalar]) -> TS[float]:
+        calls.append(value.value)
+        return float(len(value.value.symbol)) if kind == "string_property" else value.value.divisor
+
+    @compute_node
+    def combine(a: TS[float], b: TS[float]) -> TS[float]:
+        return a.value + b.value
+
+    @graph
+    def app(reuse_instance: bool) -> TS[float]:
+        a = scalar(sample)
+        b = a if reuse_instance else scalar(sample)
+        return combine(read(const(a)), read(const(b)))
+
+    assert eval_node(app, reuse_instance=True) == [4.0]
+    assert len(calls) == 1
+    calls.clear()
+    assert eval_node(app, reuse_instance=False) == [4.0]
+    assert len(calls) == 1
+
+
 def test_const_map_retains_pre_inflation_python_owned_values():
     @dataclass(frozen=True)
     class Spec:

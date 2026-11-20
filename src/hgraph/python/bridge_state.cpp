@@ -1,4 +1,5 @@
 #include <hgraph/python/bridge_state.h>
+#include "../types/wiring_scalar_key.h"
 #include <hgraph/util/scope.h>
 #include <hgraph/python/conversion.h>
 #include <hgraph/python/native_scalar_registration.h>
@@ -19,6 +20,7 @@
 
 #include <algorithm>
 #include <compare>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -186,6 +188,8 @@ struct PythonBundleValue {
   }
 };
 
+std::optional<bool> stored_bundle_zero_signs_match(const ValueView &, const ValueView &);
+
 struct PythonBundleBindingEntry {
   const ValueTypeMetaData *schema{nullptr};
   std::vector<ValueTypeRef> field_bindings{};
@@ -214,6 +218,7 @@ struct PythonBundleBindingEntry {
     ops.allows_mutation = false;
     ops.hash_impl = schema->is_hashable() ? &hash : nullptr;
     ops.equals_impl = &equals;
+    detail::stored_zero_signs_comparison().store(&stored_bundle_zero_signs_match, std::memory_order_release);
     // Python objects do not gain ordering merely because their declared
     // fields are ordered.
     ops.compare_impl = nullptr;
@@ -593,6 +598,7 @@ struct PythonBundleBindingEntry {
 };
 
 struct PythonBundleBindings {
+  nb::object plain_field_names{};  // Python class -> ordinary stored field names.
   std::recursive_mutex mutex{};
   std::unordered_map<const ValueTypeMetaData *,
                      std::vector<PythonBundleBindingEntry *>>
@@ -611,7 +617,77 @@ same_field_bindings(const PythonBundleBindingEntry &entry,
   return entry.field_bindings.size() == requested.size() &&
          std::ranges::equal(entry.field_bindings, requested);
 }
+// Compare the retained values directly. Projecting through a declared field
+// type would coerce objects that are intentionally retained before inflation.
+std::optional<bool> plain_zero_signs_match(PyObject *left, PyObject *right, unsigned depth = 0) {
+  if (left == right) { return true; }
+  if (PyLong_CheckExact(left) && PyLong_CheckExact(right)) { return true; }
+  if (PyUnicode_CheckExact(left) && PyUnicode_CheckExact(right)) { return true; }
+  if (PyBytes_CheckExact(left) && PyBytes_CheckExact(right)) { return true; }
+  if (PyFloat_Check(left) && PyFloat_Check(right)) {
+    const double a = PyFloat_AsDouble(left), b = PyFloat_AsDouble(right);
+    return (a == 0.0 && std::signbit(a)) == (b == 0.0 && std::signbit(b));
+  }
+  if (depth >= 32) { return std::nullopt; }
+  const bool tuples = PyTuple_CheckExact(left) && PyTuple_CheckExact(right);
+  if (tuples || (PyList_CheckExact(left) && PyList_CheckExact(right))) {
+    auto size = tuples ? &PyTuple_Size : &PyList_Size;
+    auto item = tuples ? &PyTuple_GetItem : &PyList_GetItem;
+    const auto count = size(left);
+    if (count != size(right)) { return std::nullopt; }
+    for (Py_ssize_t i = 0; i < count; ++i) {
+      auto *a = item(left, i), *b = item(right, i);
+      if (a == b || (PyLong_CheckExact(a) && PyLong_CheckExact(b))) { continue; }
+      const auto matches = plain_zero_signs_match(a, b, depth + 1);
+      if (!matches || !*matches) { return matches; }
+    }
+    return true;
+  }
+  if (Py_TYPE(left) != Py_TYPE(right)) { return std::nullopt; }
+  const auto &known = python_bundle_bindings().plain_field_names;
+  auto *names = known.is_valid() ?
+      PyDict_GetItemWithError(known.ptr(), reinterpret_cast<PyObject *>(Py_TYPE(left))) : nullptr;
+  if (PyErr_Occurred()) { nb::raise_python_error(); }
+  if (!names || names == Py_None) { return std::nullopt; }
+  for (Py_ssize_t i = 0, count = PyTuple_Size(names); i < count; ++i) {
+    auto *name = PyTuple_GetItem(names, i);
+    const auto read = [name](PyObject *object) {
+      nb::object value = nb::steal(PyObject_GenericGetAttr(object, name));
+      if (!value.is_valid()) {
+        if (!PyErr_ExceptionMatches(PyExc_AttributeError)) { nb::raise_python_error(); }
+        PyErr_Clear();
+      }
+      return value;
+    };
+    const auto a = read(left), b = read(right);
+    if (!a.is_valid() || !b.is_valid()) { return std::nullopt; }
+    const auto matches = plain_zero_signs_match(a.ptr(), b.ptr(), depth + 1);
+    if (!matches || !*matches) { return matches; }
+  }
+  return true;
+}
+
+std::optional<bool> stored_bundle_zero_signs_match(const ValueView &lhs, const ValueView &rhs) {
+  if (!is_python_bundle_binding(lhs.binding()) || !is_python_bundle_binding(rhs.binding())) {
+    return std::nullopt;
+  }
+  const auto &left = *static_cast<const PythonBundleValue *>(lhs.data());
+  const auto &right = *static_cast<const PythonBundleValue *>(rhs.data());
+  if (left.object == right.object) { return true; }
+  nb::gil_scoped_acquire gil;
+  if (auto result = plain_zero_signs_match(left.object, right.object)) { return result; }
+  const auto compare = nb::module_::import_("hgraph._wiring._scalar_key").attr("stored_zero_signs_match");
+  // Unordered containers and registered descriptors use the same fast path
+  // again for any ordinary nested sequences.
+  static const auto *plain = new nb::object{nb::cpp_function([](nb::handle a, nb::handle b) -> nb::object {
+    const auto matched = plain_zero_signs_match(a.ptr(), b.ptr());
+    return matched ? nb::object{nb::bool_(*matched)} : nb::none();
+  })};
+  return nb::cast<bool>(compare(nb::handle{left.object}, nb::handle{right.object}, *plain));
+}
+
 } // namespace
+
 
 nb::object &cmp_result_enum_slot() {
   static auto *slot = new nb::object{};
@@ -805,9 +881,25 @@ void register_python_bundle_binding(const ValueTypeMetaData *schema) {
     mutable_schema->flags |= ValueTypeFlags::Hashable;
   }
 
+  // Only plain fields and built-in slots can be read without running a user
+  // descriptor. Resolve that distinction once, alongside the binding.
+  const auto inspect = nb::module_::import_("inspect").attr("getattr_static");
+  nb::list plain_names;
+  bool all_plain = true;
+  for (const auto &name : info->second.field_names) {
+    const auto descriptor = inspect(info->second.type, name, nb::none());
+    if (Py_TYPE(descriptor.ptr()) != &PyMemberDescr_Type &&
+        PyType_GetSlot(Py_TYPE(descriptor.ptr()), Py_tp_descr_get) != nullptr) {
+      all_plain = false;
+      break;
+    }
+    plain_names.append(name);
+  }
   auto &bindings = python_bundle_bindings();
   {
     std::lock_guard lock(bindings.mutex);
+    if (!bindings.plain_field_names.is_valid()) { bindings.plain_field_names = nb::dict(); }
+    bindings.plain_field_names[info->second.type] = all_plain ? nb::object{nb::tuple{plain_names}} : nb::none();
     bindings.current.try_emplace(schema);
   }
   std::vector<ValueTypeRef> fields;
@@ -881,6 +973,7 @@ void clear_python_bundle_bindings() noexcept {
   auto &bindings = python_bundle_bindings();
   std::lock_guard lock(bindings.mutex);
   bindings.current.clear();
+  bindings.plain_field_names.reset();
 }
 
 void register_native_scalar_type(nb::handle python_type,
