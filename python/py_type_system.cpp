@@ -427,6 +427,21 @@ namespace hgraph::python_bridge
             return out.str();
         });
 
+    nb::class_<Tenor>(m, "Tenor", "Calendar months and days, or a signed count of business days.")
+        .def_static("months_days", &Tenor::months_days, nb::arg("months"), nb::arg("days"))
+        .def_static("business_days", &Tenor::business_days, nb::arg("count"))
+        .def_prop_ro("is_business", &Tenor::is_business)
+        .def_prop_ro("months", &Tenor::months)
+        .def_prop_ro("days", &Tenor::days)
+        .def_prop_ro("business", &Tenor::business)
+        .def("__eq__", [](const Tenor &self, const Tenor &other) { return self == other; }, nb::is_operator())
+        .def("__hash__", [](const Tenor &self) { return std::hash<Tenor>{}(self); })
+        .def("__repr__", [](const Tenor &self) {
+            std::ostringstream out;
+            out << self;
+            return out.str();
+        });
+
     nb::class_<ZoneId>(
         m, "ZoneId",
         "An immutable IANA time-zone identifier such as 'Europe/London'.")
@@ -808,6 +823,7 @@ namespace hgraph::python_bridge
     register_temporal_type(
         "CivilDateTime",
         scalar_descriptor<CivilDateTime>::value_meta());
+    register_temporal_type("Tenor", scalar_descriptor<Tenor>::value_meta());
     register_temporal_type("Period",
                            scalar_descriptor<Period>::value_meta());
     register_temporal_type("ZoneId",
