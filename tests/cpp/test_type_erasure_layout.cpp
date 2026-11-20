@@ -322,16 +322,16 @@ TEST_CASE("dynamic TSL and TSW physical plans retain their baseline layouts")
         }
     }
 
+    TSData fresh_list{factory.data_type_for(dynamic_schema)};
+    const auto empty_storage = fresh_list.view().dynamic_storage_metrics();
+    CHECK(empty_storage.live_bytes == 0);
+    CHECK(empty_storage.reserved_bytes == 0);
+
 #if defined(__APPLE__) && defined(__aarch64__)
     const auto &dynamic = factory.data_type_for(dynamic_schema).checked_plan();
-    // 128 = the pre-RFC-0031 96, plus the two structural-delta lengths (live
-    // and previous) -- the window time reuses the modified-ring header -- plus
-    // one pointer to the ordinal snapshot of the modified ring, which exists
-    // only for a list that has been read by ordinal. Without it every such
-    // read walked the ring from its head: m modified elements cost m * m.
-    // ABI 24 adds the 8-byte explicit-empty timestamp to tracking in all
-    // three owned plans. The input link's sample timestamp is separate and
-    // does not contribute to these data-plan sizes.
+    // Per-position owners, ordinal keys and ring links share one vector.
+    // Its empty header fits the validity cache, ring tail and evaluation time
+    // within the existing 128-byte growing-list storage budget.
     REQUIRE(dynamic.layout.size == 128);
     REQUIRE(dynamic.layout.alignment == 8);
 #endif

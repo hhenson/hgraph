@@ -587,14 +587,25 @@ def test_zero_argument_child_uses_explicit_keys(mapper):
         {}, {"a": 7}, {"a": hg.REMOVE}, {"b": 7}]
 
 
-def test_empty_fixed_list(mapper):
+def test_empty_growing_list(mapper):
+    growing = hg.TSL[hg.TS[int], hg.Size[-1]]
+
     @hg.graph
-    def app(values: hg.TSL[hg.TS[int], hg.Size[0]]) -> hg.TSL[hg.TS[int], hg.Size[0]]:
+    def app(values: growing) -> growing:
         return mapper(add_one, values)
+
     @hg.graph
-    def oracle(values: hg.TSL[hg.TS[int], hg.Size[0]]) -> hg.TSL[hg.TS[int], hg.Size[0]]:
+    def oracle(values: growing) -> growing:
         return hg.map_(add_one, values)
-    assert hg.eval_node(app, [None]) == hg.eval_node(oracle, [None])
+
+    assert hg.eval_node(app, [()]) == hg.eval_node(oracle, [()])
+
+
+def test_fixed_temporal_list_size_must_be_positive():
+    with pytest.raises(ValueError, match="fixed TSL must have positive size"):
+        hg.TSL[hg.TS[int], hg.Size[0]]
+    with pytest.raises(ValueError, match="fixed TSL must have positive size"):
+        hg.TSL[hg.TS[hg.SCALAR], hg.Size[0]]
 
 
 @hg.compute_node

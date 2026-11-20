@@ -530,9 +530,12 @@ namespace hgraph
             auto list_out = out.as_list();
             // RFC 0031: a dynamic TSL current value IS the list, so a shorter
             // source truncates rather than being rejected.
-            if (schema->is_unbounded_tsl() && source_values.size() != list_out.size())
+            if (schema->is_unbounded_tsl())
             {
-                list_out.resize(source_values.size());
+                if (source_values.size() != list_out.size()) { list_out.resize(source_values.size()); }
+                if (source_values.size() == 0 && !out.modified()) {
+                    out.data_view().begin_mutation(out.evaluation_time()).mark_empty_delta();
+                }
             }
 
             for (std::size_t index = 0; index < source_values.size(); ++index)
@@ -1513,6 +1516,16 @@ namespace hgraph
             return bundle.build();
         }
 
+        // A vacant list can still have changed its extent or lost a position.
+        // Its containing delta carries that structural edit without publishing a
+        // value on the list. A detached reference has no owned list to capture.
+        [[nodiscard]] bool has_list_edit(const TSInputView &child)
+        {
+            const auto &data = child.data_view();
+            return data.valid() && data.ops().kind == TSTypeKind::TSL &&
+                   child.evaluation_time() != MIN_DT && data.tracking().last_modified_time == child.evaluation_time();
+        }
+
         /** A child that reads invalid is not always silent: a keyed
             collection that lost its reference still owes its consumer the
             removals its link holds (``linking_strategies.rst``, keyed
@@ -1520,7 +1533,7 @@ namespace hgraph
             skipping it, rather than assuming invalid means no news. */
         [[nodiscard]] bool child_delta_worth_capturing(const TSInputView &child)
         {
-            if (child.valid()) { return true; }
+            if (child.valid() || has_list_edit(child)) { return true; }
             // Reaching the policy is itself conditional. A child with no
             // canonical type record cannot answer -- and an invalid child is
             // exactly the case where the data view has no ops to fall back on,
@@ -1564,10 +1577,28 @@ namespace hgraph
 
             const auto dict = in.as_dict();
             SetBuilder removed{key_binding};
+            // A list-valued key can outlive the last published position of its
+            // child. Removing that key still changes membership, even when
+            // there is no longer a published child for the value-removal view.
+            if (in.schema()->element_ts()->kind == TSTypeKind::TSL && dict.structure_modified()) {
+                const auto data = dict.data_view();
+                for (auto slot = data.next_membership_removed_slot(); slot != TS_DATA_NO_CHILD_ID;
+                     slot = data.next_membership_removed_slot(slot)) {
+                    if (data.slot_removed(slot)) { continue; }  // Included in the value removals below.
+                    const auto key = data.key_at_slot(slot);
+                    if (selects != nullptr && !selects(context, key)) { continue; }
+                    const BorrowedOperand borrowed{key_binding, key, "capture_delta"};
+                    (void)removed.insert_copy(borrowed.data());
+                }
+            }
             const auto removed_keys = dict.structure_modified() ? dict.data_view().removed_keys() : Range<ValueView>{};
             for (const auto &key : removed_keys)
             {
                 if (selects != nullptr && !selects(context, key)) { continue; }
+                // A vacant list can retain this key and its addressable positions.
+                // Encode the edit under the key; a membership removal still erases it.
+                if (in.schema()->element_ts()->kind == TSTypeKind::TSL &&
+                    dict.contains(key) && has_list_edit(dict.at(key))) { continue; }
                 const BorrowedOperand borrowed{key_binding, key, "capture_delta"};
                 (void)removed.insert_copy(borrowed.data());
             }
@@ -1631,13 +1662,20 @@ namespace hgraph
             }
 
             MapBuilder builder{key_binding, val_binding};
-            for (const auto &[index, child] : list.modified_items()) {
+            const auto capture_child = [&](std::size_t index, const TSInputView &child) {
                 const auto key = static_cast<Int>(index);
                 // A forwarded dictionary can lose its reference and still owe a child delta.
                 // An explicit clear of the list position is already in the removed set.
-                if (!child.valid() && (removed.contains(&key) || !child_delta_worth_capturing(child))) continue;
+                if (!child.valid() && (removed.contains(&key) || !child_delta_worth_capturing(child))) return;
                 const Value captured = capture_delta(child);
                 builder.set_item(ValueView{key_binding, &key}, captured.view());
+            };
+            if (in.schema()->element_ts()->kind == TSTypeKind::TSL) {
+                for (const auto &[index, child] : list.items()) {
+                    if (child.modified() || has_list_edit(child)) { capture_child(index, child); }
+                }
+            } else {
+                for (const auto &[index, child] : list.modified_items()) { capture_child(index, child); }
             }
             SetStorage removed_storage  = removed.build_storage();
             MapStorage modified_storage = builder.build_storage();
@@ -1661,7 +1699,7 @@ namespace hgraph
             {
                 field_bindings.push_back(builder.field_binding(index));
                 auto child = bundle.at(index);
-                if (!child.modified() || !child_delta_worth_capturing(child)) { continue; }
+                if ((!child.modified() && !has_list_edit(child)) || !child_delta_worth_capturing(child)) { continue; }
                 captured[index].emplace(capture_delta(child));
                 const auto child_binding = captured[index]->binding();
                 if (field_bindings[index] != child_binding)
@@ -1793,7 +1831,7 @@ namespace hgraph
                     if (static_cast<std::size_t>(index) < list.size() && list.at(index).valid()) return true;
                 }
             }
-            return !patch.has_removals() && !out.valid();
+            return !patch.has_removals() && list.empty() && !out.valid();
         }
 
         bool delta_has_effect_tsb(const TSOutputView &out, const ValueView &delta)
@@ -1966,7 +2004,8 @@ namespace hgraph
                     ApplyChild(list.at(static_cast<std::size_t>(key.checked_as<Int>())), value);
             }
             if (!patch.has_updates() && !patch.has_removals()) {
-                if (ApplyChild == &apply_observed_delta || !out.valid()) {
+                if ((ApplyChild == &apply_observed_delta && out.valid()) ||
+                    (list.empty() && !out.valid())) {
                     out.data_view().begin_mutation(out.evaluation_time()).mark_empty_delta();
                 }
             }

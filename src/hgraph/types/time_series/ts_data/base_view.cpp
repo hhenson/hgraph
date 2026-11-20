@@ -155,9 +155,10 @@ ValueView TSDataView::delta_value(DateTime evaluation_time) const {
 
 DateTime TSDataView::last_modified_time() const {
   const auto &table = ops();
-  // An assembled input tracks child notifications even when the last child
-  // loses its value. Its public value then has no modification time (TS-26).
-  if (table.is_input_binding && !table.has_current_value_impl(table.context, data())) { return MIN_DT; }
+  // An assembled input or owned list may keep structural notifications
+  // after losing its last value. A target link also tracks REF withdrawals.
+  if ((table.is_input_binding || (table.kind == TSTypeKind::TSL && !table.is_target_link)) &&
+      !table.has_current_value_impl(table.context, data())) { return MIN_DT; }
   return table.tracking_impl(table.context, data())->last_modified_time;
 }
 
@@ -165,7 +166,8 @@ bool TSDataView::modified(DateTime evaluation_time) const {
   const auto &table = ops();
   return evaluation_time != MIN_DT &&
          table.tracking_impl(table.context, data())->last_modified_time == evaluation_time &&
-         (!table.is_input_binding || table.has_current_value_impl(table.context, data()));
+         ((!table.is_input_binding && (table.kind != TSTypeKind::TSL || table.is_target_link)) ||
+          table.has_current_value_impl(table.context, data()));
 }
 
 bool TSDataView::invalidated(DateTime evaluation_time) const {
@@ -558,11 +560,13 @@ bool invalidate_value(TSDataMutationView &mutation, bool discard_child) {
   TSDataView current = mutation.view();
   const DateTime now = mutation.current_mutation_time();
   const bool was_valid = current.has_current_value();
-  if (!was_valid && !discard_child) {
+  const auto &table = current.ops();
+  const bool drop_extent = table.kind == TSTypeKind::TSL && !table.is_target_link &&
+      current.as_list().supports_resize() && current.as_list().size() != 0;
+  if (!was_valid && !discard_child && !drop_extent) {
     return false;
   }
 
-  const auto &table = current.ops();
   if (const auto *ownership = table.ownership_ops; ownership != nullptr) {
     const std::size_t children =
         ownership->child_count(table.context, current.data());
@@ -586,18 +590,22 @@ bool invalidate_value(TSDataMutationView &mutation, bool discard_child) {
     if (discard_child && ownership->discard_child_history != nullptr) {
       ownership->discard_child_history(table.context, memory);
     }
-    if (was_valid && ownership->discard_contents != nullptr) {
+    if ((was_valid || drop_extent) && ownership->discard_contents != nullptr) {
       ownership->discard_contents(table.context, memory, now);
     }
   }
 
-  if (!was_valid) { return false; }
+  if (!was_valid && !drop_extent) { return false; }
 
   auto &state =
       *table.mutable_tracking_impl(table.context, memory);
-  // REF followers read the designation synchronously. Clear it before they
-  // rebind. Other parents inspect the outgoing child while recording its loss.
-  if (table.kind == TSTypeKind::REF) { state.last_modified_time = MIN_DT; }
+  // REF followers read the designation synchronously. A list likewise
+  // derives its validity from its children during this notification.
+  const auto parent_type = state.parent.parent_storage_type();
+  if (table.kind == TSTypeKind::REF || (parent_type && parent_type.ops_ref().kind == TSTypeKind::TSL)) {
+    state.last_modified_time = MIN_DT;
+    state.last_empty_delta_time = now;
+  }
   state.observers.notify(now);
   state.parent.notify_child_modified(now);
   state.last_modified_time = MIN_DT;

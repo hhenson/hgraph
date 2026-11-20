@@ -691,7 +691,12 @@ namespace hgraph::python_bridge
             const ListDeltaSource delta{result, schema.is_unbounded_tsl(), schema.fixed_size()};
             const auto           &child_ops = python_ops_for(list_element_type(type, "TSL apply result"));
             auto                  list      = output.as_list();
-            if (delta.size && *delta.size != list.size()) list.resize(*delta.size);
+            if (delta.size) { list.resize(*delta.size); }
+            if (delta.size == 0 && !nb::isinstance<nb::dict>(result) && !output.modified()) {
+                // An empty sequence is a whole-value publication. A sparse
+                // resize to the current extent carries no such publication.
+                output.data_view().begin_mutation(output.evaluation_time()).mark_empty_delta();
+            }
             for (auto key : delta.removed) {
                 const auto index = nb::cast<std::size_t>(key);
                 if (index < list.size()) static_cast<void>(list.at(index).begin_mutation(output.evaluation_time()).invalidate());
@@ -1055,7 +1060,12 @@ namespace hgraph::python_bridge
                 static_cast<void>(delta_from_python(&schema, item));
                 auto output = authored.view(now);
                 apply_python_result(output, item);
-                deltas.emplace_back(output.modified()
+                // A size change or final positional clear can leave the whole list
+                // without a value. Replay the edit so subsequent ticks see the same
+                // extent and holes as the original owner.
+                const bool list_edit = schema.kind == TSTypeKind::TSL &&
+                    output.data_view().tracking().last_modified_time == now;
+                deltas.emplace_back((list_edit || output.modified())
                                         ? std::optional<Value>{capture_delta(observed.view(nullptr, now))}
                                         : std::nullopt);
             }

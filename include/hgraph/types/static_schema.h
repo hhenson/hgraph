@@ -116,7 +116,7 @@ namespace hgraph
     template <fixed_string Name, typename... TConstraints>
     struct TsVar;
 
-    /** List time-series schema; equivalent to ``TSL[T, N?]``. The default extent is unbounded
+    /** List time-series schema with a positive fixed extent. The default extent is unbounded
         for a concrete schema and remains the any-size spelling when lowered as an operator pattern. */
     template <typename TElementSchema, auto FixedSize = unbounded_tsl_size>
     struct TSL
@@ -125,7 +125,7 @@ namespace hgraph
         static constexpr auto fixed_size = FixedSize;
     };
 
-    /** Node input marker for Python-style ``*args`` packing; resolves as ``TSL<T, SIZE<"args_len">>``. */
+    /** Node input marker for positional arguments. Nonempty packs have a fixed extent; empty packs use an unwired growing list. */
     template <typename TElementSchema = TsVar<"args">>
     struct Args
     {
