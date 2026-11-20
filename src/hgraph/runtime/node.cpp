@@ -32,6 +32,169 @@
 
 namespace hgraph
 {
+    NodeSchedulerCheckpoint NodeScheduler::capture_checkpoint(DateTime cut) const
+    {
+        require_state("capture_checkpoint");
+        NodeSchedulerCheckpoint image;
+        for (const auto &event : state_->pending_events())
+            if (event.first > cut) { image.events.push_back(event); }
+        return image;
+    }
+
+    void NodeScheduler::validate_checkpoint(const NodeSchedulerCheckpoint &image, DateTime restart)
+    {
+        (void)checkpoint_state(image, restart);
+    }
+
+    void NodeScheduler::restore_checkpoint(const NodeSchedulerCheckpoint &image) const
+    {
+        require_state("restore_checkpoint");
+        auto restored = checkpoint_state(image, now_);
+        *state_ = std::move(restored);
+        if (graph_ != nullptr && !state_->pending_events().empty())
+            graph_->schedule_node(node_index_, state_->pending_events().front().first);
+    }
+
+    DateTime NodeScheduler::next_scheduled_time() const noexcept
+    {
+        return is_scheduled() ? state_->pending_events().front().first : MIN_DT;
+    }
+
+    bool NodeScheduler::is_scheduled() const noexcept
+    {
+        return state_ != nullptr && !state_->pending_events().empty();
+    }
+
+    bool NodeScheduler::is_scheduled_now() const noexcept
+    {
+        return is_scheduled() && state_->pending_events().front().first == now_;
+    }
+
+    bool NodeScheduler::has_tag(std::string_view tag) const
+    {
+        return state_ != nullptr && state_->tags.contains(std::string{tag});
+    }
+
+    DateTime NodeScheduler::tag_time(std::string_view tag, DateTime default_time) const
+    {
+        if (state_ == nullptr) { return default_time; }
+        const auto it = state_->tags.find(std::string{tag});
+        return it != state_->tags.end() ? it->second : default_time;
+    }
+
+    DateTime NodeScheduler::pop_tag(std::string_view tag, DateTime default_time) const
+    {
+        require_state("pop_tag");
+        const auto it = state_->tags.find(std::string{tag});
+        if (it == state_->tags.end()) { return default_time; }
+        const DateTime when = it->second;
+        state_->erase_event({when, it->first});
+        state_->tags.erase(it);
+        return when;
+    }
+
+    void NodeScheduler::schedule(DateTime when, std::optional<std::string> tag,
+                  bool on_wall_clock) const
+    {
+        require_state("schedule");
+        on_wall_clock = on_wall_clock && supports_wall_clock_;
+        const DateTime reference_now = scheduling_time(on_wall_clock);
+        // Started: only the future. Not yet started: the start cycle onward.
+        // A wall-clock alarm that is already due is delivered on the next
+        // evaluatable cycle rather than dropped: the wall clock may cross
+        // the requested time between the caller computing it and this
+        // guard re-reading the clock, and dropping the alarm silently
+        // kills a self-rescheduling chain (services.rst, wall-clock
+        // alarms; matches the Python alarm sweep's max(now, eval + MIN_TD)
+        // fire time).
+        if (started_)
+        {
+            if (when <= reference_now)
+            {
+                if (!on_wall_clock) { return; }
+                when = std::max(now_ + MIN_TD, reference_now);
+            }
+        }
+        else if (when < reference_now)
+        {
+            if (!on_wall_clock) { return; }
+            when = reference_now;
+        }
+
+        const bool        tagged    = tag.has_value() && !tag->empty();
+        const std::string tag_value = tagged ? *tag : std::string{};
+
+        if (tagged)
+        {
+            if (const auto it = state_->tags.find(tag_value); it != state_->tags.end())
+            {
+                state_->erase_event({it->second, tag_value});  // replace existing tagged event
+            }
+        }
+
+        const DateTime prev_first = is_scheduled() ? state_->pending_events().front().first : MAX_DT;
+        if (tagged) { state_->tags[tag_value] = when; }  // only tagged events are indexed
+        state_->insert_event({when, tag_value});
+        const DateTime next = state_->pending_events().front().first;
+        if (graph_ != nullptr && next < prev_first) { graph_->schedule_node(node_index_, next); }
+    }
+
+    void NodeScheduler::un_schedule(const std::string &tag) const
+    {
+        require_state("un_schedule");
+        if (const auto it = state_->tags.find(tag); it != state_->tags.end())
+        {
+            state_->erase_event({it->second, it->first});
+            state_->tags.erase(it);
+        }
+    }
+
+    void NodeScheduler::un_schedule() const
+    {
+        require_state("un_schedule");
+        if (!is_scheduled()) { return; }
+        state_->tags.erase(state_->pending_events().front().second);
+        state_->pop_event();
+    }
+
+    void NodeScheduler::reset() const
+    {
+        require_state("reset");
+        state_->clear_events();
+        state_->tags.clear();
+    }
+
+    void NodeScheduler::advance() const
+    {
+        if (state_ == nullptr) { return; }
+        while (!state_->pending_events().empty() && state_->pending_events().front().first <= now_)
+        {
+            const auto pending = state_->pending_events();
+            const std::string &tag = pending.front().second;
+            if (!tag.empty()) { state_->tags.erase(tag); }  // only tagged events are indexed
+            state_->pop_event();
+        }
+        if (graph_ != nullptr && !state_->pending_events().empty())
+        {
+            graph_->schedule_node(node_index_, state_->pending_events().front().first);
+        }
+    }
+
+    NodeSchedulerState NodeScheduler::checkpoint_state(const NodeSchedulerCheckpoint &image, DateTime restart)
+    {
+        NodeSchedulerState restored;
+        for (const auto &event : image.events)
+        {
+            if (event.first < restart)
+                throw std::runtime_error("node scheduler checkpoint: deadline precedes restart");
+            if ((!restored.events.empty() && event <= *restored.events.rbegin()) ||
+                (!event.second.empty() && !restored.tags.emplace(event.second, event.first).second))
+                throw std::runtime_error("node scheduler checkpoint: events are unordered or tags are duplicated");
+            restored.events.push_back(event);
+        }
+        return restored;
+    }
+
     namespace wiring_input_activity_detail
     {
         bool schema_activity(const NodeBuilder &builder, std::span<const std::size_t> path)

@@ -90,6 +90,7 @@ def test_nanobind_build_and_sdk_headers_use_one_exact_runtime_abi():
 def test_installed_sdk_exports_required_msvc_source_contract():
     cmake = (ROOT / "CMakeLists.txt").read_text()
     graph_wiring = (ROOT / "include/hgraph/types/graph_wiring.h").read_text()
+    graph_wiring_core = (ROOT / "include/hgraph/types/graph_wiring_core.h").read_text()
     graph_type_ref = (ROOT / "include/hgraph/runtime/graph_type_ref.h").read_text()
     ts_type_ref = (ROOT / "include/hgraph/types/time_series/ts_type_ref.h").read_text()
     ts_output = (ROOT / "include/hgraph/types/time_series/ts_output.h").read_text()
@@ -106,7 +107,8 @@ def test_installed_sdk_exports_required_msvc_source_contract():
     assert "$<INSTALL_INTERFACE:FMT_HEADER_ONLY>" in cmake
     assert "FMT_LIB_EXPORT" not in cmake
     assert "FMT_SHARED" not in cmake
-    assert "class HGRAPH_CLASS_EXPORT ServiceImplementationScope" in graph_wiring
+    assert "#include <hgraph/types/graph_wiring_core.h>" in graph_wiring
+    assert "class HGRAPH_CLASS_EXPORT ServiceImplementationScope" in graph_wiring_core
     assert "class HGRAPH_CLASS_EXPORT GraphTypeRef" in graph_type_ref
     assert "friend HGRAPH_EXPORT GraphTypeRef intern_graph_type" in graph_type_ref
     assert "class HGRAPH_CLASS_EXPORT TSRoleTypeRef" in ts_type_ref

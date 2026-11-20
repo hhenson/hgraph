@@ -217,6 +217,19 @@ hgraph_add_test_objects(hgraph_runtime_test_objects
     test_simulation_execution.cpp
 )
 
+# Keep generated modules independent of the project PCH and standard operator library.
+add_executable(hgraph_generated_front_end_test test_generated_front_end.cpp test_logger_header.cpp)
+target_link_libraries(hgraph_generated_front_end_test PRIVATE hgraph::wiring Catch2::Catch2WithMain)
+add_test(NAME hgraph.generated_front_end COMMAND hgraph_generated_front_end_test)
+hgraph_configure_test_runtime_paths(hgraph.generated_front_end)
+
+add_test(NAME hgraph.generated_header_is_light COMMAND "${CMAKE_COMMAND}"
+    "-DCOMPILER=${CMAKE_CXX_COMPILER}" "-DMSVC_FRONTEND=${MSVC}"
+    "-DINCLUDES=$<TARGET_PROPERTY:hgraph_generated_front_end_test,INCLUDE_DIRECTORIES>"
+    "-DDEFINITIONS=$<TARGET_PROPERTY:hgraph_generated_front_end_test,COMPILE_DEFINITIONS>"
+    "-DWORK=${CMAKE_CURRENT_BINARY_DIR}/generated-header-probe/$<CONFIG>"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_generated_header.cmake")
+
 hgraph_add_test_objects(hgraph_wiring_test_objects
     test_adaptor_wiring.cpp
     test_component.cpp
