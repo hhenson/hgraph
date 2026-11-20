@@ -1470,47 +1470,54 @@ inline bool is_exact_timedelta(nb::handle object) noexcept {
          reinterpret_cast<PyTypeObject *>(nb::detail::datetime_types.timedelta.ptr());
 }
 
-/** Pull the next (datetime, value) pair; schedules it or marks exhaustion. */
+/** Schedule the first current or future yield, validating skipped times too. */
 template <typename Scheduler>
 void py_gen_advance(PyGenHandle &handle, Scheduler &sched) {
-  nb::object next = nb::steal(PyIter_Next(handle.iterator.ptr()));
-  if (!next.is_valid()) {
-    if (PyErr_Occurred() != nullptr) {
-      throw nb::python_error();
+  const auto now = sched.now();
+  for (;;) {
+    nb::object next = nb::steal(PyIter_Next(handle.iterator.ptr()));
+    if (!next.is_valid()) {
+      if (PyErr_Occurred() != nullptr) {
+        throw nb::python_error();
+      }
+      handle.exhausted = true;
+      handle.pending = nb::object{};
+      return;
     }
-    handle.exhausted = true;
-    handle.pending = nb::object{};
+    auto pair = nb::cast<nb::tuple>(next);
+    if (nb::len(pair) != 2) {
+      throw nb::value_error(
+          "a Python generator must yield (datetime, value) pairs");
+    }
+    DateTime when;
+    nb::object time_object = pair[0];
+    if (handle.cached_delta_object.is_valid() &&
+        time_object.is(handle.cached_delta_object)) {
+      when = now + handle.cached_delta;
+    } else if (!nb::try_cast<DateTime>(time_object, when)) {
+      TimeDelta delay;
+      if (!nb::try_cast<TimeDelta>(time_object, delay)) {
+        throw nb::type_error(
+            "a Python generator time must be a datetime or timedelta");
+      }
+      when = now + delay;
+      if (is_exact_timedelta(time_object)) {
+        handle.cached_delta_object = std::move(time_object);
+        handle.cached_delta = delay;
+      }
+    }
+    if (handle.last_time.has_value() && when <= *handle.last_time) {
+      throw std::invalid_argument(
+          "Python generator output times must be strictly increasing");
+    }
+    handle.last_time = when;
+    if (when < now) {
+      continue;
+    }
+    handle.pending = nb::object(pair[1]);
+    sched.schedule(when);
     return;
   }
-  auto pair = nb::cast<nb::tuple>(next);
-  if (nb::len(pair) != 2) {
-    throw nb::value_error(
-        "a Python generator must yield (datetime, value) pairs");
-  }
-  DateTime when;
-  nb::object time_object = pair[0];
-  if (handle.cached_delta_object.is_valid() &&
-      time_object.is(handle.cached_delta_object)) {
-    when = sched.now() + handle.cached_delta;
-  } else if (!nb::try_cast<DateTime>(time_object, when)) {
-    TimeDelta delay;
-    if (!nb::try_cast<TimeDelta>(time_object, delay)) {
-      throw nb::type_error(
-          "a Python generator time must be a datetime or timedelta");
-    }
-    when = sched.now() + delay;
-    if (is_exact_timedelta(time_object)) {
-      handle.cached_delta_object = std::move(time_object);
-      handle.cached_delta = delay;
-    }
-  }
-  if (handle.last_time.has_value() && when <= *handle.last_time) {
-    throw std::invalid_argument(
-        "Python generator output times must be strictly increasing");
-  }
-  handle.last_time = when;
-  handle.pending = nb::object(pair[1]);
-  sched.schedule(when);
 }
 
 struct py_generator_node {

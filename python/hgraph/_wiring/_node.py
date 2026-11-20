@@ -1644,9 +1644,13 @@ def generator(fn=None, overloads=None, resolvers=None, requires=None, label=None
               deprecated=False):
     """Decorate a Python generator that emits absolute-time output ticks.
 
-    The decorated callable yields ``(datetime, value)`` pairs and must declare
-    a ``TS[...]`` return annotation. Wiring-time arguments are captured per
-    call. A stop hook may be registered with ``@source.stop``.
+    The decorated callable yields ``(datetime, value)`` or ``(timedelta, value)``
+    pairs and must declare a ``TS[...]`` return annotation. A delay is relative
+    to the current evaluation time. Resolved times must increase strictly,
+    including times already past. The source skips past items in the current
+    evaluation and publishes each remaining value at its resolved time.
+    Wiring-time arguments are captured per call. A stop hook may be registered
+    with ``@source.stop``.
 
     :param fn: Generator callable to decorate. Omit it when configuring the
         decorator.

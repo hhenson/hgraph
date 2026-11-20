@@ -983,6 +983,62 @@ def test_generator_evaluation_clock_advances_with_each_resume():
     ]
 
 
+def test_generator_replays_from_the_selected_start_time():
+    first = hg.MIN_ST + 10 * hg.MIN_TD
+    rows = [(first + index * hg.MIN_TD, index) for index in (0, 1, 3, 4)]
+    read_at = []
+
+    @hg.generator
+    def table(_clock: hg.EvaluationClock = None) -> TS[int]:
+        for when, value in rows:
+            read_at.append(_clock.evaluation_time)
+            yield when, value
+
+    for start_offset, values, read_offsets in (
+        (0, [0, 1, 3, 4], [0, 0, 1, 3]),  # first row at start
+        (2, [3, 4], [2, 2, 2, 3]),        # first remaining row is future
+        (3, [3, 4], [3, 3, 3, 3]),        # first remaining row is due now
+        (5, [], [5, 5, 5, 5]),            # exhaust the table at startup
+    ):
+        start = first + start_offset * hg.MIN_TD
+        read_at.clear()
+        result = run_graph(table, start_time=start, end_time=first + 6 * hg.MIN_TD)
+        assert result == [(first + value * hg.MIN_TD, value) for value in values]
+        assert read_at == [first + offset * hg.MIN_TD for offset in read_offsets]
+
+
+def test_generator_validates_the_order_of_skipped_rows():
+    start = hg.MIN_ST + 10 * hg.MIN_TD
+    for second_offset in (-2, -3):
+        @hg.generator
+        def table() -> TS[int]:
+            yield start - 2 * hg.MIN_TD, 1
+            yield start + second_offset * hg.MIN_TD, 2
+
+        expect_raises(RuntimeError, lambda: run_graph(table, start_time=start),
+                      "Python generator output times must be strictly increasing")
+
+
+def test_generator_skips_negative_delay_and_checks_its_resolved_time():
+    start = hg.MIN_ST + 10 * hg.MIN_TD
+
+    @hg.generator
+    def table() -> TS[int]:
+        yield -hg.MIN_TD, 1
+        yield datetime.timedelta(), 2
+        yield hg.MIN_TD, 3
+
+    assert run_graph(table, start_time=start) == [(start, 2), (start + hg.MIN_TD, 3)]
+
+    @hg.generator
+    def duplicate() -> TS[int]:
+        yield -hg.MIN_TD, 1
+        yield start - hg.MIN_TD, 2
+
+    expect_raises(RuntimeError, lambda: run_graph(duplicate, start_time=start),
+                  "Python generator output times must be strictly increasing")
+
+
 def test_generator_rejects_duplicate_or_retrograde_times():
     @hg.generator
     def duplicate() -> TS[int]:
