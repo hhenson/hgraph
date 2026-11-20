@@ -28,6 +28,7 @@
 #include <hgraph/types/service_wiring.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/native_bundle.h>
 #include <hgraph/types/storage_metrics.h>
 #include <hgraph/types/table_type_ops.h>
 #include <hgraph/types/time_series/output_mutation.h>
@@ -59,6 +60,14 @@
 #include <type_traits>
 #include <unordered_set>
 #include <vector>
+
+struct InstalledQuote { hgraph::Int bid; hgraph::Int ask; };
+
+template <> struct hgraph::native_bundle<InstalledQuote> {
+    using schema = NominalBundle<"consumer", "Quote", false, BundleParents<>, BundleArguments<>,
+                                 Field<"bid", Int>, Field<"ask", Int>>;
+    static constexpr auto members = std::tuple{&InstalledQuote::bid, &InstalledQuote::ask};
+};
 
 namespace
 {
@@ -586,6 +595,13 @@ void register_spawn_consumer_recipes();
 
 int main(int argc, char **argv)
 {
+    {
+        const hgraph::Value value{InstalledQuote{3, 8}};
+        if (value.view().checked_as<InstalledQuote>().ask != 8 ||
+            value.schema() != hgraph::schema_descriptor<hgraph::NativeTSB<InstalledQuote>>::ts_meta()->value_schema) {
+            throw std::runtime_error("installed native bundle round trip failed");
+        }
+    }
     {
         hgraph::NodeTypeMetaData meta;
         meta.display_name = "installed_sink";

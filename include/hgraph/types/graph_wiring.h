@@ -1973,7 +1973,8 @@ namespace hgraph
         };
         template <typename ValueBundle, typename... TFields> struct dereferenced_static_schema<NominalTSB<ValueBundle, TFields...>>
         {
-            using type = NominalTSB<ValueBundle, typename dereferenced_static_field<TFields>::type...>;
+            using type = NominalTSB<typename static_schema_detail::native_field_schema<ValueBundle>::type,
+                                    typename dereferenced_static_field<TFields>::type...>;
         };
 
         template <auto Lhs, auto Rhs>
@@ -3607,16 +3608,16 @@ namespace hgraph
                                     if constexpr (arg_index != call_args_detail::npos)
                                     {
                                         using V = typename P::value_type;
-                                        mutation[P::field_name.sv()].template checked_mutable_as<V>() =
+                                        mutation[P::field_name.sv()].set(
                                             graph_wiring_detail::coerce_scalar_value<V>(
-                                                call_args_detail::payload_at<arg_index>(arg_tuple));
+                                                call_args_detail::payload_at<arg_index>(arg_tuple)));
                                     }
                                     else if constexpr (default_index != call_args_detail::npos)
                                     {
                                         using V = typename P::value_type;
-                                        mutation[P::field_name.sv()].template checked_mutable_as<V>() =
+                                        mutation[P::field_name.sv()].set(
                                             graph_wiring_detail::coerce_scalar_value<V>(
-                                                call_args_detail::payload_at<default_index>(default_args));
+                                                call_args_detail::payload_at<default_index>(default_args)));
                                     }
                                 }
                             }(),

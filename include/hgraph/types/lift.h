@@ -189,7 +189,8 @@ namespace hgraph
                 throw std::invalid_argument("lifted function argument count does not match the kernel arity");
             }
             R result = invoke<F>(args[I].template checked_as<tuple_arg_t<tuple, I>>()...);
-            return Value{output_binding, &result};
+            if constexpr (NativeBundleValue<R>) { return Value{output_binding, Value{result}.view()}; }
+            else { return Value{output_binding, &result}; }
         }
 
         template <typename F>
@@ -217,6 +218,10 @@ namespace hgraph
                 throw std::invalid_argument("lifted function argument count does not match the kernel arity");
             }
             R result = invoke<F>(args[I].template checked_as<tuple_arg_t<tuple, I>>()...);
+            if constexpr (NativeBundleValue<R>) {
+                static_cast<void>(destination.copy_value_from(Value{result}.view()));
+                return;
+            }
             // Typed in-place tier (the ``Out<TS<T>>::set`` middle path): a
             // pure-native atomic slot whose realized ops match R assigns and
             // commits via mark_modified; representation variants fall
@@ -255,6 +260,10 @@ namespace hgraph
             // The cell is planned from the kernel's own result schema (RFC
             // 0047), so a mismatch is a caller error, not a representation
             // variant to fall back from.
+            if constexpr (NativeBundleValue<R>) {
+                destination.set(invoke<F>(args[I].template checked_as<tuple_arg_t<tuple, I>>()...));
+                return;
+            }
             R *slot = destination.template try_mutable_as<R>();
             if (slot == nullptr)
             {
@@ -461,33 +470,8 @@ namespace hgraph
             using R     = result_t<F>;
             R result    = invoke<F>(read_lifted_arg<tuple_arg_t<tuple, I>>(children[I])...);
 
-            // Prepared output route (RFC 0008 stage 6, the lifted twin of
-            // ``Out<TS<T>>::set``): the output's native slot and tracking
-            // were resolved at start, so a matching kernel result stores and
-            // records the modification directly instead of re-deriving the
-            // output view, opening a mutation scope and copying through the
-            // erased value ops per tick.
-            if (const auto *route = prepared_output_route_for(view);
-                route != nullptr && route->native() && route->value_ops == &ops_for<R>())
-            {
-                *static_cast<R *>(route->native_value) = std::move(result);
-                route->commit(evaluation_time);
-                return true;
-            }
-            auto output   = view.output(evaluation_time);
-            auto mutation = output.begin_mutation(evaluation_time);
-            if (auto slot_value = mutation.mutable_value(); slot_value.valid())
-            {
-                if (R *slot = slot_value.template try_mutable_as<R>())
-                {
-                    *slot = std::move(result);
-                    mutation.mark_modified();
-                    return true;
-                }
-            }
-            auto destination = mutation.value();
-            const ValueView source{destination.binding(), static_cast<const void *>(&result)};
-            static_cast<void>(mutation.copy_value_from(source));
+            Out<TS<R>> output{view.output(evaluation_time), evaluation_time, prepared_output_route_for(view)};
+            output.set(std::move(result));
             return true;
         }
 
