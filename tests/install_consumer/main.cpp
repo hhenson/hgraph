@@ -601,6 +601,12 @@ int main(int argc, char **argv)
     if (hgraph::distributed::run_worker_if_requested(argc, argv)) return 0;
     check_spawn_consumer();
     {
+        const auto tenor = hgraph::Tenor::business_days(-12);
+        const hgraph::Value stored{tenor};
+        if (stored.view().checked_as<hgraph::Tenor>() != tenor ||
+            hgraph::scalar_descriptor<hgraph::Tenor>::value_meta() != hgraph::TypeRegistry::instance().value_type("tenor")) {
+            throw std::runtime_error("installed Tenor scalar lost identity");
+        }
         const hgraph::ZonedTime time{hgraph::time_of_day(9, 30, 0, 123456), hgraph::ZoneId{"US/Eastern"}};
         const hgraph::Value value{time};
         if (value.view().checked_as<hgraph::ZonedTime>() != time ||
