@@ -6,18 +6,23 @@ find_package(hgraph CONFIG REQUIRED)
 enable_testing()
 
 add_executable(hgraph_scalar_stream_consumer scalar_streams.cpp)
-target_link_libraries(hgraph_scalar_stream_consumer PRIVATE hgraph::wiring)
-if(COMMAND hgraph_link_python_embedding)
-    hgraph_link_python_embedding(hgraph_scalar_stream_consumer)
-endif()
+add_executable(hgraph_mock_executor_consumer mock_executor.cpp)
+foreach(consumer IN ITEMS hgraph_scalar_stream_consumer hgraph_mock_executor_consumer)
+    target_link_libraries(${consumer} PRIVATE hgraph::wiring)
+    if(COMMAND hgraph_link_python_embedding)
+        hgraph_link_python_embedding(${consumer})
+    endif()
+endforeach()
 add_test(NAME hgraph.install_consumer.scalar_streams COMMAND hgraph_scalar_stream_consumer)
+add_test(NAME hgraph.install_consumer.mock_executor COMMAND hgraph_mock_executor_consumer)
 
 if(DEFINED hgraph_WITH_ARROW AND NOT hgraph_WITH_ARROW)
     add_executable(hgraph_runtime_consumer ../cpp/runtime_consumer.cpp)
     target_link_libraries(hgraph_runtime_consumer PRIVATE hgraph::wiring)
     add_test(NAME hgraph.install_consumer.runtime COMMAND hgraph_runtime_consumer)
     if(WIN32)
-        set_tests_properties(hgraph.install_consumer.runtime hgraph.install_consumer.scalar_streams PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(hgraph.install_consumer.runtime hgraph.install_consumer.scalar_streams
+            hgraph.install_consumer.mock_executor PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:hgraph::runtime>")
     endif()
     return()

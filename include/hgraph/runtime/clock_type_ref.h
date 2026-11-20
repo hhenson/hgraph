@@ -1,6 +1,7 @@
 #ifndef HGRAPH_RUNTIME_CLOCK_TYPE_REF_H
 #define HGRAPH_RUNTIME_CLOCK_TYPE_REF_H
 
+#include <hgraph/hgraph_export.h>
 #include <hgraph/types/metadata/type_record.h>
 #include <hgraph/types/type_pointer.h>
 
@@ -55,14 +56,14 @@ namespace hgraph
         }
 
         [[nodiscard]] ClockPtr typed_null() const noexcept;
-        [[nodiscard]] ClockPtr read_only(const void *data) const noexcept;
+        [[nodiscard]] HGRAPH_EXPORT ClockPtr read_only(const void *data) const noexcept;
 
         [[nodiscard]] friend constexpr bool operator==(ClockTypeRef, ClockTypeRef) noexcept = default;
 
       private:
-        friend ClockTypeRef intern_clock_type(const EvaluationClockTypeMetaData &,
-                                              const MemoryUtils::StoragePlan &,
-                                              const EvaluationClockOps &, std::string_view);
+        friend HGRAPH_EXPORT ClockTypeRef intern_clock_type(
+            const EvaluationClockTypeMetaData &, const MemoryUtils::StoragePlan &,
+            const EvaluationClockOps &, std::string_view);
         friend class EvaluationClockView;
 
         explicit constexpr ClockTypeRef(const TypeRecord *record) noexcept : record_(record) {}
@@ -71,10 +72,11 @@ namespace hgraph
     };
 
     [[nodiscard]] TypeCapabilities clock_type_capabilities(const MemoryUtils::StoragePlan &plan);
-    [[nodiscard]] ClockTypeRef intern_clock_type(const EvaluationClockTypeMetaData &schema,
-                                                 const MemoryUtils::StoragePlan &plan,
-                                                 const EvaluationClockOps &ops,
-                                                 std::string_view implementation_label = {});
+    [[nodiscard]] HGRAPH_EXPORT ClockTypeRef intern_clock_type(
+        const EvaluationClockTypeMetaData &schema,
+        const MemoryUtils::StoragePlan &plan,
+        const EvaluationClockOps &ops,
+        std::string_view implementation_label = {});
 
     static_assert(sizeof(ClockTypeRef) == sizeof(void *));
     static_assert(alignof(ClockTypeRef) == alignof(void *));
