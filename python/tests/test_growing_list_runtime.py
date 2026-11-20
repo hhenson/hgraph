@@ -231,6 +231,45 @@ def test_recorded_vacant_child_keeps_its_extent_until_it_republishes(parent, key
             assert states == expected
 
 
+def test_recorded_dictionary_removes_vacant_list_keys_and_accepts_their_reinsertion():
+    book = TSD[str, Growing]
+    edits = [
+        {"hold": (1,), "holes": TSLDelta(size_modified=2)},
+        {"hold": {0: REMOVE}}, {"hold": REMOVE, "holes": REMOVE}, None,
+        {"hold": (), "holes": {0: 9}},
+    ]
+    states = []
+
+    @compute_node
+    def publish(clock: TS[int]) -> book:
+        return edits[clock.value]
+
+    @compute_node(active=("clock",), valid=("clock",))
+    def inspect(clock: TS[int], items: book) -> TS[int]:
+        states.append({key: (items[key].valid, len(items[key])) for key in items.keys()})
+        return clock.value
+
+    @graph
+    def live(clock: TS[int]) -> TS[int]:
+        items = publish(clock)
+        record(items, "book", recordable_id="vacant-keys")
+        return inspect(clock, items)
+
+    @graph
+    def recorded(clock: TS[int]) -> TS[int]:
+        return inspect(clock, replay("book", book, recordable_id="vacant-keys"))
+
+    clock = list(range(len(edits)))
+    expected = [{"hold": (True, 1), "holes": (False, 2)}, {"hold": (False, 1), "holes": (False, 2)},
+                {}, {}, {"hold": (True, 0), "holes": (True, 1)}]
+    with GlobalState():
+        set_record_replay_config(IN_MEMORY)
+        for node, args in [(live, (clock,)), (recorded, (clock,)), (inspect, (clock, edits))]:
+            states.clear()
+            assert eval_node(node, *args) == clock
+            assert states == expected
+
+
 @pytest.mark.parametrize(("index", "expected"), [
     (1, [2, -1, -1, 7]),
     (-2, [2, -1, -1, 1]),

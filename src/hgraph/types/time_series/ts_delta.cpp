@@ -1577,6 +1577,20 @@ namespace hgraph
 
             const auto dict = in.as_dict();
             SetBuilder removed{key_binding};
+            // A list-valued key can outlive the last published position of its
+            // child. Removing that key still changes membership, even when
+            // there is no longer a published child for the value-removal view.
+            if (in.schema()->element_ts()->kind == TSTypeKind::TSL && dict.structure_modified()) {
+                const auto data = dict.data_view();
+                for (auto slot = data.next_membership_removed_slot(); slot != TS_DATA_NO_CHILD_ID;
+                     slot = data.next_membership_removed_slot(slot)) {
+                    if (data.slot_removed(slot)) { continue; }  // Included in the value removals below.
+                    const auto key = data.key_at_slot(slot);
+                    if (selects != nullptr && !selects(context, key)) { continue; }
+                    const BorrowedOperand borrowed{key_binding, key, "capture_delta"};
+                    (void)removed.insert_copy(borrowed.data());
+                }
+            }
             const auto removed_keys = dict.structure_modified() ? dict.data_view().removed_keys() : Range<ValueView>{};
             for (const auto &key : removed_keys)
             {

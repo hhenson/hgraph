@@ -1544,6 +1544,62 @@ TEST_CASE("ts_delta: nested empty patches publish only effective children", "[em
   verify(schema_descriptor<TSL<Child>>::ts_meta(), dynamic_list_delta<Child>({{0, empty}}, {}, 1));
 }
 
+TEST_CASE("capturing list-valued dictionary membership distinguishes vacant, removed and reinserted keys") {
+  using Child = TSL<TS<Int>>;
+  const auto *schema = schema_descriptor<TSD<Int, Child>>::ts_meta();
+  TSOutput source{schema}, replay{schema};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+  input.view(nullptr, MIN_ST).bind_output(source.view(MIN_ST));
+  const Value key{Int{7}};
+  const auto holes = dynamic_list_delta<TS<Int>>({}, {}, 2);
+  const auto remove_key = dict_delta<Int, Child>({}, {7});
+
+  const auto transport = [&](DateTime time) {
+    const auto delta = capture_delta(input.view(nullptr, time));
+    apply_observed_delta(replay.view(time), delta.view());
+    return delta;
+  };
+  apply_delta(source.view(MIN_ST), dict_delta<Int, Child>({{7, holes}}).view());
+  transport(MIN_ST);
+  auto first_root = replay.view(MIN_ST);
+  auto first = first_root.as_dict();
+  REQUIRE(first.contains(key.view()));
+  REQUIRE_FALSE(first.at(key.view()).valid());
+
+  const auto cancel = MIN_ST + MIN_TD;
+  apply_delta(source.view(cancel), remove_key.view());
+  apply_delta(source.view(cancel), dict_delta<Int, Child>({{7, holes}}).view());
+  const auto retained = transport(cancel);
+  CHECK(retained.view().as_bundle().at("removed").as_set().empty());
+  auto retained_root = replay.view(cancel);
+  auto retained_book = retained_root.as_dict();
+  REQUIRE(retained_book.contains(key.view()));
+  auto held = retained_book.at(key.view());
+  CHECK_FALSE(held.valid());
+  CHECK(held.as_list().size() == 2);
+
+  const auto erase = cancel + MIN_TD;
+  apply_delta(source.view(erase), remove_key.view());
+  const auto removed = transport(erase);
+  CHECK(removed.view().as_bundle().at("removed").as_set().contains(key.view()));
+  auto removed_root = replay.view(erase);
+  CHECK_FALSE(removed_root.as_dict().contains(key.view()));
+  const auto later = erase + MIN_TD;
+  apply_delta(source.view(later), remove_key.view());
+  CHECK_FALSE(source.view(later).modified());
+
+  const auto reinsert = later + MIN_TD;
+  const auto valued = dynamic_list_delta<TS<Int>>({{0, 5}}, {}, 1);
+  apply_delta(source.view(reinsert), dict_delta<Int, Child>({{7, valued}}).view());
+  transport(reinsert);
+  auto restored_root = replay.view(reinsert);
+  auto fresh = restored_root.as_dict().at(key.view());
+  REQUIRE(fresh.valid());
+  auto positions = fresh.as_list();
+  CHECK(positions.size() == 1);
+  CHECK(positions.at(0).value().checked_as<Int>() == 5);
+}
+
 TEST_CASE("ts_delta: cancelled producer tick is applied by consumer validity", "[empty-delta]") {
   const auto *schema = schema_descriptor<TSS<Int>>::ts_meta();
   TSOutput producer{schema}, fresh{schema}, held{schema};
