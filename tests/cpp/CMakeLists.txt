@@ -15,6 +15,11 @@ if(NOT HGRAPH_WITH_ARROW)
     return()
 endif()
 
+add_executable(hgraph_optional_bundle_test ../install_consumer/optional_bundle_member.cpp)
+target_link_libraries(hgraph_optional_bundle_test PRIVATE hgraph::core)
+add_test(NAME hgraph.optional_bundle_publication COMMAND hgraph_optional_bundle_test)
+hgraph_configure_test_runtime_paths(hgraph.optional_bundle_publication)
+
 add_executable(hgraph_arrow_abi_check arrow_abi_check.cpp)
 target_link_libraries(hgraph_arrow_abi_check PRIVATE hgraph::core)
 add_test(NAME hgraph.arrow_abi COMMAND hgraph_arrow_abi_check)

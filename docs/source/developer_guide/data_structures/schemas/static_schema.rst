@@ -133,7 +133,11 @@ runtime — they exist purely to drive the descriptor traits.
 ``native_bundle<T>`` and ``NativeTSB<T>``
     Include ``<hgraph/types/native_bundle.h>`` to bind a concrete C++
     aggregate to its nominal schema. List data members in schema field order.
-    Members may be atomic scalars or other mapped aggregates.
+    Members may be atomic scalars or other mapped aggregates. A
+    ``std::optional<U>`` member maps to an ``Optional`` field whose payload
+    schema matches ``U``, including a mapped aggregate. Its temporal field is
+    one ``TS<Optional<...>>``. Writing a disengaged member publishes a valid
+    null. Reading it through the aggregate returns ``std::nullopt``.
 
     .. code-block:: cpp
 

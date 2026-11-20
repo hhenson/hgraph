@@ -6,13 +6,64 @@
 
 namespace hgraph
 {
+    namespace native_bundle_detail
+    {
+        template <typename Member, typename Schema>
+        struct field_access
+        {
+            static void pack(BundleBuilder &builder, std::size_t index, const Member &value) { builder.set(index, Value{value}); }
+            static decltype(auto) unbox(const ValueView &value) { return value.template checked_as<Member>(); }
+
+            template <typename Input>
+            static decltype(auto) read(const Input &input) { return input.value(); }
+
+            template <typename Output>
+            static void write(const Output &output, const Member &value) { output.set(value); }
+        };
+
+        template <typename Payload, typename Schema>
+        struct field_access<std::optional<Payload>, Optional<Schema>>
+        {
+            using Member = std::optional<Payload>;
+
+            static void pack(BundleBuilder &builder, std::size_t index, const Member &value)
+            {
+                Value boxed{builder.field_binding(index)};
+                if (value) { boxed.view().as_optional().begin_mutation().emplace(Value{*value}.view()); }
+                builder.set(index, std::move(boxed));
+            }
+
+            static Member from_optional(const OptionalView &value)
+            {
+                if (!value.has_value()) { return std::nullopt; }
+                return value.value().template checked_as<Payload>();
+            }
+
+            static Member unbox(const ValueView &value) { return from_optional(value.as_optional()); }
+
+            template <typename Input>
+            static Member read(const Input &input) { return from_optional(input.value()); }
+
+            template <typename Output>
+            static void write(const Output &output, const Member &value)
+            {
+                if (!value) { output.set(Null); }
+                else if constexpr (NativeBundleValue<Payload>) { output.set(Value{*value}.view()); }
+                else { output.set(*value); }
+            }
+        };
+
+        template <typename Fields, std::size_t I>
+        using member_access = field_access<typename Fields::template member_type<I>, typename Fields::template field<I>::schema>;
+    }
+
     template <NativeBundleValue T>
     Value::Value(const T &value)
     {
         using Fields = static_schema_detail::native_bundle_fields<T>;
         BundleBuilder builder{ValuePlanFactory::instance().type_for(scalar_descriptor<T>::value_meta())};
         [&]<std::size_t... I>(std::index_sequence<I...>) {
-            (builder.set(I, Value{value.*std::get<I>(Fields::members)}), ...);
+            (native_bundle_detail::member_access<Fields, I>::pack(builder, I, value.*std::get<I>(Fields::members)), ...);
         }(typename Fields::indices{});
         *this = builder.build();
     }
@@ -39,7 +90,7 @@ namespace hgraph
         T value{};
         [&]<std::size_t... I>(std::index_sequence<I...>) {
             ((value.*std::get<I>(Fields::members) =
-                  bundle.at(I).template checked_as<typename Fields::template member_type<I>>()), ...);
+                  native_bundle_detail::member_access<Fields, I>::unbox(bundle.at(I))), ...);
         }(typename Fields::indices{});
         return value;
     }
