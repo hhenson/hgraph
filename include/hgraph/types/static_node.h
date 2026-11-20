@@ -1134,17 +1134,20 @@ namespace hgraph
         template <fixed_string FieldName>
         [[nodiscard]] auto get() const { return field<FieldName>(); }
 
-        using TSBInputView::value;
-        [[nodiscard]] auto value() const requires NativeBundleValue<typename TSchema::value_bundle>
+        [[nodiscard]] auto value() const
         {
-            if (!all_valid()) { throw std::logic_error("whole bundle read requires all fields to be valid"); }
-            using T = typename TSchema::value_bundle;
-            using Fields = static_schema_detail::native_bundle_fields<T>;
-            T result{};
-            [&]<std::size_t... I>(std::index_sequence<I...>) {
-                ((result.*std::get<I>(Fields::members) = field<Fields::template field<I>::name_sv>().value()), ...);
-            }(typename Fields::indices{});
-            return result;
+            if constexpr (requires { requires NativeBundleValue<typename TSchema::value_bundle>; }) {
+                if (!all_valid()) { throw std::logic_error("whole bundle read requires all fields to be valid"); }
+                using T = typename TSchema::value_bundle;
+                using Fields = static_schema_detail::native_bundle_fields<T>;
+                T result{};
+                [&]<std::size_t... I>(std::index_sequence<I...>) {
+                    ((result.*std::get<I>(Fields::members) = field<Fields::template field<I>::name_sv>().value()), ...);
+                }(typename Fields::indices{});
+                return result;
+            } else {
+                return TSBInputView::value();
+            }
         }
 
         [[nodiscard]] ValueView delta() const { return delta_value(); }
