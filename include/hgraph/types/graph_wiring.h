@@ -995,6 +995,8 @@ namespace hgraph
                                       NodeBuilder &builder);
         void clear_pending_node_label() noexcept;
 
+        /** The supplied scalars identify the call and configure a builder that
+         * has no scalar value of its own. A preconfigured builder keeps its value. */
         WiringPortRef add_node(std::type_index def, NodeBuilder builder, std::span<const WiringInputRef> inputs,
                                Value scalars);
 

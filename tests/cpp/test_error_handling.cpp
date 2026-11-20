@@ -236,6 +236,65 @@ namespace
         UnNamedTSB<Field<"exception", TS<NodeError>>,
                    Field<"out", TryStructuralPair>>;
 
+    using CanonicalIntResult =
+        UnNamedTSB<Field<"value", TS<Int>>, Field<"error", TS<CanonicalError>>>;
+
+    struct CheckedNumber
+    {
+        static constexpr auto name = "checked_number";
+        static NodeResult<void> eval(In<"x", TS<Int>> x, Out<TS<Int>> out)
+        {
+            if (x.value() < 0) {
+                return std::unexpected{CanonicalError{.code = "numeric.out_of_range", .message = "negative", .context = {}}};
+            }
+            out.set(x.value());
+            return {};
+        }
+    };
+
+    struct CheckedGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> x) { return wire<CheckedNumber>(w, x); }
+    };
+
+    struct ObserveCapture
+    {
+        static void eval(In<"result", CanonicalIntResult, InputValidity::Unchecked> r, Out<TS<Str>> out)
+        {
+            auto value = r.field<"value">();
+            auto error = r.field<"error">();
+            if (error.modified()) {
+                const auto &diagnostic = error.value();
+                REQUIRE(diagnostic.context);
+                CHECK(diagnostic.context->node.find("checked_number") != std::string::npos);
+                CHECK(diagnostic.context->phase == "evaluate");
+                CHECK_FALSE(value.modified());
+                out.set(diagnostic.code.value_or(""));
+            } else {
+                REQUIRE(value.modified());
+                out.set(std::to_string(value.value()) + (error.valid() ? " retained" : " clean"));
+            }
+        }
+    };
+
+    struct CanonicalValueGraph
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> x)
+        {
+            auto result = try_except_<CheckedGraph>(w, ErrorCaptureOptions{.canonical_errors = true}, x);
+            return wire<ObserveCapture>(w, result.as<CanonicalIntResult>());
+        }
+    };
+
+    struct CanonicalSinkGraph
+    {
+        static Port<TS<CanonicalError>> compose(Wiring &w, Port<TS<Int>> x)
+        {
+            return try_except_<SinkOrThrowG>(w, ErrorCaptureOptions{.canonical_errors = true}, x)
+                .as<TS<CanonicalError>>();
+        }
+    };
+
     struct TryStructuralPairG
     {
         static constexpr auto name = "try_structural_pair_g";
@@ -819,6 +878,36 @@ TEST_CASE("error handling: try_except over a sink sub-graph yields just the erro
     auto gs = ex.view().graph().global_state();
 
     CHECK_OUTPUT(get_recorded_values<Str>(gs, "err"), values<Str>(none, "sink negative"s));
+}
+
+TEST_CASE("error handling: typed try_except publishes canonical errors and retains their provenance")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    const auto input = values<Int>(5, -3, 7);
+    CHECK_OUTPUT(eval_node<CanonicalValueGraph>(input),
+                 values<Str>("5 clean"s, "numeric.out_of_range"s, "7 retained"s));
+    const auto errors = eval_node<CanonicalSinkGraph>(input);
+    REQUIRE(errors.size() == 3);
+    CHECK_FALSE(errors[0].has_value());
+    REQUIRE(errors[1].has_value());
+    CHECK(errors[1]->message == "sink negative");
+    REQUIRE(errors[1]->context);
+    CHECK(errors[1]->context->phase == "evaluate");
+    CHECK_FALSE(errors[2].has_value());
+}
+
+TEST_CASE("error handling: typed capture options participate in wiring identity")
+{
+    using namespace hgraph;
+    Wiring w;
+    auto x = wire<stdlib::replay_impl, TS<Int>>(w, Str{"x"});
+    const auto plain = try_except_<DoublerOrThrowG>(w, x);
+    CHECK(plain.node() == try_except_<DoublerOrThrowG>(w, ErrorCaptureOptions{}, x).node());
+    const ErrorCaptureOptions detailed{.trace_back_depth = 3, .capture_values = true};
+    const auto traced = try_except_<DoublerOrThrowG>(w, detailed, x);
+    CHECK(plain.node() != traced.node());
+    CHECK(traced.node() == try_except_<DoublerOrThrowG>(w, detailed, x).node());
 }
 
 TEST_CASE("error handling: registered try_except wires value graphs and sinks")
