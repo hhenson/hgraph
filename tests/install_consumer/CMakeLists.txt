@@ -8,7 +8,9 @@ enable_testing()
 add_executable(hgraph_scalar_stream_consumer scalar_streams.cpp)
 add_executable(hgraph_mock_executor_consumer mock_executor.cpp)
 add_executable(hgraph_compiled_try_except_consumer compiled_try_except.cpp)
-foreach(consumer IN ITEMS hgraph_scalar_stream_consumer hgraph_mock_executor_consumer hgraph_compiled_try_except_consumer)
+add_executable(hgraph_optional_bundle_consumer optional_bundle_member.cpp)
+foreach(consumer IN ITEMS hgraph_scalar_stream_consumer hgraph_mock_executor_consumer
+        hgraph_compiled_try_except_consumer hgraph_optional_bundle_consumer)
     target_link_libraries(${consumer} PRIVATE hgraph::wiring)
     if(COMMAND hgraph_link_python_embedding)
         hgraph_link_python_embedding(${consumer})
@@ -17,6 +19,7 @@ endforeach()
 add_test(NAME hgraph.install_consumer.scalar_streams COMMAND hgraph_scalar_stream_consumer)
 add_test(NAME hgraph.install_consumer.mock_executor COMMAND hgraph_mock_executor_consumer)
 add_test(NAME hgraph.install_consumer.compiled_try_except COMMAND hgraph_compiled_try_except_consumer)
+add_test(NAME hgraph.install_consumer.optional_bundle COMMAND hgraph_optional_bundle_consumer)
 
 if(DEFINED hgraph_WITH_ARROW AND NOT hgraph_WITH_ARROW)
     add_executable(hgraph_runtime_consumer ../cpp/runtime_consumer.cpp)
@@ -24,7 +27,8 @@ if(DEFINED hgraph_WITH_ARROW AND NOT hgraph_WITH_ARROW)
     add_test(NAME hgraph.install_consumer.runtime COMMAND hgraph_runtime_consumer)
     if(WIN32)
         set_tests_properties(hgraph.install_consumer.runtime hgraph.install_consumer.scalar_streams
-            hgraph.install_consumer.mock_executor hgraph.install_consumer.compiled_try_except PROPERTIES ENVIRONMENT_MODIFICATION
+            hgraph.install_consumer.mock_executor hgraph.install_consumer.compiled_try_except
+            hgraph.install_consumer.optional_bundle PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:hgraph::runtime>")
     endif()
     return()

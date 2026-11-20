@@ -15,6 +15,11 @@ namespace
         Int bid;
         bool operator==(const Quote &) const = default;
     };
+    struct Annotation {
+        std::optional<Quote> top;
+        std::optional<Str> note;
+        bool operator==(const Annotation &) const = default;
+    };
     struct Book {
         Quote top;
         Str symbol;
@@ -26,6 +31,12 @@ template <> struct hgraph::native_bundle<Quote> {
     using schema = NominalBundle<"test.native", "Quote", false, BundleParents<>, BundleArguments<>,
                                  Field<"bid", Int>, Field<"ask", Int>>;
     static constexpr auto members = std::tuple{&Quote::bid, &Quote::ask};
+};
+
+template <> struct hgraph::native_bundle<Annotation> {
+    using schema = NominalBundle<"test.native", "Annotation", false, BundleParents<>, BundleArguments<>,
+                                 Field<"top", Optional<Quote>>, Field<"note", Optional<Str>>>;
+    static constexpr auto members = std::tuple{&Annotation::top, &Annotation::note};
 };
 
 template <> struct hgraph::native_bundle<Book> {
@@ -159,4 +170,27 @@ TEST_CASE("lifted scalar kernels accept and return mapped aggregates", "[native-
 
     static_cast<void>(scalar_descriptor<WiredFn>::value_meta());
     CHECK_OUTPUT(eval_node<LiftedAsk>(values<Int>(1, 2)), values<Int>(3, 4));
+}
+
+TEST_CASE("optional native members own their payload and keep an unset field distinct from null", "[native-bundle]")
+{
+    using namespace hgraph;
+    const Annotation expected{Quote{12, 9}, Str(128, 'x')};
+    const Value boxed = [&] {
+        Annotation source = expected;
+        return Value{source};
+    }();
+    CHECK(boxed.view().checked_as<Annotation>() == expected);
+    Value field{Annotation{}};
+    auto writer = field.begin_mutation();
+    writer.set(expected);
+    const Annotation held = field.view().checked_as<Annotation>();
+    writer.set(Annotation{});
+    CHECK(field.view().checked_as<Annotation>() == Annotation{});
+    CHECK(held == expected);
+
+    const auto binding = ValuePlanFactory::instance().type_for(scalar_descriptor<Annotation>::value_meta());
+    BundleBuilder partial{binding};
+    partial.set("note", Value{partial.field_binding("note")});
+    CHECK_THROWS_AS(partial.build().view().checked_as<Annotation>(), std::logic_error);
 }
