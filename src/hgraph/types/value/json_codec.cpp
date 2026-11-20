@@ -1382,6 +1382,7 @@ namespace hgraph
         {
             switch (tag)
             {
+            case AtomicTag::Tenor:
             case AtomicTag::Period:
             case AtomicTag::InstantRange:
             case AtomicTag::CivilDateRange:
@@ -1462,6 +1463,18 @@ namespace hgraph
                             view.checked_as<CivilDateTime>()),
                         out);
                     return;
+                case AtomicTag::Tenor: {
+                    const auto &value = view.checked_as<Tenor>();
+                    if (value.is_business())
+                    {
+                        fmt::format_to(std::back_inserter(out), "{{\"business_days\": {}}}", value.business());
+                    }
+                    else
+                    {
+                        fmt::format_to(std::back_inserter(out), "{{\"months\": {}, \"days\": {}}}", value.months(), value.days());
+                    }
+                    return;
+                }
                 case AtomicTag::Period: {
                     const Period value = view.checked_as<Period>();
                     fmt::format_to(std::back_inserter(out),
@@ -1767,6 +1780,27 @@ namespace hgraph
                     return read_bound_atomic(
                         self, json_detail::parse_civil_datetime(
                                   reader.parse_string(), reader, false));
+                case AtomicTag::Tenor: {
+                    reader.expect('{');
+                    auto field = reader.parse_string();
+                    reader.expect(':');
+                    const auto first = json_detail::parse_int_token(reader.parse_number_token(), reader);
+                    if (field == "business_days")
+                    {
+                        reader.expect('}');
+                        return read_bound_atomic(self, Tenor::business_days(first));
+                    }
+                    const bool months_first = field == "months";
+                    if (!months_first && field != "days") { reader.fail("tenor requires months and days, or business_days"); }
+                    reader.expect(',');
+                    field = reader.parse_string();
+                    if (field != (months_first ? "days" : "months")) { reader.fail("tenor requires both months and days"); }
+                    reader.expect(':');
+                    const auto second = json_detail::parse_int_token(reader.parse_number_token(), reader);
+                    reader.expect('}');
+                    return read_bound_atomic(self, months_first ? Tenor::months_days(first, second)
+                                                               : Tenor::months_days(second, first));
+                }
                 case AtomicTag::Period: {
                     reader.expect('{');
                     if (reader.parse_string() != "months")
@@ -2305,6 +2339,7 @@ namespace hgraph
             {
                 return AtomicTag::CivilDateTime;
             }
+            if (meta == scalar_descriptor<Tenor>::value_meta()) { return AtomicTag::Tenor; }
             if (meta == scalar_descriptor<Period>::value_meta())
             {
                 return AtomicTag::Period;
