@@ -203,6 +203,17 @@ namespace hgraph::detail
             return is_to_ref_shape(source_schema, &requested_schema);
         }
 
+        // A reference to a fixed collection can supply references to its live
+        // positions. Build the ordinary from-REF view first so those positions
+        // keep their identities when the whole collection is retargeted.
+        [[nodiscard]] bool reference_to_item_references(const TSValueTypeMetaData *source,
+                                                        const TSValueTypeMetaData &requested)
+        {
+            return source != nullptr && source->kind == TSTypeKind::REF &&
+                   (requested.kind == TSTypeKind::TSL || requested.kind == TSTypeKind::TSB) &&
+                   is_to_ref_shape(source->referenced_ts(), &requested);
+        }
+
         /**
          * INTERIOR from-REF shapes (time_series.rst, keyed/structural
          * inverse conversion): the source carries REF positions below the
@@ -314,11 +325,6 @@ namespace hgraph::detail
                    is_from_ref_interior_shape(source_schema, &requested_schema, true);
         }
 
-        [[nodiscard]] TSOutputView source_child_view(const TSOutputView &parent, const TSDataView &child)
-        {
-            return TSOutputView{parent.output(), child.borrowed_ref(), parent.evaluation_time()};
-        }
-
         [[nodiscard]] TSEndpointSchema from_ref_endpoint_schema_for(const TSValueTypeMetaData *schema);
 
         [[nodiscard]] TSEndpointSchema peered_from_ref_endpoint_schema_for(const TSValueTypeMetaData *schema)
@@ -402,7 +408,12 @@ namespace hgraph::detail
                 // can project removals without copying its keys.
                 link->unbind_structural(modified_time);
             }
-            else { link->unbind(); }
+            else
+            {
+                const bool had_value = link->bound() && link->target_view().has_current_value();
+                link->unbind();
+                if (had_value) { link->tracking.observers.notify(modified_time); }
+            }
         }
 
         void bind_target_link_at(const TSDataView &target, const TSOutputView &output, DateTime modified_time)
@@ -1532,12 +1543,10 @@ namespace hgraph::detail
                                     DateTime modified_time)
         {
             auto target_bundle = target.as_bundle();
-            auto source_bundle = source_view.data_view().as_bundle();
             for (std::size_t index = 0; index < plan.children.size(); ++index)
             {
                 auto target_child = target_bundle.at(index);
-                auto source_child_data = source_bundle.at(index);
-                auto source_child = source_child_view(source_view, source_child_data);
+                auto source_child = source_view.indexed_child_at(index);
                 populate_to_ref_data(plan.children[index], target_child, source_child, modified_time);
             }
         }
@@ -1548,12 +1557,10 @@ namespace hgraph::detail
                                   DateTime modified_time)
         {
             auto target_list = target.as_list();
-            auto source_list = source_view.data_view().as_list();
             for (std::size_t index = 0; index < plan.children.size(); ++index)
             {
                 auto target_child = target_list.at(index);
-                auto source_child_data = source_list.at(index);
-                auto source_child = source_child_view(source_view, source_child_data);
+                auto source_child = source_view.indexed_child_at(index);
                 populate_to_ref_data(plan.children[index], target_child, source_child, modified_time);
             }
         }
@@ -2527,7 +2534,8 @@ namespace hgraph::detail
                (alternative_route_matches_nullable(source_schema, requested_schema) ||
                 alternative_route_matches_to_ref(source_schema, requested_schema) ||
                 alternative_route_matches_from_ref(source_schema, requested_schema) ||
-                alternative_route_matches_from_ref_interior(source_schema, requested_schema));
+                alternative_route_matches_from_ref_interior(source_schema, requested_schema) ||
+                reference_to_item_references(source_schema, requested_schema));
     }
 
     TSOutputHandle TSOutputAlternativeStore::binding_for(const TSOutputView &source,
@@ -2566,6 +2574,11 @@ namespace hgraph::detail
             }
         }
 
+        if (reference_to_item_references(source_schema, requested_schema))
+        {
+            const auto followed = binding_for(source, *source_schema->referenced_ts());
+            return binding_for(followed.view(source.evaluation_time()), requested_schema);
+        }
         throw std::logic_error("TSOutput structural reference alternatives are not implemented yet");
     }
 
@@ -2607,6 +2620,11 @@ namespace hgraph::detail
                 state = interior_from_ref_alternatives_.insert(key, std::move(inserted)).first;
             }
             return state->handle(source.output());
+        }
+        if (reference_to_item_references(source.schema(), requested_schema))
+        {
+            const auto followed = checkpoint_binding_for(source, *source.schema()->referenced_ts());
+            return checkpoint_binding_for(followed.view(source.evaluation_time()), requested_schema);
         }
         throw std::invalid_argument("checkpoint adapter schema adaptation is unsupported");
     }

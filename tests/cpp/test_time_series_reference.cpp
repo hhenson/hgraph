@@ -1439,8 +1439,7 @@ TEST_CASE("TimeSeriesReference: from-REF alternative binds peered target and fol
 
     set_output_reference(ref_output, TimeSeriesReference::empty(ts_int), t5);
     auto after_unbind = handle.view(t5);
-    // UNBIND IS SILENT (linking_strategies.rst): the input reads not-valid
-    // but is NOT marked modified - consumers are not notified.
+    // Withdrawal wakes active readers without advancing the adapter's value timestamp.
     REQUIRE_FALSE(after_unbind.valid());
     REQUIRE_FALSE(after_unbind.modified());
     REQUIRE(after_unbind.last_modified_time() == t4);

@@ -436,9 +436,8 @@ namespace hgraph
         /**
          * Invalidate this value and its statically indexed descendants.
          *
-         * Observers are notified at the mutation time before the local
-         * validity timestamp is cleared. Repeating the operation on an
-         * already-invalid value is a no-op.
+         * REF followers observe the cleared designation synchronously.
+         * Repeating the operation on an already-invalid value is a no-op.
          */
         [[nodiscard]] bool invalidate();
 

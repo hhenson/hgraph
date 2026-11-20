@@ -208,7 +208,8 @@ namespace hgraph
             {
                 // A link can carry the producer's invalidation notification
                 // or a sampled rebind. Only the former suppresses modification.
-                return !invalidated(data, evaluation_time);
+                return !invalidated(data, evaluation_time) &&
+                       (!detail::has_input_children(data) || data.has_current_value());
             }
             return false;
         }
@@ -655,8 +656,7 @@ namespace hgraph
 
         // A REF-typed input's reference IS its VALUE (one dereference level:
         // hgraph's ts.value on a REF input) - an emptied upstream reference
-        // reads empty here, so assemblies observe invalidation without any
-        // unbind notification (UNBIND IS SILENT, linking_strategies.rst).
+        // reads empty here even while an independent input wakes the consumer.
         if (view_schema->kind == TSTypeKind::REF)
         {
             if (!valid()) { return TimeSeriesReference::empty(view_schema->referenced_ts()); }

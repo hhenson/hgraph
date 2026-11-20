@@ -8,6 +8,7 @@
 #include <hgraph/types/operator_dispatch.h> // context scope stack (OperatorRegistry)
 #include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/time_series/ts_input/impl/reference_publication.h>
+#include <hgraph/types/detail/reference_child_projection.h>
 #include <hgraph/util/scope.h>
 
 #include <algorithm>
@@ -1392,6 +1393,39 @@ NodeBuilder graph_wiring_detail::reference_terminal_builder(
 }
 
 namespace {
+
+// A graph parameter can expose a REF producer as an ordinary value. Read the
+// physical schema to find the first reference on a fixed path, then preserve
+// the designation of each remaining position. Value readers keep their edge.
+std::optional<WiringPortRef> reference_projection_for_path(Wiring &w, const WiringPortRef &source) {
+  const auto &path = source.peered_path();
+  const auto *schema = output_schema_of(*source.peered_node());
+  std::optional<WiringPortRef> projected;
+  for (auto position = path.begin(); schema != nullptr && position != path.end(); ++position) {
+    const bool follows_reference = schema->kind == TSTypeKind::REF;
+    const auto *parent = follows_reference ? schema->referenced_ts() : schema;
+    const TSValueTypeMetaData *child = nullptr;
+    if (parent != nullptr && parent->kind == TSTypeKind::TSL && !parent->is_unbounded_tsl() &&
+        *position < parent->fixed_size()) {
+      child = parent->element_ts();
+    } else if (parent != nullptr && parent->kind == TSTypeKind::TSB && *position < parent->field_count()) {
+      child = parent->fields()[*position].type;
+    } else {
+      return std::nullopt;
+    }
+    if (follows_reference) {
+      if (!projected) {
+        projected = WiringPortRef::peered_source(source.peered_node(), {path.begin(), position}, schema);
+      }
+      projected = graph_wiring_detail::project_reference_child(w, *projected, *position, child);
+      schema = projected->schema;
+    } else {
+      schema = child;
+    }
+  }
+  return projected;
+}
+
 WiringPortRef adapt_source_for_input_impl(Wiring &w,
                                           const TSValueTypeMetaData *input_schema,
                                           WiringPortRef source,
@@ -1433,6 +1467,11 @@ WiringPortRef adapt_source_for_input_impl(Wiring &w,
     return wire_operator(w, "convert", std::span<const WiringArg>{args}, true,
                          input_schema)
         .output.erased();
+  }
+
+  if (input_schema->kind == TSTypeKind::REF && source.is_peered_source() &&
+      !source.peered_path().empty() && source.peered_output_kind() == GraphEdgeSourceKind::Output) {
+    if (auto projected = reference_projection_for_path(w, source)) { return *projected; }
   }
 
   if (!source.is_structural_source()) {

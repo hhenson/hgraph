@@ -1162,8 +1162,10 @@ namespace hgraph::detail
         {
             throw std::invalid_argument("Current-value TSInput target binding requires an evaluation time");
         }
+        const bool had_value = bound() && target_view().has_current_value();
         bind_impl(schema, output, MIN_DT, false, false);
         if (output.data_view().has_current_value()) { record_target_modified(modified_time); }
+        else if (had_value) { tracking.observers.notify(modified_time); }
     }
 
     void TSInputTargetLinkStorage::bind_sampled(const TSValueTypeMetaData &schema,

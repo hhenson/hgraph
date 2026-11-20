@@ -73,9 +73,7 @@ def test_only_a_ref_consumer_observes_designations():
 
 
 def test_valid_of_explicit_reference_observes_empty_designations():
-    # The reference-aware operator subscribes to designation changes. An
-    # ordinary scalar alias has no wake on unbind; its validity is tested
-    # above through an independent clock, rather than expecting a data tick.
+    # The reference-aware operator follows designation changes, including empty ones.
     assert _run(REF[TS[int]], lambda value, clock: valid(value)) == [
         False, None, True, None, False, None, True, None]
 

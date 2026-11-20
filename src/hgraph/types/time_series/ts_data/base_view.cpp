@@ -144,9 +144,7 @@ ValueView TSDataView::delta_value(DateTime evaluation_time) const {
     return table.delta_view_impl(table.context, data(), evaluation_time);
   }
   const auto *data_layout = table.layout_impl(table.context);
-  const auto *data_tracking = table.tracking_impl(table.context, data());
-  if (evaluation_time == MIN_DT ||
-      data_tracking->last_modified_time != evaluation_time) {
+  if (!modified(evaluation_time)) {
     return ValueView{data_layout->delta_binding, nullptr};
   }
   return ValueView{data_layout->delta_binding,
@@ -156,12 +154,18 @@ ValueView TSDataView::delta_value(DateTime evaluation_time) const {
 
 
 DateTime TSDataView::last_modified_time() const {
-  return tracking().last_modified_time;
+  const auto &table = ops();
+  // An assembled input tracks child notifications even when the last child
+  // loses its value. Its public value then has no modification time (TS-26).
+  if (table.is_input_binding && !table.has_current_value_impl(table.context, data())) { return MIN_DT; }
+  return table.tracking_impl(table.context, data())->last_modified_time;
 }
 
 bool TSDataView::modified(DateTime evaluation_time) const {
+  const auto &table = ops();
   return evaluation_time != MIN_DT &&
-         tracking().last_modified_time == evaluation_time;
+         table.tracking_impl(table.context, data())->last_modified_time == evaluation_time &&
+         (!table.is_input_binding || table.has_current_value_impl(table.context, data()));
 }
 
 bool TSDataView::invalidated(DateTime evaluation_time) const {
@@ -500,6 +504,8 @@ bool TSDataMutationView::copy_value_from(const ValueView &source) {
   }
 
   const auto &table = ops();
+  const bool repointed = table.kind == TSTypeKind::REF && modified(table, mutation_time_) &&
+                         !value().equals(source);
   const bool newly_modified = table.copy_value_from_impl(
       table.context, storage_.data(), source, mutation_time_);
   if (newly_modified) {
@@ -509,6 +515,10 @@ bool TSDataMutationView::copy_value_from(const ValueView &source) {
     // landed on pre-marked storage. Recording is idempotent; parents
     // are notified only by the first recording.
     mark_modified(table);
+  } else if (repointed) {
+    // Routing observers follow every different designation. The graph still
+    // coalesces node evaluations and the parent's delta at this time.
+    view().tracking().observers.notify(mutation_time_);
   }
   return newly_modified;
 }
@@ -525,6 +535,8 @@ bool TSDataMutationView::move_value_from(ValueView source) {
   }
 
   const auto &table = ops();
+  const bool repointed = table.kind == TSTypeKind::REF && modified(table, mutation_time_) &&
+                         !value().equals(source);
   const bool newly_modified = table.move_value_from_impl(
       table.context, storage_.data(), std::move(source), mutation_time_);
   if (newly_modified) {
@@ -534,6 +546,8 @@ bool TSDataMutationView::move_value_from(ValueView source) {
     // landed on pre-marked storage. Recording is idempotent; parents
     // are notified only by the first recording.
     mark_modified(table);
+  } else if (repointed) {
+    view().tracking().observers.notify(mutation_time_);
   }
   return newly_modified;
 }
@@ -571,11 +585,12 @@ bool TSDataMutationView::invalidate() {
 
   auto &state =
       *table.mutable_tracking_impl(table.context, storage_.data());
+  // REF followers read the designation synchronously. Clear it before they
+  // rebind. Other parents inspect the outgoing child while recording its loss.
+  if (table.kind == TSTypeKind::REF) { state.last_modified_time = MIN_DT; }
   state.observers.notify(mutation_time_);
   state.parent.notify_child_modified(mutation_time_);
   state.last_modified_time = MIN_DT;
-  // An invalid owned child retains its clear time for the parent list.
-  // Target links track their own transitions.
   state.last_empty_delta_time = !table.is_target_link ? mutation_time_ : MIN_DT;
   return true;
 }

@@ -7,6 +7,7 @@
 #include <hgraph/lib/std/operators/impl/collection_input_semantics.h>
 #include <hgraph/lib/std/operators/impl/output_elision.h>
 #include <hgraph/types/metadata/type_realization.h>
+#include <hgraph/types/detail/reference_child_projection.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/operator_type_resolution.h>
 #include <hgraph/types/primitive_types.h>
@@ -42,13 +43,6 @@ struct FieldProjectionState {
   Int field{-1};
 };
 
-/** Selected input route and native REF publication slots, prepared once at
-    start; only designation/presence/lifetime observations run during eval. */
-struct PreparedRefProjectionState {
-  PreparedInputReferenceRoute child{};
-  ValueTypeRef binding{};
-};
-
 /** A REF-declared container projection's state (lock-free per-tick ruling,
     RFC 0036): the referenced container's shape, observed once in start (the
     declared REF<S> as the value it refers to); the materialized output shape
@@ -72,11 +66,6 @@ struct scalar_name<stdlib::container_impl_detail::GetItemTsdKeyState> {
 template <>
 struct scalar_name<stdlib::container_impl_detail::FieldProjectionState> {
   static constexpr std::string_view value{"stdlib.field_projection_state"};
-};
-
-template <>
-struct scalar_name<stdlib::container_impl_detail::PreparedRefProjectionState> {
-  static constexpr std::string_view value{"stdlib.prepared_ref_projection_state"};
 };
 
 template <>
@@ -1590,55 +1579,6 @@ struct getattr_tsb {
   }
 };
 
-/** Internal REF projection: activation observes only the designation; the
-    passive declared observation delegates shape validation and retargeting to
-    TargetLink. The selected reference route and native output binding are cold. */
-struct prepared_ref_child_projection {
-  static constexpr auto name = "prepared_ref_child_projection";
-  static constexpr bool schedule_on_start = true;
-  using signature_args = std::tuple<
-      In<"designation", REF<TsVar<"S">>, InputValidity::Unchecked>,
-      In<"observed", TsVar<"S">, InputActivity::Passive, InputValidity::Unchecked>,
-      Scalar<"index", Int>, TypeArg<"child", TsVar<"E">>,
-      State<container_impl_detail::PreparedRefProjectionState>, Out<REF<TsVar<"E">>>>;
-
-  static void start(In<"observed", TsVar<"S">, InputActivity::Passive, InputValidity::Unchecked> observed,
-                    Scalar<"index", Int> index, State<container_impl_detail::PreparedRefProjectionState> state,
-                    Out<REF<TsVar<"E">>> out, NodeView node) {
-    auto child = observed.base().indexed_child_at(static_cast<std::size_t>(index.value()));
-    // The output owner prepares native and forwarding terminal routes alike.
-    // Static-node start reacquires this same route after the user hook.
-    acquire_prepared_output_route(node, out.evaluation_time());
-    const auto *route = out.prepared_output();
-    const auto binding = route != nullptr && route->native() ? route->value_binding : out.value().binding();
-    if (binding == nullptr || binding.ops() != &ops_for<TimeSeriesReference>()) {
-      throw std::logic_error("REF projection requires its prepared native reference output binding");
-    }
-    state.set(container_impl_detail::PreparedRefProjectionState{
-        child.prepare_reference_route(), binding});
-  }
-
-  static void eval(In<"designation", REF<TsVar<"S">>, InputValidity::Unchecked> designation,
-                   State<container_impl_detail::PreparedRefProjectionState> state, Out<REF<TsVar<"E">>> out) {
-    static_cast<void>(designation);
-    const auto &prepared = *static_cast<const container_impl_detail::PreparedRefProjectionState *>(state.view().data());
-    auto reference = prepared.child.read(out.evaluation_time());
-    const auto *route = out.prepared_output();
-    if (route != nullptr && route->native()) {
-      auto *destination = static_cast<TimeSeriesReference *>(route->native_value);
-      if (out.valid() && *destination == reference) { return; }
-      *destination = std::move(reference);
-      route->commit(out.evaluation_time());
-    } else {
-      // A terminal retargeted after start uses its existing owner mutation.
-      // The source binding was proved cold; no schema or type discovery is
-      // needed to publish through the link's current target.
-      if (out.valid() && *static_cast<const TimeSeriesReference *>(out.value().data()) == reference) { return; }
-      auto mutation = out.begin_mutation(out.evaluation_time());
-      static_cast<void>(mutation.copy_value_from(ValueView{prepared.binding, &reference}));
-    }
-  }
-};
 
 /** Field projection over REF[TSB] prepares one declared child route. */
 template <typename KeyT, fixed_string KeyName, fixed_string OpName>
@@ -1660,9 +1600,7 @@ struct tsb_ref_field_node {
   static WiringPortRef compose(Wiring &w, NamedPort<"ts", void> ts, Scalar<KeyName, KeyT> key) {
     const auto *bundle = time_series_schema_as<AnyTSB>(ts.erased().schema);
     const auto index = *container_impl_detail::find_tsb_field_index(*bundle, key.value());
-    return wire<prepared_ref_child_projection>(w, arg<"designation">(Port<void>{w, ts.erased()}),
-        arg<"observed">(Port<void>{w, ts.erased()}), arg<"index">(Int{static_cast<Int>(index)}),
-        arg<"child">(TypeCarrier::of_ts(bundle->fields()[index].type))).erased();
+    return graph_wiring_detail::project_reference_child(w, ts.erased(), index, bundle->fields()[index].type);
   }
 };
 
@@ -1683,9 +1621,7 @@ struct getitem_fixed_tsl_ref {
   static WiringPortRef compose(Wiring &w, NamedPort<"ts", void> ts, Scalar<"key", Int> key) {
     const auto *list = time_series_schema_as<AnyTSL>(ts.erased().schema);
     const auto index = container_impl_detail::normalize_item_index(key.value(), list->fixed_size(), "TSL");
-    return wire<prepared_ref_child_projection>(w, arg<"designation">(Port<void>{w, ts.erased()}),
-        arg<"observed">(Port<void>{w, ts.erased()}), arg<"index">(Int{static_cast<Int>(index)}),
-        arg<"child">(TypeCarrier::of_ts(list->element_ts()))).erased();
+    return graph_wiring_detail::project_reference_child(w, ts.erased(), index, list->element_ts());
   }
 };
 
