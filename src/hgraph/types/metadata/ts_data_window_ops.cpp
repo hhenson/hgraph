@@ -21,6 +21,8 @@
 #include <algorithm>
 #include <compare>
 #include <cstddef>
+#include <cstring>
+#include <limits>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -97,14 +99,38 @@ namespace hgraph::ts_data_plan_factory_detail
             DateTime time{MIN_DT};
             WindowTickState state{};
             using Batch = std::vector<RemovedWindowSample>;
+            struct RingRemoval
+            {
+                std::size_t slot{};
+                std::shared_ptr<const WindowRemovalClock> clock{};
+            };
+            // This variant owns the object lifetime at the old head, while the
+            // ring continues to own the backing allocation. Moving the ring
+            // transfers that lifetime; a detached copy materializes the sample.
+            struct OwnedRingRemoval
+            {
+                struct DestroyInPlace
+                {
+                    ValueTypeRef binding;
+                    void operator()(void *value) const noexcept { binding.destroy_at(value); }
+                };
+                std::unique_ptr<void, DestroyInPlace> slot;
+                DateTime time;
+                OwnedRingRemoval(ValueTypeRef binding, void *value, DateTime sample_time) noexcept
+                    : slot(value, DestroyInPlace{binding}), time(sample_time) {}
+                ValueView view() const { return {slot.get_deleter().binding, slot.get()}; }
+            };
             // A retired tick remembers only its timestamp. Even a writable cursor
             // kept past release cannot turn a prior clear+arrival into a partial delta.
-            std::variant<RemovedWindowSample, Batch, std::monostate> removals{};
-            bool retired() const noexcept { return std::holds_alternative<std::monostate>(removals); }
+            std::variant<RemovedWindowSample, Batch, RingRemoval, OwnedRingRemoval, std::monostate> removals{};
+            bool retired() const noexcept
+            {
+                const auto *ring = std::get_if<RingRemoval>(&removals);
+                return ring ? ring->clock && ring->clock->closed(time) : std::holds_alternative<std::monostate>(removals);
+            }
 
             void retire() noexcept
             {
-                state.registration(nullptr);
                 state = WindowTickState{};
                 removals.emplace<std::monostate>();
             }
@@ -114,7 +140,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (const auto *single = std::get_if<RemovedWindowSample>(&removals))
                     return single->value.has_value() ? 1 : 0;
                 const auto *batch = std::get_if<Batch>(&removals);
-                return batch ? batch->size() : 0;
+                if (batch) { return batch->size(); }
+                if (std::holds_alternative<OwnedRingRemoval>(removals)) { return 1; }
+                return std::holds_alternative<RingRemoval>(removals) && !retired() ? 1 : 0;
             }
 
             const RemovedWindowSample &at(std::size_t index) const
@@ -160,7 +188,10 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 if (const auto *single = std::get_if<RemovedWindowSample>(&removals))
                     return single->value.dynamic_storage_metrics();
-                if (retired()) { return {}; }
+                if (const auto *owned = std::get_if<OwnedRingRemoval>(&removals))
+                    return owned->view().dynamic_storage_metrics();
+                // The ring slot itself already lies in the reserved ring.
+                if (!std::holds_alternative<Batch>(removals)) { return {}; }
                 const auto &batch = std::get<Batch>(removals);
                 DynamicStorageMetrics result{.live_bytes = batch.size() * sizeof(RemovedWindowSample),
                                              .reserved_bytes = batch.capacity() * sizeof(RemovedWindowSample)};
@@ -180,7 +211,7 @@ namespace hgraph::ts_data_plan_factory_detail
             TSWindowStorageCore(const TSWindowStorageCore &other)
                 : time_binding_(other.time_binding_),
                   element_binding_(other.element_binding_),
-                  tick_(other.tick_)
+                  tick_(other.detached_tick())
             {
                 copy_live_from(other);
             }
@@ -190,11 +221,12 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (this != &other)
                 {
                     invalidate_delta_projection();
+                    tick_ = {};
                     clear();
                     deallocate();
                     time_binding_    = other.time_binding_;
                     element_binding_ = other.element_binding_;
-                    tick_            = other.tick_;
+                    tick_            = other.detached_tick();
                     copy_live_from(other);
                 }
                 return *this;
@@ -221,6 +253,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (this != &other)
                 {
                     invalidate_delta_projection();
+                    tick_ = {};
                     clear();
                     deallocate();
                     time_binding_          = other.time_binding_;
@@ -241,6 +274,7 @@ namespace hgraph::ts_data_plan_factory_detail
 
             ~TSWindowStorageCore()
             {
+                tick_ = {};
                 clear();
                 deallocate();
             }
@@ -281,8 +315,10 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
             {
                 const std::size_t slot_bytes = value_stride() + time_stride();
+                const bool live_departure = std::holds_alternative<WindowTick::OwnedRingRemoval>(tick_.removals) ||
+                    (std::holds_alternative<WindowTick::RingRemoval>(tick_.removals) && !tick_.retired());
                 DynamicStorageMetrics result{
-                    .live_bytes     = size_ * slot_bytes,
+                    .live_bytes     = (size_ + live_departure) * slot_bytes,
                     .reserved_bytes = capacity_ * slot_bytes,
                 };
                 const auto &ops = element_binding_.ops_ref();
@@ -304,9 +340,21 @@ namespace hgraph::ts_data_plan_factory_detail
 
             void track_removals(const TSDataTracking &tracking)
             {
+                if (auto *ring = std::get_if<WindowTick::RingRemoval>(&tick_.removals))
+                {
+                    auto rollback = make_scope_exit([&] noexcept { tick_.retire(); });
+                    observe_window_removal(tracking.parent, ring->clock);
+                    rollback.release();
+                    return;
+                }
+                track_owned_removals(tracking);
+            }
+
+            void track_owned_removals(const TSDataTracking &tracking) const
+            {
                 if (!tick_.state.registration() && tick_.size() != 0)
                 {
-                    auto *entry = track_window_removals(tracking.parent, tick_.time, this, [](void *owner, WindowRemovalRegistration *entry) noexcept {
+                    auto *entry = track_window_removals(tracking.parent, tick_.time, const_cast<TSWindowStorageCore *>(this), [](void *owner, WindowRemovalRegistration *entry) noexcept {
                         auto &window = *static_cast<TSWindowStorageCore *>(owner);
                         window.tick_.state.registration(entry);
                         if (entry) { return; }
@@ -321,9 +369,45 @@ namespace hgraph::ts_data_plan_factory_detail
 
             [[nodiscard]] DateTime replaced_time() const noexcept { return tick_.state.has(WindowTickState::Replaced) ? tick_.time : MIN_DT; }
 
+            [[nodiscard]] ValueView removal_value(std::size_t index) const
+            {
+                if (const auto *ring = std::get_if<WindowTick::RingRemoval>(&tick_.removals))
+                    return {element_binding_, value_slot(ring->slot)};
+                if (const auto *owned = std::get_if<WindowTick::OwnedRingRemoval>(&tick_.removals))
+                    return owned->view();
+                return tick_.at(index).value.view();
+            }
+
+            [[nodiscard]] DateTime removal_time(std::size_t index) const
+            {
+                if (const auto *ring = std::get_if<WindowTick::RingRemoval>(&tick_.removals))
+                    return time_at_physical(ring->slot);
+                if (const auto *owned = std::get_if<WindowTick::OwnedRingRemoval>(&tick_.removals))
+                    return owned->time;
+                return tick_.at(index).time;
+            }
+
+            [[nodiscard]] WindowTick detached_tick() const
+            {
+                WindowTick copy{.time = tick_.time, .state = tick_.state};
+                if (tick_.retired()) { copy.retire(); }
+                else if (const auto *one = std::get_if<RemovedWindowSample>(&tick_.removals)) { copy.removals = *one; }
+                else if (const auto *batch = std::get_if<WindowTick::Batch>(&tick_.removals)) { copy.removals = *batch; }
+                else { copy.removals = RemovedWindowSample{Value{removal_value(0)}, removal_time(0)}; }
+                return copy;
+            }
+
+            void materialize_ring_removal()
+            {
+                if (!std::holds_alternative<WindowTick::RingRemoval>(tick_.removals) &&
+                    !std::holds_alternative<WindowTick::OwnedRingRemoval>(tick_.removals)) { return; }
+                if (tick_.retired()) { tick_.retire(); }
+                else { tick_.removals = RemovedWindowSample{Value{removal_value(0)}, removal_time(0)}; }
+            }
+
             [[nodiscard]] ValueView evicted_element() const
             {
-                return !tick_.state.has(WindowTickState::Cleared) && tick_.size() ? tick_.at(tick_.size() - 1).value.view() : ValueView{};
+                return !tick_.state.has(WindowTickState::Cleared) && tick_.size() ? removal_value(tick_.size() - 1) : ValueView{};
             }
             [[nodiscard]] DateTime evicted_time() const noexcept { return !tick_.state.has(WindowTickState::Cleared) && tick_.size() ? tick_.time : MIN_DT; }
             [[nodiscard]] DateTime cleared_time() const noexcept { return tick_.state.has(WindowTickState::Cleared) ? tick_.time : MIN_DT; }
@@ -398,8 +482,6 @@ namespace hgraph::ts_data_plan_factory_detail
             }
 
           protected:
-            [[nodiscard]] std::size_t storage_capacity() const noexcept { return capacity_; }
-
             void append(const ValueView &source, DateTime modified_time)
             {
                 validate_source(source);
@@ -434,6 +516,47 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (!tick_.retired()) { tick_.state.mark(WindowTickState::Added); }
             }
 
+            void roll_owned(const ValueView &source, DateTime modified_time)
+            {
+                validate_source(source);
+                const auto spare = head_ == 0 ? capacity_ - 1 : head_ - 1;
+                if (std::holds_alternative<WindowTick::OwnedRingRemoval>(tick_.removals))
+                {
+                    // Standalone writes can begin before the old observation is
+                    // released. The caller may even be reinserting that departure.
+                    auto retained = stage_element(source);
+                    overwrite_oldest({element_binding_, retained.data()}, modified_time);
+                    note_arrival(modified_time);
+                    return;
+                }
+                // Construct first: a throwing payload copy leaves the previous
+                // event and every live ring object intact.
+                copy_construct_slot(spare, source.data(), modified_time);
+                invalidate_delta_projection();
+                tick_.state = WindowTickState{WindowTickState::Added};
+                tick_.time = modified_time;
+                tick_.removals.emplace<WindowTick::OwnedRingRemoval>(
+                    element_binding_, value_slot(head_), time_at_physical(head_));
+                head_ = head_ + 1 == capacity_ ? 0 : head_ + 1;
+            }
+
+            void roll_trivial(const ValueView &source, DateTime modified_time)
+            {
+                validate_source(source);
+                const auto spare = head_ == 0 ? capacity_ - 1 : head_ - 1;
+                // An arrival may refer to any current sample or to the previous
+                // departure. Copy before invalidating the borrowed projection.
+                std::memmove(value_slot(spare), source.data(), element_plan().layout.size);
+                std::memcpy(time_slot(spare), &modified_time, sizeof(modified_time));
+                invalidate_delta_projection();
+                tick_.state = WindowTickState{WindowTickState::Added};
+                tick_.time = modified_time;
+                auto *ring = std::get_if<WindowTick::RingRemoval>(&tick_.removals);
+                if (!ring) { ring = &tick_.removals.emplace<WindowTick::RingRemoval>(); }
+                ring->slot = head_;
+                head_ = head_ + 1 == capacity_ ? 0 : head_ + 1;
+            }
+
             void overwrite_oldest(const ValueView &source, DateTime modified_time)
             {
                 validate_source(source);
@@ -462,6 +585,7 @@ namespace hgraph::ts_data_plan_factory_detail
             void record_removals(std::size_t count, DateTime modified_time)
             {
                 begin_tick(modified_time);
+                materialize_ring_removal();
                 tick_.append(count, [this](std::size_t index) {
                     return RemovedWindowSample{Value{ValueView{element_binding_, element_at(index)}}, time_at(index)};
                 });
@@ -508,12 +632,14 @@ namespace hgraph::ts_data_plan_factory_detail
                     return RemovedWindowSample{Value{element_binding_, value}, sample.at(1).checked_as<DateTime>()};
                 });
                 next.append(expired - overlap, [&](std::size_t index) {
-                    return tick_.at(overlap + index);
+                    return RemovedWindowSample{Value{removal_value(overlap + index)}, removal_time(overlap + index)};
                 });
                 if (added.has_value())
                 {
                     auto retained = stage_element(added);
                     const ValueView arrival{element_binding_, retained.data()};
+                    // The next append may use the previous departure's position.
+                    materialize_ring_removal();
                     if (size_ == capacity_ && drop && element_plan().trivially_copyable)
                     {
                         // The ordinary fixed scalar roll needs no extra ring position.
@@ -705,6 +831,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto &time_plan_ = time_plan();
                 const auto  new_value_stride = align_up(value_plan.layout.size, value_plan.layout.alignment);
                 const auto  new_time_stride  = align_up(time_plan_.layout.size, time_plan_.layout.alignment);
+                if (new_capacity > std::numeric_limits<std::size_t>::max() / std::max(new_value_stride, new_time_stride))
+                    throw std::length_error("TSW ring capacity exceeds the available address space");
+                materialize_ring_removal();
                 auto       *new_value_bytes  = static_cast<std::byte *>(
                     ::operator new(new_value_stride * new_capacity, std::align_val_t{value_plan.layout.alignment}));
                 std::byte  *new_time_bytes   = nullptr;
@@ -785,29 +914,43 @@ namespace hgraph::ts_data_plan_factory_detail
             std::size_t             capacity_{0};
             std::size_t             size_{0};
             std::size_t             head_{0};
-            WindowTick              tick_{};
+            mutable WindowTick      tick_{};
             struct WindowProjections { Value change; Value snapshot; };
             mutable std::unique_ptr<WindowProjections> delta_projection_;
+        };
+
+        struct SizeWindowStoragePlanContext
+        {
+            ValueTypeRef time_binding{nullptr};
+            ValueTypeRef element_binding{nullptr};
+            std::size_t period{0};
+            enum Rollover { Copy, TrivialRing, OwningRing } rollover{Copy};
         };
 
         class SizeTSWindowStorage final : public TSWindowStorageCore
         {
           public:
-            SizeTSWindowStorage(const ValueTypeRef &time_binding,
-                                const ValueTypeRef &element_binding,
-                                std::size_t period)
-                : TSWindowStorageCore(time_binding, element_binding),
-                  period_(period)
+            explicit SizeTSWindowStorage(const SizeWindowStoragePlanContext &config)
+                : TSWindowStorageCore(config.time_binding, config.element_binding), config_(&config)
             {
-                if (period_ == 0) { throw std::invalid_argument("TSW fixed window requires a non-zero period"); }
-                reserve_exact(period_);
+                if (config.period == 0) { throw std::invalid_argument("TSW fixed window requires a non-zero period"); }
+                if (config.rollover != SizeWindowStoragePlanContext::Copy && config.period == std::numeric_limits<std::size_t>::max())
+                    throw std::length_error("TSW ring capacity exceeds the available address space");
+                reserve_exact(config.period + static_cast<std::size_t>(config.rollover != SizeWindowStoragePlanContext::Copy));
             }
 
-            [[nodiscard]] std::size_t capacity() const noexcept { return period_; }
+            [[nodiscard]] std::size_t capacity() const noexcept { return config_->period; }
 
             void push(const ValueView &source, DateTime modified_time)
             {
-                if (size() < period_) { append(source, modified_time); }
+                if (size() == capacity() && config_->rollover != SizeWindowStoragePlanContext::Copy &&
+                    tick().time != modified_time)
+                {
+                    if (config_->rollover == SizeWindowStoragePlanContext::TrivialRing) { roll_trivial(source, modified_time); }
+                    else { roll_owned(source, modified_time); }
+                    return;
+                }
+                if (size() < capacity()) { append(source, modified_time); }
                 else { overwrite_oldest(source, modified_time); }
                 note_arrival(modified_time);
             }
@@ -815,7 +958,7 @@ namespace hgraph::ts_data_plan_factory_detail
             void copy_from_value(const ValueView &source, DateTime modified_time)
             {
                 const IndexedValueView source_values = checked_source_values(source);
-                if (source_values.size() > period_)
+                if (source_values.size() > capacity())
                 {
                     throw std::length_error("TSW fixed window source exceeds the configured period");
                 }
@@ -830,7 +973,7 @@ namespace hgraph::ts_data_plan_factory_detail
             void move_from_value(ValueView source, DateTime modified_time)
             {
                 const IndexedValueView source_values = checked_source_values(source);
-                if (source_values.size() > period_)
+                if (source_values.size() > capacity())
                 {
                     throw std::length_error("TSW fixed window source exceeds the configured period");
                 }
@@ -845,7 +988,7 @@ namespace hgraph::ts_data_plan_factory_detail
 
 
           private:
-            std::size_t period_{0};
+            const SizeWindowStoragePlanContext *config_;
         };
 
         class TimeTSWindowStorage final : public TSWindowStorageCore
@@ -912,13 +1055,6 @@ namespace hgraph::ts_data_plan_factory_detail
             TimeDelta time_range_{};
         };
 
-        struct SizeWindowStoragePlanContext
-        {
-            ValueTypeRef time_binding{nullptr};
-            ValueTypeRef element_binding{nullptr};
-            std::size_t             period{0};
-        };
-
         struct TimeWindowStoragePlanContext
         {
             ValueTypeRef time_binding{nullptr};
@@ -946,8 +1082,7 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 throw std::logic_error("TSW storage element binding is not resolved");
             }
-            std::construct_at(static_cast<SizeTSWindowStorage *>(dst), state.time_binding, state.element_binding,
-                              state.period);
+            std::construct_at(static_cast<SizeTSWindowStorage *>(dst), state);
         }
 
         void time_window_storage_construct(void *dst, const void *context)
@@ -1347,7 +1482,7 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static ValueView window_arrival_view(const void *context, const void *memory, DateTime now)
             {
                 const auto &window = storage<Storage>(window_value_memory(context, memory));
-                const bool arrived = now != MIN_DT && window.tick().state.has(WindowTickState::Added) && window.tick().time == now &&
+                const bool arrived = now != MIN_DT && window.tick().state.has(WindowTickState::Added) && window.tick().time == now && !window.tick().retired() &&
                                      window_tracking(context, memory)->last_modified_time == now;
                 return {ctx(context)->layout->element_binding, arrived ? window.last_element() : nullptr};
             }
@@ -1361,6 +1496,10 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (last == MIN_DT || (!snapshot && (last != now || window.tick().time != now || window.tick().retired())))
                     return {binding, nullptr};
                 const bool replacement = snapshot || window.tick().state.has(WindowTickState::Replaced);
+                // A cached canonical bundle owns allocations even when the raw
+                // departure uses a spare ring slot. Enroll it only on this read.
+                if (std::holds_alternative<WindowTick::RingRemoval>(window.tick().removals) && !window.tick().retired())
+                    window.track_owned_removals(*window_tracking(context, memory));
                 return window.delta_projection(replacement, [&] {
                     const auto values = replacement
                         ? Range<ValueView>{.context = context, .memory = memory, .limit = window.size(), .projector = &window_element_at}
@@ -1452,12 +1591,12 @@ namespace hgraph::ts_data_plan_factory_detail
             template <typename T>
             static Range<T> window_removed(const void *context, const void *memory, DateTime time)
             {
-                const auto &tick = storage<Storage>(window_value_memory(context, memory)).tick();
-                return {.memory = &tick, .limit = time == tick.time ? tick.size() : 0,
+                const auto &window = storage<Storage>(window_value_memory(context, memory));
+                return {.memory = &window, .limit = time == window.tick().time ? window.tick().size() : 0,
                         .projector = [](const void *, const void *data, std::size_t index) -> T {
-                            const auto &sample = static_cast<const WindowTick *>(data)->at(index);
-                            if constexpr (std::is_same_v<T, DateTime>) { return sample.time; }
-                            else { return sample.value.view(); }
+                            const auto &owner = *static_cast<const Storage *>(data);
+                            if constexpr (std::is_same_v<T, DateTime>) { return owner.removal_time(index); }
+                            else { return owner.removal_value(index); }
                         }};
             }
 
@@ -1993,10 +2132,22 @@ namespace hgraph::ts_data_plan_factory_detail
         }
         else
         {
+            const auto &plan = element_binding.checked_plan();
+            const auto &ops = element_binding.ops_ref();
+            // Only a self-owning native scalar can stay in a spare ring slot.
+            // A custom value projection may require a different owning copy.
+            auto rollover = SizeWindowStoragePlanContext::Copy;
+            if (element_binding.schema()->value_kind() == ValueTypeKind::Atomic &&
+                !ops.owning_type_impl && !ops.copy_construct_view_impl && plan.can_copy_construct() && plan.can_copy_assign())
+            {
+                rollover = plan.trivially_copyable && plan.trivially_destructible
+                    ? SizeWindowStoragePlanContext::TrivialRing : SizeWindowStoragePlanContext::OwningRing;
+            }
             entry->context = SizeWindowStoragePlanContext{
                 .time_binding    = time_binding,
                 .element_binding = element_binding,
                 .period          = schema.period(),
+                .rollover        = rollover,
             };
             entry->storage_plan = std::make_unique<MemoryUtils::StoragePlan>(MemoryUtils::StoragePlan{
                 .layout                       = MemoryUtils::layout_for<SizeTSWindowStorage>(),

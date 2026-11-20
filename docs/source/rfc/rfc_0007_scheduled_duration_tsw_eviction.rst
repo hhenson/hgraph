@@ -322,10 +322,18 @@ again is an error. The last successful step remains inspectable after the
 executor stops. An owned ``window_delta()`` or recorded event can outlive
 the source graph. Standalone window storage retains its mutation lifetime.
 
-The native root tracks only windows with outstanding removals. A single
-rolling window uses an inline registration. When more windows first remove
-samples together, the root grows a shared array. Automatic advance reuses
-that capacity. An explicit release also frees the empty overflow array.
+On an ordinary fixed-count rollover, a window with a trivially copyable
+native scalar can keep the departing sample and its original timestamp in
+one spare ring slot. The window still exposes its configured number of live
+positions. Borrowed reads consult the root's inspection interval, so rolling
+these windows together requires no per-window cleanup registration.
+
+A native scalar that owns resources, such as a string, can also stay in
+the outgoing slot. The root registers that window so release destroys the
+departed object in place. A batch of removals or a cached structured
+delta likewise requires cleanup. The first registration fits inline.
+More simultaneous registrations share an array. Automatic advance reuses
+its capacity, and an explicit release frees the empty overflow array.
 
 Acceptance criteria
 -------------------

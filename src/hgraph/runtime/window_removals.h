@@ -1,11 +1,27 @@
 #pragma once
 
-#include <hgraph/util/date_time.h>
+#include "root_evaluation_step.h"
+
+#include <memory>
 
 namespace hgraph
 {
     struct TSParentLink;
     struct WindowRemovalRegistration;
+
+    // A ring slot can outlive the graph which published it (for example, when
+    // endpoint storage moves). Stop keeps the last step readable. Restart and
+    // destruction detach the run before its inspection state can be reused.
+    struct WindowRemovalClock
+    {
+        const RootStepInspection *step{};
+        bool closed(DateTime when) const noexcept
+        {
+            return !step || when < step->time || (when == step->time &&
+                (step->status == StepInspection::Released || step->status == StepInspection::Releasing));
+        }
+    };
+    void observe_window_removal(const TSParentLink &parent, std::shared_ptr<const WindowRemovalClock> &clock);
 
     // The graph owns registrations. A moving or destroyed storage updates its
     // registration before relinquishing its address. All work is root-thread local.

@@ -292,6 +292,10 @@ struct RootGraphGlobalState {
   GlobalState configuration{};
   std::shared_ptr<WindowExpiryService> window_expiry{};
   WindowRemovalQueue window_removals{};
+  std::shared_ptr<WindowRemovalClock> ring_removal_clock{};
+  void close_ring_removal_clock() noexcept {
+    if (ring_removal_clock) { ring_removal_clock->step = nullptr; ring_removal_clock.reset(); }
+  }
 };
 
 struct RootGraphRuntimeStorage : GraphRuntimeBaseStorage {
@@ -356,6 +360,7 @@ void unlink_retired(NestedGraphRuntimeStorage &graph) noexcept {
 }
 
 RootGraphRuntimeStorage::~RootGraphRuntimeStorage() {
+  global_state.close_ring_removal_clock();
   // Node storage, and with it every nested header, is destroyed before the
   // root header, so the list is normally empty here; never leave an entry
   // pointing at a destroyed root.
@@ -1130,6 +1135,7 @@ void start_impl(const void *context, const GraphView &graph,
     }
   });
   if constexpr (std::is_same_v<Storage, RootGraphRuntimeStorage>) {
+    state.global_state.close_ring_removal_clock();
     if (state.step_inspection.time != MIN_DT) {
       state.global_state.window_removals.retire_before(MAX_DT, true);
       state.step_inspection = {};
@@ -1854,22 +1860,26 @@ RootGraphRuntimeStorage *removal_owner(const TSParentLink &parent) {
   return &graph_header<RootGraphRuntimeStorage>(graph_context(graph.type().ops_ref().context), graph.data());
 }
 
-bool closed_for_removals(const RootStepInspection &step, DateTime when) noexcept {
-  return when < step.time || (when == step.time &&
-      (step.status == StepInspection::Released || step.status == StepInspection::Releasing));
-}
+} // namespace
+
+void observe_window_removal(const TSParentLink &parent, std::shared_ptr<const WindowRemovalClock> &clock) {
+  auto *state = removal_owner(parent);
+  if (!state) { clock.reset(); return; }
+  auto &run = state->global_state.ring_removal_clock;
+  if (!run) { run = std::make_shared<WindowRemovalClock>(&state->step_inspection); }
+  if (clock.get() != run.get()) { clock = run; }
 }
 
 bool window_removals_closed(const TSParentLink &parent, DateTime time) {
   const auto *state = removal_owner(parent);
-  return state && closed_for_removals(state->step_inspection, time);
+  return state && WindowRemovalClock{&state->step_inspection}.closed(time);
 }
 
 WindowRemovalRegistration *track_window_removals(const TSParentLink &parent, DateTime time,
                                                 void *window, SetWindowRemovalRegistration set_registration) {
   auto *state = removal_owner(parent);
   if (!state) { return nullptr; }
-  if (closed_for_removals(state->step_inspection, time)) {
+  if (WindowRemovalClock{&state->step_inspection}.closed(time)) {
     set_registration(window, nullptr);
     return nullptr;
   }

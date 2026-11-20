@@ -27,6 +27,8 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <array>
+#include <memory>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -919,5 +921,166 @@ TEST_CASE("completed window step: destroying a nested owner leaves other outstan
         CHECK(window.removed_values().limit == 0);
         CHECK(window.back().checked_as<Int>() == 200 + index);
     }
+    engine.stop_external();
+}
+
+namespace
+{
+    using CountRings = TSB<"CompletedFixedWindows", Field<"numbers", TSW<Int, 3, 1>>, Field<"labels", TSW<Str, 3, 1>>>;
+
+    template<typename T>
+    struct ExternallyPopulatedCountWindow
+    {
+        static void eval(Out<TSW<T, 1, 1>>) {}
+    };
+
+    struct RollCountRings
+    {
+        static void start(NodeScheduler clock) { clock.schedule(clock.now()); }
+        static void eval(Out<CountRings> out, NodeScheduler clock)
+        {
+            const auto time = clock.now();
+            const Int index = (time - MIN_ST) / MIN_TD;
+            out.field<"numbers">().begin_mutation(time).push(Value{index}.view());
+            const Str label(256, static_cast<char>('a' + index));
+            out.field<"labels">().begin_mutation(time).push(Value{label}.view());
+            if (index < 6) { clock.schedule(MIN_TD); }
+        }
+    };
+}
+
+TEST_CASE("completed window step: fixed ring departures and projected caches retire together")
+{
+    const auto last = MIN_ST + 6 * MIN_TD;
+    const auto departed = MIN_ST + 3 * MIN_TD;
+    Value saved;
+    std::optional<TSOutput> detached;
+    {
+        auto executor = window_executor<RollCountRings>();
+        auto engine = executor.view();
+        engine.start_external(MIN_ST);
+        for (Int i = 0; i < 6; ++i) { REQUIRE(engine.step(MIN_ST + i * MIN_TD)); }
+        auto output = engine.graph().node_at(0).output(last);
+        auto fields = output.as_bundle();
+        auto numbers = fields.at(0);
+        auto labels = fields.at(1);
+        auto numeric = numbers.as_window().data_view();
+        auto text = labels.as_window().data_view();
+        const auto front = text.front();
+        const void *old_slot = front.data();
+        const void *old_characters = front.checked_as<Str>().data();
+        REQUIRE(engine.step(last));
+        check_departure(numeric, last, 3, departed);
+        const auto word = text.removed_value(last);
+        CHECK(word.data() == old_slot);
+        CHECK(static_cast<const void *>(word.checked_as<Str>().data()) == old_characters);
+        REQUIRE(word.checked_as<Str>() == Str(256, 'd'));
+        const auto times = text.removed_value_times(last);
+        REQUIRE(times.limit == 1);
+        CHECK(*times.begin() == departed);
+        saved = capture_window_delta(text, last);
+        detached.emplace(*output.output());
+
+        const auto before_projection = numbers.data_view().dynamic_storage_metrics().live_bytes;
+        const auto owning_bytes = labels.data_view().dynamic_storage_metrics().live_bytes;
+        // Reading the bundle asks each window for its borrowed canonical projection.
+        auto delta = output.data_view().delta_value(last).as_bundle();
+        REQUIRE(delta.at("numbers").as_bundle().at("removed").as_indexed_view().size() == 1);
+        REQUIRE(numbers.data_view().dynamic_storage_metrics().live_bytes > before_projection);
+
+        SECTION("explicit release") { engine.release_completed_step(); }
+        SECTION("quiet root advance") { REQUIRE(engine.step(last + MIN_TD)); }
+        CHECK_FALSE(capture_window_delta(numeric, last).has_value());
+        CHECK_FALSE(capture_window_delta(text, last).has_value());
+        CHECK_FALSE(numeric.delta_value(last).has_value());
+        CHECK_FALSE(numeric.has_removed_value(last));
+        CHECK(numeric.removed_value_times(last).limit == 0);
+        CHECK(text.removed_values(last).limit == 0);
+        CHECK(numbers.data_view().dynamic_storage_metrics().live_bytes <= before_projection);
+        CHECK(labels.data_view().dynamic_storage_metrics().live_bytes < owning_bytes);
+        CHECK(numeric.back().checked_as<Int>() == 6);
+        CHECK(text.back().checked_as<Str>() == Str(256, 'g'));
+        engine.stop_external();
+    }
+    CHECK(saved.equals(window_delta<Str>(Str(256, 'g'), {{Str(256, 'd'), departed}})));
+    auto copied_output = detached->view(last);
+    auto fields = copied_output.as_bundle();
+    auto labels = fields.at(1);
+    CHECK(labels.as_window().window_delta().equals(saved));
+}
+
+TEST_CASE("completed window step: restarting at or before a fixed ring departure cannot revive it")
+{
+    auto executor = window_executor<ExternallyPopulatedCountWindow<Int>>();
+    auto engine = executor.view();
+    engine.start_external(MIN_ST);
+    const auto rolled = MIN_ST + MIN_TD;
+    auto out = engine.graph().node_at(0).output(rolled);
+    auto window = out.as_window().data_view();
+    engine.engine_control().add_before_evaluation_notification([&] {
+        window.begin_mutation(MIN_ST).push(Value{Int{4}}.view());
+    });
+    REQUIRE(engine.step(MIN_ST));
+    engine.engine_control().add_before_evaluation_notification([&] {
+        window.begin_mutation(rolled).push(Value{Int{5}}.view());
+    });
+    REQUIRE(engine.step(rolled));
+    check_departure(window, rolled, 4, MIN_ST);
+    engine.stop_external();
+
+    SECTION("restart at the final timestamp") { engine.start_external(rolled); }
+    SECTION("rewind and visit the final timestamp again")
+    {
+        engine.start_external(MIN_ST);
+        REQUIRE(engine.step(MIN_ST));
+    }
+    REQUIRE(engine.step(rolled));
+    CHECK(window.removed_values(rolled).limit == 0);
+    CHECK_FALSE(capture_window_delta(window, rolled).has_value());
+    CHECK(window.back().checked_as<Int>() == 5);
+    TSOutput detached{*out.output()};
+    auto copy_output = detached.view(rolled);
+    auto copy = copy_output.as_window().data_view();
+    CHECK(copy.removed_values(rolled).limit == 0);
+    CHECK_FALSE(copy.delta_value(rolled).has_value());
+    CHECK(copy.back().checked_as<Int>() == 5);
+    engine.stop_external();
+}
+
+namespace hgraph::static_schema_detail
+{
+    template<>
+    struct scalar_name<std::shared_ptr<int>>
+    {
+        static constexpr std::string_view value{"window_removal_lifetime"};
+    };
+}
+
+TEST_CASE("completed window step: a fixed window drops its last owner of a departed resource")
+{
+    using Resource = std::shared_ptr<int>;
+    auto executor = window_executor<ExternallyPopulatedCountWindow<Resource>>();
+    auto engine = executor.view();
+    engine.start_external(MIN_ST);
+    auto output = engine.graph().node_at(0).output(MIN_ST);
+    auto window = output.as_window().data_view();
+    std::weak_ptr<int> departed;
+    const auto push = [&](DateTime time, int value) {
+        auto resource = std::make_shared<int>(value);
+        window.begin_mutation(time).push(Value{window.layout().element_binding, &resource}.view());
+        return std::weak_ptr<int>{resource};
+    };
+    engine.engine_control().add_before_evaluation_notification([&] { departed = push(MIN_ST, 4); });
+    REQUIRE(engine.step(MIN_ST));
+    const auto rolled = MIN_ST + MIN_TD;
+    engine.engine_control().add_before_evaluation_notification([&] { push(rolled, 5); });
+    REQUIRE(engine.step(rolled));
+    REQUIRE_FALSE(departed.expired());
+    REQUIRE(window.removed_value(rolled).checked_as<Resource>() == departed.lock());
+
+    SECTION("explicit release") { engine.release_completed_step(); }
+    SECTION("quiet root advance") { REQUIRE(engine.step(rolled + MIN_TD)); }
+    CHECK(departed.expired());
+    CHECK(*window.back().checked_as<Resource>() == 5);
     engine.stop_external();
 }

@@ -331,3 +331,26 @@ def test_releasing_a_completed_run_twice_preserves_its_recorded_fixed_window_evi
     assert captured["removed"] == expected
     assert run.recorded("prices")[1]["removed"] == expected
     assert list(captured["added"]) == [9]
+
+
+def test_fixed_window_departure_copies_keep_their_original_values_and_times_after_ring_wraps():
+    departures = []
+
+    @hg.compute_node
+    def observe(window: hg.TSW[int, hg.WINDOW_SIZE, hg.WINDOW_SIZE_MIN]) -> hg.TS[tuple[int, ...]]:
+        change = window.window_delta
+        if change["removed"]:
+            departures.append(change)
+        return tuple(window.value)
+
+    @hg.graph
+    def rolling(value: hg.TS[int]) -> hg.TS[tuple[int, ...]]:
+        return observe(hg.to_window(value, 2, 1))
+
+    assert hg.eval_node(rolling, [10, 20, 30, 40, 50, 60]) == [
+        (10,), (10, 20), (20, 30), (30, 40), (40, 50), (50, 60),
+    ]
+    assert [change["removed"] for change in departures] == [
+        [{"value": value, "time": hg.MIN_ST + offset * hg.MIN_TD}]
+        for offset, value in enumerate((10, 20, 30, 40))
+    ]
