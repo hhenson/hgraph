@@ -810,6 +810,35 @@ namespace
         }
     };
 
+    template <typename Result>
+    struct ClearableFallback
+    {
+        static void eval(In<"command", TS<Int>> command, Out<TS<Result>> out)
+        {
+            if (command.value() < 0) { static_cast<void>(out.begin_mutation(out.evaluation_time()).invalidate()); }
+            else { out.set(static_cast<Result>(command.value())); }
+        }
+    };
+
+    struct LookupWithFallback
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> key, Port<TS<Int>> command)
+        {
+            auto map = wire<stdlib::const_, TS<Map<Int, Int>>>(w, int_map({{1, 5}}));
+            return wire<stdlib::getitem_>(w, map, key, wire<ClearableFallback<Int>>(w, command)).as<TS<Int>>();
+        }
+    };
+
+    template <typename Op, typename Result>
+    struct AggregateWithFallback
+    {
+        static Port<TS<Result>> compose(Wiring &w, Port<TS<HomogeneousTuple<Int>>> input, Port<TS<Int>> command)
+        {
+            return wire<Op>(w, input, arg<"default_value">(wire<ClearableFallback<Result>>(w, command)))
+                .template as<TS<Result>>();
+        }
+    };
+
     Value mutable_int_map(std::initializer_list<std::pair<Int, Int>> entries)
     {
         const auto *item = scalar_descriptor<Int>::value_meta();
@@ -3450,6 +3479,32 @@ TEST_CASE("std operators: map getitem uses an explicit default for a missing key
                      values<Str>(Str{"KRW"}, Str{"USD"}),
                      values<Float>(none, Float{10000.0})),
                  values<Float>(Float{1.0}, Float{10000.0}));
+}
+
+TEST_CASE("std operators: clearing an unused map fallback preserves real key publications")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<LookupWithFallback>(
+                     values<Int>(1, none, none, none, 1, 1, 2, none, none),
+                     values<Int>(8, -1, 9, none, -1, none, 11, -1, 12)),
+                 values<Int>(5, none, 5, none, 5, 5, 11, none, 12));
+}
+
+TEST_CASE("std operators: clearing an unused aggregate fallback preserves real container publications")
+{
+    stdlib::register_standard_operators();
+    auto tuple = int_tuple({5, 6});
+    auto check = [&]<typename Op, typename Result>(Op, Result selected) {
+        CAPTURE(Op::name);
+        using Graph = AggregateWithFallback<Op, Result>;
+        CHECK_OUTPUT(eval_node<Graph>(values<Value>(tuple, none, none, none, tuple, int_tuple({}), none, none),
+                                      values<Int>(8, -1, 9, none, -1, 11, -1, 12)),
+                     values<Result>(selected, none, selected, none, selected, Result{11}, none, Result{12}));
+    };
+    check(stdlib::min_{}, Int{5});
+    check(stdlib::max_{}, Int{6});
+    check(stdlib::sum_{}, Int{11});
+    check(stdlib::mean{}, Float{5.5});
 }
 
 TEST_CASE("std operators: map getitem snapshots mutable scalar constants")
