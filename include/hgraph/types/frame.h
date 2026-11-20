@@ -1,6 +1,7 @@
 #ifndef HGRAPH_TYPES_FRAME_H
 #define HGRAPH_TYPES_FRAME_H
 
+#include <hgraph/hgraph_export.h>
 #include <hgraph/types/static_schema.h>
 
 #include <cstddef>
@@ -83,7 +84,7 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT Frame without_frame_metadata(Frame frame);
 
     /** Render as ``frame[rows x cols]`` (diagnostics; not a data format). */
-    std::ostream &operator<<(std::ostream &os, const Frame &value);
+    HGRAPH_EXPORT std::ostream &operator<<(std::ostream &os, const Frame &value);
 
     /** Row count (0 for an empty frame) without exposing Arrow headers. */
     [[nodiscard]] HGRAPH_EXPORT std::int64_t frame_rows(const Frame &value) noexcept;

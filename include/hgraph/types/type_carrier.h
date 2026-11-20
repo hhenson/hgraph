@@ -1,6 +1,8 @@
 #ifndef HGRAPH_TYPES_TYPE_CARRIER_H
 #define HGRAPH_TYPES_TYPE_CARRIER_H
 
+#include <hgraph/hgraph_export.h>
+
 #include <cstddef>
 #include <functional>
 #include <optional>
@@ -89,7 +91,7 @@ namespace hgraph
     };
 
     /** Renders ``type[<schema name>]`` / ``type[Size[n]]``; defined with the registry (type_resolution.cpp). */
-    std::ostream &operator<<(std::ostream &out, const TypeCarrier &carrier);
+    HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const TypeCarrier &carrier);
 }  // namespace hgraph
 
 template <>

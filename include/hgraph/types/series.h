@@ -1,6 +1,7 @@
 #ifndef HGRAPH_TYPES_SERIES_H
 #define HGRAPH_TYPES_SERIES_H
 
+#include <hgraph/hgraph_export.h>
 #include <hgraph/types/static_schema.h>
 
 #include <cstddef>
@@ -42,10 +43,10 @@ namespace hgraph
     };
 
     /** Render as ``series[len]`` (diagnostics; not a data format). */
-    std::ostream &operator<<(std::ostream &os, const Series &value);
+    HGRAPH_EXPORT std::ostream &operator<<(std::ostream &os, const Series &value);
 
     /** Element count (0 for an empty series) without exposing Arrow headers. */
-    [[nodiscard]] std::int64_t series_length(const Series &value) noexcept;
+    [[nodiscard]] HGRAPH_EXPORT std::int64_t series_length(const Series &value) noexcept;
 
 #ifdef HGRAPH_NO_ARROW
     template <>

@@ -5,6 +5,8 @@
 #ifndef HGRAPH_DATE_TIME_H
 #define HGRAPH_DATE_TIME_H
 
+#include <hgraph/hgraph_export.h>
+
 #include <chrono>
 #include <compare>
 #include <cstdint>
@@ -138,7 +140,7 @@ namespace hgraph {
     }
 
     /** Render as ``HH:MM:SS[.ffffff]`` (the Python ``time`` string form). */
-    std::ostream &operator<<(std::ostream &os, const Time &value);
+    HGRAPH_EXPORT std::ostream &operator<<(std::ostream &os, const Time &value);
 } // namespace hgraph
 
 /** ``std::hash`` for ``Time`` (usable as a TSS element / TSD key). */
