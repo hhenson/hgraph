@@ -142,7 +142,15 @@ namespace hgraph::ts_data_plan_factory_detail
                 header.next_modified = 0;
                 flush_retained();
                 header.ordinal_key = modified_time.time_since_epoch().count();
-                previous_size_     = this->size();
+                previous_size_ = this->size();
+            }
+
+            void discard_contents(DateTime now)
+            {
+                // Truncation retains child cursors through this cycle and
+                // preserves the delta baseline if another write follows.
+                prepare_delta(now);
+                truncate_to(0);
             }
 
             void record_child_modified(std::size_t index, DateTime modified_time)
@@ -625,6 +633,13 @@ namespace hgraph::ts_data_plan_factory_detail
                 static const detail::TSDataOwnershipOps ops{
                     .child_count = &owned_child_count,
                     .child_at = &owned_child_at,
+                    .child_alive_at = [](const void *, const void *memory, std::size_t index, DateTime now) noexcept {
+                        const auto &store = storage(memory);
+                        return index < store.size() || (index < store.retained_size() && store.delta_time() == now);
+                    },
+                    .discard_contents = [](const void *, void *memory, DateTime now) {
+                        storage(memory).discard_contents(now);
+                    },
                 };
                 return ops;
             }
@@ -650,6 +665,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .data = store.child_memory(index),
                     .parent_child_id = index,
                     .attach_parent = true,
+                    .retained_after_removal = index >= store.size(),
                 };
             }
 

@@ -567,7 +567,7 @@ bool TSDataMutationView::invalidate() {
     for (std::size_t index = 0; index < children; ++index) {
       const auto child_ref =
           ownership->child_at(table.context, storage_.data(), index);
-      if (!child_ref.type || child_ref.data == nullptr) {
+      if (!child_ref.type || child_ref.data == nullptr || child_ref.retained_after_removal) {
         continue;
       }
       // A structural alternative can expose borrowed input-role
@@ -580,6 +580,9 @@ bool TSDataMutationView::invalidate() {
       TSDataMutationView child{TSDataView{child_ref.type, child_ref.data},
                                mutation_time_};
       static_cast<void>(child.invalidate());
+    }
+    if (ownership->discard_contents != nullptr) {
+      ownership->discard_contents(table.context, storage_.data(), mutation_time_);
     }
   }
 

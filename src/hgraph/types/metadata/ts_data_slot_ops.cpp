@@ -296,6 +296,14 @@ namespace hgraph::ts_data_plan_factory_detail
                 return mutation_result(slot);
             }
 
+            void discard_contents(DateTime now)
+            {
+                prepare_delta(now);
+                for (std::size_t slot = 0; slot < slot_capacity(); ++slot)
+                    if (slot_live(slot)) { static_cast<void>(remove_slot(slot, now)); }
+                tracking_.observers.notify_keys(now);
+            }
+
             void reset_delta() noexcept
             {
                 added_.reset();
@@ -701,6 +709,19 @@ namespace hgraph::ts_data_plan_factory_detail
                     else { added_.set(slot); }
                 }
                 modified_.set(slot);
+            }
+
+            void discard_contents(DateTime now)
+            {
+                // Keep removal-cycle cursors alive. If the output is written
+                // again in this cycle, its published delta must also withdraw
+                // keys held by consumers at the start of the cycle.
+                prepare_delta(now);
+                for (std::size_t slot = 0; slot < slot_capacity(); ++slot)
+                    if (slot_live(slot)) { static_cast<void>(remove_slot(slot, now)); }
+                key_set_tracking_.last_modified_time = MIN_DT;
+                key_set_tracking_.observers.notify_keys(now);
+                key_set_tracking_.observers.notify(now);
             }
 
             void reset_delta() noexcept
@@ -1839,6 +1860,14 @@ namespace hgraph::ts_data_plan_factory_detail
                        bool embedded)
             {
                 initialise_tss_common(schema, plan, key_binding, true);
+                static const detail::TSDataOwnershipOps ownership{
+                    .child_count = [](const void *, const void *) noexcept { return std::size_t{0}; },
+                    .child_at = [](const void *, void *, std::size_t) noexcept { return detail::TSDataOwnedChild{}; },
+                    .discard_contents = [](const void *, void *memory, DateTime now) {
+                        storage<TSSSlotStorage>(memory).discard_contents(now);
+                    },
+                };
+                set_ops.ownership_ops = &ownership;
                 set_ops.checkpoint_ops = &checkpoint_ops();
                 root_type = TSRoleTypeRef{intern_ts_type(
                     schema, role, plan, set_ops, keyed_root_label(schema.kind, role, embedded))};
@@ -1914,12 +1943,16 @@ namespace hgraph::ts_data_plan_factory_detail
                             .type = state->dict_layout.element_type,
                             .data = store.child_memory_for_write(slot),
                             .parent_child_id = slot,
+                            .retained_after_removal = !store.slot_live(slot),
                         };
                     },
                     .child_alive_at = [](const void *, const void *memory, std::size_t slot, DateTime time) noexcept {
                         const auto &store = storage<TSDSlotStorage>(memory);
                         return store.slot_live(slot) ||
                                (store.slot_occupied(slot) && store.structural_delta_current(time));
+                    },
+                    .discard_contents = [](const void *, void *memory, DateTime now) {
+                        storage<TSDSlotStorage>(memory).discard_contents(now);
                     },
                 };
                 return ops;

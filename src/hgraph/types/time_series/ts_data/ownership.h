@@ -15,6 +15,7 @@ namespace hgraph::detail
         void            *data{nullptr};
         std::size_t      parent_child_id{TS_DATA_NO_CHILD_ID};
         bool             attach_parent{true};
+        bool             retained_after_removal{false};
     };
 
     /**
@@ -46,6 +47,9 @@ namespace hgraph::detail
         /** Logical lifetime of a child slot; storage may remain allocated after expiry. */
         bool (*child_alive_at)(const void *, const void *, std::size_t, DateTime) noexcept =
             [](const void *, const void *, std::size_t, DateTime) noexcept { return true; };
+        /** Discard this owner's dynamic membership after invalidating its children.
+            Fixed shapes and borrowed projections keep their storage topology. */
+        void (*discard_contents)(const void *, void *, DateTime) = nullptr;
     };
 
     /** Observe the live child positions of an owned growing list. Callbacks see
