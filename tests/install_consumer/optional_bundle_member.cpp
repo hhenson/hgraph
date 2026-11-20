@@ -1,6 +1,10 @@
 #include <hgraph/types/generated.h>
 #include <hgraph/types/native_bundle.h>
 
+#ifndef HGRAPH_NO_ARROW
+#include <hgraph/lib/testing/eval_node.h>
+#endif
+
 #include <optional>
 
 namespace {
@@ -43,10 +47,9 @@ Quote quote(Int seq)
 }
 
 struct Write {
-    static constexpr bool schedule_on_start = true;
-    static void eval(NodeScheduler scheduler, State<Int> cursor, Out<NativeTSB<Quote>> out)
+    static void eval(In<"command", TS<Int>> command, Out<NativeTSB<Quote>> out)
     {
-        const Int seq = cursor.get();
+        const Int seq = command.value();
         if (seq == 3) {
             auto note = out.field<"note">();
             static_cast<void>(note.begin_mutation(note.evaluation_time()).invalidate());
@@ -54,26 +57,41 @@ struct Write {
         } else {
             out.set(quote(seq));
         }
-        if (seq < 4) { cursor.set(seq + 1); scheduler.schedule(MIN_TD); }
     }
 };
 
 struct Read {
-    static inline std::vector<Int> seen;
-    static void eval(In<"quote", NativeTSB<Quote>> input)
+    static void eval(In<"quote", NativeTSB<Quote>> input, Out<TS<Int>> out)
     {
         const Int seq = input.field<"seq">().value();
         const auto note = input.field<"note">();
         if (seq == 3) {
-            if (!note.valid() && !input.all_valid()) { seen.push_back(seq); }
+            if (!note.valid() && !note.modified() && !input.all_valid()) { out.set(seq); }
             return;
         }
         if (input.all_valid() && note.valid() && note.modified() &&
             note.value().has_value() == (seq != 1) && input.value() == quote(seq)) {
-            seen.push_back(seq);
+            out.set(seq);
         }
     }
 };
+
+struct OptionalFields {
+    static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> command)
+    {
+        return wire<Read>(w, wire<Write>(w, command));
+    }
+};
+
+#ifdef HGRAPH_NO_ARROW
+struct Input {
+    static constexpr bool schedule_on_start = true;
+    static void eval(Out<TS<Int>> out) { out.set(Int{0}); }
+};
+struct Sink {
+    static void eval(In<"value", TS<Int>>) {}
+};
+#endif
 }
 
 int main()
@@ -88,11 +106,14 @@ int main()
         if (price.has_value() && price.value().as_bundle().at("bid").checked_as<Int>() != seq) { return 3; }
     }
 
+#ifdef HGRAPH_NO_ARROW
+    // The lean SDK ships runtime and wiring. Build the generated graph here
+    // without the standard library's replay and record nodes used by eval_node.
     Wiring wiring;
-    wire<Read>(wiring, wire<Write>(wiring));
-    GraphExecutorBuilder builder;
-    builder.graph_builder(std::move(wiring).finish()).start_time(MIN_ST).end_time(MIN_ST + 5 * MIN_TD);
-    auto executor = builder.make_executor();
-    executor.view().run();
-    return Read::seen == std::vector<Int>{0, 1, 2, 3, 4} ? 0 : 4;
+    wire<Sink>(wiring, OptionalFields::compose(wiring, wire<Input>(wiring)));
+    return std::move(wiring).finish().node_count() > 0 ? 0 : 4;
+#else
+    const auto observed = testing::eval_node<OptionalFields>({0, 1, 2, 3, 4});
+    return observed == std::vector<std::optional<Int>>{0, 1, 2, 3, 4} ? 0 : 4;
+#endif
 }

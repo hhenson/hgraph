@@ -34,6 +34,8 @@ if(DEFINED hgraph_WITH_ARROW AND NOT hgraph_WITH_ARROW)
     return()
 endif()
 
+target_link_libraries(hgraph_optional_bundle_consumer PRIVATE hgraph::core)
+
 add_executable(hgraph_install_consumer main.cpp fabric_extension_probe.cpp spawn_probe.cpp)
 target_link_libraries(hgraph_install_consumer PRIVATE hgraph::core)
 if(COMMAND hgraph_link_python_embedding)
