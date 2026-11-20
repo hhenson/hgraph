@@ -1,4 +1,5 @@
 #include <hgraph/runtime/logger.h>
+#include <hgraph/types/static_node.h>
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 
@@ -17,6 +18,35 @@ namespace hgraph
             logger.log(spdlog::source_loc{}, level,
                        spdlog::string_view_t{message.data(), message.size()});
         }
+    }
+
+    bool LoggerView::should_log(int level) const noexcept
+    {
+        return logger_ != nullptr && logger_->should_log(clamp_level(level));
+    }
+
+    void LoggerView::log(int level, std::string_view message) const
+    {
+        if (logger_ == nullptr) { return; }
+        const auto spd_level = clamp_level(level);
+        if (!logger_->should_log(spd_level)) { return; }
+        emit(spd_level, message);
+    }
+
+    int LoggerView::effective_level() const noexcept
+    {
+        if (logger_ == nullptr) { return static_cast<int>(spdlog::level::off); }
+        if (ops_ != nullptr && ops_->effective_level_impl != nullptr)
+        {
+            return ops_->effective_level_impl(*logger_);
+        }
+        return static_cast<int>(logger_->level());
+    }
+
+    LoggerView static_node_detail::arg_provider<LoggerView>::get(const NodeView &node, DateTime)
+    {
+        const auto graph = node.graph();
+        return LoggerView{graph.logger(), node.pointer(), graph.logger_ops()};
     }
 
     const LoggerOps &plain_logger_ops() noexcept

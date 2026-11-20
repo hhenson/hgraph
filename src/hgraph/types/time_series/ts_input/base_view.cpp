@@ -214,6 +214,11 @@ namespace hgraph
             {
                 // A link can carry the producer's invalidation notification
                 // or a sampled rebind. Only the former suppresses modification.
+                const auto &ops = data.ops();
+                if (!ops.is_target_link && (ops.kind == TSTypeKind::TSS || ops.kind == TSTypeKind::TSD) &&
+                    data.tracking().cleared_at(evaluation_time) && structural_sample_time(link) != evaluation_time) {
+                    return false;
+                }
                 return !invalidated(data, evaluation_time) &&
                        (!detail::has_input_children(data) || data.has_current_value());
             }

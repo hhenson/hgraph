@@ -3013,6 +3013,59 @@ TEST_CASE("prepared routes re-check the observation kind before the fast path")
     require_matches_slow_path();
 }
 
+TEST_CASE("TSInput observes an owned keyed collection clear without a value tick", "[invalidation]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<Int>("int");
+    for (const auto *schema : {registry.tss(integer), registry.tsd(integer, registry.ts(integer))}) {
+        CAPTURE(schema->kind == TSTypeKind::TSS);
+        RecordingNotifiable recorder;
+        TSOutput output{schema};
+        TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+        input.view(&recorder, MIN_ST).bind_output(output.view(MIN_ST));
+        input.view(&recorder, MIN_ST).make_active();
+        const auto publish = [&](DateTime time, Int number) {
+            Value key{number};
+            auto endpoint = output.view(time);
+            if (schema->kind == TSTypeKind::TSS) {
+                REQUIRE(endpoint.as_set().begin_mutation(time).add(key.view()));
+            } else {
+                endpoint.as_dict().begin_mutation(time).set(key.view(), key.view());
+            }
+            REQUIRE(input.view(nullptr, time).valid());
+            REQUIRE(input.view(nullptr, time).modified());
+        };
+        publish(MIN_ST, 1);
+        const auto clear = MIN_ST + MIN_TD;
+        REQUIRE(output.view(clear).data_view().begin_mutation(clear).invalidate());
+        CHECK(recorder.notified.back() == clear);
+        CHECK_FALSE(output.view(clear).modified());
+        CHECK_FALSE(input.view(nullptr, clear).valid());
+        CHECK_FALSE(input.view(nullptr, clear).modified());
+        CHECK_FALSE(input.view(nullptr, clear + MIN_TD).modified());
+        publish(clear + 2 * MIN_TD, 2);
+
+        // A sampled rebind can withdraw the previous membership even if
+        // its new target was explicitly cleared in this same cycle.
+        TSOutput other{schema};
+        other.view(MIN_ST).data_view().begin_mutation(MIN_ST).mark_empty_delta();
+        const auto rebind = clear + 3 * MIN_TD;
+        REQUIRE(other.view(rebind).data_view().begin_mutation(rebind).invalidate());
+        auto reader = input.view(nullptr, rebind);
+        reader.bind_output_sampled(other.view(rebind), rebind);
+        CHECK_FALSE(reader.valid());
+        CHECK(reader.modified());
+        if (schema->kind == TSTypeKind::TSS) {
+            auto set = reader.as_set();
+            CHECK(range_size(set.removed()) > 0);
+        } else {
+            auto dict = reader.as_dict();
+            CHECK(range_size(dict.removed_keys()) > 0);
+        }
+    }
+}
+
 TEST_CASE("Runtime contract reports dictionary membership independently of child validity", "[runtime-contract]")
 {
     using namespace hgraph;

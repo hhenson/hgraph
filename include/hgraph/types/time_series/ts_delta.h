@@ -3,6 +3,7 @@
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/util/date_time.h>
+#include <hgraph/types/time_series/ts_output/apply_value.h>
 #include <hgraph/types/time_series/ts_data/current_state_ops.h>
 
 namespace hgraph
@@ -85,8 +86,6 @@ namespace hgraph
         value and original evaluation time, in oldest-first order. */
     HGRAPH_EXPORT void validate_window_delta(const TSValueTypeMetaData &schema, const ValueView &delta);
 
-    HGRAPH_EXPORT void apply_delta(const TSOutputView &out, const ValueView &delta);
-
     /** Apply a recorded publication. A present structural delta can publish without a
         change to any child. An omitted child has no publication of its own. */
     HGRAPH_EXPORT void apply_observed_delta(const TSOutputView &out, const ValueView &delta);
@@ -101,7 +100,6 @@ namespace hgraph
      */
     [[nodiscard]] HGRAPH_EXPORT bool current_value_schema_compatible(
         const TSValueTypeMetaData &schema, const ValueTypeMetaData &value_schema);
-    HGRAPH_EXPORT void apply_current_value(const TSOutputView &out, const ValueView &value);
 
     /** Reconcile a publication/snapshot output with a live source TSData tree. */
     HGRAPH_EXPORT void reconcile_current_state(

@@ -80,6 +80,23 @@ def test_never_ticking_tsd_publishes_zero():
     assert out == [-2, None, None]
 
 
+def test_final_list_removals_and_zero_publications_remain_distinct():
+    list_type = hg.TSL[TS[int], hg.Size[-1]]
+
+    @graph
+    def total(values: list_type, zero: TS[int]) -> TS[int]:
+        return hg.reduce(hg.add_, values, zero)
+
+    @graph
+    def without_zero(values: list_type) -> TS[int]:
+        return hg.reduce(hg.add_, values)
+
+    edits = [{0: 3, 1: 4}, {0: hg.REMOVE, 1: hg.REMOVE}, {0: hg.REMOVE}, None, {0: 8}, None]
+    assert eval_node(total, edits, [0, 5, None, 5, None, 5]) == [7, 5, None, 5, 13, 13]
+    assert eval_node(total, edits, [0, None, None, 5, None, 5]) == [7, 0, None, 5, 13, 13]
+    assert eval_node(without_zero, edits) == [7, None, None, None, 8, None]
+
+
 def test_identity_zero_matches_upstream():
     # With the combiner's identity, both implementations agree on every tick.
     out = eval_node(

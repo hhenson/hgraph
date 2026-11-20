@@ -103,6 +103,15 @@ namespace hgraph::testing
     };
 }
 
+// Existing operator authoring imports both namespaces and uses these markers unqualified.
+namespace native_operator_name_compatibility
+{
+    using namespace hgraph;
+    using namespace hgraph::stdlib;
+    static_assert(std::is_same_v<map_, hgraph::stdlib::map_>);
+    static_assert(std::is_same_v<switch_, hgraph::stdlib::switch_>);
+}
+
 namespace
 {
     using namespace hgraph;
@@ -476,6 +485,36 @@ namespace
         }
     };
 
+    struct CountBranch
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts) { return wire<CounterNode>(w, ts); }
+    };
+
+    struct TimesTwo
+    {
+        static void eval(In<"value", TS<Int>> value, Out<TS<Int>> out) { out.set(value.value() * 2); }
+    };
+
+    struct DoubleBranch
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts) { return wire<TimesTwo>(w, ts); }
+    };
+
+    struct CompiledSwitch
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> key, Port<TS<Int>> value)
+        {
+            std::vector<SwitchBranchGraph> branches{
+                {Value{Int{1}}, compile_subgraph<CountBranch>(w)},
+                {Value{Int{2}}, compile_subgraph<DoubleBranch>(w)}};
+            auto out = compiled::switch_(w, key.erased(), std::array{value.erased()}, std::move(branches),
+                               SwitchBranchGraph{{}, compile_subgraph<PassThrough>(w)});
+            // The default branch forwards the original reference, so bind
+            // through a typed value consumer before recording the result.
+            return Port<void>{w, std::move(out)}.as<TS<Int>>();
+        }
+    };
+
     struct PassiveEcho
     {
         static constexpr auto name = "passive_echo";
@@ -495,6 +534,21 @@ namespace
         static void eval(In<"key", TS<Str>> key)
         {
             switch_sink_values.push_back(key.value());
+        }
+    };
+
+    struct KeySinkGraph
+    {
+        static void compose(Wiring &w, Port<TS<Str>> key) { wire<SwitchSinkBranch>(w, key); }
+    };
+
+    struct CompiledSinkSwitch
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Str>> key)
+        {
+            compiled::switch_sink_(w, key, {}, {{Value{Str{"one"}}, compile_subgraph<KeySinkGraph>(w), true}},
+                         SwitchBranchGraph{{}, compile_subgraph<KeySinkGraph>(w), true});
+            return key;
         }
     };
 
@@ -1492,4 +1546,22 @@ TEST_CASE("switch_: reload_on_ticked rebuilds the branch on every key tick")
                      stdlib::switch_cases({{Value{Str{"c"}}, fn<CounterNode>()}}).reload(),
                      values<Int>(5, 6, 7)),
                  values<Int>(1, 1, 2));
+}
+
+
+TEST_CASE("compiled switch: reselect starts a fresh child and default forwards its input")
+{
+    using namespace hgraph;
+    CHECK_OUTPUT(eval_node<CompiledSwitch>(values<Int>(1, 1, none, 2, 1, 7), values<Int>(5, 6, 7, 8, 9, 10)),
+                 values<Int>(1, 2, 3, 16, 1, 10));
+}
+
+
+TEST_CASE("compiled switch: sink case and fallback can take the selector")
+{
+    using namespace hgraph;
+    switch_sink_values.clear();
+    const auto keys = values<Str>(Str{"one"}, Str{"two"});
+    CHECK_OUTPUT(eval_node<CompiledSinkSwitch>(keys), keys);
+    CHECK(switch_sink_values == std::vector<Str>{"one", "two"});
 }

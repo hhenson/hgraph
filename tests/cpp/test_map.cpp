@@ -260,6 +260,39 @@ namespace
         }
     };
 
+    struct CompiledMapSink
+    {
+        static Port<TSD<Int, TS<Int>>> compose(Wiring &w, Port<TSD<Int, TS<Int>>> collection)
+        {
+            compiled::map_sink_(w, collection.erased(), {}, compile_subgraph<MappedSinkG>(w), MapKeyArg::First);
+            return collection;
+        }
+    };
+
+    struct SumIndexNode
+    {
+        static void eval(In<"index", TS<Int>> index, In<"value", TS<Int>> value,
+                         In<"offset", TS<Int>> offset, Out<TS<Int>> out)
+        {
+            out.set(index.value() + value.value() + offset.value());
+        }
+    };
+    struct SumListChild
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> index, Port<TS<Int>> value, Port<TS<Int>> offset)
+        {
+            return wire<SumIndexNode>(w, index, value, offset);
+        }
+    };
+    struct CompiledListMap
+    {
+        static Port<TSL<TS<Int>>> compose(Wiring &w, Port<TSL<TS<Int>>> collection, Port<TS<Int>> offset)
+        {
+            return Port<TSL<TS<Int>>>{w, compiled::map_(w, collection.erased(), std::array{offset.erased()},
+                                               compile_subgraph<SumListChild>(w), MapKeyArg::First)};
+        }
+    };
+
     struct MapSinkGraph
     {
         static constexpr auto name = "map_sink_graph";
@@ -4099,4 +4132,29 @@ TEST_CASE("map_: keyed lookups observe every late reference binding in one tick"
         values<Value>(dict_delta<Int, TS<Int>>({{0, 1}, {1, 10}}),
                       dict_delta<Int, TS<Int>>({{0, 2}, {1, 20}})),
         values<Bool>(false, true)), values<Int>(none, 22));
+}
+
+
+TEST_CASE("compiled map: a keyed sink starts fresh on reinsertion")
+{
+    using namespace hgraph;
+    mapped_sink_values.clear();
+    mapped_sink_starts = mapped_sink_stops = 0;
+    const auto inputs = values<Value>(
+        dict_delta<Int, TS<Int>>({{1, 10}}), dict_delta<Int, TS<Int>>({{2, 20}}),
+        dict_delta<Int, TS<Int>>({{1, 30}}), dict_delta<Int, TS<Int>>({}, {1}),
+        dict_delta<Int, TS<Int>>({{1, 7}}));
+    CHECK_OUTPUT(eval_node<CompiledMapSink>(inputs), inputs);
+    CHECK(mapped_sink_values == std::vector<std::pair<Int, Int>>{{1, 10}, {2, 20}, {1, 30}, {1, 7}});
+    CHECK(mapped_sink_starts == 3);
+    CHECK(mapped_sink_stops == 3);
+}
+
+TEST_CASE("compiled map: dynamic lists broadcast whole ports and pass their index")
+{
+    using namespace hgraph;
+    CHECK_OUTPUT(eval_node<CompiledListMap>(
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}, {1, 20}}, {}, 2), none), values<Int>(2, 3)),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 12}, {1, 23}}, {}, 2),
+                      dynamic_list_delta<TS<Int>>({{0, 13}, {1, 24}})));
 }

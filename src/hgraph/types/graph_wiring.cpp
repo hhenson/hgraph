@@ -1381,6 +1381,30 @@ WiringPortRef adapt_source_for_input_impl(Wiring &w,
                                           bool value_consumer);
 } // namespace
 
+void graph_wiring_detail::check_erased_input(const TSValueTypeMetaData *expected, const TSValueTypeMetaData *source) {
+  if (!input_binds_output_schema(expected, source)) {
+    throw std::logic_error("wire<T>: erased port schema does not match the node's time-series input");
+  }
+}
+
+void graph_wiring_detail::check_port_cast(const TSValueTypeMetaData *expected, const TSValueTypeMetaData *source) {
+  if (!input_accepts_output_schema(expected, source)) {
+    throw std::logic_error("Port::as<Schema>: runtime port schema does not match the requested schema");
+  }
+}
+
+Value graph_wiring_detail::make_concrete_scalars(Wiring &w, const ValueTypeMetaData *schema) {
+  return Value{value_type_for_wiring(schema, w.realization_options())};
+}
+
+WiringPortRef graph_wiring_detail::add_concrete_node(
+    Wiring &w, std::type_index definition, NodeBuilder builder,
+    std::span<const WiringPortRef> inputs, Value scalars) {
+  const auto *schema = builder.type().schema();
+  builder.input_endpoint(input_endpoint_for_sources(schema == nullptr ? nullptr : schema->input_schema, inputs));
+  return w.add_node(definition, std::move(builder), inputs, std::move(scalars));
+}
+
 WiringPortRef graph_wiring_detail::adapt_source_for_input(
     Wiring &w, const TSValueTypeMetaData *input_schema, WiringPortRef source) {
   return adapt_source_for_input_impl(w, input_schema, std::move(source), true);

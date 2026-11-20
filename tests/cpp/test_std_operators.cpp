@@ -690,6 +690,24 @@ namespace
         }
     };
 
+    struct ScheduleStartOffset
+    {
+        static void eval(In<"offset", TS<Int>> offset, Out<TS<DateTime>> out, DateTime now)
+        {
+            if (offset.value() < 0) { static_cast<void>(out.begin_mutation(now).invalidate()); }
+            else { out.set(MIN_ST + MIN_TD * offset.value()); }
+        }
+    };
+
+    struct ScheduleWithClearableStart
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<TimeDelta>> delay, Port<TS<Int>> offset)
+        {
+            auto start = wire<ScheduleStartOffset>(w, offset);
+            return wire<stdlib::schedule>(w, delay, start, Bool{true}, Int{4}, Bool{false}).as<TS<Bool>>();
+        }
+    };
+
     struct WindowSnapshot
     {
         static constexpr auto name = "window_snapshot";
@@ -701,6 +719,56 @@ namespace
             Int  total  = 0;
             for (const ValueView value : window.values()) { total += value.checked_as<Int>(); }
             out.set(static_cast<Int>(window.size()) * 100 + total);
+        }
+    };
+
+    template <typename Members>
+    struct PublishKeyedReset
+    {
+        static void eval(In<"action", TS<Int>> action, Out<Members> out)
+        {
+            const Int value = action.value();
+            if (value <= 0) {
+                auto change = out.base().data_view().begin_mutation(out.evaluation_time());
+                if (value < 0) { static_cast<void>(change.invalidate()); }
+                else { change.mark_empty_delta(); }
+            } else if constexpr (std::is_same_v<Members, TSS<Int>>) {
+                out.add(value);
+            } else {
+                out[value].set(Int{7});
+            }
+        }
+    };
+
+    template <typename Members, bool Duration>
+    struct KeyedResetWindow
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> actions, Port<TS<Int>> prices)
+        {
+            const auto members = wire<PublishKeyedReset<Members>>(w, actions);
+            const auto window = [&] {
+                if constexpr (Duration) { return wire<stdlib::to_window>(w, prices, 20 * MIN_TD, TimeDelta{}, members); }
+                else { return wire<stdlib::to_window>(w, prices, Int{5}, Int{1}, members); }
+            }();
+            return wire<WindowSnapshot, TS<Int>>(w, window);
+        }
+    };
+
+    template <typename Members>
+    struct KeyedResetTake
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> actions, Port<TS<Int>> prices)
+        {
+            return wire<stdlib::take>(w, prices, wire<PublishKeyedReset<Members>>(w, actions), Int{1}).template as<TS<Int>>();
+        }
+    };
+
+    template <typename Members>
+    struct KeyedResetModified
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>> actions)
+        {
+            return wire<stdlib::modified, TS<Bool>>(w, wire<PublishKeyedReset<Members>>(w, actions));
         }
     };
 
@@ -807,6 +875,35 @@ namespace
                 w, stdlib::make_map<Str, Float>({{Str{"KRW"}, Float{1.0}}}));
             return wire<stdlib::getitem_>(w, values, key, default_value)
                 .as<TS<Float>>();
+        }
+    };
+
+    template <typename Result>
+    struct ClearableFallback
+    {
+        static void eval(In<"command", TS<Int>> command, Out<TS<Result>> out)
+        {
+            if (command.value() < 0) { static_cast<void>(out.begin_mutation(out.evaluation_time()).invalidate()); }
+            else { out.set(static_cast<Result>(command.value())); }
+        }
+    };
+
+    struct LookupWithFallback
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> key, Port<TS<Int>> command)
+        {
+            auto map = wire<stdlib::const_, TS<Map<Int, Int>>>(w, int_map({{1, 5}}));
+            return wire<stdlib::getitem_>(w, map, key, wire<ClearableFallback<Int>>(w, command)).as<TS<Int>>();
+        }
+    };
+
+    template <typename Op, typename Result>
+    struct AggregateWithFallback
+    {
+        static Port<TS<Result>> compose(Wiring &w, Port<TS<HomogeneousTuple<Int>>> input, Port<TS<Int>> command)
+        {
+            return wire<Op>(w, input, arg<"default_value">(wire<ClearableFallback<Result>>(w, command)))
+                .template as<TS<Result>>();
         }
     };
 
@@ -2237,6 +2334,34 @@ namespace
 
 }  // namespace
 
+TEST_CASE("std operators: direct set and dictionary invalidation does not reset consumers", "[stdlib][keyed-reset]")
+{
+    stdlib::register_standard_operators();
+    const auto check_members = []<typename Members>() {
+        const auto actions = values<Int>(none, 0, none, -1, -1, none, 1, none, 2, none);
+        const EvalNodeRunOptions options{.end_time = MIN_ST + 10 * MIN_TD};
+        const auto check_window = [&]<bool Duration>() {
+            // WindowSnapshot returns size * 100 + sum, so 360 retains prices 10, 20 and 30.
+            CHECK_OUTPUT((eval_node_with_options<KeyedResetWindow<Members, Duration>>(
+                             options, actions, values<Int>(4, 10, 20, 30, none, none, none, 40, 50, 60))),
+                         values<Int>(104, 110, 230, 360, none, none, 0, 140, 150, 310));
+            CHECK_OUTPUT((eval_node_with_options<KeyedResetWindow<Members, Duration>>(
+                             options, actions, values<Int>(4, 10, 20, none, none, 30, none, 40, 50, 60))),
+                         values<Int>(104, 110, 230, none, none, 360, 0, 140, 150, 310));
+        };
+        check_window.template operator()<false>();
+        check_window.template operator()<true>();
+
+        const auto changes = values<Int>(none, 0, none, -1, -1, none, 1, none);
+        CHECK_OUTPUT(eval_node<KeyedResetModified<Members>>(changes),
+                     values<Bool>(false, true, false, false, none, none, true, false));
+        CHECK_OUTPUT(eval_node<KeyedResetTake<Members>>(changes, values<Int>(4, 10, 20, 30, none, 40, none, 50)),
+                     values<Int>(4, 10, none, none, none, none, none, 50));
+    };
+    SECTION("set") { check_members.template operator()<TSS<Int>>(); }
+    SECTION("dictionary") { check_members.template operator()<TSD<Int, TS<Int>>>(); }
+}
+
 TEST_CASE("std operators: add_ selects the int implementation for TS<Int> operands")
 {
     stdlib::register_standard_operators();
@@ -3467,6 +3592,32 @@ TEST_CASE("std operators: map getitem uses an explicit default for a missing key
                      values<Str>(Str{"KRW"}, Str{"USD"}),
                      values<Float>(none, Float{10000.0})),
                  values<Float>(Float{1.0}, Float{10000.0}));
+}
+
+TEST_CASE("std operators: clearing an unused map fallback preserves real key publications")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<LookupWithFallback>(
+                     values<Int>(1, none, none, none, 1, 1, 2, none, none),
+                     values<Int>(8, -1, 9, none, -1, none, 11, -1, 12)),
+                 values<Int>(5, none, 5, none, 5, 5, 11, none, 12));
+}
+
+TEST_CASE("std operators: clearing an unused aggregate fallback preserves real container publications")
+{
+    stdlib::register_standard_operators();
+    auto tuple = int_tuple({5, 6});
+    auto check = [&]<typename Op, typename Result>(Op, Result selected) {
+        CAPTURE(Op::name);
+        using Graph = AggregateWithFallback<Op, Result>;
+        CHECK_OUTPUT(eval_node<Graph>(values<Value>(tuple, none, none, none, tuple, int_tuple({}), none, none),
+                                      values<Int>(8, -1, 9, none, -1, 11, -1, 12)),
+                     values<Result>(selected, none, selected, none, selected, Result{11}, none, Result{12}));
+    };
+    check(stdlib::min_{}, Int{5});
+    check(stdlib::max_{}, Int{6});
+    check(stdlib::sum_{}, Int{11});
+    check(stdlib::mean{}, Float{5.5});
 }
 
 TEST_CASE("std operators: map getitem snapshots mutable scalar constants")
@@ -4949,6 +5100,30 @@ TEST_CASE("std operators: structural proxy lag recursively preserves nested TSD 
         eval_node<TslNestedTsdProxyLagFeedbackGraph>(
             target, rebase, prices, trigger),
         feedback_expected);
+}
+
+TEST_CASE("std operators: clearing the optional start preserves scheduled alarms")
+{
+    stdlib::register_standard_operators();
+    const auto offsets = [](const std::vector<std::optional<Int>> &starts) {
+        auto ticks = eval_node<ScheduleWithClearableStart>(values<TimeDelta>(MIN_TD * 5), starts);
+        std::vector<std::size_t> result;
+        for (std::size_t i = 0; i < ticks.size(); ++i)
+        {
+            if (ticks[i])
+            {
+                CHECK(*ticks[i]);
+                result.push_back(i);
+            }
+        }
+        return result;
+    };
+    const std::vector<std::size_t> original{5, 10, 15, 20};
+    CHECK(offsets(values<Int>(0)) == original);
+    CHECK(offsets(values<Int>(0, none, -1)) == original);
+    CHECK(offsets(values<Int>(0, none, none, none, none, -1)) == original);
+    CHECK(offsets(values<Int>(0, none, 2)) == std::vector<std::size_t>{7, 12, 17, 22});
+    CHECK(offsets(values<Int>(0, none, -1, none, none, none, 6)) == std::vector<std::size_t>{5, 11, 16, 21, 26});
 }
 
 TEST_CASE("std operators: schedule is bounded by executor end time")

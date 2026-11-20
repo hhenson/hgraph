@@ -1392,6 +1392,21 @@ TEST_CASE("reduce over dynamic TSL: clearing an interior slot removes only its c
                  values<Int>(6, 4, 8, 13));
 }
 
+TEST_CASE("reduce over dynamic TSL: final positional removals retire the tree before recovery")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<stdlib::reduce_, TSL<TS<Int>>>(
+                     fn<stdlib::add_>(),
+                     values<Value>(dynamic_list_delta<TS<Int>>({{0, 3}, {1, 4}}, {}, 2),
+                                   dynamic_list_delta<TS<Int>>({}, {0, 1}),
+                                   dynamic_list_delta<TS<Int>>({}, {0}),
+                                   dynamic_list_delta<TS<Int>>({{0, 8}})),
+                     Int{5})),
+                 values<Int>(7, 5, none, 13));
+}
+
 TEST_CASE("reduce over dynamic TSL: truncation retires the removed leaves")
 {
     using namespace hgraph;
