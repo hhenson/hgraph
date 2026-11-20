@@ -342,20 +342,6 @@ namespace hgraph::python_bridge
             if (ts_type.has_value())
             {
                 deltas = replay_deltas_from_python(*ts_type->meta, values, start_time);
-                if (testing::preserves_empty_collection_ticks(*ts_type->meta))
-                {
-                    // The scratch endpoint has already suppressed sparse no-ops.
-                    // Keep its observed publications in the same typed buffer as record().
-                    auto buffer = testing::make_dense_buffer(ts_type->meta->delta_value_schema);
-                    auto list = buffer.as_list().begin_mutation();
-                    for (const auto &event : deltas)
-                    {
-                        if (event) { list.push_back(event->view()); }
-                        else { list.push_back_unset(); }
-                    }
-                    wiring_ref().global_state().set(key, buffer);
-                    return;
-                }
             }
             else
             {
@@ -366,7 +352,9 @@ namespace hgraph::python_bridge
                                                          : std::optional<Value>{py_to_value(object)});
                 }
             }
-            testing::set_replay_deltas(wiring_ref().global_state(), key, deltas);
+            // Box each capture with its own concrete binding, including covariant compound fields.
+            const bool observed = ts_type && testing::preserves_empty_collection_ticks(*ts_type->meta);
+            testing::set_replay_deltas(wiring_ref().global_state(), key, deltas, observed);
         }
 
         [[nodiscard]] std::unique_ptr<PyRun> run(

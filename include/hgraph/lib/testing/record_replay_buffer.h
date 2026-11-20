@@ -69,40 +69,46 @@ namespace hgraph::testing
         return schema.kind == TSTypeKind::TSS || schema.is_unbounded_tsl();
     }
 
-    enum class DenseBufferLayout { Seeded, Typed };
+    enum class DenseBufferLayout { Seeded, Typed, ObservedSeed };
 
     // Private representation identity preserves the format through owning
     // Value and GlobalState copies without changing the canonical List schema.
     [[nodiscard]] inline ValueTypeRef dense_buffer_binding(ValueTypeRef binding, DenseBufferLayout layout) {
+        const char *label = "testing.dense.seeded";
+        if (layout == DenseBufferLayout::Typed) { label = "testing.dense.typed"; }
+        else if (layout == DenseBufferLayout::ObservedSeed) { label = "testing.dense.observed_seed"; }
         const auto &record = TypeRecordRegistry::instance().intern(TypeRecordDefinition{
             .key = TypeRecordKey{.schema = &binding.schema()->header,
                                  .role   = TypeRole::Instance,
                                  .plan   = binding.plan(),
                                  .ops    = binding.ops(),
                                  .debug  = binding.record()->debug,
-                                 .implementation_label =
-                                     layout == DenseBufferLayout::Typed ? "testing.dense.typed" : "testing.dense.seeded"},
+                                 .implementation_label = label},
             .ops_abi_version = binding.record()->ops_abi_version,
             .capabilities    = binding.capabilities(),
         });
         return ValueTypeRef::checked(AnyPtr::typed_null(record));
     }
     [[nodiscard]] inline DenseBufferLayout dense_buffer_layout(ValueTypeRef binding) noexcept {
-        return binding && binding.record()->implementation_name() == "testing.dense.typed" ? DenseBufferLayout::Typed
-                                                                                           : DenseBufferLayout::Seeded;
+        if (binding) {
+            const auto label = binding.record()->implementation_name();
+            if (label == "testing.dense.typed") { return DenseBufferLayout::Typed; }
+            if (label == "testing.dense.observed_seed") { return DenseBufferLayout::ObservedSeed; }
+        }
+        return DenseBufferLayout::Seeded;
     }
     [[nodiscard]] inline ValueTypeRef dense_recording_binding(ValueTypeRef delta_binding) {
         return dense_buffer_binding(mutable_list_type(delta_binding), DenseBufferLayout::Typed);
     }
 
-    /** A fresh, empty cycle-aligned buffer (a mutable ``List<Any>``) — the
-        SEEDED replay layout (set_replay does not know one element schema). */
-    [[nodiscard]] inline Value make_buffer()
+    /** Seeded edits and captured events both use a boxed list so every
+        entry retains its concrete binding. Only captured events carry tick provenance. */
+    [[nodiscard]] inline Value make_buffer(bool observed = false)
     {
         auto       &registry = TypeRegistry::instance();
         const auto *schema   = registry.mutable_list(registry.any());
         const auto binding  = ValuePlanFactory::instance().type_for(schema);
-        return Value{dense_buffer_binding(binding, DenseBufferLayout::Seeded)};
+        return Value{dense_buffer_binding(binding, observed ? DenseBufferLayout::ObservedSeed : DenseBufferLayout::Seeded)};
     }
 
     /** A fresh, empty TYPED dense recording buffer: ``List<delta_schema>``

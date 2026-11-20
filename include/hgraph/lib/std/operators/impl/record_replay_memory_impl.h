@@ -326,7 +326,7 @@ namespace hgraph::stdlib
                 const auto buffer    = gs.get(key.value());
                 const auto layout = testing::dense_buffer_layout(buffer.binding());
                 current.dense_reader = testing::dense_entry_reader(buffer.binding(), layout);
-                current.observed_collection = current.observed_collection && layout == testing::DenseBufferLayout::Typed;
+                current.observed_collection = current.observed_collection && layout != testing::DenseBufferLayout::Seeded;
             }
             cursor.set(std::move(current));
         }

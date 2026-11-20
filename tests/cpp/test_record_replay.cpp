@@ -257,6 +257,13 @@ TEST_CASE("observed empty collection publications replay while raw sparse no-op 
         state.set("events", Value{state.get("eval_node::out")});
         CHECK_OUTPUT(eval_node<ReplayCollection<Collection>>(), expected);
 
+        // A captured seed keeps concrete entries boxed, including across state copies.
+        set_replay_deltas(state, "events", expected, true);
+        auto copied = Value{state.get("events")};
+        CHECK(copied.schema() == TypeRegistry::instance().mutable_list(TypeRegistry::instance().any()));
+        CHECK(dense_buffer_layout(copied.binding()) == DenseBufferLayout::ObservedSeed);
+        CHECK_OUTPUT(eval_node<ReplayCollection<Collection>>(), expected);
+
         // The same empty delta, authored as a raw sparse edit, stays quiet.
         set_replay_deltas(state, "events", {expected.front(), std::nullopt, expected.back()});
         const auto edited = eval_node<ReplayCollection<Collection>>();
