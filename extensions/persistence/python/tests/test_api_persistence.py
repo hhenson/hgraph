@@ -207,3 +207,28 @@ def test_frame_pyarrow_round_trip():
         hg.set_record_replay_config(hg.IN_MEMORY)
 
 
+
+
+def test_compare_skips_shared_withdrawal_and_records_real_divergence():
+    from hgraph_persistence import frame_store_read
+
+    @hg.compute_node
+    def source(command: TS[int], _output: hg.TS_OUT[int] = None) -> TS[int]:
+        if command.value < 0:
+            _output.invalidate()
+        else:
+            return command.value
+
+    @graph
+    def compare_inputs(a: TS[int], b: TS[int]):
+        hg.compare(source(a), source(b), recordable_id="withdrawal", model=hg.DATA_FRAME)
+
+    with hg.GlobalState():
+        eval_node(compare_inputs, [7, -1, -1, 7, 7, -1], [7, -1, None, 7, 7, None])
+        key = "withdrawal.__compare__"
+        assert hg.comparison_summary(key) == (4, 1)
+        table = frame_store_read(key)
+        assert table.column("value").to_pylist() == [True, True, True, False]
+        assert table.column("__date_time__").to_pylist() == [
+            hg.MIN_ST + i * hg.MIN_TD for i in (0, 3, 4, 5)
+        ]

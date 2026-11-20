@@ -189,6 +189,27 @@ namespace
         }
     };
 
+    struct ClearOnNegative
+    {
+        static void eval(In<"command", TS<Int>> command, Out<TS<Int>> out, DateTime now)
+        {
+            if (command.value() < 0) { static_cast<void>(out.begin_mutation(now).invalidate()); }
+            else { out.set(command.value()); }
+        }
+    };
+
+    struct CompareWithdrawals
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> lhs_command, Port<TS<Int>> rhs_command)
+        {
+            auto lhs = wire<ClearOnNegative>(w, lhs_command);
+            auto rhs = wire<ClearOnNegative>(w, rhs_command);
+            wire<stdlib::compare>(w, lhs, lhs, arg<"recordable_id">(Str{"self"}));
+            wire<stdlib::compare>(w, lhs, rhs, arg<"recordable_id">(Str{"independent"}));
+            return lhs;
+        }
+    };
+
     struct DirectCompareGraph
     {
         [[maybe_unused]] static constexpr auto name = "direct_compare_graph";
@@ -509,6 +530,31 @@ TEST_CASE("compare: a fresh memory compare run zeroes the published summary")
     REQUIRE(summary.has_value());
     CHECK(summary->compared == 0);
     CHECK(summary->mismatches == 0);
+}
+
+TEST_CASE("compare: simultaneous withdrawal adds no comparison")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    record_replay::set_config(context.state().view(),
+                              record_replay::RecordReplayConfig{.backend = std::string{record_replay::MEMORY}});
+
+    // Distinct input sequences recover at the same time; only lhs repeats the clear.
+    (void)eval_node<CompareWithdrawals>(values<Int>(7, -1, -1, 7, 7), values<Int>(7, -1, none, 7, 7));
+    for (const char *key : {"self.__compare__", "independent.__compare__"})
+    {
+        const auto summary = record_replay::comparison_summary(context.state().view(), key);
+        REQUIRE(summary.has_value());
+        CHECK(summary->compared == 3);
+        CHECK(summary->mismatches == 0);
+    }
+
+    CHECK_THROWS_WITH((void)eval_node<CompareWithdrawals>(values<Int>(7, -1), values<Int>(7, none)),
+                      Catch::Matchers::ContainsSubstring("record/replay comparison failed"));
+    const auto summary = record_replay::comparison_summary(context.state().view(), "independent.__compare__");
+    REQUIRE(summary.has_value());
+    CHECK(summary->compared == 2);
+    CHECK(summary->mismatches == 1);
 }
 
 TEST_CASE("compare: recordable_id defaults to the enclosing recordable id")

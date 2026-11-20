@@ -843,10 +843,11 @@ namespace hgraph::persistence
                          GlobalStateView gs, DateTime now)
         {
             static_cast<void>(recordable_id);
-            // Activation means at least one side ticked: a one-sided value IS
-            // a mismatch (one series produced where the other did not).
             static_cast<void>(gs);
-            const bool  equal  = lhs.valid() && rhs.valid() && lhs.value().equals(rhs.value());
+            const bool lhs_valid = lhs.valid();
+            const bool rhs_valid = rhs.valid();
+            if (!lhs_valid && !rhs_valid) { return; }  // simultaneous withdrawal has no values to compare
+            const bool equal = lhs_valid && rhs_valid && lhs.value().equals(rhs.value());
             auto       *handle = state.get().handle;
             ++handle->compared;
             if (!equal) { ++handle->mismatches; }

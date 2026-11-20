@@ -820,3 +820,27 @@ def test_compare_takes_released_hgraphs_two_argument_shape():
     with pytest.raises(Exception, match="no recordable id provided"):
         eval_node(bare, [1, 2], [1, 2])
     eval_node(named, [1, 2], [1, 2])
+
+
+def test_compare_records_publications_and_one_sided_withdrawal():
+    @compute_node
+    def source(command: TS[int], _output: hg.TS_OUT[int] = None) -> TS[int]:
+        if command.value < 0:
+            _output.invalidate()
+        else:
+            return command.value
+
+    @graph
+    def compare_inputs(a: TS[int], b: TS[int]):
+        left, right = source(a), source(b)
+        hg.compare(left, left, recordable_id="self")
+        hg.compare(left, right, recordable_id="pair")
+
+    with hg.GlobalState():
+        eval_node(compare_inputs, [7, -1, -1, 7, 7], [7, -1, None, 7, 7])
+        assert hg.comparison_summary("self.__compare__") == (3, 0)
+        assert hg.comparison_summary("pair.__compare__") == (3, 0)
+
+        with pytest.raises(RuntimeError, match="record/replay comparison failed"):
+            eval_node(compare_inputs, [7, -1], [7, None])
+        assert hg.comparison_summary("pair.__compare__") == (2, 1)
