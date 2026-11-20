@@ -465,6 +465,7 @@ def test_schedule_ts_with_start():
         ([0, None, -1], [5, 10, 15, 20]),
         ([0, None, None, None, None, -1], [5, 10, 15, 20]),
         ([0, None, 2], [7, 12, 17, 22]),
+        ([0, None, -1, None, None, None, 6], [5, 11, 16, 21, 26]),
     ],
 )
 def test_schedule_start_withdrawal(starts, expected):

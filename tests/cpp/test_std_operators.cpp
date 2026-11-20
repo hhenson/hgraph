@@ -4962,6 +4962,7 @@ TEST_CASE("std operators: clearing the optional start preserves scheduled alarms
     CHECK(offsets(values<Int>(0, none, -1)) == original);
     CHECK(offsets(values<Int>(0, none, none, none, none, -1)) == original);
     CHECK(offsets(values<Int>(0, none, 2)) == std::vector<std::size_t>{7, 12, 17, 22});
+    CHECK(offsets(values<Int>(0, none, -1, none, none, none, 6)) == std::vector<std::size_t>{5, 11, 16, 21, 26});
 }
 
 TEST_CASE("std operators: schedule is bounded by executor end time")
