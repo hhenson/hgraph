@@ -470,8 +470,38 @@ namespace hgraph
             using R     = result_t<F>;
             R result    = invoke<F>(read_lifted_arg<tuple_arg_t<tuple, I>>(children[I])...);
 
-            Out<TS<R>> output{view.output(evaluation_time), evaluation_time, prepared_output_route_for(view)};
-            output.set(std::move(result));
+            if constexpr (NativeBundleValue<R>) {
+                Out<TS<R>> output{view.output(evaluation_time), evaluation_time};
+                output.set(std::move(result));
+                return true;
+            }
+            // Prepared output route (RFC 0008 stage 6, the lifted twin of
+            // ``Out<TS<T>>::set``): the output's native slot and tracking
+            // were resolved at start, so a matching kernel result stores and
+            // records the modification directly instead of re-deriving the
+            // output view, opening a mutation scope and copying through the
+            // erased value ops per tick.
+            if (const auto *route = prepared_output_route_for(view);
+                route != nullptr && route->native() && route->value_ops == &ops_for<R>())
+            {
+                *static_cast<R *>(route->native_value) = std::move(result);
+                route->commit(evaluation_time);
+                return true;
+            }
+            auto output   = view.output(evaluation_time);
+            auto mutation = output.begin_mutation(evaluation_time);
+            if (auto slot_value = mutation.mutable_value(); slot_value.valid())
+            {
+                if (R *slot = slot_value.template try_mutable_as<R>())
+                {
+                    *slot = std::move(result);
+                    mutation.mark_modified();
+                    return true;
+                }
+            }
+            auto destination = mutation.value();
+            const ValueView source{destination.binding(), static_cast<const void *>(&result)};
+            static_cast<void>(mutation.copy_value_from(source));
             return true;
         }
 

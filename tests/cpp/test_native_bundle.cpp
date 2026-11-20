@@ -1,6 +1,7 @@
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/native_bundle.h>
+#include <hgraph/types/lift.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -57,6 +58,24 @@ namespace
     struct Width {
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> bid, Port<TS<Int>> ask) {
             return wire<ReadBook>(w, wire<PublishBook>(w, bid, ask));
+        }
+    };
+
+    struct LiftQuote {
+        static Quote apply(Int bid) { return {bid + 2, bid}; }
+    };
+
+    struct LiftAsk {
+        static Int apply(const Quote &quote) { return quote.ask; }
+    };
+
+    struct LiftedAsk {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> bid) {
+            const WiredFn quote = lift<LiftQuote>();
+            const WiredFn ask = lift<LiftAsk>();
+            const std::array<WiringPortRef, 1> bids{bid.erased()};
+            const std::array<WiringPortRef, 1> quotes{quote.wire(w, bids)};
+            return Port<TS<Int>>{w, ask.wire(w, quotes)};
         }
     };
 
@@ -117,4 +136,27 @@ TEST_CASE("whole native bundle publication ticks each field and supports recursi
     CHECK_OUTPUT(eval_node<Width>(values<Int>(1, none, 2), values<Int>(4, 6, none)), {3, 5, 4});
     CHECK_OUTPUT(eval_node<PartialGraph>({1, 2}), {1, 2});
     CHECK_OUTPUT(eval_node<StoreQuote>({1, 2}, Quote{3, 0}), {3, 3});
+}
+
+TEST_CASE("lifted scalar kernels accept and return mapped aggregates", "[native-bundle]")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    const auto *kernel = lift<LiftQuote>().lifted;
+    const Value bid{Int{8}};
+    const std::array<ValueView, 1> args{bid.view()};
+    const auto result = kernel->eval(args);
+    CHECK(result.as<Quote>() == Quote{10, 8});
+    CHECK(kernel->eval(result.binding(), args).as<Quote>() == Quote{10, 8});
+    Value cell{Quote{1, 0}};
+    auto destination = cell.begin_mutation();
+    kernel->eval_assign(destination, args);
+    CHECK(cell.as<Quote>() == Quote{10, 8});
+    TSOutput output{kernel->output_schema()};
+    auto mutation = output.view(MIN_ST).begin_mutation(MIN_ST);
+    kernel->eval_into(mutation, args);
+    CHECK(output.view(MIN_ST).value().checked_as<Quote>() == Quote{10, 8});
+
+    static_cast<void>(scalar_descriptor<WiredFn>::value_meta());
+    CHECK_OUTPUT(eval_node<LiftedAsk>(values<Int>(1, 2)), values<Int>(3, 4));
 }
