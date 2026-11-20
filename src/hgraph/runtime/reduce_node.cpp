@@ -1091,9 +1091,20 @@ namespace hgraph
             return reconcile_leaf_state(storage, output, data, full);
         }
 
+        [[nodiscard]] bool list_owner_withdrawn(const TSInputView &input)
+        {
+            const auto &data = input.data_view();
+            if (!data.valid() || input.evaluation_time() == MIN_DT) { return false; }
+            const auto &tracking = data.tracking();
+            return tracking.last_modified_time == MIN_DT &&
+                   tracking.last_empty_delta_time == input.evaluation_time();
+        }
+
         [[nodiscard]] bool reconcile_list_collection(ReduceNodeStorage &storage, TSInputView &input, bool full)
         {
-            return reconcile_leaf_state(storage, input.as_list(), full);
+            // A whole-owner withdrawal has no positional delta. Its old child
+            // routes must retire before a newly populated list can reuse a slot.
+            return reconcile_leaf_state(storage, input.as_list(), full || list_owner_withdrawn(input));
         }
 
         [[nodiscard]] bool dict_structure_modified(const TSInputView &input, DateTime evaluation_time)
@@ -1109,7 +1120,7 @@ namespace hgraph
 
         [[nodiscard]] bool list_structure_modified(const TSInputView &input, DateTime)
         {
-            if (input.modified()) { return true; }
+            if (input.modified() || list_owner_withdrawn(input)) { return true; }
             // Clearing the last valid position leaves the list unmodified, but
             // its positional removals still retire the corresponding leaves.
             const auto list = input.as_list();
