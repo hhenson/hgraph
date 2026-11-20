@@ -218,6 +218,28 @@ namespace
         }
     };
 
+    struct WithdrawableReduceList
+    {
+        static void eval(In<"step", TS<Int>> step, Out<TSL<TS<Int>>> out)
+        {
+            switch (step.value())
+            {
+                case 0: out.resize(2); out[0].set(3); out[1].set(4); break;
+                case 1: static_cast<void>(out.begin_mutation(out.evaluation_time()).invalidate()); break;
+                case 2: out.resize(1); out[0].set(8); break;
+            }
+        }
+    };
+
+    struct ReduceWithdrawableList
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> step, Port<TS<Int>> zero)
+        {
+            auto list = wire<WithdrawableReduceList>(w, step).as<TSL<TS<Int>>>();
+            return wire<stdlib::reduce_>(w, fn<stdlib::add_>(), list, zero).as<TS<Int>>();
+        }
+    };
+
     struct MinusThreeInt
     {
         static constexpr auto name = "reduce_minus_three_int";
@@ -1390,6 +1412,32 @@ TEST_CASE("reduce over dynamic TSL: clearing an interior slot removes only its c
                                    dynamic_list_delta<TS<Int>>({{2, 7}}),
                                    dynamic_list_delta<TS<Int>>({{1, 5}})))),
                  values<Int>(6, 4, 8, 13));
+}
+
+TEST_CASE("reduce over dynamic TSL: final positional removals retire the tree before recovery")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<stdlib::reduce_, TSL<TS<Int>>>(
+                     fn<stdlib::add_>(),
+                     values<Value>(dynamic_list_delta<TS<Int>>({{0, 3}, {1, 4}}, {}, 2),
+                                   dynamic_list_delta<TS<Int>>({}, {0, 1}),
+                                   dynamic_list_delta<TS<Int>>({}, {0}),
+                                   dynamic_list_delta<TS<Int>>({{0, 8}})),
+                     Int{5})),
+                 values<Int>(7, 5, none, 13));
+}
+
+TEST_CASE("reduce over dynamic TSL: withdrawing the owner restores the cold zero route")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<ReduceWithdrawableList>(
+                     values<Int>(0, 1, 1, none, none, 2),
+                     values<Int>(0, none, none, 5, 5, none)),
+                 values<Int>(7, 0, none, 5, 5, 13));
 }
 
 TEST_CASE("reduce over dynamic TSL: truncation retires the removed leaves")

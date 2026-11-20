@@ -31,6 +31,8 @@ See issue #44 and the documented reduce deviations in
 ``docs/source/developer_guide/parity_matrix.rst``.
 """
 
+import pytest
+
 import hgraph as hg
 from hgraph import TS, TSD, TSS, graph
 from hgraph.test import eval_node
@@ -78,6 +80,69 @@ def test_never_ticking_tsd_publishes_zero():
     # capacity-2 tree are bound to zero).
     out = eval_node(_map_reduce(increment=3, zero=-2), [None, None, None])
     assert out == [-2, None, None]
+
+
+def test_final_list_removals_and_zero_publications_remain_distinct():
+    list_type = hg.TSL[TS[int], hg.Size[-1]]
+
+    @graph
+    def total(values: list_type, zero: TS[int]) -> TS[int]:
+        return hg.reduce(hg.add_, values, zero)
+
+    @graph
+    def without_zero(values: list_type) -> TS[int]:
+        return hg.reduce(hg.add_, values)
+
+    edits = [{0: 3, 1: 4}, {0: hg.REMOVE, 1: hg.REMOVE}, {0: hg.REMOVE}, None, {0: 8}, None]
+    assert eval_node(total, edits, [0, 5, None, 5, None, 5]) == [7, 5, None, 5, 13, 13]
+    assert eval_node(total, edits, [0, None, None, 5, None, 5]) == [7, 0, None, 5, 13, 13]
+    assert eval_node(without_zero, edits) == [7, None, None, None, 8, None]
+
+
+@pytest.mark.parametrize(("zero_kind", "zeros", "publications"), [
+    ("constant", [None] * 7, [7, 5, None, None, None, 13, None]),
+    ("dynamic", [0, None, None, 5, 5, None, 5], [7, 0, None, 5, 5, 13, 13]),
+    ("dynamic", [None, None, None, 5, 5, None, None], [7, None, None, 5, 5, 13, None]),
+    ("dynamic", [None] * 7, [7, None, None, None, None, None, None]),
+    ("omitted", [None] * 7, [7, None, None, None, None, 8, None]),
+])
+def test_withdrawing_the_list_restores_the_initial_zero(zero_kind, zeros, publications):
+    list_type = hg.TSL[TS[int], hg.Size[-1]]
+    observations = []
+
+    @hg.compute_node
+    def list_owner(step: TS[int], _output: list_type = None) -> list_type:
+        if step.value == 0:
+            return (3, 4)
+        if step.value in (1, 2):
+            _output.invalidate()
+        if step.value == 5:
+            return {0: 8}
+
+    @hg.compute_node
+    def cold_owner(step: TS[int]) -> list_type:
+        if step.value == 5:
+            return {0: 8}
+
+    @hg.compute_node(active=("step",), valid=("step",))
+    def inspect(step: TS[int], result: TS[int], cold: TS[int]) -> TS[int]:
+        observations.append(tuple((ts.valid, ts.modified, ts.value if ts.valid else None)
+                                  for ts in (result, cold)))
+        return step.value
+
+    @graph
+    def total(step: TS[int], zero: TS[int]) -> TS[int]:
+        zero_args = () if zero_kind == "omitted" else (5 if zero_kind == "constant" else zero,)
+        warm = hg.reduce(hg.add_, list_owner(step), *zero_args)
+        cold = hg.reduce(hg.add_, cold_owner(step), *zero_args)
+        return inspect(step, warm, cold)
+
+    eval_node(total, list(range(7)), zeros)
+    assert [value if valid and modified else None for (valid, modified, value), _ in observations] == publications
+    # At withdrawal the warm result can change to the already-held cold value.
+    warm, cold = observations[1]
+    assert (warm[0], warm[2]) == (cold[0], cold[2])
+    assert all(warm == cold for warm, cold in observations[2:])
 
 
 def test_identity_zero_matches_upstream():

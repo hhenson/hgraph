@@ -58,6 +58,29 @@ def test_reduce_combiner_tree_restart_at_every_boundary(tmp_path, name, schema, 
     compare_restarts(tmp_path, scenario, (schema, hg.TS[int]), hg.TS[int], (events, zeros), cuts)
 
 
+@pytest.mark.parametrize("cuts", CUTS)
+@pytest.mark.parametrize("stateful", [False, True])
+def test_restart_after_whole_list_withdrawal(tmp_path, cuts, stateful):
+    schema = hg.TSL[hg.TS[int], hg.Size[-1]]
+    function = historical_combine if stateful else hg.add_
+
+    @hg.compute_node
+    def owner(step: hg.TS[int], _output: schema = None) -> schema:
+        if step.value == 0:
+            return (3, 4)
+        if step.value in (1, 2):
+            _output.invalidate()
+        if step.value == 4:
+            return {0: 8}
+
+    @hg.component
+    def total(step: hg.TS[int], zero: hg.TS[int]) -> hg.TS[int]:
+        return hg.reduce(function, owner(step), zero)
+
+    zeros = [0, None, None, 5, None, 5, None, None]
+    compare_restarts(tmp_path, total, (hg.TS[int], hg.TS[int]), hg.TS[int], (range(8), zeros), cuts)
+
+
 ORDERED_SHAPES = [
     ("dict", hg.TSD[int, hg.TS[int]],
      [None, {0: 1, 1: 2, 2: 3}, {1: 7}, {2: hg.REMOVE}, {2: 4, 3: 5},
