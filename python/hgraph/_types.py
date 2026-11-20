@@ -2787,7 +2787,7 @@ class _TSLMeta(type):
 
 
 class TSL(metaclass=_TSLMeta):
-    """TSL[TS[...], Size[N]] — a fixed-size time-series list."""
+    """A time-series list. Use a positive Size[N] for a fixed list or Size[-1] for a growing list."""
 
 
 class TimeSeriesSchema:

@@ -923,7 +923,7 @@ namespace hgraph
 
     /**
      * ``Args<C>`` is a node-authoring marker for call-site positional packing.
-     * At runtime it is the same view and metadata shape as ``TSL<C, SIZE<"args_len">>``.
+     * At runtime it uses a list view with one position per supplied argument.
      */
     template <fixed_string Name, typename TElementSchema, auto... TPolicies>
     class In<Name, Args<TElementSchema>, TPolicies...>

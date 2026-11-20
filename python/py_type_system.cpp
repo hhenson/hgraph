@@ -38,8 +38,7 @@ namespace hgraph::python_bridge
 
         /** A Python pattern as the carried pattern of a ``TypeArg`` parameter:
             a ``TypePattern`` (time-series form), a ``ScalarPattern`` (scalar
-            form) or a ``SizePattern`` (size form, kept as the ``TSL`` shell the
-            size matcher reads). */
+            form) or a ``SizePattern`` (size form). */
         ParamPattern carried_param_from_python(nb::handle pattern, const char *method)
         {
             ParamPattern param;
@@ -58,9 +57,10 @@ namespace hgraph::python_bridge
             {
                 const auto &size = nb::cast<PySizePattern &>(pattern);
                 param.carrier    = ResolutionKind::Size;
-                param.ts = size.variable
-                               ? TypePattern::tsl_var(TypePattern::var("__type_arg_size_element__"), size.name)
-                               : TypePattern::tsl(TypePattern::var("__type_arg_size_element__"), size.value);
+                // A size argument can be zero independently of its eventual use.
+                param.ts.size_var = size.variable;
+                param.ts.size_name = size.name;
+                param.ts.fixed_size = size.value;
             }
             else
             {
