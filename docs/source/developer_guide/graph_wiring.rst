@@ -621,3 +621,48 @@ Consequently owner copy-out remains valid, absent declarations do not become
 seed values, and a subsequent independent run can select a different type.
 A consuming finish closes new declarations. ``snapshot()`` prepares a separate
 store while leaving the wiring open for subsequent snapshots.
+
+Ranking prepared builders
+-------------------------
+
+A front end that has already resolved its nodes can include
+``<hgraph/types/prepared_graph.h>`` and link ``hgraph::core``. Supply real
+``NodeBuilder`` instances with graph-local IDs. A data connection names the
+producer, its output projection and kind, and the consumer's full input path.
+For example, given a producer and a sink with one input:
+
+.. code-block:: cpp
+
+   using namespace hgraph;
+   PreparedGraph graph{
+       .nodes = {{91, sink}, {14, producer}},
+       .connections = {{PreparedOutput{14}, {91, {0}}}},
+   };
+   auto result = graph.finish();
+   auto sink_index = result.index_of.at(91);
+   executor_builder.graph_builder(std::move(result.graph_builder));
+
+The production wiring pass retains nodes reachable from sinks or a returned
+child output, including passive producers and explicit dependencies. Each
+retained ID maps to one runtime index. Declaration order breaks ties between
+ready peers and push sources form the required prefix. A same-cycle loop
+reports the IDs and inputs or ordering constraints forming the loop.
+
+Use ``ordering`` for a dependency without an input. Use
+``PreparedEdgeTiming::NoRankDependency`` for a data edge whose consumer can
+read the previous value or is passive. Its builder must implement the
+corresponding scheduling behavior. For a TSD key-set input, pass
+``{ts_key_set_path_component}`` as the output path and its TSS schema as the
+declared source view.
+
+For a child, ``finish_child(argument_count, output)`` returns the
+``SingleNestedGraphNodeSpec`` accepted by engine operators, an index map and
+the captures referenced by live nodes. An omitted output denotes a sink
+child. ``PreparedParentInput{ordinal, path, schema}`` refers to a child
+boundary argument at the given projection. ``PreparedCapture{outer_output}``
+names a logical producer in the immediate enclosing graph. The child binds
+each distinct capture at a boundary ordinal after the declared arguments.
+Connect those returned outputs to the owning node's corresponding inputs
+when building the enclosing graph. For a map, its ``MapArgSource`` entries
+select the key, multiplexed element or whole outer input for each boundary
+ordinal. A projected or parent child result requires its endpoint schema.
