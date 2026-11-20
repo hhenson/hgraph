@@ -11,7 +11,8 @@ Generated C++ modules can include ``<hgraph/types/generated.h>`` and link
 ``hgraph::wiring``. The header exposes concrete static nodes, runtime
 injectables, and ``wire<Node>(w, args...)`` with complete positional input ports
 and scalars in signature order. ``compile_subgraph<G>(w)`` compiles children
-for the direct ``compiled::switch_`` and ``compiled::map_`` APIs described in *Nested graphs*.
+for the direct ``compiled::switch_``, ``compiled::map_``, and ``compiled::try_except_``
+APIs described in *Nested graphs*.
 Use ``<hgraph/types/graph_wiring.h>`` for generic nodes, named or default
 arguments, and operator dispatch.
 

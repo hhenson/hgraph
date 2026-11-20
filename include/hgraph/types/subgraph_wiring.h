@@ -84,6 +84,38 @@ namespace hgraph
             CompiledSubGraph           compiled{};
         };
 
+        inline SubgraphCallPlan bind_subgraph_inputs(
+            Wiring &w, std::vector<WiringPortRef> inputs, CompiledSubGraph compiled)
+        {
+            inputs.reserve(inputs.size() + compiled.captured_inputs.size() +
+                           compiled.external_service_inputs.size());
+            for (WiringPortRef &captured : compiled.captured_inputs)
+            {
+                inputs.push_back(std::move(captured));
+            }
+            compiled.captured_inputs.clear();
+            for (NestedServiceInput &external : compiled.external_service_inputs)
+            {
+                inputs.push_back(materialize_external_service_input(w, std::move(external)));
+            }
+            compiled.external_service_inputs.clear();
+
+            // The outer node's input TSB over the boundary args.
+            const TSValueTypeMetaData *input_schema = nullptr;
+            if (!compiled.input_schemas.empty())
+            {
+                std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
+                fields.reserve(compiled.input_schemas.size());
+                for (std::size_t i = 0; i < compiled.input_schemas.size(); ++i)
+                {
+                    fields.emplace_back(std::to_string(i), compiled.input_schemas[i]);
+                }
+                input_schema = TypeRegistry::instance().un_named_tsb(fields);
+            }
+
+            return {std::move(inputs), input_schema, {}, std::move(compiled)};
+        }
+
         template <typename G, typename... Args>
         [[nodiscard]] SubgraphCallPlan build_subgraph_call(Wiring &w, const Args &...args)
         {
@@ -156,37 +188,12 @@ namespace hgraph
                     std::forward_as_tuple(std::get<scalar_positions[S]>(arg_tuple)...));
             }(std::make_index_sequence<sig::scalar_count()>{});
 
-            inputs.reserve(inputs.size() + compiled.captured_inputs.size() +
-                           compiled.external_service_inputs.size());
-            for (WiringPortRef &captured : compiled.captured_inputs)
-            {
-                inputs.push_back(std::move(captured));
-            }
-            compiled.captured_inputs.clear();
-            for (NestedServiceInput &external : compiled.external_service_inputs)
-            {
-                inputs.push_back(materialize_external_service_input(w, std::move(external)));
-            }
-            compiled.external_service_inputs.clear();
-
-            // 3. The outer node's input TSB over the boundary args.
-            const TSValueTypeMetaData *input_schema = nullptr;
-            if (!compiled.input_schemas.empty())
-            {
-                std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
-                fields.reserve(compiled.input_schemas.size());
-                for (std::size_t i = 0; i < compiled.input_schemas.size(); ++i)
-                {
-                    fields.emplace_back(std::to_string(i), compiled.input_schemas[i]);
-                }
-                input_schema = TypeRegistry::instance().un_named_tsb(fields);
-            }
+            auto plan = bind_subgraph_inputs(w, std::move(inputs), std::move(compiled));
 
             // 4. Scalar configuration bundle: the nested node does not consume it
             //    at runtime (the values are baked into the child graph), but it
             //    must enter the interning identity so equal scalars dedup and
             //    distinct ones do not.
-            Value scalars;
             if constexpr (sig::scalar_count() > 0)
             {
                 std::vector<std::pair<std::string, const ValueTypeMetaData *>> fields;
@@ -219,10 +226,10 @@ namespace hgraph
                         }(),
                         ...);
                 }(std::make_index_sequence<sig::param_count()>{});
-                scalars = bundle.build();
+                plan.scalars = bundle.build();
             }
 
-            return SubgraphCallPlan{std::move(inputs), input_schema, std::move(scalars), std::move(compiled)};
+            return plan;
         }
     }  // namespace subgraph_wiring_detail
 
@@ -272,6 +279,38 @@ namespace hgraph
 
     namespace subgraph_wiring_detail
     {
+        inline const TSValueTypeMetaData *try_except_output_schema(
+            const CompiledSubGraph &child, ErrorCaptureOptions options)
+        {
+            const auto *error = options.canonical_errors ? ts_type<TS<CanonicalError>>() : node_error_ts_meta();
+            if (child.output_schema == nullptr) { return error; }
+            auto &registry = TypeRegistry::instance();
+            return options.canonical_errors
+                ? registry.un_named_tsb({{"value", child.output_schema}, {"error", error}})
+                : registry.un_named_tsb({{"exception", error}, {"out", child.output_schema}});
+        }
+
+        inline NodeBuilder make_try_except_builder(SubgraphCallPlan &plan, const TSValueTypeMetaData *output_schema,
+                                                   ErrorCaptureOptions options, const char *label)
+        {
+            NodeTypeMetaData meta;
+            meta.display_name = label;
+            meta.input_schema = plan.input_schema;
+            meta.output_schema = output_schema;
+
+            SingleNestedGraphNodeSpec spec;
+            spec.graph_builder = std::move(plan.compiled.graph_builder);
+            spec.input_bindings = std::move(plan.compiled.input_bindings);
+            if (plan.compiled.output_binding)
+            {
+                spec.output_binding = std::move(plan.compiled.output_binding);
+                spec.output_binding->target_path = {options.canonical_errors ? 0U : 1U};
+            }
+            NodeBuilder builder = try_except_node(std::move(meta), std::move(spec), {}, options);
+            builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(plan.input_schema, plan.inputs));
+            return builder;
+        }
+
         // Interning identity for a try_except<G> node instance (distinct from
         // nested_marker<G> so a graph wired both ways does not dedup).
         template <typename G>
@@ -299,19 +338,8 @@ namespace hgraph
     {
         auto plan = subgraph_wiring_detail::build_subgraph_call<G>(w, args...);
 
-        auto       &registry     = TypeRegistry::instance();
-        const auto *error_ts     = options.canonical_errors ? ts_type<TS<CanonicalError>>() : node_error_ts_meta();
-        const auto *child_output = plan.compiled.output_schema;
-        const bool  has_out      = child_output != nullptr;
-
-        const TSValueTypeMetaData *output_schema = error_ts;
-        const std::size_t out_index = options.canonical_errors ? 0 : 1;
-        if (has_out)
-        {
-            output_schema = options.canonical_errors
-                ? registry.un_named_tsb({{"value", child_output}, {"error", error_ts}})
-                : registry.un_named_tsb({{"exception", error_ts}, {"out", child_output}});
-        }
+        auto &registry = TypeRegistry::instance();
+        const auto *output_schema = subgraph_wiring_detail::try_except_output_schema(plan.compiled, options);
 
         // Equal graph calls with different capture policies are distinct nodes.
         if (options != ErrorCaptureOptions{})
@@ -335,28 +363,9 @@ namespace hgraph
             std::type_index(typeid(subgraph_wiring_detail::try_except_marker<G>)), node_schema,
             std::span<const WiringPortRef>{plan.inputs.data(), plan.inputs.size()}, std::move(plan.scalars),
             [&]() {
-                NodeTypeMetaData meta;
-                if constexpr (static_node_detail::has_name<G>) { meta.display_name = G::name; }
-                else { meta.display_name = "try_except"; }
-                meta.input_schema  = plan.input_schema;
-                meta.output_schema = output_schema;
-
-                SingleNestedGraphNodeSpec spec;
-                spec.graph_builder  = std::move(plan.compiled.graph_builder);
-                spec.input_bindings = std::move(plan.compiled.input_bindings);
-                // Record the child terminal + the bundle's ``out`` field index so
-                // the nested output binder can forward the child output directly
-                // (sink sub-graphs have no output to forward).
-                if (has_out && plan.compiled.output_binding.has_value())
-                {
-                    spec.output_binding              = plan.compiled.output_binding;
-                    spec.output_binding->target_path = {out_index};
-                }
-
-                NodeBuilder builder = try_except_node(std::move(meta), std::move(spec), {}, options);
-                builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
-                    plan.input_schema, std::span<const WiringPortRef>{plan.inputs.data(), plan.inputs.size()}));
-                return builder;
+                const char *label = "try_except";
+                if constexpr (static_node_detail::has_name<G>) { label = G::name; }
+                return subgraph_wiring_detail::make_try_except_builder(plan, output_schema, options, label);
             });
 
         return Port<void>{w, std::move(out)};

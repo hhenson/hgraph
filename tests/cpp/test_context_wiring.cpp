@@ -406,6 +406,15 @@ namespace
             return wire<TryOutValue>(w, result);
         }
     };
+    struct CompiledTryContextGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> price)
+        {
+            context::scope<"price"> ctx{w, price};
+            auto result = compiled::try_except_(w, {}, compile_subgraph<InnerContextTryGraph>(w));
+            return wire<TryOutValue>(w, Port<void>{w, std::move(result)}.as<TryIntResult>());
+        }
+    };
 }  // namespace
 
 TEST_CASE("context wiring: a Context input binds from the enclosing scope")
@@ -550,6 +559,11 @@ TEST_CASE("context wiring: stacked try_except_ boundaries import context")
                  values<Int>(7, none, 9));
 }
 
+
+TEST_CASE("compiled try_except: a returned captured port follows its outer source")
+{
+    CHECK_OUTPUT(eval_node<CompiledTryContextGraph>(values<Int>(7, none, 9)), values<Int>(7, none, 9));
+}
 
 TEST_CASE("compiled map: explicit keys control membership and captured prices broadcast")
 {

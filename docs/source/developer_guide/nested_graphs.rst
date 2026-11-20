@@ -22,7 +22,7 @@ second, user-facing ``nested_graph(...)`` mechanism.
 Wiring compiled children
 ------------------------
 
-Include ``<hgraph/types/subgraph_wiring.h>`` and link ``hgraph::wiring`` to
+Include ``<hgraph/types/generated.h>`` and link ``hgraph::wiring`` to
 wire a compiled child directly. ``compile_subgraph<G>(w, scalar_args...)``
 compiles against the enclosing wiring and records the ports and services the
 child captures.
@@ -37,6 +37,15 @@ child captures.
 
     auto mapped = compiled::map_(w, dictionary, std::array{offset.erased()},
                        compile_subgraph<PerKey>(w), MapKeyArg::First);
+
+    auto captured = compiled::try_except_(w, std::array{input.erased()},
+                        compile_subgraph<Checked>(w), ErrorCaptureOptions{.canonical_errors = true});
+
+A try/except child receives its input ports in compose order. Canonical capture
+returns a bundle with ``value`` and ``error`` fields. A sink child returns
+``TS<CanonicalError>`` directly. Omit the options for the ordinary
+``NodeError`` form, or set ``trace_back_depth`` and ``capture_values`` for
+diagnostic detail. Both forms use the same runtime as ``try_except_<G>``.
 
 A switch branch takes the ordinary inputs in order. Set its ``takes_key``
 member to pass the selector first. A map child takes an optional leading key or

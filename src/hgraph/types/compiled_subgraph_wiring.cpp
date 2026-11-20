@@ -8,6 +8,7 @@ namespace {
 
     struct CompiledSwitchSite {};
     struct CompiledMapSite {};
+    struct CompiledTryExceptSite {};
 
     void check_child_inputs(const CompiledSubGraph &child, std::span<const TSValueTypeMetaData *const> sources)
     {
@@ -161,6 +162,26 @@ void compiled::switch_sink_(Wiring &w, WiringPortRef key, std::span<const Wiring
                   std::vector<SwitchBranchGraph> branches, std::optional<SwitchBranchGraph> fallback, bool reload)
 {
     wire_compiled_switch(w, std::move(key), inputs, std::move(branches), std::move(fallback), reload, false);
+}
+
+WiringPortRef compiled::try_except_(Wiring &w, std::span<const WiringPortRef> inputs,
+                                    CompiledSubGraph child, ErrorCaptureOptions options)
+{
+    std::vector<const TSValueTypeMetaData *> schemas;
+    schemas.reserve(inputs.size());
+    for (const auto &input : inputs) { schemas.push_back(input.schema); }
+    check_child_inputs(child, schemas);
+
+    std::vector<WiringPortRef> sources;
+    sources.reserve(inputs.size());
+    for (std::size_t i = 0; i < inputs.size(); ++i) {
+        sources.push_back(graph_wiring_detail::adapt_source_for_input(w, child.input_schemas[i], inputs[i]));
+    }
+
+    auto plan = subgraph_wiring_detail::bind_subgraph_inputs(w, std::move(sources), std::move(child));
+    const auto *output = subgraph_wiring_detail::try_except_output_schema(plan.compiled, options);
+    auto builder = subgraph_wiring_detail::make_try_except_builder(plan, output, options, "try_except");
+    return w.add_unique_node(typeid(CompiledTryExceptSite), std::move(builder), plan.inputs, {});
 }
 
 WiringPortRef compiled::map_(Wiring &w, WiringPortRef collection, std::span<const WiringPortRef> broadcast,
