@@ -26,6 +26,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <mutex>
 
@@ -52,10 +53,16 @@ namespace hgraph::ts_data_plan_factory_detail
         using TSDataErasedOwner =
             MemoryUtils::ErasedOwner<MemoryUtils::HeapOnlyStoragePolicy, TypeRecord>;
 
-        struct DynamicTSLIndexEntry
+        constexpr std::size_t no_modified_index = std::numeric_limits<std::size_t>::max();
+
+        struct DynamicTSLElement
         {
-            std::int64_t ordinal_key{0};
-            std::size_t next_modified{0};
+            DynamicTSLElement(const TypeRecord &type, std::size_t index)
+                : value(type), ordinal_key(static_cast<std::int64_t>(index)) {}
+
+            TSDataErasedOwner value;
+            std::int64_t      ordinal_key;
+            std::size_t       next_modified{no_modified_index};
         };
 
         /**
@@ -76,10 +83,7 @@ namespace hgraph::ts_data_plan_factory_detail
         class DynamicTSLStorage
         {
           public:
-            DynamicTSLStorage() : ordinal_keys_(1)
-            {
-                ordinal_keys_.front().ordinal_key = MIN_DT.time_since_epoch().count();
-            }
+            DynamicTSLStorage() = default;
 
             DynamicTSLStorage(const DynamicTSLStorage &)            = delete;
             DynamicTSLStorage &operator=(const DynamicTSLStorage &) = delete;
@@ -97,27 +101,22 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] std::size_t retained_size() const noexcept { return elements_.size(); }
             /** Live length when the current delta window opened. */
             [[nodiscard]] std::size_t previous_size() const noexcept { return previous_size_; }
-            /** Evaluation time the current delta window describes. The ring
-                header doubles as its storage, so the modified ring and the
-                structural window can never disagree. */
-            [[nodiscard]] DateTime delta_time() const noexcept
-            {
-                return DateTime{std::chrono::microseconds{ordinal_keys_.front().ordinal_key}};
-            }
+            /** Evaluation time shared by the modified ring and structural delta. */
+            [[nodiscard]] DateTime delta_time() const noexcept { return delta_time_; }
 
             [[nodiscard]] const void *child_memory(std::size_t index) const
             {
-                return elements_.at(index).data();
+                return elements_.at(index).value.data();
             }
 
             [[nodiscard]] void *child_memory(std::size_t index)
             {
-                return elements_.at(index).data();
+                return elements_.at(index).value.data();
             }
 
             [[nodiscard]] const std::int64_t &ordinal_key(std::size_t index) const
             {
-                return ordinal_keys_.at(index + 1).ordinal_key;
+                return elements_.at(index).ordinal_key;
             }
 
             /**
@@ -137,13 +136,13 @@ namespace hgraph::ts_data_plan_factory_detail
                 // Clear the ring BEFORE flushing: invalidating a retained
                 // child notifies its observers, and the ring positions it is
                 // about to pop must not be reachable while that runs.
-                auto &header = ordinal_keys_.front();
-                auto pos = header.next_modified;
-                while (pos != 0) { pos = std::exchange(ordinal_keys_[pos].next_modified, 0); }
-                header.next_modified = 0;
+                auto index = std::exchange(modified_tail_, no_modified_index);
+                while (index != no_modified_index) {
+                    index = std::exchange(elements_[index].next_modified, no_modified_index);
+                }
                 flush_retained();
-                header.ordinal_key = modified_time.time_since_epoch().count();
-                previous_size_     = this->size();
+                delta_time_ = modified_time;
+                previous_size_ = this->size();
             }
 
             void record_child_modified(std::size_t index, DateTime modified_time)
@@ -156,25 +155,22 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (index >= this->size()) { return; }
 
                 // Child tracking notifies its parent only on the first mutation
-                // at a given evaluation time. Keep a circular list whose header
-                // points at the tail, preserving notification order in the
-                // existing ordinal-key allocation.
-                auto &header = ordinal_keys_.front();
-                const std::size_t position = index + 1;
-                auto &entry = ordinal_keys_.at(position);
+                // at a given evaluation time. Append its index to the ring so
+                // readers see children in notification order.
+                auto &entry = elements_[index];
                 if (modified_snapshot_) { modified_snapshot_->valid = false; }
-                if (entry.next_modified != 0) { return; }
-                if (header.next_modified == 0)
+                if (entry.next_modified != no_modified_index) { return; }
+                if (modified_tail_ == no_modified_index)
                 {
-                    entry.next_modified = position;
+                    entry.next_modified = index;
                 }
                 else
                 {
-                    auto &tail = ordinal_keys_[header.next_modified];
+                    auto &tail = elements_[modified_tail_];
                     entry.next_modified = tail.next_modified;
-                    tail.next_modified = position;
+                    tail.next_modified = index;
                 }
-                header.next_modified = position;
+                modified_tail_ = index;
             }
 
             // Consumers address the modified set by ordinal -- that is the Range
@@ -304,10 +300,8 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
             {
                 DynamicStorageMetrics result{
-                    .live_bytes = elements_.size() * sizeof(TSDataErasedOwner) +
-                                  ordinal_keys_.size() * sizeof(DynamicTSLIndexEntry),
-                    .reserved_bytes = elements_.capacity() * sizeof(TSDataErasedOwner) +
-                                      ordinal_keys_.capacity() * sizeof(DynamicTSLIndexEntry),
+                    .live_bytes = elements_.size() * sizeof(DynamicTSLElement),
+                    .reserved_bytes = elements_.capacity() * sizeof(DynamicTSLElement),
                 };
                 if (modified_snapshot_)
                 {
@@ -319,13 +313,13 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto *ops = element_type_.ops();
                 for (const auto &element : elements_)
                 {
-                    const auto bytes = element.plan()->layout.size;
+                    const auto bytes = element.value.plan()->layout.size;
                     result.live_bytes += bytes;
                     result.reserved_bytes += bytes;
                     if (ops != nullptr)
                     {
                         result += ops->dynamic_storage_metrics_impl(
-                            ops->context, element.data());
+                            ops->context, element.value.data());
                     }
                 }
                 return result;
@@ -339,7 +333,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 the tracked time decides whether the window is current at all. */
             struct ModifiedSnapshotKey
             {
-                std::int64_t window{0};
+                DateTime     window{MIN_DT};
                 std::size_t  tail{0};
                 std::size_t  live_size{0};
                 DateTime     tracked{MIN_DT};
@@ -357,9 +351,7 @@ namespace hgraph::ts_data_plan_factory_detail
 
             [[nodiscard]] const ModifiedSnapshot &modified_snapshot() const
             {
-                const auto &header = ordinal_keys_.front();
-                const ModifiedSnapshotKey key{header.ordinal_key, header.next_modified, this->size(),
-                                              tracking_.last_modified_time};
+                const ModifiedSnapshotKey key{delta_time_, modified_tail_, this->size(), tracking_.last_modified_time};
                 // The first ordinal read or slot subscription allocates this state.
                 if (!modified_snapshot_) { modified_snapshot_ = std::make_unique<ModifiedSnapshot>(); }
                 auto &snapshot = *modified_snapshot_;
@@ -385,18 +377,17 @@ namespace hgraph::ts_data_plan_factory_detail
                 false to stop. */
             template <typename Fn> void for_each_modified_index(Fn &&fn) const
             {
-                const auto &header = ordinal_keys_.front();
-                if (delta_time() != tracking_.last_modified_time || header.next_modified == 0) { return; }
+                if (delta_time_ != tracking_.last_modified_time || modified_tail_ == no_modified_index) { return; }
 
-                const std::size_t first = ordinal_keys_[header.next_modified].next_modified;
-                std::size_t position = first;
+                const auto first = elements_[modified_tail_].next_modified;
+                auto index = first;
                 do
                 {
                     // A child modified and then truncated in the same window
                     // is reported as REMOVED, not modified.
-                    if (position - 1 < this->size() && !fn(position - 1)) { return; }
-                    position = ordinal_keys_[position].next_modified;
-                } while (position != first);
+                    if (index < this->size() && !fn(index)) { return; }
+                    index = elements_[index].next_modified;
+                } while (index != first);
             }
 
             void grow_to(std::size_t size, TSRoleTypeRef element_type)
@@ -415,7 +406,6 @@ namespace hgraph::ts_data_plan_factory_detail
                     while (elements_.size() > old_extent)
                     {
                         elements_.pop_back();
-                        ordinal_keys_.pop_back();
                     }
                     if (newly_bound) { element_type_ = {}; }
                 });
@@ -424,12 +414,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 while (elements_.size() < size)
                 {
                     const auto index = elements_.size();
-                    elements_.emplace_back(*element_type.record());
-                    auto rollback = UnwindCleanupGuard([&] { elements_.pop_back(); });
-                    ordinal_keys_.push_back(DynamicTSLIndexEntry{
-                        .ordinal_key = static_cast<std::int64_t>(index),
-                    });
-                    rollback.release();
+                    elements_.emplace_back(*element_type.record(), index);
                 }
                 live_size_ = static_cast<std::int64_t>(size);
                 if (modified_snapshot_ && !modified_snapshot_->slots.empty())
@@ -451,7 +436,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 for (std::size_t index = size; index < this->size(); ++index)
                 {
                     if (modified_snapshot_) { modified_snapshot_->slots.notify_remove(index); }
-                    detail::stop_owned_ts_data_tree(TSDataView{element_type_, elements_[index].data()});
+                    detail::stop_owned_ts_data_tree(TSDataView{element_type_, elements_[index].value.data()});
                 }
                 live_size_ = static_cast<std::int64_t>(size);
             }
@@ -462,9 +447,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 while (elements_.size() > this->size())
                 {
                     detail::invalidate_owned_ts_data_tree(
-                        TSDataView{element_type_, elements_.back().data()});
+                        TSDataView{element_type_, elements_.back().value.data()});
                     elements_.pop_back();
-                    ordinal_keys_.pop_back();
                 }
             }
 
@@ -473,8 +457,9 @@ namespace hgraph::ts_data_plan_factory_detail
             // Handles may move as the vector grows, but the child TSData bytes
             // must not. The heap-only policy above keeps published child
             // addresses stable while preserving vector locality for handles.
-            std::vector<TSDataErasedOwner>  elements_{};
-            std::vector<DynamicTSLIndexEntry> ordinal_keys_{};
+            std::vector<DynamicTSLElement> elements_{};
+            DateTime                       delta_time_{MIN_DT};
+            std::size_t                    modified_tail_{no_modified_index};
             std::int64_t                    live_size_{0};
             std::size_t                     previous_size_{0};
             ListValidity                    validity_{};
