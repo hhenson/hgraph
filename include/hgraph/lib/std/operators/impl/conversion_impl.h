@@ -321,23 +321,8 @@ namespace hgraph::stdlib
         }
     };
 
-    /**
-     * ``default`` implementation — the REF-forwarding node, mirroring Python
-     * ``_impl/_operators/_graph_operators.py`` ``_default`` (``valid=()``):
-     * while ``ts`` is invalid the output references ``default_value`` and ``ts``
-     * is kept active (to notice its first tick); once valid the output
-     * references ``ts`` and ``ts`` is made passive — downstream reads flow
-     * *through* the reference without this node evaluating per tick. (Python
-     * takes ``default_value`` as a ``REF`` input so value ticks never re-fire
-     * the node; here it is a plain active input — for the ``const`` zeros it
-     * ticks once, and a re-emit of the same reference is a cheap downstream
-     * no-op rebind.)
-     *
-     * The output **is** a ``REF`` and its port keeps that computed schema —
-     * the declared ``-> S`` contract holds because ``REF`` is transparent to
-     * matching/unification (a variable binds the dereferenced type) and
-     * consumers bind through the reference at runtime.
-     */
+    /** Subscribe to the chosen endpoint by reference so ordinary publications
+        pass through without rebinding the selector. */
     struct default_ref_impl
     {
         static constexpr auto name = "default_ref";
@@ -357,6 +342,35 @@ namespace hgraph::stdlib
                 ts.make_passive();
                 out.set(ts_ref.value());
             }
+        }
+    };
+
+    /** Wake the selector when an owned scalar explicitly loses its value.
+        A detached forwarding route is a separate reference event. */
+    struct default_scalar_withdrawal
+    {
+        static void eval(In<"ts", SIGNAL, InputValidity::Unchecked> ts, Out<TS<Bool>> withdrawn)
+        {
+            if (ts.valid()) { return; }
+            const auto &owner = ts.base().data_view();
+            if (owner.valid() && !owner.ops().is_target_link &&
+                owner.tracking().cleared_at(ts.base().evaluation_time()))
+            {
+                withdrawn.set(true);
+            }
+        }
+    };
+
+    struct default_scalar_ref_impl
+    {
+        static constexpr auto name = "default_ref";
+
+        static void eval(In<"ts_ref", REF<TsVar<"S">>, InputValidity::Unchecked> ts_ref,
+                         In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                         In<"default_value", REF<TsVar<"S">>, InputValidity::Unchecked> default_value,
+                         In<"withdrawn", SIGNAL, InputValidity::Unchecked>, Out<REF<TsVar<"S">>> out)
+        {
+            default_ref_impl::eval(std::move(ts_ref), std::move(ts), std::move(default_value), std::move(out));
         }
     };
 
@@ -387,6 +401,14 @@ namespace hgraph::stdlib
             WiringPortRef default_ref = default_value.erased();
             default_ref.schema = registry.ref(default_ref.schema);
 
+            if (ts_value.schema->kind == TSTypeKind::TS)
+            {
+                auto withdrawal = wire<default_scalar_withdrawal>(w, Port<void>{w, ts_value});
+                return wire<default_scalar_ref_impl>(
+                           w, Port<void>{w, std::move(ts_ref)}, Port<void>{w, std::move(ts_value)},
+                           Port<void>{w, std::move(default_ref)}, withdrawal)
+                    .erased();
+            }
             return wire<default_ref_impl>(
                        w, Port<void>{w, std::move(ts_ref)}, Port<void>{w, std::move(ts_value)},
                        Port<void>{w, std::move(default_ref)})
