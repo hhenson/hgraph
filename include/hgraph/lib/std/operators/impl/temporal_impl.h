@@ -916,11 +916,23 @@ namespace hgraph::stdlib
         }
     };
 
+    template <typename T, typename ReadTime>
+    void publish_modification_timestamp(const TSInputView &source, const Out<TS<T>> &out, ReadTime read_time)
+    {
+        // A sampled rebind is distinct from the observed owner clearing its value.
+        const auto &owner = source.data_view();
+        if (owner.valid() && !owner.ops().is_target_link && owner.tracking().cleared_at(source.evaluation_time())) {
+            static_cast<void>(out.begin_mutation(out.evaluation_time()).invalidate());
+        } else {
+            out.set(read_time());
+        }
+    }
+
     struct last_modified_time_impl
     {
         static void eval(In<"ts", SIGNAL, InputValidity::Unchecked> ts, Out<TS<DateTime>> out)
         {
-            out.set(ts.last_modified_time());
+            publish_modification_timestamp(ts, out, [&] { return ts.last_modified_time(); });
         }
     };
 
@@ -929,8 +941,7 @@ namespace hgraph::stdlib
         static void eval(In<"ts", SIGNAL, InputValidity::Unchecked> ts, EvaluationClockView clock,
                          Out<TS<DateTime>> out)
         {
-            static_cast<void>(ts);
-            out.set(clock.now());
+            publish_modification_timestamp(ts, out, [&] { return clock.now(); });
         }
     };
 
@@ -938,7 +949,9 @@ namespace hgraph::stdlib
     {
         static void eval(In<"ts", SIGNAL, InputValidity::Unchecked> ts, Out<TS<Date>> out)
         {
-            out.set(Date{std::chrono::floor<std::chrono::days>(ts.last_modified_time())});
+            publish_modification_timestamp(ts, out, [&] {
+                return Date{std::chrono::floor<std::chrono::days>(ts.last_modified_time())};
+            });
         }
     };
 

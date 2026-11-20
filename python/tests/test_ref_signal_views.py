@@ -7,9 +7,10 @@ observes designations.
 """
 import pytest
 
-from hgraph import (REF, SCALAR, SIGNAL, TIME_SERIES_TYPE, TS, TSB, TSL,
-                    Size, TimeSeriesSchema, combine, compute_node, graph,
-                    if_, modified, sample, valid)
+from hgraph import (REF, SCALAR, SIGNAL, TIME_SERIES_TYPE, TS, TSB, TSD, TSL, TSS, TSW, TS_OUT,
+                    Size, WindowSize, TimeSeriesSchema, combine, compute_node, graph,
+                    if_, last_modified_date, last_modified_time, last_modified_wall_clock_time,
+                    modified, sample, valid)
 from hgraph.test import eval_node
 
 
@@ -132,3 +133,72 @@ def test_assembled_signal_follows_declared_reference_children(shape):
     repeated_designations = [False, False, True, True, False, False, True, True]
     assert eval_node(app, repeated_designations, _VALUE, [1] * len(_SELECT)) == [
         {"direct": metadata, "declared": metadata} for metadata in followed]
+
+
+class _TimestampBundle(TimeSeriesSchema):
+    value: TS[int]
+    sibling: TS[int]
+
+
+_TIMESTAMPS = [last_modified_time, last_modified_wall_clock_time, last_modified_date]
+
+
+@pytest.mark.parametrize("schema, payload", [
+    (TS[int], lambda n: n),
+    (TSS[int], lambda n: frozenset() if n == 0 else {n}),
+    (TSD[int, TS[int]], lambda n: {} if n == 0 else {0: n}),
+    (TSL[TS[int], Size[1]], lambda n: {0: n}),
+    (TSL[TS[int], Size[-1]], lambda n: {0: n}),
+    (TSB[_TimestampBundle], lambda n: {"value": n}),
+    (TSW[int, WindowSize[2], WindowSize[1]], lambda n: n),
+], ids=["scalar", "set", "dictionary", "fixed-list", "growing-list", "bundle", "window"])
+@pytest.mark.parametrize("timestamp", _TIMESTAMPS)
+def test_owner_invalidation_withdraws_the_timestamp_without_sampling(timestamp, schema, payload):
+    @compute_node
+    def source(command: TS[int], _output: TS_OUT[schema] = None) -> schema:
+        if command.value < 0:
+            _output.invalidate()
+        else:
+            return payload(command.value)
+
+    @graph
+    def sample_on_timestamp(command: TS[int], price: TS[int]) -> TS[int]:
+        return sample(timestamp(source(command)), price)
+
+    @graph
+    def observe_timestamp(command: TS[int], clock: TS[int]) -> TS[tuple[bool, bool]]:
+        return _metadata(timestamp(source(command)), clock)
+
+    # Empty set/dictionary publications tick, as do equal scalar writes.
+    first = 0 if schema in (TSS[int], TSD[int, TS[int]]) else 7
+    last = first if schema == TS[int] else 8
+    commands = [None, first, None, -1, -1, None, first, last]
+    prices = [10, None, 20, None, None, 30, None, 40]
+    assert eval_node(sample_on_timestamp, commands, prices) == [None, 10, None, None, None, None, 30, 40]
+    assert eval_node(observe_timestamp, commands, [1] * len(commands)) == [
+        (False, False), (True, True), (True, False), (False, False),
+        (False, False), (False, False), (True, True), (True, True),
+    ]
+
+
+@pytest.mark.parametrize("timestamp", _TIMESTAMPS)
+def test_timestamp_preserves_sampled_reference_transitions(timestamp):
+    assert _run(SIGNAL, lambda value, clock: sample(timestamp(value), clock)) == [
+        None, None, 1, 1, 1, None, 1, None,
+    ]
+
+
+@pytest.mark.parametrize("timestamp", _TIMESTAMPS)
+def test_timestamp_observes_a_bundle_update_when_only_one_field_clears(timestamp):
+    @compute_node
+    def source(command: TS[int], _output: TS_OUT[TSB[_TimestampBundle]] = None) -> TSB[_TimestampBundle]:
+        if command.value < 0:
+            _output["value"].invalidate()
+        else:
+            return {"value": command.value, "sibling": 11}
+
+    @graph
+    def app(command: TS[int], price: TS[int]) -> TS[int]:
+        return sample(timestamp(source(command)), price)
+
+    assert eval_node(app, [7, -1, None, 8], [5, 6, 7, 8]) == [5, 6, None, 8]
