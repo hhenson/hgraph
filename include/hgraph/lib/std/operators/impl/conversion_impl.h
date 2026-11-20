@@ -321,9 +321,8 @@ namespace hgraph::stdlib
         }
     };
 
-    /** Select the fallback while the primary is invalid. Keep the value input
-        active to observe later validity transitions. Ordinary publications flow
-        through the selected reference without rebinding it. */
+    /** Subscribe to the chosen endpoint by reference so ordinary publications
+        pass through without rebinding the selector. */
     struct default_ref_impl
     {
         static constexpr auto name = "default_ref";
@@ -333,13 +332,51 @@ namespace hgraph::stdlib
                          In<"default_value", REF<TsVar<"S">>, InputValidity::Unchecked> default_value,
                          Out<REF<TsVar<"S">>> out)
         {
-            const auto selected = ts.valid() ? ts_ref.value() : default_value.value();
-            if (out.valid() && out.value().checked_as<TimeSeriesReference>() == selected) { return; }
-            out.set(selected);
+            if (!ts.valid())
+            {
+                ts.make_active();
+                out.set(default_value.value());
+            }
+            else
+            {
+                ts.make_passive();
+                out.set(ts_ref.value());
+            }
         }
     };
 
-    /** Watch primary validity and forward the selected input by reference. */
+    /** Wake the selector when an owned scalar explicitly loses its value.
+        A detached forwarding route is a separate reference event. */
+    struct default_scalar_withdrawal
+    {
+        static void eval(In<"ts", SIGNAL, InputValidity::Unchecked> ts, Out<TS<Bool>> withdrawn)
+        {
+            if (ts.valid()) { return; }
+            const auto &owner = ts.base().data_view();
+            if (owner.valid() && !owner.ops().is_target_link &&
+                owner.tracking().cleared_at(ts.base().evaluation_time()))
+            {
+                withdrawn.set(true);
+            }
+        }
+    };
+
+    struct default_scalar_ref_impl
+    {
+        static constexpr auto name = "default_ref";
+
+        static void eval(In<"ts_ref", REF<TsVar<"S">>, InputValidity::Unchecked> ts_ref,
+                         In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                         In<"default_value", REF<TsVar<"S">>, InputValidity::Unchecked> default_value,
+                         In<"withdrawn", SIGNAL, InputValidity::Unchecked>, Out<REF<TsVar<"S">>> out)
+        {
+            default_ref_impl::eval(std::move(ts_ref), std::move(ts), std::move(default_value), std::move(out));
+        }
+    };
+
+    /** Preserve the active-reference/value split of Python hgraph's
+        ``default_impl``. The REF input observes endpoint rebinds while the
+        dereferenced value input may remain passive after becoming valid. */
     struct default_impl
     {
         static constexpr auto name = "default";
@@ -364,6 +401,14 @@ namespace hgraph::stdlib
             WiringPortRef default_ref = default_value.erased();
             default_ref.schema = registry.ref(default_ref.schema);
 
+            if (ts_value.schema->kind == TSTypeKind::TS)
+            {
+                auto withdrawal = wire<default_scalar_withdrawal>(w, Port<void>{w, ts_value});
+                return wire<default_scalar_ref_impl>(
+                           w, Port<void>{w, std::move(ts_ref)}, Port<void>{w, std::move(ts_value)},
+                           Port<void>{w, std::move(default_ref)}, withdrawal)
+                    .erased();
+            }
             return wire<default_ref_impl>(
                        w, Port<void>{w, std::move(ts_ref)}, Port<void>{w, std::move(ts_value)},
                        Port<void>{w, std::move(default_ref)})
