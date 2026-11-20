@@ -1515,15 +1515,14 @@ namespace hgraph
                                     using pack_schema = typename graph_wiring_detail::in_param_schema<P>::type;
                                     using element_schema = typename node_pack_schema<pack_schema>::element;
                                     map.bind_size("args_len", args.size() - tail_start);
-                                    const auto *element = ts_resolver<element_schema>::resolve(map);
                                     std::vector<WiringPortRef> children;
                                     children.reserve(args.size() - tail_start);
                                     for (std::size_t index = tail_start; index < args.size(); ++index)
                                     {
                                         children.push_back(wiring_input_ref<element_schema>(w, map, args[index]));
                                     }
-                                    const auto *aggregate = TypeRegistry::instance().tsl(element, children.size());
-                                    const auto   *expected  = ts_resolver<pack_schema>::resolve(map);
+                                    const auto *expected = ts_resolver<pack_schema>::resolve(map);
+                                    const auto *aggregate = unify_dereference(expected);
                                     WiringPortRef source = children.empty()
                                                                ? WiringPortRef::null_source(aggregate)
                                                                : WiringPortRef::structural_source(aggregate, std::move(children));

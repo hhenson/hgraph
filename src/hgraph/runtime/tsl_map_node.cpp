@@ -265,7 +265,7 @@ namespace hgraph
                 storage.entries.destroy_at(index);
             }
             storage.live_count = child_count;
-            auto output = view.output(evaluation_time);
+            auto output = view.has_output() ? view.output(evaluation_time) : TSOutputView{};
             if (output.bound()) { failures.capture([&] { output.as_list().resize(runtime_size); }); }
             failures.rethrow_if_any();
         }

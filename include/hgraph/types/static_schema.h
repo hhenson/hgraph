@@ -5,6 +5,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
 #include <hgraph/types/type_carrier.h>
+#include <hgraph/types/value/native_bundle_traits.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -12,6 +13,7 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <string_view>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -116,7 +118,7 @@ namespace hgraph
     template <fixed_string Name, typename... TConstraints>
     struct TsVar;
 
-    /** List time-series schema; equivalent to ``TSL[T, N?]``. The default extent is unbounded
+    /** List time-series schema with a positive fixed extent. The default extent is unbounded
         for a concrete schema and remains the any-size spelling when lowered as an operator pattern. */
     template <typename TElementSchema, auto FixedSize = unbounded_tsl_size>
     struct TSL
@@ -125,7 +127,7 @@ namespace hgraph
         static constexpr auto fixed_size = FixedSize;
     };
 
-    /** Node input marker for Python-style ``*args`` packing; resolves as ``TSL<T, SIZE<"args_len">>``. */
+    /** Node input marker for positional arguments. Nonempty packs have a fixed extent; empty packs use an unwired growing list. */
     template <typename TElementSchema = TsVar<"args">>
     struct Args
     {
@@ -276,6 +278,44 @@ namespace hgraph
     {
         using value_bundle = TValueBundle;
     };
+
+    namespace static_schema_detail
+    {
+        template <typename T> struct native_field_schema { using type = T; };
+        template <NativeBundleValue T> struct native_field_schema<T> { using type = typename native_bundle<T>::schema; };
+
+        template <NativeBundleValue T, typename Schema = typename native_bundle<T>::schema> struct native_bundle_fields;
+
+        template <typename T> struct native_ts_field { using type = TS<T>; };
+        template <NativeBundleValue T> struct native_ts_field<T> { using type = typename native_bundle_fields<T>::time_series; };
+
+        template <NativeBundleValue T, fixed_string Namespace, fixed_string Name, bool Abstract,
+                  typename Parents, typename Arguments, typename... Fields>
+        struct native_bundle_fields<T, NominalBundle<Namespace, Name, Abstract, Parents, Arguments, Fields...>>
+        {
+            static_assert(!Abstract && std::is_aggregate_v<T>, "native_bundle requires a concrete aggregate");
+            static constexpr auto &members = native_bundle<T>::members;
+            static_assert(std::tuple_size_v<std::remove_cvref_t<decltype(members)>> == sizeof...(Fields),
+                          "native_bundle requires one member pointer per schema field");
+            using indices = std::index_sequence_for<Fields...>;
+            template <std::size_t I> using field = std::tuple_element_t<I, std::tuple<Fields...>>;
+
+            template <std::size_t I>
+            using member_type = std::remove_cvref_t<decltype(std::declval<T &>().*std::get<I>(members))>;
+
+            template <std::size_t... I>
+            static auto temporal_schema(std::index_sequence<I...>) {
+                static_assert(((std::is_same_v<typename Fields::schema, member_type<I>> ||
+                                std::is_same_v<typename Fields::schema, typename native_field_schema<member_type<I>>::type>) && ...),
+                              "native_bundle member type must match the corresponding schema field");
+                return NominalTSB<T, Field<Fields::name_sv, typename native_ts_field<member_type<I>>::type>...>{};
+            }
+            using time_series = decltype(temporal_schema(indices{}));
+        };
+    }
+
+    /** A nominal time-series bundle backed by a C++ aggregate at its authoring interface. */
+    template <NativeBundleValue T> using NativeTSB = typename static_schema_detail::native_bundle_fields<T>::time_series;
 
     /** Exact held fields and parents of one ordinary nominal origin (RFC 0046). */
     template <typename TOrigin, typename TParents, typename... TFields> struct HeldNominalBundle
@@ -1145,6 +1185,12 @@ namespace hgraph
         static_assert(static_schema_detail::always_false_v<TBundle>,
                       "value_schema_descriptor only specialises for Bundle / UnNamedBundle");
     };
+
+    template <NativeBundleValue T>
+    struct value_schema_descriptor<T> : value_schema_descriptor<typename native_bundle<T>::schema> {};
+
+    template <NativeBundleValue T>
+    struct scalar_descriptor<T> : value_schema_descriptor<T> {};
 
     template <typename... TFields>
     struct value_schema_descriptor<UnNamedBundle<TFields...>>

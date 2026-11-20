@@ -417,7 +417,7 @@ namespace hgraph::distributed
                 // A non-peered prefix below reads each scalar's clear as well
                 // as input-local publications, including sampled child links.
                 const auto data = in.data_view().as_list();
-                if (data.modified(in.evaluation_time()))
+                if (data.base().tracking().last_modified_time == in.evaluation_time())
                     for (const auto index : data.modified_indices()) write_item(index, list.at(index));
             }
             else
@@ -451,7 +451,15 @@ namespace hgraph::distributed
             {
                 auto mutation = out.begin_mutation(out.evaluation_time()); mutation.mark_modified();
             }
-            else if (!merge) invalidate(out);
+            else if (!merge) {
+                if (size == 0) {
+                    invalidate(out);
+                } else {
+                    // A vacant positive list still owns its extent. Withdraw
+                    // any held destination positions without shrinking it.
+                    for (auto held : list.valid_values()) { invalidate(held); }
+                }
+            }
         }
 
         static void capture_bundle(const Plan &plan, const TSInputView &in, bool full,
@@ -560,8 +568,14 @@ namespace hgraph::distributed
         // when its last value disappears. Its public value is unmodified,
         // while its input storage recorded the child notification this step.
         const auto &data = input.data_view();
-        return data.valid() && data.ops().is_input_binding && input.evaluation_time() != MIN_DT &&
-               data.tracking().last_modified_time == input.evaluation_time();
+        if (!data.valid() || input.evaluation_time() == MIN_DT) { return false; }
+        const auto &ops = data.ops();
+        const auto &state = data.tracking();
+        if (ops.kind == TSTypeKind::TSL) {
+            return state.last_modified_time == input.evaluation_time() ||
+                   (state.last_modified_time == MIN_DT && state.last_empty_delta_time == input.evaluation_time());
+        }
+        return ops.is_input_binding && state.last_modified_time == input.evaluation_time();
     }
     const TSValueTypeMetaData *BoundaryTransfer::schema() const noexcept { return plan_->schema; }
     const ValueTypeMetaData *BoundaryTransfer::payload_schema()

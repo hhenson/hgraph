@@ -99,6 +99,15 @@ TEST_CASE("json: temporal version 2 scalar and range forms round-trip")
     const CivilDate day{year{2025}, month{11}, std::chrono::day{2}};
     const CivilDateTime local{day, 1, 30, 0, 123};
     CHECK(round_trip(local) == "\"2025-11-02T01:30:00.000123\"");
+    CHECK(round_trip(Tenor::months_days(-10, 3)) == "{\"months\": -10, \"days\": 3}");
+    CHECK(round_trip(Tenor::business_days(0)) == "{\"business_days\": 0}");
+    const auto *tenor = scalar_descriptor<Tenor>::value_meta();
+    CHECK(from_json_string(tenor, R"({"days":2,"months":1})").view().checked_as<Tenor>() == Tenor::months_days(1, 2));
+    for (std::string_view text : {R"({"months":0})", R"({"months":0,"months":1})", R"({"business_days":0,"days":0})",
+                                  R"({"business_days":9223372036854775808})"})
+    {
+        CHECK_THROWS(from_json_string(tenor, text));
+    }
     CHECK(round_trip(Period{1, -2, 3}) ==
           "{\"months\": 10, \"days\": 3}");
     CHECK(round_trip(ZoneId{"America/New_York"}) ==

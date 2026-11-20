@@ -505,7 +505,18 @@ namespace hgraph
             auto       *memory = const_cast<void *>(payload_.ts_data);
             table.record_child_modified_impl(table.context, memory, child_id, mutation_time);
             auto &state = *table.mutable_tracking_impl(table.context, memory);
-            if (state.record_modified(mutation_time)) { state.parent.notify_child_modified(mutation_time); }
+            bool notify_parent = state.record_modified(mutation_time);
+            if (table.kind == TSTypeKind::TSL && state.parent.has_ts_data_parent()) {
+                // A second child edit in this cycle can change whether the
+                // containing slot holds a value, even though notifications coalesce.
+                const bool was_vacant = state.last_empty_delta_time == mutation_time;
+                const bool vacant = !table.has_current_value_impl(table.context, memory);
+                if (vacant != was_vacant) {
+                    state.last_empty_delta_time = vacant ? mutation_time : MIN_DT;
+                    notify_parent = true;
+                }
+            }
+            if (notify_parent) { state.parent.notify_child_modified(mutation_time); }
             return;
         }
         if (auto *endpoint = parent_endpoint(); endpoint != nullptr)

@@ -56,6 +56,9 @@ namespace hgraph
 
     ValueView TSOutputView::value() const
     {
+        if (data_.valid() && data_.ops().kind == TSTypeKind::TSL && !data_.has_current_value()) {
+            return ValueView{data_.layout().value_binding, nullptr};
+        }
         return data_.value();
     }
 

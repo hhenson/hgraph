@@ -201,6 +201,12 @@ namespace hgraph
             const auto *link = link_storage();
             if (is_target_root() && link != nullptr && link->state()->scalar_target_link != nullptr &&
                 (!data.valid() || !data.has_current_value()) && link->empty_scalar_route()) { return false; }
+            if (data.valid() && data.ops().kind == TSTypeKind::TSL && !data.has_current_value()) {
+                // Binding to a vacant owner gives no list publication. A
+                // withdrawn REF route retains the structural link's own tick.
+                const auto *forward = detail::target_link_storage(data);
+                if (forward == nullptr || forward->bound()) { return false; }
+            }
             if (!data.valid()) { return raw_data.modified(evaluation_time); }
             if (data.modified(evaluation_time)) { return true; }
             if ((is_target_root() && raw_data.modified(evaluation_time)) ||
@@ -580,7 +586,12 @@ namespace hgraph
     ValueView TSInputView::value() const
     {
         const auto &data = data_view();
-        if (data.valid()) { return data.value(); }
+        if (data.valid()) {
+            if (is_target_position() && data.ops().kind == TSTypeKind::TSL && !data.has_current_value()) {
+                return ValueView{data.layout().value_binding, nullptr};
+            }
+            return data.value();
+        }
         throw std::logic_error("TSInputView::value requires a live input view");
     }
 
@@ -608,6 +619,9 @@ namespace hgraph
             // cycle.
             if (is_target_position())
             {
+                if (data.ops().kind == TSTypeKind::TSL && !data.has_current_value()) {
+                    return ValueView{data.layout().delta_binding, nullptr};
+                }
                 const auto *link = data_.link_storage();
                 if (link != nullptr && link->tracking.last_modified_time > data.last_modified_time())
                 {

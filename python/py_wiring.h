@@ -352,7 +352,9 @@ namespace hgraph::python_bridge
                                                          : std::optional<Value>{py_to_value(object)});
                 }
             }
-            testing::set_replay_deltas(wiring_ref().global_state(), key, deltas);
+            // Box each capture with its own concrete binding, including covariant compound fields.
+            const bool observed = ts_type && testing::preserves_empty_collection_ticks(*ts_type->meta);
+            testing::set_replay_deltas(wiring_ref().global_state(), key, deltas, observed);
         }
 
         [[nodiscard]] std::unique_ptr<PyRun> run(
