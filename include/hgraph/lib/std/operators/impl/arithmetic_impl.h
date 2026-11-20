@@ -926,6 +926,8 @@ namespace hgraph::stdlib
                              In<"default_value", TS<ScalarVar<"E">>, InputValidity::Unchecked> default_value,
                              Out<TS<ScalarVar<"E">>> out)
             {
+                // Clearing an unused fallback carries no new map or key value.
+                if (!default_value.valid() && !ts.modified() && !key.modified()) { return; }
                 const auto map = ts.base().value().as_map();
                 const auto key_value = key.base().value();
                 const ValueView value = [&] {
@@ -1244,6 +1246,7 @@ namespace hgraph::stdlib
                              In<"default_value", TS<ScalarVar<"E">>, InputValidity::Unchecked> default_value,
                              Out<TS<ScalarVar<"E">>> out)
             {
+                if (!default_value.valid() && !ts.modified()) { return; }
                 const auto &fallback = default_value.base();
                 container_extremum_impl<Agg, true, Kind>::do_eval(ts.base().value(), &fallback,
                                                                   static_cast<const TSOutputView &>(out));
@@ -1267,6 +1270,7 @@ namespace hgraph::stdlib
                              In<"default_value", TS<ScalarVar<"E">>, InputValidity::Unchecked> default_value,
                              Out<TS<ScalarVar<"E">>> out)
             {
+                if (!default_value.valid() && !ts.modified()) { return; }
                 // An EMPTY container emits the supplied default — the same
                 // contract as the extremum siblings. (This overload used to
                 // accept default_value only to win overload resolution and

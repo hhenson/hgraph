@@ -389,3 +389,24 @@ def test_a_bundle_delta_holds_only_the_fields_with_news():
         {"true": {"a": 1}, "false": {"x": 1}},
         {"false": {"x": hg.REMOVE}},
     ]
+
+
+def test_clearing_unused_lookup_fallback_does_not_sample_a_stale_price():
+    @hg.compute_node
+    def fallback(command: TS[int], _output: hg.TS_OUT[int] = None) -> TS[int]:
+        if command.value < 0:
+            _output.invalidate()
+        else:
+            return command.value
+
+    @graph
+    def sample_lookup(command: TS[int], price: TS[int], table: TS[dict[str, int]]) -> TS[int]:
+        trigger = hg.getitem_(table, hg.const("x"), default_value=fallback(command))
+        return hg.sample(trigger, price)
+
+    prices = [10, 20, None, 30]
+    command = [8, None, -1, None]
+    assert eval_node(sample_lookup, command, prices, [{"x": 5}]) == [10, None, None, None]
+    for published in (5, 6):
+        assert eval_node(sample_lookup, command, prices, [{"x": 5}, None, {"x": published}]) == [10, None, 20, None]
+    assert eval_node(sample_lookup, command, prices, [{"y": 5}]) == [10, None, None, None]
