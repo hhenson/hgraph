@@ -888,6 +888,16 @@ namespace
         }
     };
 
+    struct DefaultWithClearableInputs
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> primary, Port<TS<Int>> fallback)
+        {
+            auto primary_value = wire<ClearableFallback<Int>>(w, primary);
+            auto fallback_value = wire<ClearableFallback<Int>>(w, fallback);
+            return wire<stdlib::default_>(w, primary_value, fallback_value).as<TS<Int>>();
+        }
+    };
+
     struct LookupWithFallback
     {
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> key, Port<TS<Int>> command)
@@ -3705,6 +3715,16 @@ TEST_CASE("std operators: default_ substitutes the default until ts first ticks"
 
     // ts valid from the first cycle: the default never shows.
     CHECK_OUTPUT(eval_node<stdlib::default_>(values<Int>(1, 2), values<Int>(9)), values<Int>(1, 2));
+}
+
+TEST_CASE("std operators: default_ follows primary withdrawals and forwards selected publications")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<DefaultWithClearableInputs>(
+                     values<Int>(none, 7, none, 7, -1, -1, none, none, 8, -1, 8),
+                     values<Int>(3, 9, 11, none, none, none, -1, 11, 12, 8, none)),
+                 values<Int>(3, 7, none, 7, 11, none, none, 11, 8, 8, 8));
 }
 
 TEST_CASE("std operators: syntax sugar wires arithmetic expressions through standard overloads")

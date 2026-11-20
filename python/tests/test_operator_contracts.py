@@ -410,3 +410,32 @@ def test_clearing_unused_lookup_fallback_does_not_sample_a_stale_price():
     for published in (5, 6):
         assert eval_node(sample_lookup, command, prices, [{"x": 5}, None, {"x": published}]) == [10, None, 20, None]
     assert eval_node(sample_lookup, command, prices, [{"y": 5}]) == [10, None, None, None]
+
+
+def test_default_reselects_held_fallback_on_primary_invalidation():
+    @hg.compute_node
+    def clearable(command: TS[int], _output: hg.TS_OUT[int] = None) -> TS[int]:
+        if command.value < 0:
+            _output.invalidate()
+        else:
+            return command.value
+
+    @hg.compute_node(active=("clock",), valid=("clock",))
+    def observe(clock: TS[bool], selected: TS[int]) -> TS[tuple[int, bool]]:
+        return (selected.value if selected.valid else -1, selected.modified)
+
+    primary = [None, 7, None, 7, -1, -1, None, None, 8, -1, 8]
+    fallback = [3, 9, 11, None, None, None, -1, 11, 12, 8, None]
+    expected = [(3, True), (7, True), (7, False), (7, True), (11, True),
+                (11, False), (-1, False), (11, True), (8, True), (8, True), (8, True)]
+
+    for primary_first in (True, False):
+        @graph
+        def selected(clock: TS[bool], p: TS[int], f: TS[int]) -> TS[tuple[int, bool]]:
+            if primary_first:
+                primary_port, fallback_port = clearable(p), clearable(f)
+            else:
+                fallback_port, primary_port = clearable(f), clearable(p)
+            return observe(clock, hg.default(primary_port, fallback_port))
+
+        assert eval_node(selected, [True] * len(primary), primary, fallback) == expected

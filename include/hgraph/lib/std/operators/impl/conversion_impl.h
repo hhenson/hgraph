@@ -321,23 +321,9 @@ namespace hgraph::stdlib
         }
     };
 
-    /**
-     * ``default`` implementation — the REF-forwarding node, mirroring Python
-     * ``_impl/_operators/_graph_operators.py`` ``_default`` (``valid=()``):
-     * while ``ts`` is invalid the output references ``default_value`` and ``ts``
-     * is kept active (to notice its first tick); once valid the output
-     * references ``ts`` and ``ts`` is made passive — downstream reads flow
-     * *through* the reference without this node evaluating per tick. (Python
-     * takes ``default_value`` as a ``REF`` input so value ticks never re-fire
-     * the node; here it is a plain active input — for the ``const`` zeros it
-     * ticks once, and a re-emit of the same reference is a cheap downstream
-     * no-op rebind.)
-     *
-     * The output **is** a ``REF`` and its port keeps that computed schema —
-     * the declared ``-> S`` contract holds because ``REF`` is transparent to
-     * matching/unification (a variable binds the dereferenced type) and
-     * consumers bind through the reference at runtime.
-     */
+    /** Select the fallback while the primary is invalid. Keep the value input
+        active to observe later validity transitions. Ordinary publications flow
+        through the selected reference without rebinding it. */
     struct default_ref_impl
     {
         static constexpr auto name = "default_ref";
@@ -347,22 +333,13 @@ namespace hgraph::stdlib
                          In<"default_value", REF<TsVar<"S">>, InputValidity::Unchecked> default_value,
                          Out<REF<TsVar<"S">>> out)
         {
-            if (!ts.valid())
-            {
-                ts.make_active();
-                out.set(default_value.value());
-            }
-            else
-            {
-                ts.make_passive();
-                out.set(ts_ref.value());
-            }
+            const auto selected = ts.valid() ? ts_ref.value() : default_value.value();
+            if (out.valid() && out.value().checked_as<TimeSeriesReference>() == selected) { return; }
+            out.set(selected);
         }
     };
 
-    /** Preserve the active-reference/value split of Python hgraph's
-        ``default_impl``. The REF input observes endpoint rebinds while the
-        dereferenced value input may remain passive after becoming valid. */
+    /** Watch primary validity and forward the selected input by reference. */
     struct default_impl
     {
         static constexpr auto name = "default";
