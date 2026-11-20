@@ -3066,6 +3066,75 @@ TEST_CASE("TSInput observes an owned keyed collection clear without a value tick
     }
 }
 
+TEST_CASE("Direct bundle and window inputs distinguish whole invalidation from published changes", "[invalidation]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<int>("int32");
+    const auto *bundle = registry.tsb("DirectBundleClear", {{"left", registry.ts(integer)}, {"right", registry.ts(integer)}});
+    const auto *window = registry.tsw(integer, 2, 1);
+    for (const auto *schema : {bundle, window}) {
+        CAPTURE(schema == bundle);
+        RecordingNotifiable recorder;
+        TSOutput output{schema};
+        TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+        input.view(&recorder, MIN_ST).bind_output(output.view(MIN_ST));
+        input.view(&recorder, MIN_ST).make_active();
+        const auto *pulse = registry.signal();
+        TSInput signal{TSInputBuilderFactory::checked_builder_for(*pulse, TSEndpointSchema::peered(pulse))};
+        signal.view(nullptr, MIN_ST).bind_output(output.view(MIN_ST));
+        const auto publish = [&](DateTime time) {
+            if (schema == bundle) {
+                set_bundle_output(output, "right", 7, time);
+            } else {
+                Value value{7};
+                auto producer = output.view(time);
+                producer.as_window().begin_mutation(time).push(value.view());
+            }
+            REQUIRE(input.view(nullptr, time).valid());
+            REQUIRE(input.view(nullptr, time).modified());
+            CHECK(signal.view(nullptr, time).modified());
+        };
+        publish(MIN_ST);
+        const auto change = MIN_ST + MIN_TD;
+        if (schema == bundle) {
+            set_bundle_output(output, "left", 1, change);
+        } else {
+            auto source = output.view(change);
+            source.as_window().begin_mutation(change).clear();
+            auto observed = input.view(nullptr, change);
+            REQUIRE(observed.as_window().data_view().cleared(change));
+        }
+        REQUIRE(input.view(nullptr, change).modified());
+        CHECK(signal.view(nullptr, change).modified());
+        const auto child_clear = change + MIN_TD;
+        if (schema == bundle) {
+            auto source = output.view(child_clear);
+            auto fields = source.as_bundle();
+            REQUIRE(fields.field("left").begin_mutation(child_clear).invalidate());
+            REQUIRE(input.view(nullptr, child_clear).valid());
+            REQUIRE(input.view(nullptr, child_clear).modified());
+        }
+        const auto clear = child_clear + MIN_TD;
+        REQUIRE(output.view(clear).data_view().begin_mutation(clear).invalidate());
+        REQUIRE(recorder.notified.back() == clear);
+        REQUIRE_FALSE(output.view(clear).modified());
+        REQUIRE_FALSE(input.view(nullptr, clear).valid());
+        REQUIRE_FALSE(input.view(nullptr, clear).modified());
+        CHECK_FALSE(signal.view(nullptr, clear).valid());
+        CHECK_FALSE(signal.view(nullptr, clear).modified());
+        const auto repeat = clear + MIN_TD;
+        REQUIRE_FALSE(output.view(repeat).data_view().begin_mutation(repeat).invalidate());
+        REQUIRE(recorder.notified.back() == clear);
+        REQUIRE_FALSE(input.view(nullptr, repeat).modified());
+        const auto recover = repeat + MIN_TD;
+        publish(recover);
+        const auto rewrite = recover + MIN_TD;
+        REQUIRE(output.view(rewrite).data_view().begin_mutation(rewrite).invalidate());
+        publish(rewrite);
+    }
+}
+
 TEST_CASE("Runtime contract reports dictionary membership independently of child validity", "[runtime-contract]")
 {
     using namespace hgraph;

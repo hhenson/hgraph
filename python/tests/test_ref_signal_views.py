@@ -7,9 +7,10 @@ observes designations.
 """
 import pytest
 
-from hgraph import (REF, SCALAR, SIGNAL, TIME_SERIES_TYPE, TS, TSB, TSL,
-                    Size, TimeSeriesSchema, combine, compute_node, graph,
-                    if_, modified, sample, valid)
+from hgraph import (REF, SCALAR, SIGNAL, TIME_SERIES_TYPE, TS, TSB, TSD, TSL, TSS, TSW, TS_OUT,
+                    Size, WindowSize, TimeSeriesSchema, combine, compute_node, graph,
+                    if_, last_modified_date, last_modified_time, last_modified_wall_clock_time,
+                    modified, sample, valid)
 from hgraph.test import eval_node
 
 
@@ -132,3 +133,125 @@ def test_assembled_signal_follows_declared_reference_children(shape):
     repeated_designations = [False, False, True, True, False, False, True, True]
     assert eval_node(app, repeated_designations, _VALUE, [1] * len(_SELECT)) == [
         {"direct": metadata, "declared": metadata} for metadata in followed]
+
+
+class _TimestampBundle(TimeSeriesSchema):
+    value: TS[int]
+    sibling: TS[int]
+
+
+_TIMESTAMPS = [last_modified_time, last_modified_wall_clock_time, last_modified_date]
+
+
+_TIMESTAMP_SOURCES = [
+    (TS[int], lambda n: n),
+    (TSS[int], lambda n: frozenset() if n == 0 else {n}),
+    (TSD[int, TS[int]], lambda n: {} if n == 0 else {0: n}),
+    (TSL[TS[int], Size[1]], lambda n: {0: n}),
+    (TSL[TS[int], Size[-1]], lambda n: {0: n}),
+    (TSB[_TimestampBundle], lambda n: {"value": n}),
+    (TSW[int, WindowSize[2], WindowSize[1]], lambda n: n),
+]
+_TIMESTAMP_SOURCE_IDS = ["scalar", "set", "dictionary", "fixed-list", "growing-list", "bundle", "window"]
+
+
+def _timestamp_source(schema, payload):
+    @compute_node
+    def source(command: TS[int], _output: TS_OUT[schema] = None) -> schema:
+        if command.value < 0:
+            _output.invalidate()
+        else:
+            return payload(command.value)
+
+    return source
+
+
+@pytest.mark.parametrize("schema, payload", _TIMESTAMP_SOURCES, ids=_TIMESTAMP_SOURCE_IDS)
+@pytest.mark.parametrize("timestamp", _TIMESTAMPS)
+def test_owner_invalidation_withdraws_the_timestamp_without_sampling(timestamp, schema, payload):
+    source = _timestamp_source(schema, payload)
+
+    @graph
+    def sample_on_timestamp(command: TS[int], price: TS[int]) -> TS[int]:
+        return sample(timestamp(source(command)), price)
+
+    @graph
+    def observe_timestamp(command: TS[int], clock: TS[int]) -> TS[tuple[bool, bool]]:
+        return _metadata(timestamp(source(command)), clock)
+
+    # Empty set/dictionary publications tick, as do equal scalar writes.
+    first = 0 if schema in (TSS[int], TSD[int, TS[int]]) else 7
+    last = first if schema == TS[int] else 8
+    commands = [None, first, None, -1, -1, None, first, last]
+    prices = [10, None, 20, None, None, 30, None, 40]
+    assert eval_node(sample_on_timestamp, commands, prices) == [None, 10, None, None, None, None, 30, 40]
+    assert eval_node(observe_timestamp, commands, [1] * len(commands)) == [
+        (False, False), (True, True), (True, False), (False, False),
+        (False, False), (False, False), (True, True), (True, True),
+    ]
+
+
+@pytest.mark.parametrize("timestamp", _TIMESTAMPS)
+def test_timestamp_preserves_sampled_reference_transitions(timestamp):
+    assert _run(SIGNAL, lambda value, clock: sample(timestamp(value), clock)) == [
+        None, None, 1, 1, 1, None, 1, None,
+    ]
+
+
+@pytest.mark.parametrize("timestamp", _TIMESTAMPS)
+def test_timestamp_observes_a_bundle_update_when_only_one_field_clears(timestamp):
+    @compute_node
+    def source(command: TS[int], _output: TS_OUT[TSB[_TimestampBundle]] = None) -> TSB[_TimestampBundle]:
+        if command.value < 0:
+            _output["value"].invalidate()
+        else:
+            return {"value": command.value, "sibling": 11}
+
+    @graph
+    def app(command: TS[int], price: TS[int]) -> TS[int]:
+        return sample(timestamp(source(command)), price)
+
+    assert eval_node(app, [7, -1, None, 8], [5, 6, 7, 8]) == [5, 6, None, 8]
+
+
+@pytest.mark.parametrize("schema, payload", _TIMESTAMP_SOURCES, ids=_TIMESTAMP_SOURCE_IDS)
+@pytest.mark.parametrize("timestamp", _TIMESTAMPS)
+def test_timestamp_tracks_the_selected_owner_without_changing_selector_events(schema, payload, timestamp):
+    source = _timestamp_source(schema, payload)
+
+    @graph
+    def app(select: TS[bool], command: TS[int], price: TS[int]):
+        chosen = if_(select, source(command)).true
+        stamp = timestamp(chosen)
+        return combine(direct=sample(chosen, price), timed=sample(stamp, price), flags=_metadata(stamp, price))
+
+    select = [True, None, None, None, None, False, None, True, None]
+    command = [7, None, -1, None, 8, None, 9, None, 10]
+    rows = eval_node(app, select, command, list(range(1, 10)))
+    direct = [1, None, None, None, 5, None, None, 8, 9]
+    assert [row.get("direct") for row in rows] == direct
+    # A selector disconnect wakes some source shapes. Preserve their existing
+    # timestamps separately from an explicit clear of the still-selected owner.
+    timed = direct.copy()
+    if schema not in (TSL[TS[int], Size[1]], TSB[_TimestampBundle]):
+        timed[5] = 6
+    assert [row.get("timed") for row in rows] == timed
+    assert rows[2]["flags"] == rows[3]["flags"] == (False, False)
+
+
+@pytest.mark.parametrize("timestamp", _TIMESTAMPS)
+def test_selector_publication_coincident_with_owner_clear_preserves_its_timestamp(timestamp):
+    source = _timestamp_source(TS[int], lambda value: value)
+
+    @compute_node(active=("use_b",), valid=("use_b",))
+    def choose(use_b: TS[bool], a: REF[TS[int]], b: REF[TS[int]]) -> REF[TS[int]]:
+        return (b if use_b.value else a).value
+
+    @graph
+    def app(use_b: TS[bool], a: TS[int], b: TS[int], price: TS[int]) -> TS[int]:
+        return sample(timestamp(choose(use_b, source(a), source(b))), price)
+
+    # Select B as it clears, then explicitly publish the same selection on its
+    # next clear. Only the final clear has no selector publication.
+    assert eval_node(app, [False, True, None, True, None, None], [7], [8, -1, 9, -1, 10, -1],
+                     list(range(1, 7))) == [1, 2, 3, 4, 5, None]

@@ -56,7 +56,10 @@ namespace hgraph::stdlib
         register_graph_overload<valid, valid_ref_graph_impl>();
         register_overload<modified, modified_impl>();
         register_overload<last_modified_time, last_modified_time_impl>();
+        register_graph_overload<last_modified_time, timestamp_ref_graph<last_modified_time_impl>>();
         register_overload<last_modified_wall_clock_time, last_modified_wall_clock_time_impl>();
+        register_graph_overload<last_modified_wall_clock_time, timestamp_ref_graph<last_modified_wall_clock_time_impl>>();
         register_overload<last_modified_date, last_modified_date_impl>();
+        register_graph_overload<last_modified_date, timestamp_ref_graph<last_modified_date_impl>>();
     }
 }  // namespace hgraph::stdlib
