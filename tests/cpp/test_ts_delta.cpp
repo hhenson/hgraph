@@ -288,7 +288,7 @@ TEST_CASE("whole and sparse zero-length growing list writes initialize once") {
   auto empty = dynamic_list_delta<TS<Int>>({});
   auto zero = dynamic_list_delta<TS<Int>>({}, {}, 0);
   CHECK_OUTPUT(eval_node<PublishGrowingList>(values<Bool>(true, false, true, true)),
-               values<Value>(empty, none, empty, empty));
+               values<Value>(empty, none, none, none));
   // Raw C++ replay inputs are authored edits. They have no observed-event provenance.
   CHECK_OUTPUT(eval_node<GrowingListIdentity>(values<Value>(zero, empty, zero)),
                values<Value>(empty, none, none));
