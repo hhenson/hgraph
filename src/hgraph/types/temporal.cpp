@@ -1220,6 +1220,12 @@ namespace hgraph
         return out << format_civil_datetime(value);
     }
 
+    std::ostream &operator<<(std::ostream &out, const Tenor &value)
+    {
+        if (value.is_business()) { return out << "Tenor.business_days(" << value.business() << ')'; }
+        return out << "Tenor.months_days(" << value.months() << ", " << value.days() << ')';
+    }
+
     std::ostream &operator<<(std::ostream &out, const Period &value)
     {
         return out << "Period(months=" << value.total_months()
