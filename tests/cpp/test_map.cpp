@@ -3118,14 +3118,17 @@ namespace
     };
 
     inline std::vector<std::pair<Int, Int>> dynamic_tsl_sink_values;
+    inline std::vector<Int> dynamic_tsl_sink_stops;
 
     struct DynamicTslSinkNode
     {
         static constexpr auto name = "dynamic_tsl_sink_node";
 
-        static void eval(In<"ndx", TS<Int>> ndx, In<"ts", TS<Int>> ts) {
+        static void eval(In<"ndx", TS<Int>> ndx, In<"ts", TS<Int>> ts, State<Int> first) {
+            if (first.get() == 0) { first.set(ts.value()); }
             dynamic_tsl_sink_values.emplace_back(ndx.value(), ts.value());
         }
+        static void stop(State<Int> first) { dynamic_tsl_sink_stops.push_back(first.get()); }
     };
 
     struct MapDynamicSinkG
@@ -3724,6 +3727,25 @@ TEST_CASE("map_ over dynamic TSL: sink functions use the same indexed child "
         values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}}, {}, 1), dynamic_list_delta<TS<Int>>({{1, 20}}, {}, 2), dynamic_list_delta<TS<Int>>({{0, 30}}));
     CHECK_OUTPUT(eval_node<MapDynamicSinkG>(input), input);
     CHECK(dynamic_tsl_sink_values == std::vector<std::pair<Int, Int>>{{0, 10}, {1, 20}, {0, 30}});
+}
+
+TEST_CASE("map_ over a growing list stops dropped sink children and starts fresh ones on regrowth") {
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    dynamic_tsl_sink_stops.clear();
+    dynamic_tsl_sink_values.clear();
+    const auto input = values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}, {1, 20}, {2, 30}}, {}, 3),
+                                     dynamic_list_delta<TS<Int>>({}, {1, 2}, 1),
+                                     dynamic_list_delta<TS<Int>>({{1, 40}}, {}, 2),
+                                     dynamic_list_delta<TS<Int>>({{0, 50}}));
+    CHECK_OUTPUT(eval_node<MapDynamicSinkG>(input), input);
+    std::sort(dynamic_tsl_sink_values.begin(), dynamic_tsl_sink_values.end());
+    CHECK(dynamic_tsl_sink_values == std::vector<std::pair<Int, Int>>{{0, 10}, {0, 50}, {1, 20}, {1, 40}, {2, 30}});
+    // The first value identifies a child across evaluations. Siblings may stop in either order.
+    REQUIRE(dynamic_tsl_sink_stops.size() == 4);
+    std::sort(dynamic_tsl_sink_stops.begin(), dynamic_tsl_sink_stops.begin() + 2);
+    std::sort(dynamic_tsl_sink_stops.begin() + 2, dynamic_tsl_sink_stops.end());
+    CHECK(dynamic_tsl_sink_stops == std::vector<Int>{20, 30, 10, 40});
 }
 
 TEST_CASE("map_ over fixed TSL: sink functions expand once per index") {

@@ -268,6 +268,92 @@ TEST_CASE("TSData realizations select a non-missing current-state policy") {
   }
 }
 
+struct PublishGrowingList {
+  static void eval(In<"whole", TS<Bool>> whole, Out<TSL<TS<Int>>> out) {
+    if (whole.value()) {
+      auto empty = ListBuilder{ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta())}.build();
+      apply_current_value(out.base(), empty.view());
+    } else {
+      out.resize(0);
+    }
+  }
+};
+
+struct GrowingListIdentity {
+  static Port<TSL<TS<Int>>> compose(Wiring &, Port<TSL<TS<Int>>> items) { return items; }
+};
+
+TEST_CASE("whole empty growing list publications tick while repeated sparse zero-length edits stay silent") {
+  auto empty = dynamic_list_delta<TS<Int>>({});
+  auto zero = dynamic_list_delta<TS<Int>>({}, {}, 0);
+  CHECK_OUTPUT(eval_node<PublishGrowingList>(values<Bool>(true, false, true, true)),
+               values<Value>(empty, none, empty, empty));
+  // Raw C++ replay inputs are authored edits. They have no observed-event provenance.
+  CHECK_OUTPUT(eval_node<GrowingListIdentity>(values<Value>(zero, empty, zero)),
+               values<Value>(empty, none, none));
+}
+
+TEST_CASE("owned lists retain validity through empty publications, size-only growth and positional clears") {
+  using Growing = TSL<TS<Int>>;
+  TSOutput growing{schema_descriptor<Growing>::ts_meta()};
+  const auto zero = dynamic_list_delta<TS<Int>>({}, {}, 0);
+  auto first = growing.view(MIN_ST);
+  CHECK_FALSE(first.valid());
+  apply_delta(first, zero.view());
+  CHECK(first.valid());
+  CHECK(first.all_valid());
+  CHECK(first.modified());
+  auto second = growing.view(MIN_ST + MIN_TD);
+  apply_delta(second, zero.view());
+  CHECK_FALSE(second.modified());
+
+  const auto empty = ListBuilder{ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta())}.build();
+  for (Int step : {2, 3}) {
+    auto view = growing.view(MIN_ST + step * MIN_TD);
+    apply_current_value(view, empty.view());
+    CHECK(view.valid());
+    CHECK(view.all_valid());
+    CHECK(view.modified());
+    CHECK_FALSE(view.as_list().size_modified().has_value());
+  }
+  auto sized = growing.view(MIN_ST + 4 * MIN_TD);
+  auto list = sized.as_list();
+  list.resize(2);
+  CHECK(list.size() == 2);
+  CHECK(sized.valid());
+  CHECK_FALSE(sized.all_valid());
+  CHECK_FALSE(list.at(0).valid());
+  CHECK_FALSE(list.at(1).valid());
+
+  auto check_clear = [](TSOutput &owner) {
+    auto filled = owner.view(MIN_ST + 5 * MIN_TD);
+    apply_delta(filled, list_delta<TS<Int>>({10, 20}).view());
+    REQUIRE(filled.all_valid());
+    auto cleared = owner.view(MIN_ST + 6 * MIN_TD);
+    apply_delta(cleared, dynamic_list_delta<TS<Int>>({}, {0, 1}).view());
+    auto positions = cleared.as_list();
+    CHECK(cleared.valid());
+    CHECK_FALSE(cleared.all_valid());
+    CHECK(positions.size() == 2);
+    CHECK_FALSE(positions.at(0).valid());
+    CHECK_FALSE(positions.at(1).valid());
+    auto removed = positions.removed_positions();
+    CHECK(std::vector<std::size_t>(removed.begin(), removed.end()) == std::vector<std::size_t>{0, 1});
+  };
+  check_clear(growing);
+  TSOutput fixed{schema_descriptor<TSL<TS<Int>, 2>>::ts_meta()};
+  check_clear(fixed);
+
+  auto shrunk = growing.view(MIN_ST + 7 * MIN_TD);
+  apply_current_value(shrunk, empty.view());
+  auto final = shrunk.as_list();
+  CHECK(shrunk.valid());
+  CHECK(shrunk.all_valid());
+  CHECK(final.size_modified() == 0);
+  auto removed = final.removed_indices();
+  CHECK(std::vector<std::size_t>(removed.begin(), removed.end()) == std::vector<std::size_t>{0, 1});
+}
+
 TEST_CASE("held collection observations preserve invalid child holes", "[held-child-validity]") {
   (void)TypeRegistry::instance().register_scalar<Int>("int");
   SECTION("fixed list retains positions without retained invalid payloads") {

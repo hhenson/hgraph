@@ -529,9 +529,12 @@ namespace hgraph
             auto list_out = out.as_list();
             // RFC 0031: a dynamic TSL current value IS the list, so a shorter
             // source truncates rather than being rejected.
-            if (schema->is_unbounded_tsl() && source_values.size() != list_out.size())
+            if (schema->is_unbounded_tsl())
             {
-                list_out.resize(source_values.size());
+                if (source_values.size() != list_out.size()) { list_out.resize(source_values.size()); }
+                if (source_values.size() == 0 && !out.modified()) {
+                    out.data_view().begin_mutation(out.evaluation_time()).mark_empty_delta();
+                }
             }
 
             for (std::size_t index = 0; index < source_values.size(); ++index)

@@ -692,7 +692,12 @@ namespace hgraph::python_bridge
             const ListDeltaSource delta{result, schema.is_unbounded_tsl(), schema.fixed_size()};
             const auto           &child_ops = python_ops_for(list_element_type(type, "TSL apply result"));
             auto                  list      = output.as_list();
-            if (delta.size && *delta.size != list.size()) list.resize(*delta.size);
+            if (delta.size) { list.resize(*delta.size); }
+            if (delta.size == 0 && !nb::isinstance<nb::dict>(result) && !output.modified()) {
+                // An empty sequence is a whole-value publication. A sparse
+                // resize to the current extent carries no such publication.
+                output.data_view().begin_mutation(output.evaluation_time()).mark_empty_delta();
+            }
             for (auto key : delta.removed) {
                 const auto index = nb::cast<std::size_t>(key);
                 if (index < list.size()) static_cast<void>(list.at(index).begin_mutation(output.evaluation_time()).invalidate());

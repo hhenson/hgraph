@@ -208,7 +208,11 @@ namespace hgraph
         {
             throw std::logic_error("TSLOutputView::resize requires a dynamic TSL output");
         }
-        if (list.size() == size) { return; }
+        if (list.size() == size) {
+            // The extent starts at zero even before the list owns a value.
+            if (!view_.valid()) { base.begin_mutation(evaluation_time).mark_empty_delta(); }
+            return;
+        }
         list.resize(size, evaluation_time);
         // A pure length change still ticks the list: the structural delta is
         // only visible while the storage window and the parent's modification
