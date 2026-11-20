@@ -1346,6 +1346,7 @@ namespace hgraph
                 }
                 else
                 {
+                    if (pattern.kind == TypePattern::Kind::TSL) { validate_tsl_size(replacement->second.value); }
                     pattern.fixed_size = replacement->second.value;
                     pattern.size_name.clear();
                     pattern.size_var = false;

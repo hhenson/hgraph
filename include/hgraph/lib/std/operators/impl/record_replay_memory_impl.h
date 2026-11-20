@@ -76,6 +76,7 @@ namespace hgraph::stdlib
             Int         index{0};
             std::string fq_key{};
             testing::DenseEntryReader dense_reader{&testing::seeded_dense_entry};
+            void (*apply_entry)(const TSOutputView &, const ValueView &){&apply_delta};
         };
 
         /** memory_compare's start-resolved summary key and counters.  An
@@ -311,18 +312,24 @@ namespace hgraph::stdlib
                           State<record_replay_memory_detail::ReplayCursorState> cursor, Out<TsVar<"S">> out) {
             // The sparse fq key is wiring-fixed; build the string once.
             auto current = cursor.get();
+            const auto *schema = static_cast<const TSOutputView &>(out).schema();
+            bool observed = true;
             if (!recordable_id.value().empty())
             {
                 current.fq_key = record_replay_memory_detail::memory_recording_key(
                     traits, recordable_id.value(), key.value());
-                if (static_cast<const TSOutputView &>(out).schema()->contains_window())
+                if (schema->contains_window())
                 {
                     current.index = static_cast<Int>(record_replay::restore_window_replay_prefix(gs.get(current.fq_key), out));
                 }
             } else {
                 const auto buffer    = gs.get(key.value());
-                current.dense_reader = testing::dense_entry_reader(buffer.binding());
+                const auto layout = testing::dense_buffer_layout(buffer.binding());
+                current.dense_reader = testing::dense_entry_reader(buffer.binding(), layout);
+                observed = layout != testing::DenseBufferLayout::Seeded;
             }
+            current.apply_entry = observed && testing::preserves_empty_collection_ticks(*schema)
+                ? &apply_observed_delta : &apply_delta;
             cursor.set(std::move(current));
         }
 
@@ -346,7 +353,7 @@ namespace hgraph::stdlib
                 if (i < size)
                 {
                     if (auto delta = state.dense_reader(list, static_cast<std::size_t>(i)); delta.has_value()) {
-                        apply_delta(out, delta->view());
+                        state.apply_entry(out, delta->view());
                     }
                 }
                 state.index = i + 1;
@@ -366,7 +373,7 @@ namespace hgraph::stdlib
                 const DateTime when = entry.at(0).checked_as<DateTime>();
                 if (when < now) { ++current; continue; }
                 if (when > now) { break; }
-                apply_delta(out, entry.at(1));
+                state.apply_entry(out, entry.at(1));
                 ++current;
             }
             state.index = static_cast<Int>(current);

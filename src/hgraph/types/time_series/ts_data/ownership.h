@@ -15,6 +15,7 @@ namespace hgraph::detail
         void            *data{nullptr};
         std::size_t      parent_child_id{TS_DATA_NO_CHILD_ID};
         bool             attach_parent{true};
+        bool             retained_after_removal{false};
     };
 
     /**
@@ -39,13 +40,19 @@ namespace hgraph::detail
         using auxiliary_metrics_fn = DynamicStorageMetrics (*)(
             const void *context, const void *memory) noexcept;
 
-        child_count_fn child_count{nullptr};
-        child_at_fn    child_at{nullptr};
+        child_count_fn child_count = [](const void *, const void *) noexcept { return std::size_t{0}; };
+        child_at_fn child_at = [](const void *, void *, std::size_t) noexcept { return TSDataOwnedChild{}; };
         stop_fn        stop{nullptr};
         auxiliary_metrics_fn auxiliary_dynamic_storage{nullptr};
         /** Logical lifetime of a child slot; storage may remain allocated after expiry. */
         bool (*child_alive_at)(const void *, const void *, std::size_t, DateTime) noexcept =
             [](const void *, const void *, std::size_t, DateTime) noexcept { return true; };
+        /** Discard this owner's dynamic membership after invalidating its children.
+            Fixed shapes and borrowed projections keep their storage topology. */
+        void (*discard_contents)(const void *, void *, DateTime) = nullptr;
+        /** Some leaves retain private history across standalone invalidation.
+            Recreating a collection child discards that history. */
+        void (*discard_child_history)(const void *, void *) noexcept = nullptr;
     };
 
     /** Observe the live child positions of an owned growing list. Callbacks see
@@ -54,6 +61,7 @@ namespace hgraph::detail
         and callbacks must not throw. */
     void subscribe_dynamic_list_slots(const TSDataView &list, SlotObserver *observer);
     void unsubscribe_dynamic_list_slots(const TSDataView &list, SlotObserver *observer) noexcept;
+    void discard_collection_child(TSDataView view, DateTime now);
     [[nodiscard]] bool ts_data_alive_at(TSDataView endpoint, DateTime time) noexcept;
     void attach_owned_ts_data_parents(TSDataView root);
     void attach_owned_ts_data_parent(TSDataView child, const TSDataView &parent, std::size_t child_id);

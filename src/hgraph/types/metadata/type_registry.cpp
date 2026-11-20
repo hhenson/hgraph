@@ -35,8 +35,10 @@ namespace hgraph
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(Time);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(Str);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(Bytes);
+#ifndef HGRAPH_NO_ARROW
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(Frame);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(Series);
+#endif
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(std::int8_t);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(std::int16_t);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(std::int32_t);
@@ -2220,6 +2222,7 @@ namespace hgraph
 
     const TSValueTypeMetaData *TypeRegistry::tsl(const TSValueTypeMetaData *element_ts, size_t fixed_size)
     {
+        validate_tsl_size(fixed_size);
         const std::lock_guard lock(mutex_);
         const TSListKey key{element_ts, fixed_size};
         const TSValueTypeMetaData &meta = tsl_cache_.intern(key, [&]() {

@@ -10,11 +10,13 @@
 #include <hgraph/types/series.h>
 #include <hgraph/types/time_series_reference.h>
 #include <hgraph/types/value/json_codec.h>
-#include <hgraph/types/value/table_codec.h>
 #include <hgraph/types/value/visitor.h>
 
 #include <ankerl/unordered_dense.h>
+#ifndef HGRAPH_NO_ARROW
+#include <hgraph/types/value/table_codec.h>
 #include <arrow/api.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -73,6 +75,18 @@ namespace hgraph
             return schema == nullptr ? std::string{} : std::string{schema->name()};
         }
 
+        struct DiagnosticTableProjection;
+        struct DiagnosticTableProjectionResult
+        {
+            std::shared_ptr<const DiagnosticTableProjection> projection{};
+            std::string error{};
+        };
+
+        using DiagnosticTableProjectionCache =
+            std::unordered_map<const TSValueTypeMetaData *,
+                               DiagnosticTableProjectionResult>;
+
+#ifndef HGRAPH_NO_ARROW
         /**
          * Inspector table snapshots deliberately live in the native
          * diagnostics layer.  The released Python inspector's value endpoint
@@ -341,16 +355,6 @@ namespace hgraph
             const TableConverter *table_converter{nullptr};
         };
 
-        struct DiagnosticTableProjectionResult
-        {
-            std::shared_ptr<const DiagnosticTableProjection> projection{};
-            std::string error{};
-        };
-
-        using DiagnosticTableProjectionCache =
-            std::unordered_map<const TSValueTypeMetaData *,
-                               DiagnosticTableProjectionResult>;
-
         [[nodiscard]] std::shared_ptr<const DiagnosticTsTablePlan>
         diagnostic_ts_table_plan(const TSValueTypeMetaData *schema,
                                  std::size_t partition_depth = 0)
@@ -553,7 +557,7 @@ namespace hgraph
 
             return frame_from_values(*projection.table_converter, row_values);
         }
-
+#endif
         using TargetResolver = std::uint64_t (*)(void *, const TSOutputView &);
 
         void append_json_string(std::string &target, std::string_view value);
@@ -1030,6 +1034,7 @@ namespace hgraph
                             atomic.checked_as<TimeSeriesReference>(),
                             evaluation_time, depth + 1, source_path, recorder);
                     }
+#ifndef HGRAPH_NO_ARROW
                     else if (atomic.holds_alternative<Frame>())
                     {
                         std::ostringstream rendered;
@@ -1042,6 +1047,7 @@ namespace hgraph
                         rendered << atomic.checked_as<Series>();
                         append_json_string(target, rendered.str());
                     }
+#endif
                     else { target += to_json_string(atomic); }
                 },
                 [&](TupleView tuple) {
@@ -1190,8 +1196,8 @@ namespace hgraph
         void capture_value(GraphDiagnosticValue &target, ValueView value,
                            bool valid, DateTime last_modified,
                            DateTime evaluation_time,
-                           const TSValueTypeMetaData *ts_schema,
-                           DiagnosticTableProjectionCache &table_projections,
+                           [[maybe_unused]] const TSValueTypeMetaData *ts_schema,
+                           [[maybe_unused]] DiagnosticTableProjectionCache &table_projections,
                            TargetResolver resolver,
                            void *resolver_context)
         {
@@ -1207,11 +1213,13 @@ namespace hgraph
             static_cast<void>(fallback_on_exception(
                 false,
                 [&] {
+#ifndef HGRAPH_NO_ARROW
                     ValueView concrete = value.concrete();
                     if (concrete.valid() && concrete.holds_alternative<Frame>())
                     {
                         target.frame = concrete.checked_as<Frame>();
                     }
+#endif
                     std::optional<TargetRecorder> recorder;
                     if (resolver != nullptr)
                     {
@@ -1221,6 +1229,7 @@ namespace hgraph
                     target.json = diagnostic_json(
                         value, evaluation_time,
                         recorder.has_value() ? &*recorder : nullptr);
+#ifndef HGRAPH_NO_ARROW
                     if (!target.frame.has_value() && ts_schema != nullptr)
                     {
                         // JSON remains the universally available owned view.
@@ -1253,6 +1262,7 @@ namespace hgraph
                                 target.table_error = message;
                             }));
                     }
+#endif
                     return true;
                 },
                 [&](const char *message) {
@@ -1291,7 +1301,7 @@ namespace hgraph
             const TSInputView &input,
             const std::vector<std::string> &names,
             DateTime evaluation_time,
-            DiagnosticTableProjectionCache &table_projections,
+            [[maybe_unused]] DiagnosticTableProjectionCache &table_projections,
             TargetResolver resolver,
             void *resolver_context)
         {
@@ -1360,6 +1370,7 @@ namespace hgraph
             target.json.push_back('}');
             internal_json.push_back('}');
 
+#ifndef HGRAPH_NO_ARROW
             static_cast<void>(fallback_on_exception(
                 false,
                 [&] {
@@ -1413,6 +1424,7 @@ namespace hgraph
                 target.frame = {};
                 target.table_error = renamed.status().ToString();
             }
+#endif
             return true;
         }
 

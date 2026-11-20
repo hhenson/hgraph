@@ -1,3 +1,20 @@
+if(NOT HGRAPH_WITH_ARROW)
+    add_executable(hgraph_runtime_consumer runtime_consumer.cpp)
+    target_link_libraries(hgraph_runtime_consumer PRIVATE hgraph::wiring)
+    add_test(NAME hgraph.runtime_consumer COMMAND hgraph_runtime_consumer)
+    if(WIN32)
+        set_tests_properties(hgraph.runtime_consumer PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:hgraph_runtime>")
+    endif()
+    if(HGRAPH_BUILD_SHARED AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME hgraph.runtime_has_no_arrow COMMAND "${CMAKE_COMMAND}"
+            "-DREADELF=${CMAKE_READELF}" "-DRUNTIME=$<TARGET_FILE:hgraph_runtime>"
+            "-DWIRING=$<TARGET_FILE:hgraph_wiring>" "-DCONSUMER=$<TARGET_FILE:hgraph_runtime_consumer>"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/check_no_arrow.cmake")
+    endif()
+    return()
+endif()
+
 add_executable(hgraph_arrow_abi_check arrow_abi_check.cpp)
 target_link_libraries(hgraph_arrow_abi_check PRIVATE hgraph::core)
 add_test(NAME hgraph.arrow_abi COMMAND hgraph_arrow_abi_check)
@@ -245,6 +262,7 @@ hgraph_add_test_objects(hgraph_wiring_test_objects
     test_service_runtime.cpp
     test_service_wiring.cpp
     test_static_node.cpp
+    test_native_bundle.cpp
     test_runtime_spec_conformance.cpp
     test_wiring_contract.cpp
     test_type_arguments.cpp

@@ -96,6 +96,40 @@ struct SampleRetainedChild {
         return wire<ObserveSamplingTime>(w, selected, book, key);
     }
 };
+
+struct InvalidateMappedBook {
+    static void eval(In<"step", TS<Int>> step, Out<Book> out) {
+        switch (step.value()) {
+            case 0:
+                upsert(out, Str{"A"}, Int{1});
+                upsert(out, Str{"B"}, Int{2});
+                break;
+            case 1:
+                REQUIRE(out.base().begin_mutation(out.evaluation_time()).invalidate());
+                upsert(out, Str{"C"}, Int{3});
+                break;
+            case 2:
+                REQUIRE(out.base().begin_mutation(out.evaluation_time()).invalidate());
+                break;
+            case 3:
+                upsert(out, Str{"A"}, Int{4});
+                break;
+        }
+    }
+};
+
+struct AddTenToMappedValue {
+    static void eval(In<"value", TS<Int>> value, Out<TS<Int>> out) {
+        out.set(value.value() + Int{10});
+    }
+};
+
+struct MapInvalidatedBook {
+    static Port<Book> compose(Wiring &w, Port<TS<Int>> step) {
+        auto book = wire<InvalidateMappedBook>(w, step);
+        return wire<stdlib::map_>(w, fn<AddTenToMappedValue>(), book).as<Book>();
+    }
+};
 }
 
 TEST_CASE("map selection distinguishes absent keys and invalid children without designation ticks",
@@ -118,4 +152,14 @@ TEST_CASE("map key retarget samples a retained equal child without changing its 
     CHECK_OUTPUT(eval_node<SampleRetainedChild>(
         values<Value>(dict_delta<Str, TS<Int>>({{"X", 7}, {"Y", 7}})), values<Str>("X", "Y")),
         values<Bool>(true, true));
+}
+
+TEST_CASE("mapped children leave when the source is invalidated and rewritten in the same or a later step",
+          "[map][collection][invalidation]") {
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<MapInvalidatedBook>(values<Int>(0, 1, 2, 3)),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"A", 11}, {"B", 12}}),
+                               dict_delta<Str, TS<Int>>({{"C", 13}}, {"A", "B"}),
+                               dict_delta<Str, TS<Int>>({}, {"C"}),
+                               dict_delta<Str, TS<Int>>({{"A", 14}})));
 }
