@@ -53,8 +53,8 @@ struct ObserveDiagnostic {
         auto error = capture.field<"exception">();
         if (value.modified()) { events.push_back(std::to_string(value.value())); }
         if (error.modified()) {
-            const auto &trace = error.base().value().as_bundle().at("activation_back_trace").checked_as<Str>();
-            events.push_back(trace.contains("*x*: value=-3, delta=-3") ? "detailed" : "no values");
+            const auto trace = error.base().value().as_bundle().at("activation_back_trace");
+            events.push_back(trace.checked_as<Str>().contains("*x*: value=-3, delta=-3") ? "detailed" : "no values");
         }
     }
 };
