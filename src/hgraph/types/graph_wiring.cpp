@@ -2594,8 +2594,9 @@ WiringPortRef Wiring::add_node(std::type_index def, NodeBuilder builder,
     }
   }
 
-  builder.scalars(std::move(
-      scalars)); // record the scalar configuration on the build artifact
+  if (!builder.scalars().has_value()) {
+    builder.scalars(std::move(scalars));
+  }
   assign_checkpoint_identity(builder, inputs);
 
   WiringInstance &instance = impl_->instances.emplace_back();
@@ -2634,7 +2635,9 @@ WiringPortRef Wiring::add_unique_node(std::type_index def, NodeBuilder builder,
                                       Value scalars) {
   impl_->validate_node(builder);
   auto add = [&]() -> WiringPortRef {
-    builder.scalars(std::move(scalars));
+    if (!builder.scalars().has_value()) {
+      builder.scalars(std::move(scalars));
+    }
     assign_checkpoint_identity(builder, inputs);
 
     WiringInstance &instance = impl_->instances.emplace_back();

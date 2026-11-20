@@ -200,6 +200,13 @@ reusing the same storage and child-graph binding model").
 - **Interning.** Like ``nested_``: same ``G`` + equal inputs dedup; the child
   builder and its program-lifetime context are created on an intern miss.
 
+Pass ``ErrorCaptureOptions`` before the graph arguments to configure a typed
+call. With ``.canonical_errors = true``, the value form has fields ``value``
+(the child result) and ``error`` (``TS<CanonicalError>``). A sink produces
+``TS<CanonicalError>`` directly. Evaluation failures publish their original
+diagnostic. A later success retains the error without ticking it. Start and
+stop failures escape the capture.
+
 The erased C++ form accepts any ``WiredFn`` and resolves positional/keyword
 time-series arguments against that function before compiling the child:
 
