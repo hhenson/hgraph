@@ -40,6 +40,7 @@ namespace hgraph::manifest
             InstantRangeSet = 15,
             CivilDateRangeSet = 16,
             ZonedTime = 17,
+            Tenor = 18,
         };
 
         WireAtomic wire_atomic_for(const ValueTypeMetaData *meta)
@@ -57,6 +58,7 @@ namespace hgraph::manifest
                 return WireAtomic::CivilDateTime;
             }
             if (meta == scalar_descriptor<Period>::value_meta()) { return WireAtomic::Period; }
+            if (meta == scalar_descriptor<Tenor>::value_meta()) { return WireAtomic::Tenor; }
             if (meta == scalar_descriptor<ZoneId>::value_meta()) { return WireAtomic::ZoneId; }
             if (meta == scalar_descriptor<ZonedTime>::value_meta()) { return WireAtomic::ZonedTime; }
             if (meta == scalar_descriptor<ZonedDateTime>::value_meta())
@@ -505,6 +507,13 @@ namespace hgraph::manifest
                 const auto &period = value.checked_as<Period>();
                 writer.svarint(period.total_months());
                 writer.svarint(period.days());
+                return;
+            }
+            case WireAtomic::Tenor: {
+                const auto &tenor = value.checked_as<Tenor>();
+                writer.varint(tenor.is_business() ? 1 : 0);
+                if (tenor.is_business()) { writer.svarint(tenor.business()); }
+                else { writer.svarint(tenor.months()); writer.svarint(tenor.days()); }
                 return;
             }
             case WireAtomic::ZoneId: {

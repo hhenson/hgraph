@@ -226,9 +226,9 @@ TEST_CASE("temporal range graph operators preserve concrete schemas")
 
 namespace
 {
-    struct ZonedTimeIdentity
+    template <typename T> struct TemporalIdentity
     {
-        static void eval(In<"value", TS<ZonedTime>> value, Out<TS<ZonedTime>> out)
+        static void eval(In<"value", TS<T>> value, Out<TS<T>> out)
         {
             out.set(value.value());
         }
@@ -239,9 +239,17 @@ TEST_CASE("native zoned time wiring retains independent equal publications", "[t
 {
     const ZonedTime first{time_of_day(9, 30, 0, 123456), ZoneId{"US/Eastern"}};
     const ZonedTime other{first.time(), ZoneId{"America/New_York"}};
-    const auto retained = eval_node<ZonedTimeIdentity>(values<ZonedTime>(first, first, std::nullopt, other));
+    const auto retained = eval_node<TemporalIdentity<ZonedTime>>(values<ZonedTime>(first, first, std::nullopt, other));
     CHECK_OUTPUT(retained, values<ZonedTime>(first, first, std::nullopt, other));
-    const auto second = eval_node<ZonedTimeIdentity>(values<ZonedTime>(other));
+    const auto second = eval_node<TemporalIdentity<ZonedTime>>(values<ZonedTime>(other));
     CHECK_OUTPUT(second, values<ZonedTime>(other));
     CHECK_OUTPUT(retained, values<ZonedTime>(first, first, std::nullopt, other));
+}
+
+TEST_CASE("native tenor wiring publishes both zero forms separately", "[temporal][tenor]")
+{
+    const auto civil = Tenor::months_days(0, 0);
+    const auto business = Tenor::business_days(0);
+    const auto expected = values<Tenor>(civil, civil, std::nullopt, business, Tenor::months_days(-12, 7));
+    CHECK_OUTPUT(eval_node<TemporalIdentity<Tenor>>(expected), expected);
 }

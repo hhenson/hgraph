@@ -181,6 +181,11 @@ TEST_CASE("binary codec: named time zones use names rather than process handles"
     check_atom(ZonedDateTime{});
     const ZonedTime clock{time_of_day(9, 30, 0, 123456), zone};
     check_atom(clock);
+    check_atom(Tenor::months_days(std::numeric_limits<std::int64_t>::min(), std::numeric_limits<std::int64_t>::max()));
+    check_atom(Tenor::business_days(std::numeric_limits<std::int64_t>::min()));
+    CHECK(to_binary_string(Value{Tenor::months_days(-1, 1)}.view()) == std::string{"\0\1\2", 3});
+    CHECK(to_binary_string(Value{Tenor::business_days(0)}.view()) == std::string{"\1\0", 2});
+    CHECK_THROWS(from_binary_string(scalar_descriptor<Tenor>::value_meta(), std::string{"\2\0", 2}));
     check_atom(ZonedTime{});
     CHECK(to_binary_string(Value{clock}.view()).find("Europe/London") != std::string::npos);
     CHECK(to_binary_string(Value{clock}.view()) != to_binary_string(Value{ZonedTime{clock.time(), ZoneId{"UTC"}}}.view()));
