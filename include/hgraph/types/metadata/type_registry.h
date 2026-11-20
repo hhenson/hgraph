@@ -397,7 +397,7 @@ namespace hgraph
         const TSValueTypeMetaData *tss(const ValueTypeMetaData *element_type);
         /** Intern ``TSD`` (dict) with the given key value-schema and per-key TS-schema. */
         const TSValueTypeMetaData *tsd(const ValueTypeMetaData *key_type, const TSValueTypeMetaData *value_ts);
-        /** Intern ``TSL`` (list-of-TS); ``unbounded_tsl_size`` selects an unbounded list and zero is a fixed empty list. */
+        /** Intern ``TSL`` (list-of-TS); a positive size selects a fixed extent and ``unbounded_tsl_size`` selects a growing list. */
         const TSValueTypeMetaData *tsl(const TSValueTypeMetaData *element_ts,
                                        size_t fixed_size = unbounded_tsl_size);
         /** Intern a tick-count ``TSW`` (sliding window). */

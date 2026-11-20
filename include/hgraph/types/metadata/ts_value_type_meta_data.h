@@ -11,6 +11,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
 #include <string_view>
 
 namespace hgraph
@@ -19,6 +20,13 @@ namespace hgraph
 
     /** Sentinel used by TSL metadata for a list whose extent is not fixed. */
     inline constexpr std::size_t unbounded_tsl_size = static_cast<std::size_t>(-1);
+
+    inline void validate_tsl_size(std::size_t size)
+    {
+        if (size == 0) {
+            throw std::invalid_argument("A fixed TSL must have positive size. Use a growing TSL for an empty list");
+        }
+    }
 
     /**
      * The eight time-series kinds enumerated in the developer guide,
