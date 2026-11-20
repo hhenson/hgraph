@@ -7,6 +7,7 @@
 
 #include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/runtime.h>
@@ -31,14 +32,23 @@ namespace
         static void eval(In<"in", TS<AnyValue>> in, Out<TS<AnyValue>> out) { out.apply(in.base().value()); }
     };
 
-    template <typename Collection>
-    struct PublishEmptyDelta
+    struct PublishSetEdits
     {
-        static void eval(In<"publish", TS<Bool>> publish, Out<Collection> out)
+        static void eval(In<"step", TS<Int>> step, Out<TSS<Int>> out)
         {
-            if (publish.value()) {
-                out.base().data_view().begin_mutation(out.evaluation_time()).mark_empty_delta();
-            }
+            if (step.value() == 0) { out.add(7); }
+            else if (step.value() == 2) { out.remove(7); }
+            else { out.base().as_set().begin_mutation(out.evaluation_time()).touch(); }
+        }
+    };
+
+    struct PublishListEdits
+    {
+        static void eval(In<"step", TS<Int>> step, Out<TSL<TS<Int>>> out)
+        {
+            if (step.value() == 0) { out[0].set(7); }
+            else if (step.value() == 1) { out.resize(0); }
+            else { out.base().data_view().begin_mutation(out.evaluation_time()).mark_empty_delta(); }
         }
     };
 
@@ -240,33 +250,29 @@ TEST_CASE("testing: schema-free seeded envelopes retain canonical Any payloads a
 TEST_CASE("observed empty collection publications replay while raw sparse no-op edits stay silent") {
     using namespace hgraph;
     using namespace hgraph::testing;
-    auto check = []<typename Collection>(const Value &empty) {
+    auto check = []<typename Collection, typename Source>(const std::vector<std::optional<Value>> &expected) {
         GlobalContext context;
         auto state = context.state().view();
-        const auto published = eval_node<PublishEmptyDelta<Collection>>(std::vector<std::optional<Bool>>{true, false, true});
-        REQUIRE(published.size() == 3);
-        REQUIRE(published[0]);
-        CHECK_FALSE(published[1]);
-        REQUIRE(published[2]);
-        CHECK(published[2]->equals(empty));
-
+        CHECK_OUTPUT(eval_node<Source>(values<Int>(0, 1, 2, none, 3)), expected);
         state.set("events", Value{state.get("eval_node::out")});
-        const auto replayed = eval_node<ReplayCollection<Collection>>();
-        REQUIRE(replayed.size() == 3);
-        REQUIRE(replayed[0]);
-        CHECK_FALSE(replayed[1]);
-        REQUIRE(replayed[2]);
-        CHECK(replayed[2]->equals(empty));
+        CHECK_OUTPUT(eval_node<ReplayCollection<Collection>>(), expected);
 
-        // Exactly the same payload is a sparse edit when authored directly.
-        set_replay_deltas(state, "events", {empty, std::nullopt, empty});
+        // The same empty delta, authored as a raw sparse edit, stays quiet.
+        set_replay_deltas(state, "events", {expected.front(), std::nullopt, expected.back()});
         const auto edited = eval_node<ReplayCollection<Collection>>();
         REQUIRE(edited.size() == 1);
         REQUIRE(edited[0]);
-        CHECK(edited[0]->equals(empty));
+        CHECK(edited[0]->equals(*expected.front()));
     };
-    SECTION("set") { check.template operator()<TSS<Int>>(set_delta<Int>({}, {})); }
-    SECTION("growing list") { check.template operator()<TSL<TS<Int>>>(dynamic_list_delta<TS<Int>>({})); }
+    SECTION("set") {
+        const auto added = set_delta<Int>({7}, {}), removed = set_delta<Int>({}, {7}), empty = set_delta<Int>({}, {});
+        check.template operator()<TSS<Int>, PublishSetEdits>(values<Value>(added, empty, removed, none, empty));
+    }
+    SECTION("growing list") {
+        const auto added = dynamic_list_delta<TS<Int>>({{0, 7}}, {}, 1);
+        const auto removed = dynamic_list_delta<TS<Int>>({}, {0}, 0), empty = dynamic_list_delta<TS<Int>>({});
+        check.template operator()<TSL<TS<Int>>, PublishListEdits>(values<Value>(added, removed, empty, none, empty));
+    }
 }
 
 TEST_CASE("testing: native Any dense recording replays complete boxes without losing empty ticks") {

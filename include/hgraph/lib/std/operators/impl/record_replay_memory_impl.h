@@ -338,11 +338,19 @@ namespace hgraph::stdlib
             // An observed empty edit represents a publication. Raw sparse edits
             // use the ordinary apply_delta path and keep their no-op semantics.
             const auto edit = delta.as_bundle();
-            const bool empty_edit = out.schema()->kind == TSTypeKind::TSS
-                ? edit.at("added").as_indexed_view().size() == 0 && edit.at("removed").as_indexed_view().size() == 0
-                : out.as_list().empty() && !edit.at("size_modified").has_value() &&
-                  edit.at("modified").as_map().empty() && edit.at("removed").as_set().empty();
-            if (empty_edit) { out.data_view().begin_mutation(out.evaluation_time()).mark_empty_delta(); }
+            if (out.schema()->kind == TSTypeKind::TSS)
+            {
+                if (edit.at("added").as_indexed_view().size() == 0 && edit.at("removed").as_indexed_view().size() == 0)
+                {
+                    // Open the set's delta window before notifying readers of this tick.
+                    out.as_set().begin_mutation(out.evaluation_time()).touch();
+                }
+            }
+            else if (out.as_list().empty() && !edit.at("size_modified").has_value() &&
+                     edit.at("modified").as_map().empty() && edit.at("removed").as_set().empty())
+            {
+                out.data_view().begin_mutation(out.evaluation_time()).mark_empty_delta();
+            }
         }
 
         static void eval(Scalar<"key", Str> key, TypeArg<"tp", TsVar<"S">, AutoResolve>,
