@@ -64,9 +64,10 @@ namespace hgraph::testing
     /** An ``Any`` boxing a copy of ``inner``. */
     [[nodiscard]] inline Value make_any(const Value &inner) { return make_any(inner.view()); }
 
-    /** These collections can publish a whole value without changing membership or positions. */
+    /** Structural outputs can publish without a child or membership change. */
     [[nodiscard]] inline bool preserves_empty_collection_ticks(const TSValueTypeMetaData &schema) noexcept {
-        return schema.kind == TSTypeKind::TSS || schema.is_unbounded_tsl();
+        return schema.kind == TSTypeKind::TSS || schema.kind == TSTypeKind::TSD ||
+               schema.kind == TSTypeKind::TSL || schema.kind == TSTypeKind::TSB;
     }
 
     enum class DenseBufferLayout { Seeded, Typed, ObservedSeed };

@@ -1,5 +1,6 @@
 #include <hgraph/types/time_series/ts_delta.h>
 
+#include "detail/ts_input_seams.h"
 #include "../metadata/detail/window_change.h"
 #include "../../runtime/window_removals.h"
 
@@ -1885,7 +1886,8 @@ namespace hgraph
             mutation.touch();
         }
 
-        void apply_delta_tsd(const TSOutputView &out, const ValueView &delta)
+        template <auto ApplyChild>
+        void apply_tsd_children(const TSOutputView &out, const ValueView &delta)
         {
             const auto bundle = delta.as_bundle();
             auto       dict_out = out.as_dict();
@@ -1921,14 +1923,17 @@ namespace hgraph
             for (const auto &[key, child_delta] : modified)
             {
                 auto child = mutation.at(key);
-                apply_delta(TSOutputView{out.output(), child, out.evaluation_time()}, child_delta);
+                ApplyChild(TSOutputView{out.output(), child, out.evaluation_time()}, child_delta);
             }
             // Existing child updates notify the parent themselves. An empty
             // patch validates only the parent, without creating child ticks.
-            if (modified.size() == 0 && removed.size() == 0 && !out.valid()) { mutation.touch(); }
+            if (modified.size() == 0 && removed.size() == 0 && (ApplyChild == &apply_observed_delta || !out.valid())) {
+                mutation.touch();
+            }
         }
 
-        void apply_delta_tsl(const TSOutputView &out, const ValueView &delta)
+        template <auto ApplyChild>
+        void apply_tsl_children(const TSOutputView &out, const ValueView &delta)
         {
             auto            list = out.as_list();
             const ListPatch patch{delta, list};
@@ -1961,13 +1966,17 @@ namespace hgraph
             }
             if (patch.modified) {
                 for (auto [key, value] : *patch.modified)
-                    apply_delta(list.at(static_cast<std::size_t>(key.checked_as<Int>())), value);
+                    ApplyChild(list.at(static_cast<std::size_t>(key.checked_as<Int>())), value);
             }
-            if (!patch.has_updates() && !patch.has_removals() && !out.valid())
-                out.data_view().begin_mutation(out.evaluation_time()).mark_empty_delta();
+            if (!patch.has_updates() && !patch.has_removals()) {
+                if (ApplyChild == &apply_observed_delta || !out.valid()) {
+                    out.data_view().begin_mutation(out.evaluation_time()).mark_empty_delta();
+                }
+            }
         }
 
-        void apply_delta_tsb(const TSOutputView &out, const ValueView &delta)
+        template <auto ApplyChild>
+        void apply_tsb_children(const TSOutputView &out, const ValueView &delta)
         {
             auto       bundle_out = out.as_bundle();
             const auto bundle     = delta.as_bundle();
@@ -1976,13 +1985,16 @@ namespace hgraph
             {
                 if (!bundle.element_valid(index)) { continue; }
                 has_entry = true;
-                apply_delta(bundle_out.at(index), bundle.at(index));
+                ApplyChild(bundle_out.at(index), bundle.at(index));
             }
-            if (!has_entry && !out.valid())
+            if (!has_entry && (ApplyChild == &apply_observed_delta || !out.valid()))
             {
                 out.data_view().begin_mutation(out.evaluation_time()).mark_empty_delta();
             }
         }
+        void apply_delta_tsd(const TSOutputView &out, const ValueView &delta) { apply_tsd_children<&apply_delta>(out, delta); }
+        void apply_delta_tsl(const TSOutputView &out, const ValueView &delta) { apply_tsl_children<&apply_delta>(out, delta); }
+        void apply_delta_tsb(const TSOutputView &out, const ValueView &delta) { apply_tsb_children<&apply_delta>(out, delta); }
     }  // namespace ts_data_detail
 
     Value capture_delta(const TSInputView &in)
@@ -2108,6 +2120,32 @@ namespace hgraph
         const auto &ops = data.ops();
         if (!ops.delta_has_effect_impl(out, delta)) { return; }
         ops.apply_delta_impl(out, delta);
+    }
+
+    void apply_observed_delta(const TSOutputView &out, const ValueView &delta)
+    {
+        const auto &data = out.data_view();
+        if (!data.valid() || !delta.has_value()) { apply_delta(out, delta); return; }
+        const auto &ops = data.ops();
+        if (ops.is_target_link) {
+            apply_observed_delta(ts_input_seams::target_link_delta_target(ops.context, out), delta);
+            return;
+        }
+        // A structural capture names precisely the children that published. Recurse
+        // only through the corresponding writable strategies; other roles retain
+        // their registered behavior, including their validation and write errors.
+        const auto apply = ops.apply_delta_impl;
+        if (apply == &ts_data_detail::apply_delta_tss) {
+            apply(out, delta);
+        } else if (apply == &ts_data_detail::apply_delta_tsd) {
+            ts_data_detail::apply_tsd_children<&apply_observed_delta>(out, delta);
+        } else if (apply == &ts_data_detail::apply_delta_tsl) {
+            ts_data_detail::apply_tsl_children<&apply_observed_delta>(out, delta);
+        } else if (apply == &ts_data_detail::apply_delta_tsb) {
+            ts_data_detail::apply_tsb_children<&apply_observed_delta>(out, delta);
+        } else if (ops.delta_has_effect_impl(out, delta)) {
+            apply(out, delta);
+        }
     }
 
     bool current_value_schema_compatible(const TSValueTypeMetaData &schema,

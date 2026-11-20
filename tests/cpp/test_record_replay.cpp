@@ -52,6 +52,46 @@ namespace
         }
     };
 
+    using ReplayLeaves = TSB<"ReplayLeaves", Field<"members", TSS<Int>>,
+                             Field<"prices", TSL<TS<Int>>>, Field<"stamp", TS<Int>>>;
+    using ReplayPair = TSL<ReplayLeaves, 2>;
+    using ReplayRows = TSL<ReplayPair>;
+    using ReplayBook = TSD<Str, ReplayRows>;
+
+    struct PublishNestedCollectionEdits
+    {
+        static void eval(In<"step", TS<Int>> step, Out<ReplayBook> out)
+        {
+            if (step.value() == 5) { out.begin_mutation(out.evaluation_time()).touch(); return; }
+            auto rows = out[Str{"book"}];
+            if (step.value() == 0) { rows.resize(1); }
+            auto leaf = rows[0][0];
+            auto members = leaf.field<"members">();
+            auto prices = leaf.field<"prices">();
+            switch (step.value()) {
+                case 0:
+                    members.add(7);
+                    prices[0].set(11);
+                    leaf.field<"stamp">().set(1);
+                    break;
+                case 1:
+                    members.remove(7);
+                    prices.resize(0);
+                    break;
+                case 2: members.begin_mutation(out.evaluation_time()).touch(); break;
+                case 3:
+                    members.begin_mutation(out.evaluation_time()).touch();
+                    prices.base().data_view().begin_mutation(out.evaluation_time()).mark_empty_delta();
+                    leaf.field<"stamp">().set(2);
+                    break;
+                case 4: leaf.field<"stamp">().set(3); break;
+                case 6: rows.base().data_view().begin_mutation(out.evaluation_time()).mark_empty_delta(); break;
+                case 7: rows[0].base().data_view().begin_mutation(out.evaluation_time()).mark_empty_delta(); break;
+                case 8: leaf.base().data_view().begin_mutation(out.evaluation_time()).mark_empty_delta(); break;
+            }
+        }
+    };
+
     template <typename Collection>
     struct ReplayCollection
     {
@@ -280,6 +320,46 @@ TEST_CASE("observed empty collection publications replay while raw sparse no-op 
         const auto removed = dynamic_list_delta<TS<Int>>({}, {0}, 0), empty = dynamic_list_delta<TS<Int>>({});
         check.template operator()<TSL<TS<Int>>, PublishListEdits>(values<Value>(added, removed, empty, none, empty));
     }
+}
+
+TEST_CASE("nested recorded children retain their own publications when a sibling also changes")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    const auto row = [](const Value &leaf, std::optional<std::size_t> size = std::nullopt) {
+        const auto pair = list_delta<ReplayLeaves>({{0, leaf}});
+        return dict_delta<Str, ReplayRows>({{"book", dynamic_list_delta<ReplayPair>({{0, pair}}, {}, size)}});
+    };
+    const auto initial = row(tsb_delta<ReplayLeaves>(set_delta<Int>({7}, {}),
+                                                     dynamic_list_delta<TS<Int>>({{0, 11}}, {}, 1), 1), 1);
+    const auto cleared = row(tsb_delta<ReplayLeaves>(set_delta<Int>({}, {7}),
+                                                     dynamic_list_delta<TS<Int>>({}, {0}, 0), none));
+    const auto no_membership_change = [] { return set_delta<Int>({}, {}); };
+    const auto set_tick = row(tsb_delta<ReplayLeaves>(no_membership_change(), none, none));
+    const auto mixed = row(tsb_delta<ReplayLeaves>(no_membership_change(), dynamic_list_delta<TS<Int>>({}), 2));
+    const auto stamp_only = [&](Int stamp) { return row(tsb_delta<ReplayLeaves>(none, none, stamp)); };
+    // A parent may publish by itself at any level. Its held children stay quiet.
+    const auto book_only = dict_delta<Str, ReplayRows>({});
+    const auto rows_only = dict_delta<Str, ReplayRows>({{"book", dynamic_list_delta<ReplayPair>({})}});
+    const auto pair_only = dict_delta<Str, ReplayRows>({
+        {"book", dynamic_list_delta<ReplayPair>({{0, list_delta<ReplayLeaves>({})}})}});
+    const auto leaf_only = row(tsb_delta<ReplayLeaves>(none, none, none));
+    const auto recorded = values<Value>(initial, cleared, set_tick, none, mixed, book_only, rows_only,
+                                        pair_only, leaf_only, stamp_only(3));
+
+    GlobalContext context;
+    auto state = context.state().view();
+    CHECK_OUTPUT(eval_node<PublishNestedCollectionEdits>(values<Int>(0, 1, 2, none, 3, 5, 6, 7, 8, 4)), recorded);
+    state.set("events", Value{state.get("eval_node::out")});
+    CHECK_OUTPUT(eval_node<ReplayCollection<ReplayBook>>(), recorded);
+
+    set_replay_deltas(state, "events", recorded, true);
+    CHECK_OUTPUT(eval_node<ReplayCollection<ReplayBook>>(), recorded);
+    // With no recording provenance the identical empty child edits are quiet,
+    // including when their sibling still publishes.
+    set_replay_deltas(state, "events", recorded);
+    CHECK_OUTPUT(eval_node<ReplayCollection<ReplayBook>>(),
+                 values<Value>(initial, cleared, none, none, stamp_only(2), none, none, none, none, stamp_only(3)));
 }
 
 TEST_CASE("testing: native Any dense recording replays complete boxes without losing empty ticks") {
