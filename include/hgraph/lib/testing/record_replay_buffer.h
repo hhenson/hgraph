@@ -64,6 +64,11 @@ namespace hgraph::testing
     /** An ``Any`` boxing a copy of ``inner``. */
     [[nodiscard]] inline Value make_any(const Value &inner) { return make_any(inner.view()); }
 
+    /** These collections can publish a whole value without changing membership or positions. */
+    [[nodiscard]] inline bool preserves_empty_collection_ticks(const TSValueTypeMetaData &schema) noexcept {
+        return schema.kind == TSTypeKind::TSS || schema.is_unbounded_tsl();
+    }
+
     enum class DenseBufferLayout { Seeded, Typed };
 
     // Private representation identity preserves the format through owning

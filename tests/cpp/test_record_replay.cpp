@@ -31,6 +31,26 @@ namespace
         static void eval(In<"in", TS<AnyValue>> in, Out<TS<AnyValue>> out) { out.apply(in.base().value()); }
     };
 
+    template <typename Collection>
+    struct PublishEmptyDelta
+    {
+        static void eval(In<"publish", TS<Bool>> publish, Out<Collection> out)
+        {
+            if (publish.value()) {
+                out.base().data_view().begin_mutation(out.evaluation_time()).mark_empty_delta();
+            }
+        }
+    };
+
+    template <typename Collection>
+    struct ReplayCollection
+    {
+        static Port<Collection> compose(Wiring &w)
+        {
+            return wire<stdlib::replay_impl, Collection>(w, Str{"events"});
+        }
+    };
+
     struct ReplayAnyRecordGraph
     {
         static void compose(Wiring &w) {
@@ -215,6 +235,38 @@ TEST_CASE("testing: schema-free seeded envelopes retain canonical Any payloads a
     CHECK_FALSE(output[2]);
     REQUIRE(output[3]);
     CHECK_FALSE(output[3]->as_any().has_value());
+}
+
+TEST_CASE("observed empty collection publications replay while raw sparse no-op edits stay silent") {
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    auto check = []<typename Collection>(const Value &empty) {
+        GlobalContext context;
+        auto state = context.state().view();
+        const auto published = eval_node<PublishEmptyDelta<Collection>>(std::vector<std::optional<Bool>>{true, false, true});
+        REQUIRE(published.size() == 3);
+        REQUIRE(published[0]);
+        CHECK_FALSE(published[1]);
+        REQUIRE(published[2]);
+        CHECK(published[2]->equals(empty));
+
+        state.set("events", Value{state.get("eval_node::out")});
+        const auto replayed = eval_node<ReplayCollection<Collection>>();
+        REQUIRE(replayed.size() == 3);
+        REQUIRE(replayed[0]);
+        CHECK_FALSE(replayed[1]);
+        REQUIRE(replayed[2]);
+        CHECK(replayed[2]->equals(empty));
+
+        // Exactly the same payload is a sparse edit when authored directly.
+        set_replay_deltas(state, "events", {empty, std::nullopt, empty});
+        const auto edited = eval_node<ReplayCollection<Collection>>();
+        REQUIRE(edited.size() == 1);
+        REQUIRE(edited[0]);
+        CHECK(edited[0]->equals(empty));
+    };
+    SECTION("set") { check.template operator()<TSS<Int>>(set_delta<Int>({}, {})); }
+    SECTION("growing list") { check.template operator()<TSL<TS<Int>>>(dynamic_list_delta<TS<Int>>({})); }
 }
 
 TEST_CASE("testing: native Any dense recording replays complete boxes without losing empty ticks") {
