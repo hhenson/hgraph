@@ -180,8 +180,10 @@ namespace hgraph::stdlib
         types.time_type      = standard_types_detail::register_scalar_aliases<Time>(registry, {"time"});
         types.str_type       = standard_types_detail::register_scalar_aliases<Str>(registry, {"str", "string"});
         types.bytes_type     = standard_types_detail::register_scalar_aliases<Bytes>(registry, {"bytes"});
+#ifndef HGRAPH_NO_ARROW
         types.frame_type     = standard_types_detail::register_scalar_aliases<Frame>(registry, {"frame"});
         types.series_type    = standard_types_detail::register_scalar_aliases<Series>(registry, {"series"});
+#endif
         types.period_type = standard_types_detail::register_scalar_aliases<Period>(
             registry, {"period"});
         types.civil_datetime_type =
@@ -285,6 +287,7 @@ namespace hgraph::stdlib
             {"nonexistent_time_policy"}, unused_ts, unused_tss);
         standard_types_detail::register_ts_aliases(
             registry, types.boundary_type, {"boundary"}, unused_ts, unused_tss);
+#ifndef HGRAPH_NO_ARROW
         {
             const TSValueTypeMetaData *unused_frame_tss = nullptr;
             standard_types_detail::register_ts_aliases(registry, types.frame_type, {"frame"}, types.ts_frame,
@@ -295,6 +298,7 @@ namespace hgraph::stdlib
             standard_types_detail::register_ts_aliases(registry, types.series_type, {"series"}, types.ts_series,
                                                        unused_series_tss);
         }
+#endif
 
         standard_types_detail::register_ts_aliases(registry, types.int8_type, {"int8"}, unused_ts, unused_tss);
         standard_types_detail::register_ts_aliases(registry, types.int16_type, {"int16"}, unused_ts, unused_tss);

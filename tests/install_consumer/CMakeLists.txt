@@ -3,6 +3,13 @@ cmake_minimum_required(VERSION 3.25)
 project(hgraph_install_consumer LANGUAGES CXX)
 
 find_package(hgraph CONFIG REQUIRED)
+if(DEFINED hgraph_WITH_ARROW AND NOT hgraph_WITH_ARROW)
+    add_executable(hgraph_runtime_consumer ../cpp/runtime_consumer.cpp)
+    target_link_libraries(hgraph_runtime_consumer PRIVATE hgraph::wiring)
+    enable_testing()
+    add_test(NAME hgraph.install_consumer.runtime COMMAND hgraph_runtime_consumer)
+    return()
+endif()
 
 add_executable(hgraph_install_consumer main.cpp fabric_extension_probe.cpp spawn_probe.cpp)
 target_link_libraries(hgraph_install_consumer PRIVATE hgraph::core)

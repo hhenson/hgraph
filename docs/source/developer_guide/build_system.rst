@@ -30,8 +30,15 @@ Third-Party Dependencies
 ------------------------
 
 Arrow is the native table, series, and numerical-reduction substrate. The
-runtime links Arrow, Arrow Compute, and Arrow Acero; wheel builds resolve those
-libraries from PyArrow, while standalone C++ builds use their CMake packages.
+default build uses Arrow, Arrow Compute and Arrow Acero. Wheels resolve these
+libraries from PyArrow. Standalone C++ builds use their CMake packages.
+
+Configure with ``-DHGRAPH_WITH_ARROW=OFF`` for a native runtime and wiring SDK
+that builds and runs without Arrow. Link to ``hgraph::wiring`` for graph
+construction or ``hgraph::runtime`` for execution. This configuration omits
+Frame, Series, table codecs, the standard library, Python and the bundled
+extensions. Graph diagnostics retain their JSON representation. Binary blocks
+use uncompressed storage and report an error when reading compressed input.
 
 Starting with hgraph 0.8.39, Python wheels require PyArrow 26
 (``pyarrow>=26,<27``). Core and all extension wheels are built against the same

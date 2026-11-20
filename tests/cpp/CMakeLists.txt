@@ -1,3 +1,16 @@
+if(NOT HGRAPH_WITH_ARROW)
+    add_executable(hgraph_runtime_consumer runtime_consumer.cpp)
+    target_link_libraries(hgraph_runtime_consumer PRIVATE hgraph::wiring)
+    add_test(NAME hgraph.runtime_consumer COMMAND hgraph_runtime_consumer)
+    if(HGRAPH_BUILD_SHARED AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME hgraph.runtime_has_no_arrow COMMAND "${CMAKE_COMMAND}"
+            "-DREADELF=${CMAKE_READELF}" "-DRUNTIME=$<TARGET_FILE:hgraph_runtime>"
+            "-DWIRING=$<TARGET_FILE:hgraph_wiring>" "-DCONSUMER=$<TARGET_FILE:hgraph_runtime_consumer>"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/check_no_arrow.cmake")
+    endif()
+    return()
+endif()
+
 add_executable(hgraph_arrow_abi_check arrow_abi_check.cpp)
 target_link_libraries(hgraph_arrow_abi_check PRIVATE hgraph::core)
 add_test(NAME hgraph.arrow_abi COMMAND hgraph_arrow_abi_check)
