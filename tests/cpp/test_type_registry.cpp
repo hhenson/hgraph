@@ -1964,10 +1964,7 @@ TEST_CASE("TypeRegistry::ts / tss / tsd / tsl / tsw intern correctly") {
   REQUIRE(tsl_dynamic->fixed_size() == unbounded_tsl_size);
   REQUIRE(tsl_dynamic->is_unbounded_tsl());
 
-  const auto *tsl_empty = registry.tsl(ts_int, 0);
-  REQUIRE(tsl_empty != tsl_dynamic);
-  REQUIRE(tsl_empty->fixed_size() == 0);
-  REQUIRE_FALSE(tsl_empty->is_unbounded_tsl());
+  CHECK_THROWS_AS(registry.tsl(ts_int, 0), std::invalid_argument);
 
   const auto *tsw_tick = registry.tsw(int_meta, 10, 5);
   REQUIRE(tsw_tick->kind == TSTypeKind::TSW);

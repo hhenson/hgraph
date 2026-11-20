@@ -80,7 +80,7 @@ namespace hgraph
 
         /** Typed read; throws when absent or the type does not match. */
         template <typename T>
-        [[nodiscard]] const T &get_as(std::string_view key) const
+        [[nodiscard]] decltype(auto) get_as(std::string_view key) const
         {
             return get(key).template checked_as<T>();
         }

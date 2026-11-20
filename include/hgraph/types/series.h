@@ -47,6 +47,14 @@ namespace hgraph
     /** Element count (0 for an empty series) without exposing Arrow headers. */
     [[nodiscard]] std::int64_t series_length(const Series &value) noexcept;
 
+#ifdef HGRAPH_NO_ARROW
+    template <>
+    inline const ValueTypeMetaData *TypeRegistry::register_scalar<Series>(std::string_view, ValueTypeFlags)
+    {
+        throw std::logic_error("Series requires HGRAPH_WITH_ARROW=ON");
+    }
+#endif
+
     namespace static_schema_detail
     {
         template <>

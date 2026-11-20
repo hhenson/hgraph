@@ -189,7 +189,8 @@ namespace hgraph
                 throw std::invalid_argument("lifted function argument count does not match the kernel arity");
             }
             R result = invoke<F>(args[I].template checked_as<tuple_arg_t<tuple, I>>()...);
-            return Value{output_binding, &result};
+            if constexpr (NativeBundleValue<R>) { return Value{output_binding, Value{result}.view()}; }
+            else { return Value{output_binding, &result}; }
         }
 
         template <typename F>
@@ -217,6 +218,10 @@ namespace hgraph
                 throw std::invalid_argument("lifted function argument count does not match the kernel arity");
             }
             R result = invoke<F>(args[I].template checked_as<tuple_arg_t<tuple, I>>()...);
+            if constexpr (NativeBundleValue<R>) {
+                static_cast<void>(destination.copy_value_from(Value{result}.view()));
+                return;
+            }
             // Typed in-place tier (the ``Out<TS<T>>::set`` middle path): a
             // pure-native atomic slot whose realized ops match R assigns and
             // commits via mark_modified; representation variants fall
@@ -255,6 +260,10 @@ namespace hgraph
             // The cell is planned from the kernel's own result schema (RFC
             // 0047), so a mismatch is a caller error, not a representation
             // variant to fall back from.
+            if constexpr (NativeBundleValue<R>) {
+                destination.set(invoke<F>(args[I].template checked_as<tuple_arg_t<tuple, I>>()...));
+                return;
+            }
             R *slot = destination.template try_mutable_as<R>();
             if (slot == nullptr)
             {
@@ -461,6 +470,11 @@ namespace hgraph
             using R     = result_t<F>;
             R result    = invoke<F>(read_lifted_arg<tuple_arg_t<tuple, I>>(children[I])...);
 
+            if constexpr (NativeBundleValue<R>) {
+                Out<TS<R>> output{view.output(evaluation_time), evaluation_time};
+                output.set(std::move(result));
+                return true;
+            }
             // Prepared output route (RFC 0008 stage 6, the lifted twin of
             // ``Out<TS<T>>::set``): the output's native slot and tracking
             // were resolved at start, so a matching kernel result stores and

@@ -1,0 +1,6 @@
+foreach(binary IN ITEMS "${RUNTIME}" "${WIRING}" "${CONSUMER}")
+    execute_process(COMMAND "${READELF}" -d "${binary}" OUTPUT_VARIABLE dynamic COMMAND_ERROR_IS_FATAL ANY)
+    if(dynamic MATCHES "NEEDED[^\n]*libarrow")
+        message(FATAL_ERROR "Arrow dependency in ${binary}: ${dynamic}")
+    endif()
+endforeach()

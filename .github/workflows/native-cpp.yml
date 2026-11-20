@@ -117,6 +117,15 @@ jobs:
 
           with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path_file:
               path_file.write(str(Path(pyarrow.__file__).resolve().parent) + "\n")
+      - name: Build and test the native runtime without Arrow
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S . -B build-no-arrow -GNinja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
+            -DHGRAPH_WITH_ARROW=OFF -DHGRAPH_BUILD_SHARED=ON -DHGRAPH_FETCH_SIMDJSON=ON \
+            -DCMAKE_DISABLE_FIND_PACKAGE_Arrow=ON -DCMAKE_DISABLE_FIND_PACKAGE_ArrowCompute=ON \
+            -DCMAKE_DISABLE_FIND_PACKAGE_ArrowAcero=ON
+          cmake --build build-no-arrow --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_BUILD_PARALLELISM || matrix.parallel }}
+          ctest --test-dir build-no-arrow --output-on-failure
       - name: Configure native C++ tests
         run: cmake -S . -B build-native -GNinja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF -DHGRAPH_ENABLE_PYTHON_USER_NODES=OFF -DHGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS=OFF -DHGRAPH_USE_PYARROW_ARROW=ON -DHGRAPH_FETCH_SIMDJSON=ON -DHGRAPH_FETCH_DATE=ON -DHGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS=ON -DHGRAPH_WARNINGS_AS_ERRORS=ON -DHGRAPH_BUILD_KAFKA_EXTENSION=ON -DHGRAPH_KAFKA_FORCE_FETCH_LIBRDKAFKA=ON -DHGRAPH_BUILD_ANALYTICS_EXTENSION=ON -DHGRAPH_BUILD_WEB_EXTENSION=ON
           -DHGRAPH_BUILD_PERSISTENCE_EXTENSION=ON
