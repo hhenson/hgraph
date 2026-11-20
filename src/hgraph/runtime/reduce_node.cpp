@@ -1109,7 +1109,12 @@ namespace hgraph
 
         [[nodiscard]] bool list_structure_modified(const TSInputView &input, DateTime)
         {
-            return input.modified();
+            if (input.modified()) { return true; }
+            // Clearing the last valid position leaves the list unmodified, but
+            // its positional removals still retire the corresponding leaves.
+            const auto list = input.as_list();
+            const auto removed = list.removed_positions();
+            return removed.begin() != removed.end();
         }
 
         void append_modified_dict_leaves(const ReduceNodeStorage &storage, TSInputView &input,
