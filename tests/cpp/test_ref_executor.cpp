@@ -6,6 +6,7 @@
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/utils/counted_mutex.h>
 
 #include <array>
@@ -637,4 +638,186 @@ TEST_CASE("REF executor: nested structural sources adapt to fixed REF children")
     CHECK_OUTPUT(eval_node<NestedStructuralRefGraph>(values<Int>(1, 10), values<Int>(2, 20),
                                                       values<Int>(3, 30), values<Int>(4, 40)),
                  values<Bool>(true, none));
+}
+
+namespace
+{
+    using IntRef = REF<TS<Int>>;
+    using NumberPair = TSL<TS<Int>, 2>;
+    using PositionRefs = TSL<IntRef, 2>;
+
+    template<typename Input>
+    Str read_selected_value(const Input &value)
+    {
+        if (value.valid()) { return std::to_string(value.value()); }
+        CHECK_FALSE(value.modified());
+        CHECK(value.last_modified_time() == MIN_DT);
+        return "invalid";
+    }
+
+    struct ReadSelectedValue
+    {
+        static void eval(In<"value", TS<Int>, InputValidity::Unchecked> value, Out<TS<Str>> out)
+        {
+            out.set(read_selected_value(value));
+        }
+    };
+
+    struct ProbeSelectedValue
+    {
+        static void eval(In<"probe", SIGNAL>, In<"value", TS<Int>, InputActivity::Passive, InputValidity::Unchecked> value,
+                         Out<TS<Str>> out)
+        {
+            out.set(read_selected_value(value));
+        }
+    };
+
+    struct SelectReference
+    {
+        static void eval(In<"command", TS<Str>> command,
+                         In<"a", IntRef, InputActivity::Passive, InputValidity::Unchecked> a,
+                         In<"b", IntRef, InputActivity::Passive, InputValidity::Unchecked> b,
+                         Out<IntRef> out)
+        {
+            const auto &action = command.value();
+            if (action == "clear") { static_cast<void>(out.begin_mutation(out.evaluation_time()).invalidate()); }
+            else if (action == "empty") { out.set(TimeSeriesReference{}); }
+            else if (action == "write both") { out.set(a.value()); out.set(b.value()); }
+            else { out.set(action == "a" ? a.value() : b.value()); }
+        }
+    };
+
+    struct FollowSelectedValue
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Str>> command, Port<TS<Int>> a, Port<TS<Int>> b)
+        {
+            return wire<ReadSelectedValue>(w, wire<SelectReference>(w, command, a, b));
+        }
+    };
+
+    struct ProbePassiveRoute
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Str>> command, Port<TS<Int>> a, Port<TS<Int>> b,
+                                     Port<TS<Bool>> probe)
+        {
+            return wire<ProbeSelectedValue>(w, probe, wire<SelectReference>(w, command, a, b));
+        }
+    };
+
+    struct MakeNumberPair
+    {
+        static void eval(In<"value", TS<Int>> value, Out<NumberPair> out)
+        {
+            out[0].set(value.value());
+            out[1].set(-value.value());
+        }
+    };
+
+    struct SelectNumberPair
+    {
+        static void eval(In<"right", TS<Bool>> right,
+                         In<"a", REF<NumberPair>, InputActivity::Passive, InputValidity::Unchecked> a,
+                         In<"b", REF<NumberPair>, InputActivity::Passive, InputValidity::Unchecked> b,
+                         Out<REF<NumberPair>> out)
+        {
+            out.set(right.value() ? b.value() : a.value());
+        }
+    };
+
+    Port<REF<NumberPair>> selected_pair(Wiring &w, Port<TS<Bool>> right, Port<TS<Int>> a, Port<TS<Int>> b)
+    {
+        return wire<SelectNumberPair>(w, right, wire<MakeNumberPair>(w, a), wire<MakeNumberPair>(w, b));
+    }
+
+    struct SavePosition
+    {
+        static void eval(In<"index", TS<Int>> index,
+                         In<"items", PositionRefs, InputActivity::Passive, InputValidity::Unchecked> items,
+                         Out<IntRef> out)
+        {
+            out.set(items[index.value()].value());
+        }
+    };
+
+    struct FollowSavedPosition
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> index, Port<TS<Bool>> right,
+                                     Port<TS<Int>> a, Port<TS<Int>> b)
+        {
+            return wire<ReadSelectedValue>(w, wire<SavePosition>(w, index, selected_pair(w, right, a, b)));
+        }
+    };
+
+    struct CountDesignations
+    {
+        static void eval(In<"position", IntRef>, State<Int> count, Out<TS<Int>> out)
+        {
+            out.set(++count.modify());
+        }
+    };
+
+    struct CountFirstPosition
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<NumberPair> items)
+        {
+            return wire<CountDesignations>(w, tsl_element(items, 0));
+        }
+    };
+
+    template<bool ThroughParameter>
+    struct CountPositionChanges
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> right, Port<TS<Int>> a, Port<TS<Int>> b)
+        {
+            auto items = selected_pair(w, right, a, b);
+            if constexpr (ThroughParameter) { return wire<CountFirstPosition>(w, items); }
+            else { return wire<CountDesignations>(w, wire<stdlib::getitem_>(w, items, Int{0})); }
+        }
+    };
+}
+
+TEST_CASE("REF rebinding: losing a valid route wakes once and detaches its old value")
+{
+    for (const Str withdrawal : {"empty", "clear", "b"}) {
+        CAPTURE(withdrawal);
+        CHECK_OUTPUT(eval_node<FollowSelectedValue>(values<Str>("a", withdrawal, withdrawal, none, "a"),
+                                                   values<Int>(7, none, none, 8), values<Int>()),
+                     values<Str>("7", "invalid", none, none, "8"));
+    }
+}
+
+TEST_CASE("REF rebinding: two writes select the final route before a value reader evaluates")
+{
+    CHECK_OUTPUT(eval_node<FollowSelectedValue>(values<Str>("write both"), values<Int>(1, 2, none),
+                                               values<Int>(10, none, 11)),
+                 values<Str>("10", none, "11"));
+}
+
+TEST_CASE("REF rebinding: a passive follower reports withdrawal on an independent wake")
+{
+    for (const Str withdrawal : {"empty", "clear", "b"}) {
+        CAPTURE(withdrawal);
+        CHECK_OUTPUT(eval_node<ProbePassiveRoute>(values<Str>("a", withdrawal, withdrawal, "a", none, withdrawal, none),
+                                                 values<Int>(7, none, 8, none, 9), values<Int>(),
+                                                 values<Bool>(true, true, none, none, true, none, true)),
+                     values<Str>("7", "invalid", none, none, "9", none, "invalid"));
+    }
+}
+
+TEST_CASE("REF rebinding: a saved position follows the fixed list while its selector stays quiet")
+{
+    CHECK_OUTPUT(eval_node<FollowSavedPosition>(values<Int>(1), values<Bool>(true, none, false),
+                                               values<Int>(3, none, none, none, 4), values<Int>(10, none, none, 11)),
+                 values<Str>("-10", none, "-3", none, "-4"));
+}
+
+TEST_CASE("REF rebinding: a position reader observes designation changes through a value graph parameter")
+{
+    stdlib::register_standard_operators();
+    const auto right = values<Bool>(true, none, false, false);
+    const auto a = values<Int>(3, 4, none, 5);
+    const auto b = values<Int>(10, 11);
+    const auto expected = values<Int>(1, none, 2, none);
+    CHECK_OUTPUT(eval_node<CountPositionChanges<false>>(right, a, b), expected);
+    CHECK_OUTPUT(eval_node<CountPositionChanges<true>>(right, a, b), expected);
 }

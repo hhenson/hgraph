@@ -80,6 +80,24 @@ template<typename S> struct ObserveAggregate {
                 (a.modified() ? 40000 : 0) + (b.modified() ? 80000 : 0));
     }
 };
+using ReferenceList = TSL<TS<Int>, 2>;
+struct RememberListPosition {
+    static void eval(In<"once", TS<Int>> once,
+                     In<"items", TSL<REF<TS<Int>>, 2>, InputActivity::Passive, InputValidity::Unchecked> items,
+                     Out<REF<TS<Int>>> out) {
+        if (once.modified()) { out.set(items[0].value()); }
+    }
+};
+struct SavedPositionBody {
+    static Port<TS<Int>> compose(Wiring &w, NamedPort<"pick", TS<Int>> pick,
+                                 NamedPort<"left", TS<Int>> left, NamedPort<"right", TS<Int>> right) {
+        auto a = stdlib::to_tsl<ReferenceList>(w, left, right);
+        auto b = stdlib::to_tsl<ReferenceList>(w, right, left);
+        auto selected = wire<SelectAggregate<ReferenceList>>(w, pick, a, b);
+        auto once = wire<stdlib::const_>(w, Int{1}).as<TS<Int>>();
+        return wire<CopyValue>(w, wire<RememberListPosition>(w, once, selected));
+    }
+};
 template<bool Bundle> struct AggregateBody {
     using S = std::conditional_t<Bundle, ReferencePair, TSL<TS<Int>, 2>>;
     static Port<TS<Int>> compose(Wiring &w, NamedPort<"pick", TS<Int>> pick,
@@ -150,6 +168,11 @@ TEST_CASE("component reference recovery preserves typed empty and invalid target
 TEST_CASE("component reference recovery preserves moving adapter identity", "[checkpoint][reference]") {
     stdlib::register_standard_operators();
     compare_restarts<MovingAliasBody>(values<Int>(1, none, 0, none, 1, none, 0, none));
+}
+
+TEST_CASE("component reference recovery keeps a saved position on a moving list", "[checkpoint][reference]") {
+    stdlib::register_standard_operators();
+    compare_restarts<SavedPositionBody>(values<Int>(1, none, 0, none, 1, none, 0, none));
 }
 
 TEST_CASE("component reference recovery restores references in recorded state", "[checkpoint][reference]") {

@@ -475,14 +475,13 @@ never dereferenced via ``.output``); code needing the dereferenced value
 accepts it as a (passive) input. Retargeting therefore must LOOK like a
 tick to consumers — the sampled-runtime contract at the input boundary:
 
-**Scalar and fixed-shape unbind is silent (hgraph parity).** When such a
-reference goes EMPTY, the from-REF input unbinds - it reads not-valid from
-that point - but consumers are NOT notified. A node observing the input
-(e.g. ``valid``) keeps its last output until something else evaluates it.
-Only a rebind to a live target records modified and samples.
-(``test_tsd_validity_rebind`` pins this for scalar validity: routing away
-from a branch must not tick ``valid`` False, and routing back to an unchanged
-target re-evaluates but dedups.)
+**Withdrawal of a scalar value through a REF wakes active readers.** The
+from-REF adapter detaches its old target when the designation is empty or
+the producer invalidates its REF. A reader that previously had a value
+also wakes when the new target has never published. The scalar input reads
+invalid and unmodified with last modified time ``MIN_DT``. A repeat while
+already invalid is silent. A later bind to a valid target samples its value.
+Explicit unbinding and graph teardown detach their subscriptions quietly.
 
 **Keyed structural unbind reconciles the published key set.** ``TSS`` and
 ``TSD`` are the exception: an EMPTY reference still makes the current value

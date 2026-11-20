@@ -500,6 +500,8 @@ bool TSDataMutationView::copy_value_from(const ValueView &source) {
   }
 
   const auto &table = ops();
+  const bool repointed = table.kind == TSTypeKind::REF && modified(table, mutation_time_) &&
+                         !value().equals(source);
   const bool newly_modified = table.copy_value_from_impl(
       table.context, storage_.data(), source, mutation_time_);
   if (newly_modified) {
@@ -509,6 +511,10 @@ bool TSDataMutationView::copy_value_from(const ValueView &source) {
     // landed on pre-marked storage. Recording is idempotent; parents
     // are notified only by the first recording.
     mark_modified(table);
+  } else if (repointed) {
+    // Routing observers follow every different designation. The graph still
+    // coalesces node evaluations and the parent's delta at this time.
+    view().tracking().observers.notify(mutation_time_);
   }
   return newly_modified;
 }
@@ -525,6 +531,8 @@ bool TSDataMutationView::move_value_from(ValueView source) {
   }
 
   const auto &table = ops();
+  const bool repointed = table.kind == TSTypeKind::REF && modified(table, mutation_time_) &&
+                         !value().equals(source);
   const bool newly_modified = table.move_value_from_impl(
       table.context, storage_.data(), std::move(source), mutation_time_);
   if (newly_modified) {
@@ -534,6 +542,8 @@ bool TSDataMutationView::move_value_from(ValueView source) {
     // landed on pre-marked storage. Recording is idempotent; parents
     // are notified only by the first recording.
     mark_modified(table);
+  } else if (repointed) {
+    view().tracking().observers.notify(mutation_time_);
   }
   return newly_modified;
 }
@@ -571,11 +581,12 @@ bool TSDataMutationView::invalidate() {
 
   auto &state =
       *table.mutable_tracking_impl(table.context, storage_.data());
+  // REF followers read the designation synchronously. Clear it before they
+  // rebind. Other parents inspect the outgoing child while recording its loss.
+  if (table.kind == TSTypeKind::REF) { state.last_modified_time = MIN_DT; }
   state.observers.notify(mutation_time_);
   state.parent.notify_child_modified(mutation_time_);
   state.last_modified_time = MIN_DT;
-  // An invalid owned child retains its clear time for the parent list.
-  // Target links track their own transitions.
   state.last_empty_delta_time = !table.is_target_link ? mutation_time_ : MIN_DT;
   return true;
 }
