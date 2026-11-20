@@ -3,13 +3,21 @@ cmake_minimum_required(VERSION 3.25)
 project(hgraph_install_consumer LANGUAGES CXX)
 
 find_package(hgraph CONFIG REQUIRED)
+enable_testing()
+
+add_executable(hgraph_scalar_stream_consumer scalar_streams.cpp)
+target_link_libraries(hgraph_scalar_stream_consumer PRIVATE hgraph::wiring)
+if(COMMAND hgraph_link_python_embedding)
+    hgraph_link_python_embedding(hgraph_scalar_stream_consumer)
+endif()
+add_test(NAME hgraph.install_consumer.scalar_streams COMMAND hgraph_scalar_stream_consumer)
+
 if(DEFINED hgraph_WITH_ARROW AND NOT hgraph_WITH_ARROW)
     add_executable(hgraph_runtime_consumer ../cpp/runtime_consumer.cpp)
     target_link_libraries(hgraph_runtime_consumer PRIVATE hgraph::wiring)
-    enable_testing()
     add_test(NAME hgraph.install_consumer.runtime COMMAND hgraph_runtime_consumer)
     if(WIN32)
-        set_tests_properties(hgraph.install_consumer.runtime PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(hgraph.install_consumer.runtime hgraph.install_consumer.scalar_streams PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:hgraph::runtime>")
     endif()
     return()
@@ -24,7 +32,6 @@ if(COMMAND hgraph_link_python_embedding)
     hgraph_link_python_embedding(hgraph_install_consumer)
 endif()
 
-enable_testing()
 add_test(NAME hgraph.install_consumer COMMAND hgraph_install_consumer)
 
 add_executable(hgraph_arrow_abi_check ../cpp/arrow_abi_check.cpp)

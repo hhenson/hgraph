@@ -1,6 +1,7 @@
 #ifndef HGRAPH_TYPES_PRIMITIVE_TYPES_H
 #define HGRAPH_TYPES_PRIMITIVE_TYPES_H
 
+#include <hgraph/hgraph_export.h>
 #include <hgraph/util/date_time.h>
 
 #include <compare>
@@ -52,7 +53,7 @@ namespace hgraph
     [[nodiscard]] inline Bytes bytes_(std::string_view value) { return Bytes{std::string{value}}; }
 
     /** Render as ``b'…'`` with non-printable bytes hex-escaped (the Python repr shape). */
-    std::ostream &operator<<(std::ostream &os, const Bytes &value);
+    HGRAPH_EXPORT std::ostream &operator<<(std::ostream &os, const Bytes &value);
 
     namespace literals
     {
