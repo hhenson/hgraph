@@ -499,6 +499,7 @@ namespace hgraph
             auto       mutation   = dict_out.begin_mutation(out.evaluation_time());
             const auto source_map = value.as_map();
 
+            if (source_map.empty() && dict_out.empty() && out.valid()) { return; }
             mutation.touch();
             for (const auto &[key, child_value] : source_map)
             {
@@ -532,10 +533,7 @@ namespace hgraph
             // source truncates rather than being rejected.
             if (schema->is_unbounded_tsl())
             {
-                if (source_values.size() != list_out.size()) { list_out.resize(source_values.size()); }
-                if (source_values.size() == 0 && !out.modified()) {
-                    out.data_view().begin_mutation(out.evaluation_time()).mark_empty_delta();
-                }
+                list_out.resize(source_values.size());
             }
 
             for (std::size_t index = 0; index < source_values.size(); ++index)

@@ -14,7 +14,7 @@ class Shelf(hg.TimeSeriesSchema):
     book: hg.TSD[str, hg.TS[int]]
 
 
-def test_whole_set_ticks_even_when_membership_is_unchanged():
+def test_whole_set_ticks_only_when_membership_changes():
     @hg.compute_node
     def publish(step: hg.TS[int]) -> hg.TSS[int]:
         return (frozenset({1}), frozenset({1}), {1}, frozenset(), frozenset(), set())[step.value]
@@ -28,18 +28,52 @@ def test_whole_set_ticks_even_when_membership_is_unchanged():
         return read(publish(step))
 
     assert eval_node(run, list(range(6))) == [
-        ((1,), (1,), ()), ((1,), (), ()), None, ((), (), (1,)), ((), (), ()), None
+        ((1,), (1,), ()), None, None, ((), (), (1,)), None, None
     ]
 
 
-def test_eval_node_replays_whole_set_publications_and_skips_sparse_noops():
+def test_eval_node_skips_equal_whole_sets_and_sparse_noops():
     @hg.compute_node
     def count_changes(members: hg.TSS[int]) -> hg.TS[int]:
         return len(members.added()) + len(members.removed())
 
     whole = frozenset({1})
     empty_patch = hg.set_delta(added=set(), removed=set(), tp=int)
-    assert eval_node(count_changes, [whole, whole, empty_patch, whole]) == [1, 0, None, 0]
+    assert eval_node(count_changes, [whole, whole, empty_patch, whole]) == [1, None, None, None]
+
+
+@pytest.mark.parametrize(("schema", "writes", "samples"), [
+    (hg.TSS[int], [frozenset(), frozenset(), frozenset({1}), frozenset({1}), frozenset(), frozenset()],
+     [1, None, 3, None, 5, None]),
+    (hg.TSL[hg.TS[int], hg.Size[-1]], [(), (), (1, 2), (1, 2), (), ()],
+     [1, None, 3, 4, 5, None]),
+    (hg.TSD[int, hg.TS[int]], [{}, {}, {0: 7}, {0: 7}, {0: hg.REMOVE}, {}],
+     [1, None, 3, 4, 5, None]),
+    (hg.TS[int], [7] * 6, [1, 2, 3, 4, 5, 6]),
+], ids=["set", "growing-list", "dictionary", "scalar"])
+def test_whole_value_sampling_and_last_modified_time(schema, writes, samples):
+    seen = []
+
+    @hg.compute_node
+    def publish(step: hg.TS[int]) -> schema:
+        return writes[step.value - 1]
+
+    @hg.sink_node(active=("step",), valid=("step",))
+    def inspect(step: hg.TS[int], source: schema):
+        seen.append((source.valid, source.modified, source.last_modified_time))
+
+    @hg.graph
+    def run(step: hg.TS[int]) -> hg.TS[int]:
+        source = publish(step)
+        inspect(step, source)
+        return hg.sample(source, step)
+
+    assert eval_node(run, list(range(1, 7))) == samples
+    last_modified = hg.MIN_DT
+    for index, (sample, reading) in enumerate(zip(samples, seen, strict=True)):
+        if sample is not None:
+            last_modified = hg.MIN_ST + index * hg.MIN_TD
+        assert reading == (True, sample is not None, last_modified)
 
 
 def test_empty_bundle_patch_initializes_a_dictionary_child_once():

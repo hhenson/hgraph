@@ -36,8 +36,8 @@ def test_empty_growing_list_publications_and_size_only_changes(first):
     assert observed == [
         (True, True, True, 0, (), (), None),
         (True, True, False, 0, (), (), None),
-        (True, True, True, 0, (), (), None),
-        (True, True, True, 0, (), (), None),
+        (True, True, False, 0, (), (), None),
+        (True, True, False, 0, (), (), None),
         (False, False, False, 2, (False, False), (), 2),
         (True, True, True, 2, (True, True), (), None),
         (False, False, False, 2, (False, False), (0, 1), None),
@@ -52,15 +52,15 @@ def test_typed_replay_keeps_empty_publications_and_skips_noop_sparse_edits():
 
     edits = [(), (), TSLDelta(size_modified=0), TSLDelta(), None, (), (1,), (), ()]
     assert eval_node(identity, edits) == [
-        TSLDelta(), TSLDelta(), None, None, None, TSLDelta(),
-        TSLDelta({0: 1}, size_modified=1), TSLDelta(removed={0}, size_modified=0), TSLDelta(),
+        TSLDelta(), None, None, None, None, None,
+        TSLDelta({0: 1}, size_modified=1), TSLDelta(removed={0}, size_modified=0), None,
     ]
 
 
-def test_sparse_recording_replays_two_whole_empty_publications_at_their_original_times():
+def test_sparse_recording_replays_initial_empty_and_truncation_at_their_original_times():
     @compute_node
     def publish(step: TS[int]) -> Growing:
-        return () if step.value != 1 else TSLDelta(size_modified=0)
+        return [(), TSLDelta(size_modified=0), (), (7,), (), ()][step.value]
 
     @graph
     def write(step: TS[int]) -> None:
@@ -78,9 +78,9 @@ def test_sparse_recording_replays_two_whole_empty_publications_at_their_original
 
     with GlobalState():
         set_record_replay_config(IN_MEMORY)
-        eval_node(write, [0, 1, 2])
-        eval_node(read, __end_time__=MIN_ST + 3 * MIN_TD)
-    assert observed == [(MIN_ST, 0), (MIN_ST + 2 * MIN_TD, 0)]
+        eval_node(write, list(range(6)))
+        eval_node(read, __end_time__=MIN_ST + 6 * MIN_TD)
+    assert observed == [(MIN_ST, 0), (MIN_ST + 3 * MIN_TD, 1), (MIN_ST + 4 * MIN_TD, 0)]
 
 
 def test_clearing_the_final_fixed_position_keeps_the_extent_and_loses_the_value():

@@ -1329,12 +1329,13 @@ namespace hgraph::ts_data_plan_factory_detail
                     throw std::invalid_argument("TSS copy requires the set value schema");
                 }
 
-                auto     &target        = storage<Storage>(memory);
-                auto      source_set    = source.as_set();
-                const bool newly_touched = target.touch(modified_time);
+                auto &target = storage<Storage>(memory);
+                auto source_set = source.as_set();
+                const bool first_write = target.touch(modified_time);
+                bool changed = target.tracking().last_modified_time == MIN_DT;
                 for (const auto key : source_set.values())
                 {
-                    static_cast<void>(target.insert_key(key, modified_time));
+                    changed |= target.insert_key(key, modified_time).changed;
                 }
 
                 std::vector<Value> removals;
@@ -1344,9 +1345,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 }
                 for (const auto &key : removals)
                 {
-                    static_cast<void>(target.remove_key(key.view(), modified_time));
+                    changed |= target.remove_key(key.view(), modified_time).changed;
                 }
-                return newly_touched;
+                return first_write && changed;
             }
 
             [[nodiscard]] static bool tss_move_value_from(const void *context, void *memory, ValueView source,
@@ -1377,16 +1378,17 @@ namespace hgraph::ts_data_plan_factory_detail
                     if (!source_set.contains(key)) { removal_slots.push_back(slot); }
                 }
 
-                const bool newly_touched = target.touch(modified_time);
+                const bool first_write = target.touch(modified_time);
+                bool changed = target.tracking().last_modified_time == MIN_DT;
                 for (const auto key : source_set.values())
                 {
-                    static_cast<void>(target.insert_key_move(key, modified_time));
+                    changed |= target.insert_key_move(key, modified_time).changed;
                 }
                 for (const auto slot : removal_slots)
                 {
-                    static_cast<void>(target.remove_slot(slot, modified_time));
+                    changed |= target.remove_slot(slot, modified_time).changed;
                 }
-                return newly_touched;
+                return first_write && changed;
             }
 
 

@@ -452,8 +452,8 @@ Recorded divergences / gaps (the morning-summary list):
   class remains ``switch_``'s default-branch key.
   ``resolvers={...}`` binds typevars from scalars on compute, sink, graph,
   generator, component, service, adaptor, and push-queue declarations.
-  Returning an exact ``frozenset`` publishes the whole TSS and ticks even
-  when its membership is unchanged. A ``set_delta`` or a set with
+  Returning an exact ``frozenset`` replaces the whole TSS. The first write
+  initializes it, and later writes tick when membership changes. A ``set_delta`` or a set with
   ``Removed`` markers applies a membership delta. An empty or redundant
   delta on an already valid set is silent. ``contains_`` re-publishes
   on item ticks only. TSB sugar: ``.as_schema`` (both wiring and runtime
