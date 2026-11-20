@@ -459,6 +459,7 @@ namespace hgraph
         }
 
         auto       source_map    = source.as_map();
+        if (source_map.empty() && empty() && base().has_current_value()) { return false; }
         const bool newly_touched = !modified(current_mutation_time());
         touch();
         for (const auto [key, value] : source_map.items()) { set(key, value); }
@@ -517,6 +518,7 @@ namespace hgraph
             if (!source_map.contains(key)) { removals.push_back(slot); }
         }
 
+        if (source_map.empty() && empty() && base().has_current_value()) { return false; }
         const bool newly_touched = !modified(current_mutation_time());
         touch();
 

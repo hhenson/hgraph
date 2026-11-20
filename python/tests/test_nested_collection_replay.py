@@ -70,7 +70,9 @@ def test_replay_preserves_each_named_child_publication_and_omitted_siblings(nest
 
     assert live[0] == (True, ({1}, set()), ({0: 7}, set(), 1), True)
     assert live[1] == (True, ({2}, {1}), ({}, {0}, 0), False)
-    assert live[3][1:] == (None, None, False)
+    for step in (2, 3, 6):
+        assert live[step][1:] == (None, None, False)
+    assert live[4] == (True, None, None, True)
     if not nested:
         assert live[3][0] is False
     assert live[5] == (True, None, None, True)

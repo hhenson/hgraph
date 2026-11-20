@@ -284,11 +284,11 @@ struct GrowingListIdentity {
   static Port<TSL<TS<Int>>> compose(Wiring &, Port<TSL<TS<Int>>> items) { return items; }
 };
 
-TEST_CASE("whole empty growing list publications tick while repeated sparse zero-length edits stay silent") {
+TEST_CASE("whole and sparse zero-length growing list writes initialize once") {
   auto empty = dynamic_list_delta<TS<Int>>({});
   auto zero = dynamic_list_delta<TS<Int>>({}, {}, 0);
   CHECK_OUTPUT(eval_node<PublishGrowingList>(values<Bool>(true, false, true, true)),
-               values<Value>(empty, none, empty, empty));
+               values<Value>(empty, none, none, none));
   // Raw C++ replay inputs are authored edits. They have no observed-event provenance.
   CHECK_OUTPUT(eval_node<GrowingListIdentity>(values<Value>(zero, empty, zero)),
                values<Value>(empty, none, none));
@@ -314,7 +314,8 @@ TEST_CASE("owned lists derive validity from live positions and a published zero-
     apply_current_value(view, empty.view());
     CHECK(view.valid());
     CHECK(view.all_valid());
-    CHECK(view.modified());
+    CHECK_FALSE(view.modified());
+    CHECK(view.last_modified_time() == MIN_ST);
     CHECK_FALSE(view.as_list().size_modified().has_value());
   }
   auto sized = growing.view(MIN_ST + 4 * MIN_TD);
@@ -1916,8 +1917,49 @@ struct CollectionInvalidationGraph {
 };
 } // namespace
 
-TEST_CASE("collection publication: a repeated whole set ticks with an empty membership delta") {
-  CHECK_OUTPUT(eval_node<SetPublicationGraph>(values<Int>(0, 1, 2, 3, 4)), values<Int>(1, 0, none, 1, 0));
+TEST_CASE("collection publication: whole sets tick only on initialization and membership changes") {
+  CHECK_OUTPUT(eval_node<SetPublicationGraph>(values<Int>(0, 1, 2, 3, 4)), values<Int>(1, none, none, 1, none));
+}
+
+TEST_CASE("collection publication: whole set and dictionary assignments preserve first and changed writes") {
+  const auto integer = ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta());
+  const Int key = 1, price = 7;
+  SetBuilder members{integer};
+  members.insert(key);
+  MapBuilder entries{integer, integer};
+  entries.set_item_copy(&key, &price);
+  const auto populated_set = members.build(), populated_dict = entries.build();
+  const auto check = [&](const TSValueTypeMetaData *schema, const Value &populated, bool equal_child_ticks) {
+    const Value empty{ValuePlanFactory::instance().type_for(schema->value_schema)};
+    enum class Write { current, copy, move };
+    for (auto mode : {Write::current, Write::copy, Write::move}) {
+      TSOutput owner{schema};
+      DateTime last = MIN_DT;
+      for (Int step = 0; step < 6; ++step) {
+        const auto now = MIN_ST + step * MIN_TD;
+        auto out = owner.view(now);
+        Value value{step == 2 || step == 3 ? populated : empty};
+        const bool expected = step == 0 || step == 2 || (step == 3 && equal_child_ticks) || step == 4;
+        CAPTURE(schema->kind, static_cast<int>(mode), step);
+        if (mode == Write::current) {
+          apply_current_value(out, value.view());
+        } else if (mode == Write::copy) {
+          CHECK(out.begin_mutation(now).copy_value_from(value.view()) == expected);
+        } else if (schema->kind == TSTypeKind::TSD) {
+          auto mutation = out.data_view().as_dict().begin_mutation(now);
+          CHECK(mutation.move_value_from(std::move(value)) == expected);
+        } else {
+          CHECK(out.begin_mutation(now).move_value_from(std::move(value)) == expected);
+        }
+        if (expected) { last = now; }
+        CHECK(out.valid());
+        CHECK(out.modified() == expected);
+        CHECK(out.last_modified_time() == last);
+      }
+    }
+  };
+  check(schema_descriptor<TSS<Int>>::ts_meta(), populated_set, false);
+  check(schema_descriptor<TSD<Int, TS<Int>>>::ts_meta(), populated_dict, true);
 }
 
 TEST_CASE("collection publication: sparse bundle fields update only effective dictionary children") {
