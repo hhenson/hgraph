@@ -139,3 +139,88 @@ def test_invalidated_collections_discard_members_and_growing_positions():
         ((True, True, True), ("a",), (1,), 2), ((False, False, False), (), (), 0),
         ((True, True, True), ("b",), (2,), 1),
     ]
+
+
+@pytest.mark.parametrize("dictionary", [True, False], ids=["dictionary", "growing-list"])
+def test_reinserted_quote_starts_empty_after_whole_owner_invalidation(dictionary):
+    collection = hg.TSD[int, hg.TSB[Quote]] if dictionary else hg.TSL[hg.TSB[Quote], hg.Size[-1]]
+
+    def remove_quote(output):
+        if dictionary:
+            output.pop(1)
+        else:
+            output.resize(1)
+
+    @hg.compute_node
+    def write(step: hg.TS[int], _output: hg.TS_OUT[collection] = None) -> collection:
+        if step.value == 0:
+            return {0: {"bid": 10}, 1: {"bid": 20}}
+
+        remove_quote(_output)
+        retained = dict(_output.removed_items())[1]
+        previous_bid = retained["bid"].value
+        _output.invalidate()
+        _output.invalidate()
+        assert not _output.valid
+        assert not _output.modified
+        assert retained["bid"].value == previous_bid
+
+        # Writing another child must not revive the old contents of position/key 1.
+        _output.value = {0: {"ask": 7}}
+        if dictionary:
+            assert not _output.get_or_create(1).valid
+            assert _output.delta_value[1] is hg.REMOVE
+        _output.value = {1: {}}
+        assert _output[1].valid
+        assert not _output[1]["bid"].valid
+        if step.value == 1:
+            _output[1]["bid"].value = 30
+            remove_quote(_output)
+            _output.value = {1: {}}
+            assert _output[1]["bid"].value == 30
+
+    @hg.compute_node
+    def read(quotes: collection) -> hg.TS[str]:
+        bid = quotes[1]["bid"]
+        return str(bid.value) if bid.valid else "empty"
+
+    @hg.graph
+    def run(step: hg.TS[int]) -> hg.TS[str]:
+        return read(write(step))
+
+    assert eval_node(run, [0, 1, 2]) == ["20", "30", "empty"]
+
+
+@pytest.mark.parametrize("duration", [False, True], ids=["count", "duration"])
+def test_recreated_window_keeps_only_new_samples_and_expiry(duration):
+    period = 4 * hg.MIN_TD if duration else 4
+    minimum = 0 * hg.MIN_TD if duration else 0
+    window = hg.TSW[int, hg.WindowSize[period], hg.WindowSize[minimum]]
+    book = hg.TSD[str, window]
+
+    @hg.compute_node
+    def write(step: hg.TS[int], _output: hg.TS_OUT[book] = None) -> book:
+        if step.value == 0:
+            return {"a": 1, "b": 20}
+        if step.value == 1:
+            _output.pop("b")
+            retained = dict(_output.removed_items())["b"]
+            _output.invalidate()
+            assert tuple(retained.value) == (20,)
+        else:
+            _output.invalidate()
+        return {"b": 20 + step.value}
+
+    @hg.compute_node
+    def read(items: book) -> hg.TS[tuple[int, ...]]:
+        samples = items["b"]
+        for when in samples.value_times:
+            assert when == samples.last_modified_time
+        return tuple(samples.value)
+
+    @hg.graph
+    def run(step: hg.TS[int]) -> hg.TS[tuple[int, ...]]:
+        return read(write(step))
+
+    result = eval_node(run, [0, 1, 2, None, None, None, None, None])
+    assert result == [(20,), (21,), (22,), None, None, None, None, () if duration else None]

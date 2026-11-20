@@ -552,11 +552,13 @@ bool TSDataMutationView::move_value_from(ValueView source) {
   return newly_modified;
 }
 
-bool TSDataMutationView::invalidate() {
-  require_active_mutation();
-
-  TSDataView current = view();
-  if (!current.has_current_value()) {
+namespace {
+bool invalidate_value(TSDataMutationView &mutation, bool discard_child) {
+  void *memory = mutation.mutable_data();
+  TSDataView current = mutation.view();
+  const DateTime now = mutation.current_mutation_time();
+  const bool was_valid = current.has_current_value();
+  if (!was_valid && !discard_child) {
     return false;
   }
 
@@ -566,7 +568,7 @@ bool TSDataMutationView::invalidate() {
         ownership->child_count(table.context, current.data());
     for (std::size_t index = 0; index < children; ++index) {
       const auto child_ref =
-          ownership->child_at(table.context, storage_.data(), index);
+          ownership->child_at(table.context, memory, index);
       if (!child_ref.type || child_ref.data == nullptr || child_ref.retained_after_removal) {
         continue;
       }
@@ -578,24 +580,37 @@ bool TSDataMutationView::invalidate() {
         continue;
       }
       TSDataMutationView child{TSDataView{child_ref.type, child_ref.data},
-                               mutation_time_};
-      static_cast<void>(child.invalidate());
+                               now};
+      static_cast<void>(invalidate_value(child, discard_child || ownership->discard_contents != nullptr));
     }
-    if (ownership->discard_contents != nullptr) {
-      ownership->discard_contents(table.context, storage_.data(), mutation_time_);
+    if (discard_child && ownership->discard_child_history != nullptr) {
+      ownership->discard_child_history(table.context, memory);
+    }
+    if (was_valid && ownership->discard_contents != nullptr) {
+      ownership->discard_contents(table.context, memory, now);
     }
   }
 
+  if (!was_valid) { return false; }
+
   auto &state =
-      *table.mutable_tracking_impl(table.context, storage_.data());
+      *table.mutable_tracking_impl(table.context, memory);
   // REF followers read the designation synchronously. Clear it before they
   // rebind. Other parents inspect the outgoing child while recording its loss.
   if (table.kind == TSTypeKind::REF) { state.last_modified_time = MIN_DT; }
-  state.observers.notify(mutation_time_);
-  state.parent.notify_child_modified(mutation_time_);
+  state.observers.notify(now);
+  state.parent.notify_child_modified(now);
   state.last_modified_time = MIN_DT;
-  state.last_empty_delta_time = !table.is_target_link ? mutation_time_ : MIN_DT;
+  state.last_empty_delta_time = !table.is_target_link ? now : MIN_DT;
   return true;
+}
+} // namespace
+
+bool TSDataMutationView::invalidate() { return invalidate_value(*this, false); }
+
+void detail::discard_collection_child(TSDataView view, DateTime now) {
+  auto mutation = view.begin_mutation(now);
+  static_cast<void>(invalidate_value(mutation, true));
 }
 
 

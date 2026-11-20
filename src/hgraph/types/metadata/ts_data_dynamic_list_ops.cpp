@@ -141,6 +141,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 while (pos != 0) { pos = std::exchange(ordinal_keys_[pos].next_modified, 0); }
                 header.next_modified = 0;
                 flush_retained();
+                if (modified_snapshot_) { modified_snapshot_->reset_end = 0; }
                 header.ordinal_key = modified_time.time_since_epoch().count();
                 previous_size_ = this->size();
             }
@@ -150,6 +151,12 @@ namespace hgraph::ts_data_plan_factory_detail
                 // Truncation retains child cursors through this cycle and
                 // preserves the delta baseline if another write follows.
                 prepare_delta(now);
+                if (size() < retained_size())
+                {
+                    if (!modified_snapshot_) { modified_snapshot_ = std::make_unique<ModifiedSnapshot>(); }
+                    modified_snapshot_->reset_begin = size();
+                    modified_snapshot_->reset_end = retained_size();
+                }
                 truncate_to(0);
             }
 
@@ -355,6 +362,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 std::vector<std::size_t> visible{};
                 std::vector<std::size_t> published{};
                 bool                     valid{false};
+                // Retained before the last whole-owner reset: clear on revival.
+                std::size_t              reset_begin{0};
+                std::size_t              reset_end{0};
             };
 
             [[nodiscard]] const ModifiedSnapshot &modified_snapshot() const
@@ -432,6 +442,17 @@ namespace hgraph::ts_data_plan_factory_detail
                         .ordinal_key = static_cast<std::int64_t>(index),
                     });
                     rollback.release();
+                }
+                if (modified_snapshot_)
+                {
+                    auto &pending = *modified_snapshot_;
+                    const auto end = std::min(size, pending.reset_end);
+                    while (pending.reset_begin < end)
+                    {
+                        TSDataView child{element_type_, elements_[pending.reset_begin].data()};
+                        detail::discard_collection_child(std::move(child), delta_time());
+                        ++pending.reset_begin;
+                    }
                 }
                 live_size_ = static_cast<std::int64_t>(size);
                 if (modified_snapshot_ && !modified_snapshot_->slots.empty())
