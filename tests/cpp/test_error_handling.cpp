@@ -295,6 +295,16 @@ namespace
         }
     };
 
+    struct CompiledSinkCapture
+    {
+        static Port<TS<CanonicalError>> compose(Wiring &w, Port<TS<Int>> x)
+        {
+            auto error = compiled::try_except_(w, std::array{x.erased()}, compile_subgraph<SinkOrThrowG>(w),
+                                               {.canonical_errors = true});
+            return Port<void>{w, std::move(error)}.as<TS<CanonicalError>>();
+        }
+    };
+
     struct TryStructuralPairG
     {
         static constexpr auto name = "try_structural_pair_g";
@@ -895,6 +905,26 @@ TEST_CASE("error handling: typed try_except publishes canonical errors and retai
     REQUIRE(errors[1]->context);
     CHECK(errors[1]->context->phase == "evaluate");
     CHECK_FALSE(errors[2].has_value());
+}
+
+TEST_CASE("compiled try_except: sink errors use the parent input and each call owns its child")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    const auto input = values<Int>(5, -3, 7);
+    const auto expected = eval_node<CanonicalSinkGraph>(input);
+    CHECK_OUTPUT(eval_node<CompiledSinkCapture>(input), expected);
+
+    stdlib::register_standard_operators();
+    Wiring w;
+    REQUIRE_THROWS_AS(compiled::try_except_(w, {}, compile_subgraph<SinkOrThrowG>(w)), std::invalid_argument);
+    const std::array wrong{wire<stdlib::const_, TS<Str>>(w, Str{"wrong"}).erased()};
+    REQUIRE_THROWS_AS(compiled::try_except_(w, wrong, compile_subgraph<SinkOrThrowG>(w)), std::invalid_argument);
+    const std::array args{wire<stdlib::const_, TS<Int>>(w, Int{1}).erased()};
+    const auto first = compiled::try_except_(w, args, compile_subgraph<SinkOrThrowG>(w));
+    const auto second = compiled::try_except_(w, args, compile_subgraph<SinkOrThrowG>(w));
+    CHECK(first.peered_node() != second.peered_node());
+    CHECK(first.schema == node_error_ts_meta());
 }
 
 TEST_CASE("error handling: typed capture options participate in wiring identity")

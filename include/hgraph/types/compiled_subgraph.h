@@ -2,6 +2,7 @@
 #define HGRAPH_TYPES_COMPILED_SUBGRAPH_H
 
 #include <hgraph/runtime/nested_graph_node.h>
+#include <hgraph/runtime/node_error.h>
 #include <hgraph/types/graph_wiring_core.h>
 
 namespace hgraph
@@ -268,6 +269,12 @@ namespace hgraph
         HGRAPH_EXPORT void switch_sink_(Wiring &w, WiringPortRef key, std::span<const WiringPortRef> inputs,
             std::vector<SwitchBranchGraph> branches, std::optional<SwitchBranchGraph> default_branch = {},
             bool reload_on_ticked = false);
+
+        /** Capture a compiled child's failures. A value child forwards its result into the capture
+         * bundle; a sink produces only the error time series. Inputs are in compose port order.
+         */
+        [[nodiscard]] HGRAPH_EXPORT WiringPortRef try_except_(Wiring &w, std::span<const WiringPortRef> inputs,
+            CompiledSubGraph child, ErrorCaptureOptions options = {});
 
         /** The first non-key input is one dictionary element or dynamic list element.
          * Each later input is a broadcast. Explicit lifecycle keys apply to dictionaries.
