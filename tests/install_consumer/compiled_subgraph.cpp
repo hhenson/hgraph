@@ -1,5 +1,4 @@
-#include <hgraph/types/subgraph_wiring.h>
-#include <hgraph/runtime/executor.h>
+#include <hgraph/types/generated.h>
 
 namespace {
 using namespace hgraph;

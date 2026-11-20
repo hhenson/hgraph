@@ -1,0 +1,173 @@
+#ifndef HGRAPH_RUNTIME_LOGGER_VIEW_H
+#define HGRAPH_RUNTIME_LOGGER_VIEW_H
+
+#include <hgraph/hgraph_export.h>
+#include <hgraph/runtime/node_fwd.h>
+
+#include <spdlog/fmt/fmt.h>
+#include <spdlog/common.h>
+
+#include <memory>
+#include <string_view>
+#include <utility>
+
+namespace spdlog { class logger; }
+
+namespace hgraph
+{
+    /**
+     * Passive emission policy selected together with an executor's run logger.
+     *
+     * The callback must remain valid for the executor lifetime. Custom
+     * integrations may recover their concrete logger only inside this selected
+     * boundary; ``LoggerView`` never uses RTTI to rediscover the strategy.
+     */
+    struct HGRAPH_CLASS_EXPORT LoggerOps
+    {
+        using Emit = void (*)(spdlog::logger &logger,
+                              spdlog::level::level_enum level,
+                              std::string_view message,
+                              NodePtr node);
+
+        /**
+         * The threshold a record must meet to reach this policy's DESTINATION,
+         * on the spdlog scale.
+         *
+         * Null means the logger's own level is the whole truth, which is what
+         * the canonical policy uses. A policy that forwards elsewhere may
+         * answer differently: the Python bridge's destination is a
+         * ``logging.Logger`` whose effective level can be higher than the
+         * run logger's, so a record passing spdlog is still discarded there.
+         * Reporting the run logger's threshold in that case would tell a node
+         * an expensive message is wanted when it will be thrown away.
+         */
+        using EffectiveLevel = int (*)(spdlog::logger &logger);
+
+        Emit           emit_impl{nullptr};
+        EffectiveLevel effective_level_impl{nullptr};
+    };
+
+    /** Canonical policy that emits directly through spdlog and ignores node context. */
+    [[nodiscard]] HGRAPH_EXPORT const LoggerOps &plain_logger_ops() noexcept;
+
+    /**
+     * The LOGGER injectable (ruling 2026-07-04: LOGGER is a C++-native
+     * logger — spdlog, built against the project fmt). Declare a
+     * ``LoggerView`` parameter on any node hook to log:
+     *
+     * .. code-block:: cpp
+     *
+     *    static void eval(In<"ts", TS<Int>> ts, LoggerView log)
+     *    {
+     *        log.info("tick: {}", ts.value());
+     *    }
+     *
+     * A transparent, stateless injectable (the ``SingleShotScheduler``
+     * pattern): no signature footprint, no per-node slot. The view BORROWS
+     * the executor-owned run logger, inherited by nested graphs in O(1), so
+     * no reference counting or process-global lookup occurs on the per-tick
+     * path. Formatting is skipped when the target level is disabled.
+     */
+    class HGRAPH_CLASS_EXPORT LoggerView
+    {
+      public:
+        LoggerView() noexcept = default;
+        explicit LoggerView(spdlog::logger *logger,
+                            NodePtr node = {},
+                            const LoggerOps *ops = nullptr) noexcept
+            : logger_(logger), node_(node),
+              ops_(ops != nullptr && ops->emit_impl != nullptr
+                       ? ops
+                       : &plain_logger_ops())
+        {
+        }
+
+        template <typename... Args>
+        void trace(fmt::format_string<Args...> format, Args &&...args) const
+        {
+            log_formatted(spdlog::level::trace, format, std::forward<Args>(args)...);
+        }
+
+        template <typename... Args>
+        void debug(fmt::format_string<Args...> format, Args &&...args) const
+        {
+            log_formatted(spdlog::level::debug, format, std::forward<Args>(args)...);
+        }
+
+        template <typename... Args>
+        void info(fmt::format_string<Args...> format, Args &&...args) const
+        {
+            log_formatted(spdlog::level::info, format, std::forward<Args>(args)...);
+        }
+
+        template <typename... Args>
+        void warn(fmt::format_string<Args...> format, Args &&...args) const
+        {
+            log_formatted(spdlog::level::warn, format, std::forward<Args>(args)...);
+        }
+
+        template <typename... Args>
+        void error(fmt::format_string<Args...> format, Args &&...args) const
+        {
+            log_formatted(spdlog::level::err, format, std::forward<Args>(args)...);
+        }
+
+        /**
+         * Whether ``level`` would actually be emitted — check BEFORE doing
+         * any formatting/rendering work for the erased path (the typed
+         * methods above are already lazy: spdlog checks the level before
+         * formatting). ``level`` uses the spdlog scale — 0 trace, 1 debug,
+         * 2 info, 3 warn, 4 error, 5 critical (values are clamped).
+         */
+        [[nodiscard]] bool should_log(int level) const noexcept;
+
+        /** Erased-level entry (the ``log_`` operator's path); see ``should_log``. */
+        void log(int level, std::string_view message) const;
+
+        /**
+         * The level at or above which a record actually reaches the
+         * destination, on the spdlog scale (0 trace .. 5 critical, 6 off).
+         *
+         * Answered through the selected policy, so it accounts for a
+         * destination beyond the run logger. Guarding an expensive message is
+         * what this is for; ``should_log`` remains the cheap per-tick gate and
+         * consults the run logger alone.
+         */
+        [[nodiscard]] int effective_level() const noexcept;
+
+        /** Whether a record at ``level`` reaches the destination. Unlike
+            ``should_log`` this accounts for the policy's own threshold. */
+        [[nodiscard]] bool is_enabled_for(int level) const noexcept
+        {
+            return logger_ != nullptr && static_cast<int>(clamp_level(level)) >= effective_level();
+        }
+
+        [[nodiscard]] spdlog::logger *raw() const noexcept { return logger_; }
+
+      private:
+        [[nodiscard]] static spdlog::level::level_enum clamp_level(int level) noexcept
+        {
+            return static_cast<spdlog::level::level_enum>(level < 0 ? 0 : (level > 5 ? 5 : level));
+        }
+
+        template <typename... Args>
+        void log_formatted(spdlog::level::level_enum level, fmt::format_string<Args...> format, Args &&...args) const
+        {
+            if (!should_log(level)) { return; }
+            const auto message = fmt::format(format, std::forward<Args>(args)...);
+            emit(level, message);
+        }
+
+        void emit(spdlog::level::level_enum level, std::string_view message) const
+        {
+            ops_->emit_impl(*logger_, level, message, node_);
+        }
+
+        spdlog::logger *logger_{nullptr};   // borrowed from executor storage
+        NodePtr         node_{};
+        const LoggerOps *ops_{&plain_logger_ops()};
+    };
+
+}  // namespace hgraph
+
+#endif  // HGRAPH_RUNTIME_LOGGER_VIEW_H

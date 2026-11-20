@@ -2,6 +2,7 @@
 #define HGRAPH_TYPES_CALL_ARGS_H
 
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/signature_defaults.h>
 
 #include <array>
 #include <concepts>
@@ -15,12 +16,6 @@
 
 namespace hgraph
 {
-    template <typename T>
-    struct signature_defaults
-    {
-        [[nodiscard]] static auto values() { return std::tuple{}; }
-    };
-
     /**
      * Call-site keyword argument: ``arg<"name">(value)`` — the C++ spelling of
      * Python's ``name=value``. Erased dispatch uses the runtime ``name`` field;
