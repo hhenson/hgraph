@@ -1,6 +1,5 @@
 # Ported from release/0.5:hgraph_unit_tests/_wiring/test_switch.py at
 # 4760fccadd5368b0482393e5acb0ceaac48518e9
-from frozendict import frozendict
 from typing import Type
 
 from hgraph import (
@@ -160,17 +159,26 @@ def _map(keys: TSS[str]) -> TSD[str, TS[str]]:
 
 
 def test_nested_switch():
-    fd = frozendict
-    assert eval_node(_map, [{"one"}, None, {"two"}]) == [
-        fd(),
-        fd({"one": "one_0"}),
-        fd({"one": "one_1"}),
-        fd({"two": "two_0"}),
-        fd({"one": "two_0", "two": "two_1"}),
-        fd({"one": "two_1", "two": "two_2"}),
-        fd({"one": "two_2", "two": "two_3"}),
-        fd({"one": "two_3", "two": "two_4"}),
-        fd({"one": "two_4"}),
+    @compute_node(active=("clock",), valid=("clock",))
+    def read(clock: TS[int], result: TSD[str, TS[str]]) -> TS[object]:
+        return tuple(sorted((key, child.value if child.valid else None) for key, child in result.items()))
+
+    @graph
+    def run(keys: TSS[str], clock: TS[int]) -> TS[object]:
+        return read(clock, _map(keys))
+
+    # At step three, "one" switches to a fresh delayed generator. The key
+    # remains present during the gap before that generator's first value.
+    assert eval_node(run, [{"one"}, None, {"two"}], list(range(9))) == [
+        (("one", None),),
+        (("one", "one_0"),),
+        (("one", "one_1"), ("two", None)),
+        (("one", None), ("two", "two_0")),
+        (("one", "two_0"), ("two", "two_1")),
+        (("one", "two_1"), ("two", "two_2")),
+        (("one", "two_2"), ("two", "two_3")),
+        (("one", "two_3"), ("two", "two_4")),
+        (("one", "two_4"), ("two", "two_4")),
     ]
 
 

@@ -146,8 +146,8 @@ namespace hgraph::stdlib
      * - on a key change the active branch is stopped and destroyed, the branch
      *   for the new key (else the default, else a runtime error) is built,
      *   bound and started, and the output **re-points** — sampling the new
-     *   branch at the switch time (the sampled-runtime contract; a deliberate
-     *   divergence from Python's ``value = None`` reset);
+     *   branch at the switch time. An ordinary reader sees an invalid result
+     *   until that branch publishes, and again if it withdraws its output;
      * - a branch may take the key as its first argument when that parameter is
      *   named ``key``;
      * - the time-series arguments are variadic (``*ts``): branches bind them
