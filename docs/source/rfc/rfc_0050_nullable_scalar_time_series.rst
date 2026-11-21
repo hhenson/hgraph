@@ -128,6 +128,12 @@ An invalid source stays invalid; it does not become a valid null.
 Overload matching admits the widening and prefers an exact ``TS[T]`` match.
 Python uses the same C++ matcher and runtime binding.
 
+A plain scalar output may also supply a ``REF[TS[Optional[T]]]`` input.
+Its designation targets that same read-only nullable view. A change in the
+payload or its validity does not change the designation. A previously
+sampled reference continues to follow the original output when a selector
+later chooses another. An existing reference keeps its declared target type.
+
 The logical optional kind remains distinct from ``T``. A plain source's borrowed
 representation has no engaged word; its valid values are always present.
 Captures use the existing owning Optional representation, so later writes,

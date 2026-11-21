@@ -1252,8 +1252,10 @@ namespace hgraph
             std::is_same_v<InputSchema, SIGNAL> ||
             static_schema_equivalent<dereferenced_static_schema_t<InputSchema>,
                                      dereferenced_static_schema_t<OutputSchema>>::value ||
-            statically_adapts_to_optional<InputSchema,
-                                          dereferenced_static_schema_t<OutputSchema>>::value;
+            statically_adapts_to_optional<InputSchema, dereferenced_static_schema_t<OutputSchema>>::value ||
+            // A reference may designate the widened plain endpoint. Do not
+            // widen both sides of an existing reference-to-reference edge.
+            statically_adapts_to_optional<dereferenced_static_schema_t<InputSchema>, OutputSchema>::value;
         [[nodiscard]] HGRAPH_EXPORT WiringPortRef adapt_source_for_input(
             Wiring &w, const TSValueTypeMetaData *input_schema, WiringPortRef source);
         // Drop the leading ``Wiring &`` from a ``compose`` parameter tuple.

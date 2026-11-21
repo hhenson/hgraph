@@ -907,7 +907,7 @@ namespace hgraph
             case TypePattern::Kind::REF:
                 return input_ts_pattern_match_impl(pattern.children[0],
                                               concrete->kind == TSTypeKind::REF ? concrete->referenced_ts() : concrete,
-                                              map, false);
+                                              map, nullable_widening && concrete->kind == TSTypeKind::TS);
             case TypePattern::Kind::TS:
                 if (concrete->kind != TSTypeKind::TS) { return false; }
                 if (pattern.scalar.kind == ScalarPattern::Kind::Concrete &&
