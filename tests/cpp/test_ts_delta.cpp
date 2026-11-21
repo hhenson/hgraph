@@ -8,6 +8,8 @@
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
+#include <hgraph/lib/std/operators/registration.h>
+#include <hgraph/lib/std/operators/stream.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/runtime/registry_snapshot.h>
@@ -223,6 +225,13 @@ template <typename Source, typename S> struct HeldCollectionGraph {
     return wire<HeldCollectionObserver<S>>(w, step, wire<Source>(w, action));
   }
 };
+struct SampleHeldBook {
+  static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>> action, Port<TS<Int>> trigger, Port<TS<Int>> clock) {
+    auto book = wire<HeldMapSource>(w, action);
+    auto sampled = wire<stdlib::sample>(w, trigger, book).as<HeldBook>();
+    return wire<HeldCollectionObserver<HeldBook>>(w, clock, sampled);
+  }
+};
 // Retained and projected values have one semantic hash, including typed holes.
 void check_held_hash_lookup(const ValueView &observed, const ValueView &retained) {
   REQUIRE(observed.equals(retained));
@@ -243,6 +252,13 @@ TEST_CASE("public C++ wiring observes invalid collection children on an independ
   const auto expected = values<Bool>(none, true, none, false, false, none, true);
   CHECK_OUTPUT((eval_node<HeldCollectionGraph<HeldListSource, HeldSamples>>(actions, steps)), expected);
   CHECK_OUTPUT((eval_node<HeldCollectionGraph<HeldMapSource, HeldBook>>(actions, steps)), expected);
+}
+
+TEST_CASE("Sampling a dictionary holds key membership and child validity until the next trigger") {
+  stdlib::register_standard_operators();
+  CHECK_OUTPUT(eval_node<SampleHeldBook>(
+      values<Int>(1, 2, none, 3, none), values<Int>(1, none, 2, none, 3), values<Int>(0, 1, 2, 3, 4)),
+      values<Bool>(true, true, false, false, true));
 }
 
 TEST_CASE("TSData realizations select a non-missing current-state policy") {

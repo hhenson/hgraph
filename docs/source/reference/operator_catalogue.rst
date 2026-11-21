@@ -6422,7 +6422,7 @@ Accepted native overloads
 ``sample``
 ----------
 
-Sample the latest valid value of ``ts`` whenever ``signal`` ticks. Ticks from ``ts`` alone update the value available to sample but do not produce output.
+Sample the latest valid value of ``ts`` whenever ``signal`` ticks. A sampled dictionary keeps each present key, including one whose child is invalid. Ticks from ``ts`` alone update the value available to sample but do not produce output.
 
 Python exposure: lazy native operator proxy.
 
