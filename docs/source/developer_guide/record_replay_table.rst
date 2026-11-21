@@ -452,6 +452,18 @@ at wiring time into explicit native record/replay options — by
 ``register_record_replay_wiring_adapter`` seam when the storage surface loads
 (RFC 0025 checkpoint 5: core wiring imports no adaptor modules).
 
+A partitioned recording of a dictionary containing scalar bundle fields or
+nested dictionary entries keeps explicit field withdrawals. Only a segment
+with such a withdrawal has an additional Arrow list-of-int32 column. Its
+name is given in schema metadata under
+``hgraph.recording.withdrawals.v1.column``. The row's ordinary partition
+columns identify its key. Each field path in its list is encoded as a length
+followed by that many bundle field indexes. A zero length withdraws the
+partition's leaf itself. Other rows have a null marker. An earlier file
+without the metadata retains its existing sparse interpretation. Earlier
+readers can open new files and read the projected values; apply explicit
+withdrawals with a reader that supports this metadata.
+
 RFC 0019 completes this backend with per-record column projection,
 Tick/Sample/Snap recording, keyed frame expansion, and optional native
 segmentation. Tests (relocated with the extraction, RFC 0025 checkpoint 4):

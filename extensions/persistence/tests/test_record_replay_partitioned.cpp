@@ -333,6 +333,51 @@ using namespace hgraph::persistence::store;
         }
     };
 
+    struct QuoteUpdates
+    {
+        static void eval(In<"step", TS<Int>> step, Out<NestedPriceDict> book)
+        {
+            auto quote = book.at(Str{"x"});
+            if (step.value() == 0) {
+                quote.set(Str{"bid"}, Int{7});
+                quote.set(Str{"ask"}, Int{13});
+            } else if (step.value() == 1) {
+                auto bid = quote.at(Str{"bid"});
+                static_cast<void>(bid.begin_mutation(bid.evaluation_time()).invalidate());
+            } else if (step.value() == 3) {
+                quote.set(Str{"bid"}, Int{11});
+            }
+        }
+    };
+
+    struct ReadQuoteOnClock
+    {
+        static void eval(In<"clock", TS<Int>>,
+                         In<"book", NestedPriceDict, InputValidity::Unchecked, InputActivity::Passive> book,
+                         Out<TS<Int>> out)
+        {
+            auto quote = book.at(Str{"x"});
+            REQUIRE(quote.valid());
+            REQUIRE(quote.contains(Str{"bid"}));
+            REQUIRE(quote.at(Str{"ask"}).value() == 13);
+            auto bid = quote.at(Str{"bid"});
+            out.set(bid.valid() ? bid.value() : Int{-1});
+        }
+    };
+
+    template <bool Replay> struct ReadRecordedQuote
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> clock)
+        {
+            if constexpr (Replay) {
+                return wire<ReadQuoteOnClock>(w, clock, ReplayGraph<NestedPriceDict>::compose(w));
+            } else {
+                return wire<ReadQuoteOnClock>(w, clock,
+                     RecordGraph<NestedPriceDict>::compose(w, wire<QuoteUpdates>(w, clock)));
+            }
+        }
+    };
+
     /** Both runs under the same frame-backend configuration. */
     void use_frame_backend(GlobalContext &context)
     {
@@ -360,6 +405,16 @@ TEST_CASE("partitioned record/replay: a TSD round-trips through the store")
     CHECK(frame_rows(recorded) == 4);
 
     CHECK_OUTPUT(eval_node<ReplayGraph<PriceDict>>(), values<Value>(first, second, third));
+}
+
+TEST_CASE("partitioned record/replay: a dictionary field can withdraw while its key and sibling remain")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+    const auto clock = values<Int>(0, 1, 2, 3);
+    const auto expected = values<Int>(7, -1, -1, 11);
+    CHECK_OUTPUT(eval_node<ReadRecordedQuote<false>>(clock), expected);
+    CHECK_OUTPUT(eval_node<ReadRecordedQuote<true>>(clock), expected);
 }
 
 TEST_CASE("partitioned record/replay: an outer nested-TSD removal uses its key "

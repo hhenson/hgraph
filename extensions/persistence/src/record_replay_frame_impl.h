@@ -6,6 +6,8 @@
 #include <hgraph/persistence/recording_options.h>
 #include <hgraph/persistence/recording_store.h>
 
+#include "partition_withdrawals.h"
+
 #include <arrow/array.h>
 #include <arrow/table.h>
 #include <arrow/util/key_value_metadata.h>
@@ -167,6 +169,9 @@ namespace hgraph::persistence
             std::size_t compared{0};
             std::size_t mismatches{0};
 
+            bool observe_withdrawals{false};
+            WithdrawnRows withdrawn_rows{};
+
             static constexpr std::size_t dropped = static_cast<std::size_t>(-1);
         };
 
@@ -175,10 +180,18 @@ namespace hgraph::persistence
         struct RecordingSink
         {
             RecorderHandle *handle{nullptr};
+            PartitionObservation *observation{nullptr};
+            std::int64_t observation_row{-1};
+            std::size_t value_cells{0};
+            bool incomplete{false};
 
             static void cell(void *context, std::size_t column, const ValueView &value)
             {
                 auto *self = static_cast<RecordingSink *>(context);
+                if (self->observation) {
+                    self->observation->cell(column, value);
+                    if (self->observation_row >= 0) { return; }
+                }
                 if (column >= self->handle->output_of_layout_column.size())
                 {
                     return;
@@ -193,7 +206,27 @@ namespace hgraph::persistence
 
             static void end_row(void *context)
             {
-                static_cast<RecordingSink *>(context)->handle->recorder.end_row();
+                auto &self = *static_cast<RecordingSink *>(context);
+                if (self.observation_row >= 0) {
+                    self.observation->finish_row(self.handle->withdrawn_rows, self.observation_row++);
+                    return;
+                }
+                self.handle->recorder.end_row();
+            }
+
+            static void count_cell(void *context, std::size_t column, const ValueView &value) {
+                auto &self = *static_cast<RecordingSink *>(context);
+                self.value_cells += column >= self.handle->layout->value_col_start;
+                cell(context, column, value);
+            }
+            static void count_row(void *context) {
+                auto &self = *static_cast<RecordingSink *>(context);
+                self.incomplete |= self.value_cells != self.handle->layout->value_cols.size();
+                self.value_cells = 0;
+                end_row(context);
+            }
+            [[nodiscard]] table_ts_detail::RowSink counting_sink() {
+                return {.context = this, .cell = &count_cell, .end_row = &count_row};
             }
 
             [[nodiscard]] table_ts_detail::RowSink sink()
@@ -210,6 +243,7 @@ namespace hgraph::persistence
         {
             /** Always set: projection/filter description for every segment. */
             const table_ts_detail::TsTableLayout *recording_layout{nullptr};
+            int withdrawal_index{-1};
             Frame                                 frame{};
             std::int64_t                          row{0};
             /** Projection supplied by the caller, retained for every segment. */
@@ -296,7 +330,7 @@ namespace hgraph::persistence
                 metadata->Append(WINDOW_FORMAT, "1");
                 frame.table = frame.table->ReplaceSchemaMetadata(std::move(metadata));
             }
-            return frame;
+            return annotate_withdrawals(std::move(frame), handle.withdrawn_rows);
         }
 
         inline void flush_segment(RecorderHandle &handle, GlobalStateView gs)
@@ -320,6 +354,10 @@ namespace hgraph::persistence
         inline void select_segment(ReplayHandle &handle, Frame frame)
         {
             const auto &layout = *handle.recording_layout;
+            handle.withdrawal_index = withdrawal_column(frame);
+            if (handle.withdrawal_index >= 0 && !supports_partition_withdrawals(layout)) {
+                throw std::invalid_argument("replay: withdrawal column requires a partitioned structural recording");
+            }
             handle.source_columns = table_ts_detail::resolve_replay_columns(
                 frame, layout, handle.source_names, handle.as_of_named, handle.removes_named);
             if (handle.has_windows)
@@ -348,6 +386,14 @@ namespace hgraph::persistence
             const RecordedFrameRows recorded{handle.recording_layout, &handle.frame, &handle.source_columns,
                                              first, handle.row - first, handle.legacy_element};
             handle.recording_layout->ops->apply(*handle.recording_layout, recorded.source(), out);
+            if (handle.withdrawal_index >= 0) {
+                for (std::int64_t row = first; row < handle.row; ++row) {
+                    apply_partition_withdrawals(handle.frame, handle.withdrawal_index, row,
+                                                *handle.recording_layout, out, [&](std::size_t column) {
+                        return RecordedFrameRows::cell(&recorded, static_cast<std::size_t>(row - first), column);
+                    });
+                }
+            }
         }
 
         inline void retain_history(ReplayHandle &handle, DateTime cutoff, bool inclusive)
@@ -538,6 +584,7 @@ namespace hgraph::persistence
                                                                     : std::optional<DateTime>{}});
             handle->recording_projection = std::move(recording_projection);
             handle->layout = &layout;
+            handle->observe_withdrawals = record_replay_frame_detail::supports_partition_withdrawals(layout);
             handle->flush_rows = flush_rows.value();
             handle->flush_interval = flush_interval.value();
             handle->last_flush = now;
@@ -599,9 +646,26 @@ namespace hgraph::persistence
             record_replay_frame_detail::RecordingSink recording{.handle = handle};
             try
             {
+                const auto first_row = handle->recorder.rows();
+                // A fully populated one-level bundle row cannot carry a field withdrawal.
+                const bool single = handle->observe_withdrawals && layout.levels.size() == 1;
                 emit_rows_to(layout, ts.base(), static_cast<Int>(handle->mode), now, as_of_cell,
-                             handle->emit_removals, recording.sink(),
-                             /*reject_empty_frames=*/true);
+                             handle->emit_removals, single ? recording.counting_sink() : recording.sink(), true);
+                if (handle->observe_withdrawals && (!single || recording.incomplete)) {
+                    record_replay_frame_detail::PartitionObservation observation{layout};
+                    record_replay_frame_detail::FieldPath fields;
+                    observation.collect(ts.base().data_view(), 0, now, nullptr, fields);
+                    if (!observation.pending.empty()) {
+                        recording.observation = &observation;
+                        recording.observation_row = first_row;
+                        emit_rows_to(layout, ts.base(), static_cast<Int>(handle->mode), now, as_of_cell,
+                                     handle->emit_removals, recording.sink(), true);
+                        recording.observation_row = -1;
+                        recording.observation = nullptr;
+                        observation.finish_tick(now, as_of_cell, handle->withdrawn_rows,
+                                                handle->recorder.rows(), recording.sink());
+                    }
+                }
             }
             catch (...)
             {
