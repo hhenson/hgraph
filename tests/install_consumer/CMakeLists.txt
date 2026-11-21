@@ -20,7 +20,9 @@ enable_testing()
 add_executable(hgraph_compiled_try_except_consumer compiled_try_except.cpp)
 add_executable(hgraph_optional_bundle_consumer optional_bundle_member.cpp)
 add_executable(hgraph_nullable_reference_consumer nullable_reference.cpp)
-foreach(consumer IN ITEMS hgraph_compiled_try_except_consumer hgraph_optional_bundle_consumer hgraph_nullable_reference_consumer)
+add_executable(hgraph_configured_error_consumer configured_error.cpp)
+foreach(consumer IN ITEMS hgraph_compiled_try_except_consumer hgraph_optional_bundle_consumer
+        hgraph_nullable_reference_consumer hgraph_configured_error_consumer)
     target_link_libraries(${consumer} PRIVATE hgraph::wiring)
     if(COMMAND hgraph_link_python_embedding)
         hgraph_link_python_embedding(${consumer})
@@ -31,6 +33,7 @@ add_test(NAME hgraph.install_consumer.mock_executor COMMAND hgraph_mock_executor
 add_test(NAME hgraph.install_consumer.compiled_try_except COMMAND hgraph_compiled_try_except_consumer)
 add_test(NAME hgraph.install_consumer.optional_bundle COMMAND hgraph_optional_bundle_consumer)
 add_test(NAME hgraph.install_consumer.nullable_reference COMMAND hgraph_nullable_reference_consumer)
+add_test(NAME hgraph.install_consumer.configured_error COMMAND hgraph_configured_error_consumer)
 
 if(DEFINED hgraph_WITH_ARROW AND NOT hgraph_WITH_ARROW)
     add_executable(hgraph_runtime_consumer ../cpp/runtime_consumer.cpp)
@@ -39,7 +42,8 @@ if(DEFINED hgraph_WITH_ARROW AND NOT hgraph_WITH_ARROW)
     if(WIN32)
         set_tests_properties(hgraph.install_consumer.runtime hgraph.install_consumer.scalar_streams
             hgraph.install_consumer.mock_executor hgraph.install_consumer.compiled_try_except
-            hgraph.install_consumer.optional_bundle hgraph.install_consumer.nullable_reference PROPERTIES ENVIRONMENT_MODIFICATION
+            hgraph.install_consumer.optional_bundle hgraph.install_consumer.nullable_reference
+            hgraph.install_consumer.configured_error PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:hgraph::runtime>")
     endif()
     return()

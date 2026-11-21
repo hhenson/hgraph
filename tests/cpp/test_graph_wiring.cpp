@@ -2080,6 +2080,25 @@ TEST_CASE("graph wiring: scalar values participate in node interning")
     CHECK(graph.graph().node_count() == 4);   // two distinct sources + two sinks
 }
 
+TEST_CASE("graph wiring: an unsupported scalar hash fails at the wiring call")
+{
+    using namespace hgraph;
+    struct UnhashableConfig {
+        Int value{};
+        bool operator==(const UnhashableConfig &) const = default;
+    };
+    struct Configured {
+        static void eval(Scalar<"config", ScalarVar<"T">>, Out<TS<Int>>) {}
+    };
+
+    const auto *schema = TypeRegistry::instance().register_scalar<UnhashableConfig>("wiring_test_unhashable");
+    Value config{ValuePlanFactory::instance().type_for(schema)};
+    CHECK_THROWS_WITH(([&] {
+        Wiring wiring;
+        static_cast<void>(wire<Configured>(wiring, config));
+    }()), Catch::Matchers::ContainsSubstring("hash is not available"));
+}
+
 TEST_CASE("graph wiring: eager builders retain runtime scalars independently of their interning key")
 {
     using namespace hgraph;
