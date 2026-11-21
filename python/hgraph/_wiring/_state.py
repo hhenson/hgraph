@@ -111,18 +111,48 @@ class _RecordingMarker(_enum.Enum):
 INVALID_CHILD = _RecordingMarker.INVALID_CHILD
 
 
-def _friendly_recording_delta(delta, invalid_children=()):
+def _friendly_recording_delta(delta, invalid_children=(), invalid_paths=()):
     if isinstance(delta, dict) and set(delta) in (
             {"removed", "modified"}, {"removed", "modified", "removed_strict"}):
         compact = dict(delta["modified"])
         compact.update((key, REMOVE) for key in delta["removed"])
         compact.update((key, REMOVE) for key in delta.get("removed_strict", ()))
         compact.update((key, INVALID_CHILD) for key in invalid_children or ())
+        for path in invalid_paths or ():
+            node = compact
+            for part in path[:-1]:
+                node = node.setdefault(part, {})
+            node[path[-1]] = INVALID_CHILD
         return compact
     if isinstance(delta, dict) and set(delta) == {"added", "removed"}:
         return _SetDelta(
             tuple(delta["added"]) + tuple(Removed(value) for value in delta["removed"]))
     return delta
+
+
+def _recording_without_markers(delta, shape, path, invalid_children, invalid_paths):
+    if shape is None or not isinstance(delta, dict):
+        return delta
+    result = delta
+    for key, child in delta.items():
+        if child is INVALID_CHILD:
+            if isinstance(shape, dict) and key not in shape:
+                raise KeyError(key)
+            if result is delta:
+                result = delta.copy()
+            del result[key]
+            if path:
+                invalid_paths.append((*path, key))
+            else:
+                invalid_children.add(key)
+        elif isinstance(child, dict):
+            child_shape = shape[0] if isinstance(shape, tuple) else shape.get(key)
+            nested = _recording_without_markers(child, child_shape, (*path, key), invalid_children, invalid_paths)
+            if nested is not child:
+                if result is delta:
+                    result = delta.copy()
+                result[key] = nested
+    return result
 
 
 class _MemoryRecording(list):
@@ -141,13 +171,12 @@ class _MemoryRecording(list):
         if index < 0 or index >= len(self):
             raise IndexError("memory recording assignment index out of range")
         when, delta = value
-        written = delta
         invalid_children = set()
-        if isinstance(delta, dict):
-            invalid_children = {key for key, child in delta.items() if child is INVALID_CHILD}
-            if invalid_children:
-                written = {key: child for key, child in delta.items() if child is not INVALID_CHILD}
-        self._owner._impl._set_memory_recording_entry(self._key, index, when, written, invalid_children)
+        invalid_paths = []
+        shape = self._owner._impl._memory_recording_member_shape(self._key)
+        written = _recording_without_markers(delta, shape, (), invalid_children, invalid_paths)
+        self._owner._impl._set_memory_recording_entry(
+            self._key, index, when, written, invalid_children, invalid_paths)
         super().__setitem__(index, value)
 
 

@@ -124,7 +124,8 @@ namespace hgraph::stdlib
                 observed.set(1, delta.as_bundle().at(1));
                 delta = observed.build();
             }
-            testing::write_sparse_entry(gs, key, when, std::move(delta), changes.cleared);
+            const auto paths = record_replay::capture_recorded_invalid_paths(in);
+            testing::write_sparse_entry_with_paths(gs, key, when, std::move(delta), changes.cleared, {}, paths);
         }
 
         /** sparse_record's start-resolved recording plan: the fq key string
@@ -314,10 +315,7 @@ namespace hgraph::stdlib
             // none (parity #1315). An existing one is kept, so a recovered run
             // still appends to it.
             const auto &resolved = state.ref();
-            if (!gs.get(resolved.fq_key).valid())
-            {
-                gs.set(resolved.fq_key, testing::make_sparse_buffer(resolved.delta_binding));
-            }
+            testing::initialize_sparse_buffer(gs, resolved.fq_key, resolved.delta_binding, *schema);
         }
 
         static void eval(
@@ -447,7 +445,8 @@ namespace hgraph::stdlib
                 if (when < now) { ++current; continue; }
                 if (when > now) { break; }
                 state.apply_entry(out, entry.at(1));
-                if (entry.size() == 3) { record_replay::apply_recorded_invalid_children(out, entry.at(2)); }
+                if (entry.size() >= 3) { record_replay::apply_recorded_invalid_children(out, entry.at(2)); }
+                if (entry.size() == 4) { record_replay::apply_recorded_invalid_paths(out, entry.at(3)); }
                 ++current;
             }
             state.index = static_cast<Int>(current);

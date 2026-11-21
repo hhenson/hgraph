@@ -401,6 +401,58 @@ namespace hgraph::python_bridge
         }
         return PyObject_GenericGetAttr(self, name);
     }
+        // The editing view keeps the existing nested delta spelling. A dictionary's
+        // member edits live inside "modified", whereas a bundle names fields directly.
+        nb::object recording_member_shape(std::string_view &shape, const ValueTypeMetaData &delta)
+        {
+            if (shape.empty()) { throw nb::value_error("invalid sparse recording member shape"); }
+            const char role = shape.front();
+            shape.remove_prefix(1);
+            if (role == 'S') { return nb::none(); }
+            if (role == 'D' && delta.value_kind() == ValueTypeKind::Bundle && delta.field_count >= 2) {
+                nb::dict fields;
+                fields["modified"] = nb::make_tuple(recording_member_shape(shape, *delta.fields[1].type->element_type));
+                return fields;
+            }
+            if (role == 'B' && delta.value_kind() == ValueTypeKind::Bundle) {
+                nb::dict fields;
+                for (std::size_t i = 0; i < delta.field_count; ++i) {
+                    fields[delta.fields[i].name] = recording_member_shape(shape, *delta.fields[i].type);
+                }
+                return fields;
+            }
+            throw nb::value_error("invalid sparse recording member shape");
+        }
+
+        Value recording_withdrawal_paths(nb::list invalid_paths, const ValueTypeMetaData *modified_schema)
+        {
+            std::optional<ListBuilder> paths;
+            for (const auto path : invalid_paths) {
+                const auto parts = nb::cast<nb::tuple>(path);
+                if (nb::len(parts) < 2) { throw nb::value_error("a descendant withdrawal needs a nested path"); }
+                auto *schema = modified_schema;
+                ListBuilder selectors{ValuePlanFactory::instance().type_for(TypeRegistry::instance().any())};
+                for (const auto part : parts) {
+                    Value selector;
+                    if (schema->value_kind() == ValueTypeKind::Map) {
+                        selector = py_to_value_as(part, schema->key_type);
+                        schema = schema->element_type;
+                    } else if (schema->value_kind() == ValueTypeKind::Bundle) {
+                        const auto name = nb::cast<Str>(part);
+                        const auto *field = std::find_if(schema->fields, schema->fields + schema->field_count,
+                            [&](const auto &member) { return member.name && name == member.name; });
+                        if (field == schema->fields + schema->field_count) { throw nb::key_error(name.c_str()); }
+                        selector = Value{name};
+                        schema = field->type;
+                    } else { throw nb::type_error("invalid descendant withdrawal path"); }
+                    selectors.push_back(testing::make_any(selector.view()));
+                }
+                Value complete = selectors.build();
+                if (!paths) { paths.emplace(complete.binding()); }
+                paths->push_back(std::move(complete));
+            }
+            return paths ? paths->build() : Value{};
+        }
     }  // namespace
 
     void bind_state_and_services(nb::module_ &m)
@@ -421,9 +473,18 @@ namespace hgraph::python_bridge
                  return state.contains(key) ? value_to_py(state.get(key)) : fallback;
              },
              nb::arg("key"), nb::arg("default") = nb::none())
+        .def("_memory_recording_member_shape", [](GlobalState &self, const std::string &key) {
+            const auto buffer = self.view().get(key);
+            if (!buffer.valid()) { throw nb::key_error(key.c_str()); }
+            auto shape = buffer.binding().record()->implementation_name();
+            if (!shape.starts_with(testing::sparse_shape_prefix)) { return nb::make_tuple(nb::none()); }
+            shape.remove_prefix(testing::sparse_shape_prefix.size());
+            const auto *delta = buffer.as_list().element_schema()->fields[1].type;
+            return nb::make_tuple(recording_member_shape(shape, *delta->fields[1].type->element_type));
+        })
         .def("_set_memory_recording_entry",
              [](GlobalState &self, const std::string &key, std::size_t index,
-                DateTime when, nb::handle python_delta, nb::set invalid_children) {
+                DateTime when, nb::handle python_delta, nb::set invalid_children, nb::list invalid_paths) {
                  ValueView buffer = self.view().get(key);
                  if (!buffer.valid()) { throw nb::key_error(key.c_str()); }
                  const auto entries = buffer.as_list();
@@ -478,14 +539,16 @@ namespace hgraph::python_bridge
                      if (nb::len(invalid_children)) {
                          invalid = py_to_value_as(invalid_children, delta_schema->fields[0].type);
                      }
-                 } else if (nb::len(invalid_children)) {
+                 } else if (nb::len(invalid_children) || nb::len(invalid_paths)) {
                      throw nb::type_error("INVALID_CHILD requires a dictionary recording");
                  }
                  Value delta = py_to_value_as(canonical, delta_schema);
-                 testing::write_sparse_entry(self.view(), key, when, std::move(delta), invalid, index);
+                 const auto paths = nb::len(invalid_paths)
+                     ? recording_withdrawal_paths(invalid_paths, delta_schema->fields[1].type) : Value{};
+                 testing::write_sparse_entry_with_paths(self.view(), key, when, std::move(delta), invalid, index, paths);
              },
              nb::arg("key"), nb::arg("index"), nb::arg("when"),
-             nb::arg("delta"), nb::arg("invalid_children") = nb::set())
+             nb::arg("delta"), nb::arg("invalid_children") = nb::set(), nb::arg("invalid_paths") = nb::list())
         .def("__setitem__",
              [](GlobalState &self, const std::string &key, nb::handle value) {
                  self.view().set(key, py_to_value(value));
