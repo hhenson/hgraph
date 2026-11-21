@@ -493,6 +493,11 @@ namespace hgraph
             static_cast<void>(mutation.copy_value_from(value));
         }
 
+        void invalidate_target(const TSOutputView &target);
+        template <bool Sample>
+        void apply_boxed_current_value(const TSOutputView &out, const ValueView &value);
+
+        template <bool Sample = false>
         void apply_current_value_dict(const TSOutputView &out, const ValueView &value)
         {
             auto       dict_out   = out.as_dict();
@@ -505,7 +510,7 @@ namespace hgraph
             {
                 TSOutputView child{out.output(), mutation.at(key), out.evaluation_time()};
                 // A present key can have no published child value (TS-19).
-                if (child_value.has_value()) { apply_current_value(child, child_value); }
+                if (child_value.has_value()) { apply_boxed_current_value<Sample>(child, child_value); }
                 else { static_cast<void>(child.begin_mutation(out.evaluation_time()).invalidate()); }
             }
 
@@ -517,6 +522,7 @@ namespace hgraph
             for (const auto &key : removals) { static_cast<void>(mutation.erase(key.view())); }
         }
 
+        template <bool Sample = false>
         void apply_current_value_list(const TSOutputView &out, const ValueView &value)
         {
             const auto *schema = out.schema();
@@ -541,13 +547,12 @@ namespace hgraph
             for (std::size_t index = 0; index < source_values.size(); ++index)
             {
                 auto source_child = source_values.at(index);
-                // Current-value application is a patch: an UNSET structural
-                // child leaves the target child untouched.
-                if (!source_child.valid()) { continue; }
-                apply_current_value(list_out.at(index), source_child);
+                if (source_child.valid()) { apply_boxed_current_value<Sample>(list_out.at(index), source_child); }
+                else if constexpr (Sample) { invalidate_target(list_out.at(index)); }
             }
         }
 
+        template <bool Sample = false>
         void apply_current_value_bundle(const TSOutputView &out, const ValueView &value)
         {
             const auto *schema = out.schema();
@@ -565,9 +570,8 @@ namespace hgraph
             for (std::size_t index = 0; index < source_values.size(); ++index)
             {
                 auto source_child = source_values.at(index);
-                // As above, bundle field validity gives patch semantics.
-                if (!source_child.valid()) { continue; }
-                apply_current_value(bundle_out.at(index), source_child);
+                if (source_child.valid()) { apply_boxed_current_value<Sample>(bundle_out.at(index), source_child); }
+                else if constexpr (Sample) { invalidate_target(bundle_out.at(index)); }
             }
         }
 
@@ -823,7 +827,7 @@ namespace hgraph
                                                const TSOutputView &target,
                                                TSCurrentReconcileOptions options)
         {
-            return options.scope == TSCurrentReconcileScope::Full || options.sample_all ||
+            return options.scope != TSCurrentReconcileScope::Incremental || options.sample_all ||
                    source_modified(source, target);
         }
 
@@ -968,9 +972,11 @@ namespace hgraph
             auto mutation = target_dict.begin_mutation(target.evaluation_time());
             const auto source_dict = source.as_dict();
             const TSCurrentReconcileOptions child_options{
-                TSCurrentReconcileScope::Full, options.sample_all, options.membership};
+                options.scope == TSCurrentReconcileScope::Sample ? TSCurrentReconcileScope::Sample
+                                                                : TSCurrentReconcileScope::Full,
+                options.sample_all, options.membership};
 
-            if (options.scope == TSCurrentReconcileScope::Full)
+            if (options.scope != TSCurrentReconcileScope::Incremental)
             {
                 std::vector<Value> removals;
                 for (const auto key : target_dict.keys())
@@ -1069,7 +1075,7 @@ namespace hgraph
         {
             if (!should_visit_source(source, target, options)) { return; }
             const std::size_t target_size = target.data_view().indexed_child_count();
-            const bool full = options.scope == TSCurrentReconcileScope::Full;
+            const bool full = options.scope != TSCurrentReconcileScope::Incremental;
 
             // A default view is the explicit "no source" sentinel used while
             // a forwarding publication changes owners. It has no topology to
@@ -1122,11 +1128,11 @@ namespace hgraph
                     continue;
                 }
                 auto target_child = target.indexed_child_at(index);
-                reconcile_current(
-                    target_child, source_child,
-                    TSCurrentReconcileOptions{full ? TSCurrentReconcileScope::Full
-                                                   : TSCurrentReconcileScope::Incremental,
-                                              options.sample_all, options.membership});
+                if (options.scope == TSCurrentReconcileScope::Sample && !source_child_live(source_child))
+                {
+                    invalidate_target(target_child);
+                }
+                else { reconcile_current(target_child, source_child, options); }
             }
 
             if (full && !resizable)
@@ -1210,21 +1216,22 @@ namespace hgraph
             throw std::logic_error("TSData current-state reconciliation is not available");
         }
 
-        template <auto Reconcile, bool RetainsSampleTimes, typename Source>
+        template <auto Reconcile, bool RetainsSampleTimes, bool Structural = false, typename Source>
         void reconcile_or_sample(const TSOutputView &target, const Source &source, TSCurrentReconcileOptions options)
         {
             if (options.scope == TSCurrentReconcileScope::Sample)
             {
-                if constexpr (RetainsSampleTimes)
+                if (!RetainsSampleTimes && !options.sample_all)
                 {
-                    // Copy window history and the membership of any enclosing dictionary.
-                    options = {TSCurrentReconcileScope::Full, true, true};
-                }
-                else
-                {
-                    apply_current_value(target, source.value());
+                    // A plain sampled value already carries child validity in its boxed
+                    // projection. Ordinary sparse writes keep their existing patch semantics.
+                    apply_boxed_current_value<Structural>(target, source.value());
                     return;
                 }
+                // A window-bearing snapshot also copies the original observation times.
+                // Keep Sample while descending through a structure so an invalid child is
+                // withdrawn even when it is itself a collection with a live empty value.
+                options = {Structural ? TSCurrentReconcileScope::Sample : TSCurrentReconcileScope::Full, true, true};
             }
             Reconcile(target, source, options);
         }
@@ -1311,10 +1318,10 @@ namespace hgraph
                 &current_value_schema_compatible_dict,
                 &current_ts_schema_compatible_dict,
                 &capture_current_dict,
-                &apply_current_value_dict,
+                &apply_current_value_dict<false>,
                 &observable_dict,
-                &reconcile_or_sample<reconcile_dict_impl<TSInputView>, RetainsSampleTimes>,
-                &reconcile_or_sample<reconcile_dict_impl<TSDataView>, RetainsSampleTimes>,
+                &reconcile_or_sample<reconcile_dict_impl<TSInputView>, RetainsSampleTimes, true>,
+                &reconcile_or_sample<reconcile_dict_impl<TSDataView>, RetainsSampleTimes, true>,
                 /* captures_while_invalid: */ true,   // an emptied TSD still owes the removals its link holds
             };
             return ops;
@@ -1327,10 +1334,10 @@ namespace hgraph
                 &current_value_schema_compatible_list,
                 &current_ts_schema_compatible_list,
                 &capture_current_list,
-                &apply_current_value_list,
+                &apply_current_value_list<false>,
                 &observable_list,
-                &reconcile_or_sample<reconcile_indexed_impl<TSInputView>, RetainsSampleTimes>,
-                &reconcile_or_sample<reconcile_indexed_impl<TSDataView>, RetainsSampleTimes>,
+                &reconcile_or_sample<reconcile_indexed_impl<TSInputView>, RetainsSampleTimes, true>,
+                &reconcile_or_sample<reconcile_indexed_impl<TSDataView>, RetainsSampleTimes, true>,
                 /* captures_while_invalid: */ false,   // a truncation is reported through the list's own delta, not a child capture
             };
             return ops;
@@ -1343,10 +1350,10 @@ namespace hgraph
                 &current_value_schema_compatible_bundle,
                 &current_ts_schema_compatible_bundle,
                 &capture_current_bundle,
-                &apply_current_value_bundle,
+                &apply_current_value_bundle<false>,
                 &observable_bundle,
-                &reconcile_or_sample<reconcile_indexed_impl<TSInputView>, RetainsSampleTimes>,
-                &reconcile_or_sample<reconcile_indexed_impl<TSDataView>, RetainsSampleTimes>,
+                &reconcile_or_sample<reconcile_indexed_impl<TSInputView>, RetainsSampleTimes, true>,
+                &reconcile_or_sample<reconcile_indexed_impl<TSDataView>, RetainsSampleTimes, true>,
                 /* captures_while_invalid: */ false,   // a bundle's own capture already walks its children
             };
             return ops;
@@ -2195,25 +2202,43 @@ namespace hgraph
         return ops.value_schema_compatible_impl(schema, value_schema);
     }
 
+    namespace
+    {
+        template <bool Sample>
+        void apply_boxed_current_value(const TSOutputView &out, const ValueView &value)
+        {
+            const auto &schema = require_schema(out.schema(), "apply_current_value");
+            if (!value.has_value())
+            {
+                throw std::invalid_argument("apply_current_value requires a live source value");
+            }
+            const auto *value_schema = value.schema();
+            if (value_schema == nullptr || !current_value_schema_compatible(schema, *value_schema))
+            {
+                throw std::invalid_argument(fmt::format(
+                    "apply_current_value cannot apply source value '{}' to output '{}' (time-series kind {})",
+                    value_schema != nullptr ? value_schema->name() : std::string_view{"<unbound>"},
+                    schema.value_schema != nullptr ? schema.value_schema->name() : std::string_view{"<unbound>"},
+                    static_cast<std::size_t>(schema.kind)));
+            }
+
+            const auto &ops = current_state_ops(out.data_view(), "apply_current_value");
+            const auto apply = ops.apply_current_value_impl;
+            if constexpr (Sample)
+            {
+                // Use the realized output's writer; only the standard structural writers
+                // need a distinct policy for an unset field or position.
+                if (apply == &apply_current_value_list<false>) { return apply_current_value_list<true>(out, value); }
+                if (apply == &apply_current_value_bundle<false>) { return apply_current_value_bundle<true>(out, value); }
+                if (apply == &apply_current_value_dict<false>) { return apply_current_value_dict<true>(out, value); }
+            }
+            apply(out, value);
+        }
+    }
+
     void apply_current_value(const TSOutputView &out, const ValueView &value)
     {
-        const auto &schema = require_schema(out.schema(), "apply_current_value");
-        if (!value.has_value())
-        {
-            throw std::invalid_argument("apply_current_value requires a live source value");
-        }
-        const auto *value_schema = value.schema();
-        if (value_schema == nullptr || !current_value_schema_compatible(schema, *value_schema))
-        {
-            throw std::invalid_argument(fmt::format(
-                "apply_current_value cannot apply source value '{}' to output '{}' (time-series kind {})",
-                value_schema != nullptr ? value_schema->name() : std::string_view{"<unbound>"},
-                schema.value_schema != nullptr ? schema.value_schema->name() : std::string_view{"<unbound>"},
-                static_cast<std::size_t>(schema.kind)));
-        }
-
-        const auto &ops = current_state_ops(out.data_view(), "apply_current_value");
-        ops.apply_current_value_impl(out, value);
+        apply_boxed_current_value<false>(out, value);
     }
 
     namespace

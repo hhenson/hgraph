@@ -608,6 +608,11 @@ bool invalidate_value(TSDataMutationView &mutation, bool discard_child) {
     state.last_empty_delta_time = now;
   }
   state.observers.notify(now);
+  // A concrete bundle's ordinary boxed value has a presence bit per field.
+  // Its parent records that bit from this child's final validity.
+  if (parent_type && parent_type.ops_ref().kind == TSTypeKind::TSB) {
+    state.last_modified_time = MIN_DT;
+  }
   state.parent.notify_child_modified(now);
   state.last_modified_time = MIN_DT;
   state.last_empty_delta_time = !table.is_target_link ? now : MIN_DT;
