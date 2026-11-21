@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <stdexcept>
 #include <unordered_map>
@@ -279,6 +280,8 @@ namespace hgraph
         using value_bundle = TValueBundle;
     };
 
+    template <typename TValue> struct Optional;
+
     namespace static_schema_detail
     {
         template <typename T> struct native_field_schema { using type = T; };
@@ -286,8 +289,16 @@ namespace hgraph
 
         template <NativeBundleValue T, typename Schema = typename native_bundle<T>::schema> struct native_bundle_fields;
 
-        template <typename T> struct native_ts_field { using type = TS<T>; };
-        template <NativeBundleValue T> struct native_ts_field<T> { using type = typename native_bundle_fields<T>::time_series; };
+        template <typename Member, typename Schema>
+        inline constexpr bool native_field_matches =
+            std::is_same_v<Member, Schema> || std::is_same_v<typename native_field_schema<Member>::type, Schema>;
+
+        template <typename Member, typename Schema>
+        inline constexpr bool native_field_matches<std::optional<Member>, Optional<Schema>> = native_field_matches<Member, Schema>;
+
+        template <typename Member, typename Schema> struct native_ts_field { using type = TS<Schema>; };
+        template <NativeBundleValue Member, typename Schema>
+        struct native_ts_field<Member, Schema> { using type = typename native_bundle_fields<Member>::time_series; };
 
         template <NativeBundleValue T, fixed_string Namespace, fixed_string Name, bool Abstract,
                   typename Parents, typename Arguments, typename... Fields>
@@ -305,10 +316,9 @@ namespace hgraph
 
             template <std::size_t... I>
             static auto temporal_schema(std::index_sequence<I...>) {
-                static_assert(((std::is_same_v<typename Fields::schema, member_type<I>> ||
-                                std::is_same_v<typename Fields::schema, typename native_field_schema<member_type<I>>::type>) && ...),
+                static_assert((native_field_matches<member_type<I>, typename Fields::schema> && ...),
                               "native_bundle member type must match the corresponding schema field");
-                return NominalTSB<T, Field<Fields::name_sv, typename native_ts_field<member_type<I>>::type>...>{};
+                return NominalTSB<T, Field<Fields::name_sv, typename native_ts_field<member_type<I>, typename Fields::schema>::type>...>{};
             }
             using time_series = decltype(temporal_schema(indices{}));
         };

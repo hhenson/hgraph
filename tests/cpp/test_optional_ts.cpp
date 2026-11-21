@@ -213,6 +213,42 @@ namespace
         }
     };
 
+    using NullableRef = REF<TS<Optional<Int>>>;
+    using PassiveNullableRef = In<"source", NullableRef, InputValidity::Unchecked, InputActivity::Passive>;
+
+    struct ChooseNullableRef
+    {
+        static void eval(In<"selection", TS<Int>> selection, PassiveNullableRef first,
+                         In<"second", NullableRef, InputValidity::Unchecked, InputActivity::Passive> second,
+                         Out<NullableRef> out)
+        {
+            if (selection.value() == 0) { out.set(first.value()); }
+            else if (selection.value() == 1) { out.set(second.value()); }
+            else if (selection.value() == 2) {
+                static_cast<void>(out.begin_mutation(out.evaluation_time()).invalidate());
+            }
+        }
+    };
+
+    struct SampleFirstRef
+    {
+        static void eval(In<"clock", TS<Int>>, PassiveNullableRef input, Out<NullableRef> out)
+        {
+            if (!out.valid()) { out.set(input.value()); }
+        }
+    };
+
+    template <bool Saved>
+    struct ReadNullableRef
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> selection, Port<TS<Int>> a, Port<TS<Int>> b)
+        {
+            auto selected = wire<ChooseNullableRef>(w, selection, wire<PlainLifecycle>(w, a), wire<PlainLifecycle>(w, b));
+            if constexpr (Saved) { selected = wire<SampleFirstRef>(w, selection, selected); }
+            return wire<SampleNullable>(w, selected, selection);
+        }
+    };
+
     struct BorrowedRecordingGraph
     {
         static Port<TS<Optional<Int>>> compose(Wiring &, Port<TS<Int>> value)
@@ -387,7 +423,33 @@ TEST_CASE("nullable binding: erased reads borrow the payload and cannot mutate i
     CHECK(descriptor->requested_schema == nullable);
 }
 
-TEST_CASE("nullable binding: widening does not admit whole collections or nullable references")
+TEST_CASE("nullable references follow selection while a sampled designation follows its original producer")
+{
+    const auto selection = values<Int>(0, -1, -1, -1, 1, -1, 2, 0);
+    const auto first = values<Int>(5, 6, -2, 7, -1, 8, -1, -1);
+    const auto second = values<Int>(70, -1, -1, -1, -1, 80, -1, -1);
+    CHECK_OUTPUT(testing::eval_node<ReadNullableRef<false>>(selection, first, second),
+        values<Str>("5:tick", "6:tick", "invalid", "7:tick", "70:tick", "80:tick", "invalid", "8:tick"));
+    CHECK_OUTPUT(testing::eval_node<ReadNullableRef<true>>(selection, first, second),
+        values<Str>("5:tick", "6:tick", "invalid", "7:tick", "7:held", "8:tick", "8:held", "8:held"));
+}
+
+TEST_CASE("nullable binding: a plain output may be designated through a nullable view")
+{
+    using Plain = TS<Int>;
+    using Nullable = TS<Optional<Int>>;
+    using Reference = REF<Nullable>;
+    STATIC_REQUIRE(graph_wiring_detail::statically_accepts_output_v<Reference, Plain>);
+    STATIC_REQUIRE_FALSE(graph_wiring_detail::statically_accepts_output_v<Reference, REF<Plain>>);
+    STATIC_REQUIRE_FALSE(graph_wiring_detail::statically_accepts_output_v<REF<Plain>, Nullable>);
+    const auto *plain = schema_descriptor<Plain>::ts_meta();
+    const auto *reference = schema_descriptor<Reference>::ts_meta();
+    ResolutionMap resolution;
+    CHECK(graph_wiring_detail::input_accepts_output_schema(reference, plain));
+    CHECK(input_ts_pattern_match(to_pattern<Reference>(), plain, resolution));
+}
+
+TEST_CASE("nullable binding: widening keeps exact payload, reference and collection types")
 {
     const auto check = []<typename Expected, typename Actual>() {
         const auto *expected = schema_descriptor<Expected>::ts_meta();
@@ -399,6 +461,9 @@ TEST_CASE("nullable binding: widening does not admit whole collections or nullab
     check.operator()<TSD<Str, TS<Optional<Int>>>, TSD<Str, TS<Int>>>();
     check.operator()<TSL<TS<Optional<Int>>, 2>, TSL<TS<Int>, 2>>();
     check.operator()<REF<TS<Optional<Int>>>, REF<TS<Int>>>();
+    check.operator()<REF<TS<Int>>, TS<Optional<Int>>>();
+    check.operator()<REF<TS<Optional<Int>>>, TS<Str>>();
+    check.operator()<TSL<REF<TS<Optional<Int>>>, 2>, TSL<TS<Int>, 2>>();
 }
 
 TEST_CASE("nullable binding: references retarget and subsequent ticks remain visible")

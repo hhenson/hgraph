@@ -1,4 +1,5 @@
-include_guard(GLOBAL)
+# System Arrow packages can expose directory-scoped imported targets.
+include_guard(DIRECTORY)
 # Arrow is too heavy to FetchContent by default. Explicit pyarrow-backed builds
 # may use its bundled libraries; the resulting native targets do not link the
 # Python runtime unless Python support is independently enabled.

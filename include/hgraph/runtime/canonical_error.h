@@ -3,6 +3,7 @@
 
 #include <hgraph/types/static_schema.h>
 #include <hgraph/util/date_time.h>
+#include <functional>
 #include <optional>
 #include <expected>
 #include <ostream>
@@ -33,6 +34,16 @@ namespace hgraph {
         friend std::ostream &operator<<(std::ostream &out, const CanonicalError &value) { return out << value.message; }
     };
 
+}
+template <> struct std::hash<hgraph::CanonicalError> {
+    [[nodiscard]] std::size_t operator()(const hgraph::CanonicalError &error) const noexcept {
+        const auto code = std::hash<std::optional<std::string>>{}(error.code);
+        const auto message = std::hash<std::string>{}(error.message);
+        return code ^ (message + 0x9e3779b9U + (code << 6U) + (code >> 2U));
+    }
+};
+
+namespace hgraph {
     extern template HGRAPH_EXPORT const MemoryUtils::StoragePlan &MemoryUtils::plan_for<CanonicalError>() noexcept;
     extern template HGRAPH_EXPORT const ValueOps &ops_for<CanonicalError>() noexcept;
     extern template HGRAPH_EXPORT const MemoryUtils::StoragePlan &MemoryUtils::plan_for<ErrorContext>() noexcept;

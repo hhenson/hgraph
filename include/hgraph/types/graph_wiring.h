@@ -874,6 +874,11 @@ namespace hgraph
         [[nodiscard]] inline bool binding_adapts_to_optional(const TSValueTypeMetaData *input_schema,
                                                              const TSValueTypeMetaData *output_schema)
         {
+            if (input_schema != nullptr && input_schema->kind == TSTypeKind::REF &&
+                output_schema != nullptr && output_schema->kind == TSTypeKind::TS)
+            {
+                input_schema = input_schema->referenced_ts();
+            }
             if (input_schema == nullptr || output_schema == nullptr || input_schema->kind != TSTypeKind::TS)
             {
                 return false;

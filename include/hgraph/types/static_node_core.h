@@ -682,7 +682,8 @@ namespace hgraph
                 using Fields = static_schema_detail::native_bundle_fields<T>;
                 T result{};
                 [&]<std::size_t... I>(std::index_sequence<I...>) {
-                    ((result.*std::get<I>(Fields::members) = field<Fields::template field<I>::name_sv>().value()), ...);
+                    ((result.*std::get<I>(Fields::members) = native_bundle_detail::member_access<Fields, I>::read(
+                          field<Fields::template field<I>::name_sv>())), ...);
                 }(typename Fields::indices{});
                 return result;
             } else {
@@ -1379,7 +1380,8 @@ namespace hgraph
         {
             using Fields = static_schema_detail::native_bundle_fields<TValueBundle>;
             [&]<std::size_t... I>(std::index_sequence<I...>) {
-                (field<Fields::template field<I>::name_sv>().set(value.*std::get<I>(Fields::members)), ...);
+                (native_bundle_detail::member_access<Fields, I>::write(
+                     field<Fields::template field<I>::name_sv>(), value.*std::get<I>(Fields::members)), ...);
             }(typename Fields::indices{});
         }
     };

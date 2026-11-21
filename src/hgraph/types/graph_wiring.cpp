@@ -1,4 +1,5 @@
 #include "../runtime/checkpoint_signature.h"
+#include "wiring_error_context.h"
 #include "wiring_scalar_key.h"
 #include <hgraph/runtime/map_node.h>
 #include <hgraph/runtime/component_checkpoint.h>
@@ -157,8 +158,13 @@ struct InstanceKey {
   std::vector<InputKey> inputs;
   Value scalars;
   std::string component{};
+};
 
-  bool operator==(const InstanceKey &other) const {
+struct InstanceKeyEqual {
+  wiring_detail::ErrorContextComparison error_contexts;
+
+  bool operator()(const InstanceKey &key, const InstanceKey &other) const {
+    const auto &[def, schema, inputs, scalars, component] = key;
     if (component != other.component || def != other.def || !(schema == other.schema) ||
         inputs != other.inputs) {
       return false;
@@ -169,12 +175,13 @@ struct InstanceKey {
     if (!scalars.has_value()) {
       return true;
     }
-    return scalars.equals(other.scalars) && same_zero_signs(scalars.view(), other.scalars.view());
+    return scalars.equals(other.scalars) && error_contexts.equal(scalars, other.scalars) &&
+           same_zero_signs(scalars.view(), other.scalars.view());
   }
 };
 
 struct InstanceKeyHash {
-  std::size_t operator()(const InstanceKey &key) const noexcept {
+  std::size_t operator()(const InstanceKey &key) const {
     std::size_t h = std::hash<std::type_index>{}(key.def);
     combine(h, std::hash<std::string>{}(key.component));
     combine(h, std::hash<const void *>{}(key.schema.input));
@@ -1804,7 +1811,7 @@ struct Wiring::Impl {
   std::unordered_map<std::string, std::size_t> checkpoint_component_starts{};
   std::unordered_map<std::string, std::size_t> checkpoint_node_counts{};
   std::unordered_map<std::string, std::unordered_set<std::string>> checkpoint_node_ids{};
-  std::unordered_map<InstanceKey, WiringInstance *, InstanceKeyHash> interned{};
+  std::unordered_map<InstanceKey, WiringInstance *, InstanceKeyHash, InstanceKeyEqual> interned{};
   std::unordered_map<std::string, std::string> built_service_paths{};
   std::unordered_map<std::string, ServiceClientIdentity> client_service_paths{};
   std::unordered_map<std::string, const WiringInstance *>
