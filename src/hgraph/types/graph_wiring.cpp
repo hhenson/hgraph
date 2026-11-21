@@ -1,5 +1,6 @@
 #include "../runtime/checkpoint_signature.h"
 #include "wiring_error_context.h"
+#include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/runtime/map_node.h>
 #include <hgraph/runtime/component_checkpoint.h>
 #include <hgraph/manifest/schema_descriptor.h>
@@ -15,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <deque>
 #include <stdexcept>
@@ -72,6 +74,85 @@ struct InputKey {
   bool operator==(const InputKey &) const noexcept = default;
 };
 
+// Runtime equality deliberately treats the two floating zeros alike. A node
+// can observe their signs in a scalar argument, even inside a container.
+bool negative_zero(const ValueView &atom) {
+  if (const auto *number = atom.try_as<Float>()) {
+    return *number == 0.0 && std::signbit(*number);
+  }
+  if (const auto *number = atom.try_as<float>()) {
+    return *number == 0.0f && std::signbit(*number);
+  }
+  return false;
+}
+
+// Containers of ordinary non-floating atoms need no second comparison.
+bool sign_may_matter(const ValueTypeMetaData *type) {
+  return !type || type->try_value_kind() != ValueTypeKind::Atomic ||
+         type == scalar_descriptor<Float>::value_meta() || type == scalar_descriptor<float>::value_meta();
+}
+
+struct ValueViewHash {
+  std::size_t operator()(const ValueView &value) const { return value.hash(); }
+};
+
+// Called only after ordinary value equality has matched both scalar keys.
+// A set may retain either sign in its member, just as a map may in its key.
+// Match those stored keys by value, independently of their iteration order.
+bool same_zero_signs(const ValueView &lhs, const ValueView &rhs) {
+  if (!lhs.valid() || lhs.schema()->is_opaque_python()) { return true; }
+  if (lhs.schema()->is_named_bundle()) {
+    // Reading a retained Python field may execute an arbitrary descriptor.
+    // Its existing equality owns sharing, even when wrapped in a native value.
+    const auto *provider = ValuePlanFactory::python_storage_provider();
+    if (provider && provider->python_bundle_schema && provider->python_bundle_schema(lhs.schema())) { return true; }
+  }
+  if (lhs.type().ops()->concrete_type_impl || rhs.type().ops()->concrete_type_impl) {
+    const auto a = lhs.concrete(), b = rhs.concrete();
+    if (a.binding() != lhs.binding() || b.binding() != rhs.binding()) { return same_zero_signs(a, b); }
+  }
+  if (lhs.is_atomic()) { return negative_zero(lhs) == negative_zero(rhs); }
+  if (lhs.is_optional()) { return same_zero_signs(lhs.as_optional().value(), rhs.as_optional().value()); }
+  if (lhs.is_any()) { return same_zero_signs(lhs.as_any().get(), rhs.as_any().get()); }
+  if (lhs.is_map()) {
+    const auto left = lhs.as_map(), right = rhs.as_map();
+    if (sign_may_matter(left.key_schema()) && !same_zero_signs(left.key_set(), right.key_set())) { return false; }
+    if (!sign_may_matter(left.value_schema())) { return true; }
+    for (const auto &[key, member] : left) {
+      if (!same_zero_signs(member, right.at(key))) { return false; }
+    }
+    return true;
+  }
+  if (lhs.is_set()) {
+    const auto left = lhs.as_set(), right = rhs.as_set();
+    if (!sign_may_matter(left.element_schema())) { return true; }
+    if (left.element_schema()->try_value_kind() == ValueTypeKind::Atomic) {
+      const auto has_negative_zero = [](const SetView &set) {
+        for (const auto member : set) {
+          if (negative_zero(member)) { return true; }
+        }
+        return false;
+      };
+      return has_negative_zero(left) == has_negative_zero(right);
+    }
+    std::unordered_set<ValueView, ValueViewHash> members;
+    for (auto member : right) { members.insert(std::move(member)); }
+    for (const auto member : left) {
+      const auto it = members.find(member);
+      if (it == members.end() || !same_zero_signs(member, *it)) { return false; }
+    }
+    return true;
+  }
+  if (auto left = lhs.try_as_indexed()) {
+    if (!sign_may_matter(lhs.schema()->element_type)) { return true; }
+    const auto right = rhs.as_indexed();
+    for (std::size_t i = 0; i < left->size(); ++i) {
+      if (!same_zero_signs(left->at(i), right.at(i))) { return false; }
+    }
+  }
+  return true;
+}
+
 struct InstanceKey {
   std::type_index def;
   WiringNodeSchema schema;
@@ -95,7 +176,8 @@ struct InstanceKeyEqual {
     if (!scalars.has_value()) {
       return true;
     }
-    return scalars.equals(other.scalars) && error_contexts.equal(scalars, other.scalars);
+    return scalars.equals(other.scalars) && error_contexts.equal(scalars, other.scalars) &&
+           same_zero_signs(scalars.view(), other.scalars.view());
   }
 };
 

@@ -13,14 +13,18 @@
 #include <hgraph/types/time_series/output_mutation.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/prepared_graph.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/subgraph_wiring.h>
+#include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/time_series/ts_delta.h>
 
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -2078,6 +2082,144 @@ TEST_CASE("graph wiring: scalar values participate in node interning")
     GraphBuilder            graph_builder = std::move(w).finish();
     testing::MockRootGraph  graph{graph_builder};
     CHECK(graph.graph().node_count() == 4);   // two distinct sources + two sinks
+}
+
+namespace
+{
+    struct DivideByConfiguredFloat
+    {
+        static void eval(In<"value", TS<Float>> value, Scalar<"divisor", Float> divisor, Out<TS<Float>> out)
+        {
+            out.set(value.value() / divisor.value());
+        }
+    };
+
+    struct DivideByFirstMember
+    {
+        static void eval(In<"value", TS<Float>> value, Scalar<"divisors", ScalarVar<"K">> divisors,
+                         Out<TS<Float>> out)
+        {
+            out.set(value.value() / divisors.value().as_list().at(0).checked_as<Float>());
+        }
+    };
+
+    Value float_pair(Float first, Float second)
+    {
+        const Value a{first}, b{second};
+        ListBuilder pair{a.binding()};
+        pair.push_back(a.view());
+        pair.push_back(b.view());
+        return pair.build();
+    }
+
+    struct CheckSignedDivisors
+    {
+        static void eval(In<"plus", TS<Float>> plus, In<"minus", TS<Float>> minus,
+                         In<"positive_result", TS<Float>> positive, In<"negative_result", TS<Float>> negative,
+                         In<"positive_member", TS<Float>> positive_member, In<"negative_member", TS<Float>> negative_member,
+                         Out<TS<Bool>> out)
+        {
+            out.set(positive_member.value() == positive.value() && negative_member.value() == negative.value() &&
+                    plus.value() == 0.0 && !std::signbit(plus.value()) &&
+                    minus.value() == 0.0 && std::signbit(minus.value()) &&
+                    positive.value() == std::numeric_limits<Float>::infinity() &&
+                    negative.value() == -std::numeric_limits<Float>::infinity());
+        }
+    };
+
+    template <bool Reverse>
+    struct SignedDivisors
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Float>> value)
+        {
+            const Float first = Reverse ? -0.0 : 0.0, second = -first;
+            const auto a = wire<stdlib::const_, TS<Float>>(w, first);
+            const auto b = wire<stdlib::const_, TS<Float>>(w, second);
+            const auto c = wire<DivideByConfiguredFloat>(w, value, first);
+            const auto d = wire<DivideByConfiguredFloat>(w, value, second);
+            const auto e = wire<DivideByFirstMember>(w, value, float_pair(first, second));
+            const auto f = wire<DivideByFirstMember>(w, value, float_pair(second, first));
+            CHECK(e.node() != f.node());
+            CHECK(a.node() != b.node());
+            CHECK(c.node() != d.node());
+            CHECK(c.node() == wire<DivideByConfiguredFloat>(w, value, first).node());
+            CHECK(d.node() == wire<DivideByConfiguredFloat>(w, value, second).node());
+            const auto nan = std::numeric_limits<Float>::quiet_NaN();
+            CHECK(wire<DivideByConfiguredFloat>(w, value, nan).node() !=
+                  wire<DivideByConfiguredFloat>(w, value, nan).node());
+            return wire<CheckSignedDivisors>(w, Reverse ? b : a, Reverse ? a : b, Reverse ? d : c, Reverse ? c : d,
+                                             Reverse ? f : e, Reverse ? e : f);
+        }
+    };
+}
+
+TEST_CASE("graph wiring: constants and configured divisors retain the sign of zero in either call order")
+{
+    using namespace hgraph::testing;
+    hgraph::stdlib::register_standard_operators();
+    const auto input = values<Float>(1.0, none, 1.0);
+    const auto expected = values<Bool>(true, none, true);
+    CHECK_OUTPUT(eval_node<SignedDivisors<false>>(input), expected);
+    CHECK_OUTPUT(eval_node<SignedDivisors<true>>(input), expected);
+}
+
+TEST_CASE("graph wiring: compound scalar keys distinguish the location of negative zeros")
+{
+    using namespace hgraph;
+    const Value plus{Float{0.0}}, minus{Float{-0.0}}, one{Float{1}};
+    CHECK(plus.equals(minus));
+    CHECK(plus.hash() == minus.hash());
+
+    Wiring w;
+    const auto builder = wire<ScaledSource>(w, Int{1}).node()->builder;
+    const auto node = [&](const Value &config) {
+        return w.add_node(typeid(ScaledSource), builder, std::span<const WiringPortRef>{}, config).peered_node();
+    };
+    CHECK(node(Value{0.0f}) != node(Value{-0.0f}));
+    CHECK(node(Value{-0.0f}) == node(Value{-0.0f}));
+
+    const auto map = [&](const Value &key, const Value &value, bool reverse) {
+        MapBuilder result{plus.binding(), plus.binding()};
+        if (reverse) { result.set_item(one.view(), plus.view()); }
+        result.set_item(key.view(), value.view());
+        if (!reverse) { result.set_item(one.view(), plus.view()); }
+        return result.build();
+    };
+    CHECK(node(map(minus, plus, false)) != node(map(plus, minus, false)));
+    CHECK(node(map(minus, plus, false)) == node(map(minus, plus, true)));
+    CHECK(node(map(plus, minus, false)) == node(map(plus, minus, true)));
+
+    const auto optional = [](const Value &item) {
+        Value result{ValuePlanFactory::instance().type_for(scalar_descriptor<Optional<Float>>::value_meta())};
+        result.view().as_optional().begin_mutation().emplace(item.view());
+        return result;
+    };
+    const auto boxed = [](const Value &item) {
+        Value result{ValuePlanFactory::instance().type_for(TypeRegistry::instance().any())};
+        result.as_any().begin_mutation().set(item.view());
+        return result;
+    };
+    CHECK(node(boxed(optional(plus))) != node(boxed(optional(minus))));
+    CHECK(node(boxed(optional(minus))) == node(boxed(optional(minus))));
+
+    auto &registry = TypeRegistry::instance();
+    const auto *base = registry.bundle("tests.wiring", "BaseConfig", {{"id", one.schema()}}, {}, true);
+    const auto *derived = registry.bundle("tests.wiring", "FloatConfig",
+                                          {{"id", one.schema()}, {"a", plus.schema()}, {"b", plus.schema()}}, {base});
+    const auto realization = TypeRealizationSnapshot::capture(registry);
+    TypeRealizationScope realization_scope{realization.get()};
+    const auto polymorphic = [&](const Value &a, const Value &b) {
+        Value entry{realization->exact_type_for(derived)};
+        auto fields = entry.view().as_bundle().begin_mutation();
+        fields.at("id").copy_from(one.view());
+        fields.at("a").copy_from(a.view());
+        fields.at("b").copy_from(b.view());
+        ListBuilder entries{realization->type_for(base)};
+        entries.push_back(entry.view());
+        return entries.build();
+    };
+    CHECK(node(polymorphic(plus, minus)) != node(polymorphic(minus, plus)));
+    CHECK(node(polymorphic(minus, plus)) == node(polymorphic(minus, plus)));
 }
 
 TEST_CASE("graph wiring: an unsupported scalar hash fails at the wiring call")
