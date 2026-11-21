@@ -325,6 +325,7 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     test_map.cpp
     test_dynamic_map_checkpoint.cpp
     test_mesh.cpp
+    test_compiled_reduce_mesh.cpp
     test_mesh_checkpoint.cpp
     test_reduce.cpp
     test_reduce_checkpoint.cpp

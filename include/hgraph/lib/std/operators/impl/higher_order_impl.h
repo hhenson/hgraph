@@ -2933,35 +2933,8 @@ namespace hgraph::stdlib
                 throw std::invalid_argument(
                     "mesh lookup key type does not match the enclosing mesh key type");
             }
-            // The key is a value input of the subscribe node: the from-REF rule is
-            // applied where every input gets it, not by hand here.
-            WiringPortRef item = graph_wiring_detail::adapt_source_for_input(w, key_schema, key);
-
-            // {item, value}: ``item`` is the requested key (wired); ``value`` starts at a
-            // never-ticking ``nothing<OUT>`` placeholder and is rebound at runtime to
-            // self[item] (forwards it and makes the node reactive to the sibling's ticks).
-            std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields{
-                {"item", item.schema}, {"value", out_schema}};
-            const auto *input_schema = TypeRegistry::instance().un_named_tsb(fields);
-
-            WiringNodeSchema node_schema;
-            node_schema.input  = input_schema;
-            node_schema.output = out_schema;
-
-            std::array<WiringPortRef, 2> inputs{std::move(item), value_placeholder};
-            return w.add_node(
-                std::type_index(typeid(mesh_subscribe_node_tag)), node_schema,
-                std::span<const WiringPortRef>{inputs.data(), inputs.size()}, Value{},
-                [&]() {
-                    NodeTypeMetaData meta;
-                    meta.display_name  = "mesh_subscribe";
-                    meta.input_schema  = input_schema;
-                    meta.output_schema = out_schema;
-                    NodeBuilder builder = mesh_subscribe_node(std::move(meta));
-                    builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
-                        input_schema, std::span<const WiringPortRef>{inputs.data(), inputs.size()}));
-                    return builder;
-                });
+            return subgraph_wiring_detail::wire_mesh_peer(w, key, value_placeholder, key_schema, out_schema,
+                                                         typeid(mesh_subscribe_node_tag));
         }
 
         // ``mesh_keys_ref`` access — wires a node that forwards the enclosing mesh's
