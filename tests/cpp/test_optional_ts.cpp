@@ -213,6 +213,42 @@ namespace
         }
     };
 
+    using NullableRef = REF<TS<Optional<Int>>>;
+    using PassiveNullableRef = In<"source", NullableRef, InputValidity::Unchecked, InputActivity::Passive>;
+
+    struct ChooseNullableRef
+    {
+        static void eval(In<"selection", TS<Int>> selection, PassiveNullableRef first,
+                         In<"second", NullableRef, InputValidity::Unchecked, InputActivity::Passive> second,
+                         Out<NullableRef> out)
+        {
+            if (selection.value() == 0) { out.set(first.value()); }
+            else if (selection.value() == 1) { out.set(second.value()); }
+            else if (selection.value() == 2) {
+                static_cast<void>(out.begin_mutation(out.evaluation_time()).invalidate());
+            }
+        }
+    };
+
+    struct SampleFirstRef
+    {
+        static void eval(In<"clock", TS<Int>>, PassiveNullableRef input, Out<NullableRef> out)
+        {
+            if (!out.valid()) { out.set(input.value()); }
+        }
+    };
+
+    template <bool Saved>
+    struct ReadNullableRef
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> selection, Port<TS<Int>> a, Port<TS<Int>> b)
+        {
+            auto selected = wire<ChooseNullableRef>(w, selection, wire<PlainLifecycle>(w, a), wire<PlainLifecycle>(w, b));
+            if constexpr (Saved) { selected = wire<SampleFirstRef>(w, selection, selected); }
+            return wire<SampleNullable>(w, selected, selection);
+        }
+    };
+
     struct BorrowedRecordingGraph
     {
         static Port<TS<Optional<Int>>> compose(Wiring &, Port<TS<Int>> value)
@@ -385,6 +421,17 @@ TEST_CASE("nullable binding: erased reads borrow the payload and cannot mutate i
     REQUIRE(descriptor.has_value());
     CHECK(descriptor->source.same_as(source.view(MIN_ST).handle()));
     CHECK(descriptor->requested_schema == nullable);
+}
+
+TEST_CASE("nullable references follow selection while a sampled designation follows its original producer")
+{
+    const auto selection = values<Int>(0, -1, -1, -1, 1, -1, 2, 0);
+    const auto first = values<Int>(5, 6, -2, 7, -1, 8, -1, -1);
+    const auto second = values<Int>(70, -1, -1, -1, -1, 80, -1, -1);
+    CHECK_OUTPUT(testing::eval_node<ReadNullableRef<false>>(selection, first, second),
+        values<Str>("5:tick", "6:tick", "invalid", "7:tick", "70:tick", "80:tick", "invalid", "8:tick"));
+    CHECK_OUTPUT(testing::eval_node<ReadNullableRef<true>>(selection, first, second),
+        values<Str>("5:tick", "6:tick", "invalid", "7:tick", "7:held", "8:tick", "8:held", "8:held"));
 }
 
 TEST_CASE("nullable binding: a plain output may be designated through a nullable view")
