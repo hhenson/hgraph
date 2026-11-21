@@ -818,16 +818,25 @@ endif()
 file(WRITE "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
     "include(CMakeFindDependencyMacro)\n"
     "${_hgraph_config_dependencies}"
+)
+# Validate dependencies in each caller's scope before importing or modifying
+# targets. Independent sibling directories can each own their own imports.
+set(_hgraph_config_targets "")
+string(APPEND _hgraph_config_targets
     "include(\"\${CMAKE_CURRENT_LIST_DIR}/hgraphTargets.cmake\")\n"
+    "get_property(_hgraph_configured TARGET hgraph::options PROPERTY _HGRAPH_SDK_CONFIGURED)\n"
+    "if(_hgraph_configured)\n"
+    "  return()\n"
+    "endif()\n"
 )
 if(HGRAPH_WITH_ARROW AND (NOT HGRAPH_BUILD_SHARED OR NOT HGRAPH_BUILD_PYTHON_BINDINGS))
-    file(APPEND "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
+    string(APPEND _hgraph_config_targets
         "target_link_libraries(hgraph::stdlib INTERFACE Arrow::arrow_shared ArrowCompute::arrow_compute_shared ArrowAcero::arrow_acero_shared)\n"
         "target_include_directories(hgraph::stdlib SYSTEM BEFORE INTERFACE \"$<TARGET_PROPERTY:Arrow::arrow_shared,INTERFACE_INCLUDE_DIRECTORIES>\")\n"
     )
 endif()
 if(NOT HGRAPH_BUILD_SHARED)
-    file(APPEND "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
+    string(APPEND _hgraph_config_targets
         # FetchContent dependencies are build-interface-only because their
         # targets cannot join hgraph's export set. Reattach the packages
         # resolved above for installed static configurations.
@@ -839,7 +848,7 @@ if(NOT HGRAPH_BUILD_SHARED)
         "endif()\n"
     )
 elseif(NOT HGRAPH_BUILD_PYTHON_BINDINGS)
-    file(APPEND "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
+    string(APPEND _hgraph_config_targets
         # A native shared SDK uses its system packages as the public-header
         # include/link surface. Python wheels instead ship the required
         # headers and keep implementation dependencies private.
@@ -854,7 +863,7 @@ if(HGRAPH_BUILD_SHARED AND (HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_ENABLE_PYTHON
     else()
         set(_hgraph_config_nanobind_definitions "NB_SHARED")
     endif()
-    file(APPEND "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
+    string(APPEND _hgraph_config_targets
         # Expose the wheel's installed shared nanobind runtime without taking
         # the mutable target name used internally by nanobind_add_module().
         # Downstream modules use hgraph_add_python_module(), which applies
@@ -941,7 +950,7 @@ if(HGRAPH_BUILD_SHARED AND (HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_ENABLE_PYTHON
         "endfunction()\n"
     )
 elseif(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_ENABLE_PYTHON_USER_NODES)
-    file(APPEND "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
+    string(APPEND _hgraph_config_targets
         "if(COMMAND nanobind_build_library AND NOT TARGET ${_hgraph_nanobind_library})\n"
         "  nanobind_build_library(${_hgraph_nanobind_library} AS_SYSINCLUDE)\n"
         "endif()\n"
@@ -1011,6 +1020,8 @@ if(HGRAPH_WITH_ARROW AND HGRAPH_BUILD_SHARED AND HGRAPH_USE_PYARROW_ARROW)
         "    return()\n"
         "  endif()\n"
         "endforeach()\n"
+    )
+    string(APPEND _hgraph_config_targets
         "if(NOT TARGET hgraph::pyarrow_arrow)\n"
         "  add_library(hgraph::pyarrow_arrow SHARED IMPORTED)\n"
         "  add_library(hgraph::pyarrow_compute SHARED IMPORTED)\n"
@@ -1030,6 +1041,11 @@ if(HGRAPH_WITH_ARROW AND HGRAPH_BUILD_SHARED AND HGRAPH_USE_PYARROW_ARROW)
         "endif()\n"
     )
 endif()
+
+file(APPEND "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
+    "${_hgraph_config_targets}"
+    "set_property(TARGET hgraph::options PROPERTY _HGRAPH_SDK_CONFIGURED TRUE)\n"
+)
 
 install(EXPORT hgraphTargets
     NAMESPACE hgraph::
