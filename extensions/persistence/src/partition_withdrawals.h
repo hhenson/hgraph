@@ -112,10 +112,9 @@ namespace hgraph::persistence::record_replay_frame_detail
                     paths.push_back(fields);
                 }
             } else if (node.schema()->kind == TSTypeKind::TSB && node.has_current_value()) {
-                const auto bundle = node.as_bundle();
                 for (std::size_t index = 0; index < node.schema()->field_count(); ++index) {
                     fields.push_back(static_cast<std::int32_t>(index));
-                    inspect_fields(bundle.at(index), now, key, fields);
+                    inspect_fields(node.indexed_child_at(index), now, key, fields);
                     fields.pop_back();
                 }
             }
@@ -251,8 +250,7 @@ namespace hgraph::persistence::record_replay_frame_detail
                     static_cast<std::size_t>(index) >= field.schema()->field_count()) {
                     throw std::invalid_argument("replay: withdrawal path names an unknown bundle field");
                 }
-                auto bundle = field.as_bundle();
-                field = bundle.at(static_cast<std::size_t>(index));
+                field = field.indexed_child_at(static_cast<std::size_t>(index));
             }
             static_cast<void>(field.begin_mutation(out.evaluation_time()).invalidate());
         }
