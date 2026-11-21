@@ -464,6 +464,27 @@ without the metadata retains its existing sparse interpretation. Earlier
 readers can open new files and read the projected values; apply explicit
 withdrawals with a reader that supports this metadata.
 
+An intermediate dictionary key can remain present when its dictionary is
+empty or has been withdrawn. To record those events in a partitioned frame,
+pass ``track_validity=True`` to ``record`` (C++ ``arg<"track_validity">(true)``).
+The default is false. Omitting the option keeps the existing table schema and
+replay behavior. Removal tracking is independent. For example, withdrawing
+a populated price dictionary leaves the previously recorded price with
+removals omitted, while a tracked removal of its last amount leaves an empty
+price dictionary in Tick mode.
+
+The opt-in profile adds a nullable boolean column for each intermediate
+dictionary level. The metadata key
+``hgraph.recording.dictionary_validity.v1.level.N`` names the column for
+one-based level N. A row with a validity operation carries the graph time,
+as-of time when tracked, and keys up to the affected owner. False withdraws
+the owner while retaining its key; true establishes a valid empty owner.
+Other rows have null in that column. A price withdrawal appears once at its
+own time, including when the sibling also changes. A second clear of an
+already invalid price records no new price row. Replaying an opted-in file
+requires a reader that supports the profile. The current reader also accepts
+older files. The leaf-field withdrawal column described above is independent.
+
 RFC 0019 completes this backend with per-record column projection,
 Tick/Sample/Snap recording, keyed frame expansion, and optional native
 segmentation. Tests (relocated with the extraction, RFC 0025 checkpoint 4):

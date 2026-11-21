@@ -6,7 +6,7 @@
 #include <hgraph/persistence/recording_options.h>
 #include <hgraph/persistence/recording_store.h>
 
-#include "partition_withdrawals.h"
+#include "dictionary_validity_recording.h"
 
 #include <arrow/array.h>
 #include <arrow/table.h>
@@ -171,6 +171,8 @@ namespace hgraph::persistence
 
             bool observe_withdrawals{false};
             WithdrawnRows withdrawn_rows{};
+            std::vector<std::string> validity_columns{};
+            std::size_t first_validity{};
 
             static constexpr std::size_t dropped = static_cast<std::size_t>(-1);
         };
@@ -244,6 +246,7 @@ namespace hgraph::persistence
             /** Always set: projection/filter description for every segment. */
             const table_ts_detail::TsTableLayout *recording_layout{nullptr};
             int withdrawal_index{-1};
+            std::vector<int> validity_columns{};
             Frame                                 frame{};
             std::int64_t                          row{0};
             /** Projection supplied by the caller, retained for every segment. */
@@ -330,6 +333,13 @@ namespace hgraph::persistence
                 metadata->Append(WINDOW_FORMAT, "1");
                 frame.table = frame.table->ReplaceSchemaMetadata(std::move(metadata));
             }
+            if (!handle.validity_columns.empty()) {
+                auto metadata = frame.table->schema()->metadata()->Copy();
+                for (std::size_t depth = 0; depth < handle.validity_columns.size(); ++depth) {
+                    metadata->Append(validity_metadata(depth), handle.validity_columns[depth]);
+                }
+                frame.table = frame.table->ReplaceSchemaMetadata(std::move(metadata));
+            }
             return annotate_withdrawals(std::move(frame), handle.withdrawn_rows);
         }
 
@@ -360,6 +370,7 @@ namespace hgraph::persistence
             }
             handle.source_columns = table_ts_detail::resolve_replay_columns(
                 frame, layout, handle.source_names, handle.as_of_named, handle.removes_named);
+            handle.validity_columns = resolve_dictionary_validity(frame, layout, handle.source_columns);
             if (handle.has_windows)
             {
                 const auto metadata = frame.table->schema()->metadata();
@@ -385,7 +396,28 @@ namespace hgraph::persistence
                 ++handle.row;
             const RecordedFrameRows recorded{handle.recording_layout, &handle.frame, &handle.source_columns,
                                              first, handle.row - first, handle.legacy_element};
-            handle.recording_layout->ops->apply(*handle.recording_layout, recorded.source(), out);
+            if (handle.validity_columns.empty()) {
+                handle.recording_layout->ops->apply(*handle.recording_layout, recorded.source(), out);
+            } else {
+                // Ordinary rows sharing a timestamp remain a single apply operation.
+                auto start = first;
+                const auto apply_ordinary = [&](std::int64_t end) {
+                    if (start == end) { return; }
+                    auto group = recorded;
+                    group.first = start;
+                    group.count = end - start;
+                    handle.recording_layout->ops->apply(*handle.recording_layout, group.source(), out);
+                };
+                for (auto row = first; row < handle.row; ++row) {
+                    const auto state = dictionary_validity_at(handle.frame, handle.validity_columns, row);
+                    if (!state) { continue; }
+                    apply_ordinary(row);
+                    apply_dictionary_validity(*handle.recording_layout, out, state->first, state->second,
+                                 [&](std::size_t col) { return RecordedFrameRows::cell(&recorded, row - first, col); });
+                    start = row + 1;
+                }
+                apply_ordinary(handle.row);
+            }
             if (handle.withdrawal_index >= 0) {
                 for (std::int64_t row = first; row < handle.row; ++row) {
                     apply_partition_withdrawals(handle.frame, handle.withdrawal_index, row,
@@ -522,7 +554,7 @@ namespace hgraph::persistence
                               arg<"mode">(ToTableMode::Tick),
                               arg<"flush_rows">(Int{0}),
                               arg<"flush_interval">(TimeDelta{0}),
-                              arg<"model">(Str{})};
+                              arg<"model">(Str{}), arg<"track_validity">(false)};
         }
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
@@ -539,7 +571,7 @@ namespace hgraph::persistence
             Scalar<"date_key", Str> date_key, Scalar<"as_of_key", Str> as_of_key,
             Scalar<"frame_prefix", Str> frame_prefix, Scalar<"mode", ToTableMode> mode,
             Scalar<"flush_rows", Int>           flush_rows,
-            Scalar<"flush_interval", TimeDelta> flush_interval, Scalar<"model", Str>,
+            Scalar<"flush_interval", TimeDelta> flush_interval, Scalar<"model", Str>, Scalar<"track_validity", Bool> track_validity,
             TraitsView traits,
             GlobalStateView gs, DateTime now, State<FrameRecorderState> state)
         {
@@ -555,7 +587,7 @@ namespace hgraph::persistence
             const TableRecordingOptions options = record_replay_frame_detail::recording_options(
                 as_of.value(), removes.value(), partition_names.value(), removed_names.value(),
                 date_key.value(), as_of_key.value(), frame_prefix.value(), config);
-            const RecordingColumns columns = recording_columns(layout, options);
+            RecordingColumns columns = recording_columns(layout, options);
             if (flush_rows.value() < 0 || flush_interval.value() < TimeDelta{0})
             {
                 throw std::invalid_argument("record: flush thresholds must not be negative");
@@ -575,6 +607,19 @@ namespace hgraph::persistence
                 recording_projection[columns.source[output]] = columns.names[output];
             }
 
+            const auto first_validity = columns.names.size();
+            std::vector<std::string> validity_columns;
+            if (track_validity.value() && record_replay_frame_detail::supports_partition_withdrawals(layout)) {
+                for (std::size_t depth = 0; depth + 1 < layout.levels.size(); ++depth) {
+                    std::string name = "__key_" + std::to_string(depth + 1) + "_valid__";
+                    while (std::find(columns.names.begin(), columns.names.end(), name) != columns.names.end()) {
+                        name += '_';
+                    }
+                    validity_columns.push_back(name);
+                    columns.names.push_back(std::move(name));
+                    columns.metas.push_back(scalar_descriptor<Bool>::value_meta());
+                }
+            }
             auto handle = std::make_unique<RecorderHandle>(RecorderHandle{
                 TableRecorder{columns.names, columns.metas},
                 record_replay_frame_detail::frame_key(traits, recordable_id.value(), key.value()),
@@ -584,6 +629,8 @@ namespace hgraph::persistence
                                                                     : std::optional<DateTime>{}});
             handle->recording_projection = std::move(recording_projection);
             handle->layout = &layout;
+            handle->validity_columns = std::move(validity_columns);
+            handle->first_validity = first_validity;
             handle->observe_withdrawals = record_replay_frame_detail::supports_partition_withdrawals(layout);
             handle->flush_rows = flush_rows.value();
             handle->flush_interval = flush_interval.value();
@@ -621,7 +668,7 @@ namespace hgraph::persistence
             Scalar<"date_key", Str> date_key, Scalar<"as_of_key", Str> as_of_key,
             Scalar<"frame_prefix", Str> frame_prefix, Scalar<"mode", ToTableMode> mode,
             Scalar<"flush_rows", Int>           flush_rows,
-            Scalar<"flush_interval", TimeDelta> flush_interval, Scalar<"model", Str>,
+            Scalar<"flush_interval", TimeDelta> flush_interval, Scalar<"model", Str>, Scalar<"track_validity", Bool> track_validity,
             State<FrameRecorderState> state, GlobalStateView gs, DateTime now)
         {
             static_cast<void>(key);
@@ -639,6 +686,7 @@ namespace hgraph::persistence
             static_cast<void>(flush_rows);
             static_cast<void>(flush_interval);
             static_cast<void>(gs);
+            static_cast<void>(track_validity);
             using namespace table_ts_detail;
             auto       *handle     = state.get().handle;
             const auto  as_of_cell = handle->fixed_as_of.value_or(now);
@@ -652,7 +700,7 @@ namespace hgraph::persistence
                 emit_rows_to(layout, ts.base(), static_cast<Int>(handle->mode), now, as_of_cell,
                              handle->emit_removals, single ? recording.counting_sink() : recording.sink(), true);
                 if (handle->observe_withdrawals && (!single || recording.incomplete)) {
-                    record_replay_frame_detail::PartitionObservation observation{layout};
+                    record_replay_frame_detail::PartitionObservation observation{layout, !handle->validity_columns.empty()};
                     record_replay_frame_detail::FieldPath fields;
                     observation.collect(ts.base().data_view(), 0, now, nullptr, fields);
                     if (!observation.pending.empty()) {
@@ -664,6 +712,10 @@ namespace hgraph::persistence
                         recording.observation = nullptr;
                         observation.finish_tick(now, as_of_cell, handle->withdrawn_rows,
                                                 handle->recorder.rows(), recording.sink());
+                    }
+                    for (const auto &[key, valid] : observation.prefixes) {
+                        record_replay_frame_detail::write_dictionary_validity(layout, key, valid, now, as_of_cell,
+                            recording.sink(), handle->recorder, handle->first_validity);
                     }
                 }
             }
