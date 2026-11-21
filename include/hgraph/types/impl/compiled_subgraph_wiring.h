@@ -2,6 +2,7 @@
 #define HGRAPH_TYPES_IMPL_COMPILED_SUBGRAPH_WIRING_H
 
 #include <hgraph/runtime/map_node.h>
+#include <hgraph/runtime/mesh_node.h>
 #include <hgraph/runtime/switch_node.h>
 #include <hgraph/runtime/tsl_map_node.h>
 #include <hgraph/types/subgraph_wiring.h>
@@ -12,6 +13,39 @@
 
 namespace hgraph::subgraph_wiring_detail
 {
+    // Both wiring paths bind the subscriber's second input to the selected sibling at runtime.
+    [[nodiscard]] inline WiringPortRef wire_mesh_peer(Wiring &w, const WiringPortRef &key,
+                                                      const WiringPortRef &value_placeholder,
+                                                      const TSValueTypeMetaData *key_schema,
+                                                      const TSValueTypeMetaData *out_schema,
+                                                      std::type_index tag)
+    {
+        WiringPortRef item = graph_wiring_detail::adapt_source_for_input(w, key_schema, key);
+
+        std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields{
+            {"item", item.schema}, {"value", out_schema}};
+        const auto *input_schema = TypeRegistry::instance().un_named_tsb(fields);
+
+        WiringNodeSchema node_schema;
+        node_schema.input  = input_schema;
+        node_schema.output = out_schema;
+
+        std::array<WiringPortRef, 2> inputs{std::move(item), value_placeholder};
+        return w.add_node(
+            tag, node_schema,
+            std::span<const WiringPortRef>{inputs.data(), inputs.size()}, Value{},
+            [&]() {
+                NodeTypeMetaData meta;
+                meta.display_name  = "mesh_subscribe";
+                meta.input_schema  = input_schema;
+                meta.output_schema = out_schema;
+                NodeBuilder builder = mesh_subscribe_node(std::move(meta));
+                builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
+                    input_schema, std::span<const WiringPortRef>{inputs.data(), inputs.size()}));
+                return builder;
+            });
+    }
+
     inline void append_external_service_inputs(
         Wiring &w,
         std::vector<NestedServiceInput> external_inputs,
@@ -727,7 +761,8 @@ namespace hgraph::subgraph_wiring_detail
         return MapOutputBindingMode::ChildTerminalWritesElement;
     }
 
-    inline void bind_map_terminal(MapNodeSpec &spec, const CompiledSubGraph &compiled,
+    template <typename Spec>
+    inline void bind_map_terminal(Spec &spec, const CompiledSubGraph &compiled,
                                   const TSValueTypeMetaData *element, std::string_view operation_name)
     {
         const auto &binding = *spec.child.output_binding;
@@ -775,11 +810,11 @@ namespace hgraph::subgraph_wiring_detail
             materialize_structural_broadcast_inputs(w, inputs, schemas, spec.multiplexed_inputs);
         std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
         fields.reserve(inputs.size() + keys.has_value());
-        if constexpr (std::is_same_v<Spec, MapNodeSpec>) {
+        if constexpr (!std::is_same_v<Spec, TslMapNodeSpec>) {
             for (const auto slot : spec.multiplexed_inputs) { schemas[slot] = registry.dereference(schemas[slot]); }
         }
         for (std::size_t i = 0; i < schemas.size(); ++i) { fields.emplace_back(std::to_string(i), schemas[i]); }
-        if constexpr (std::is_same_v<Spec, MapNodeSpec>) {
+        if constexpr (!std::is_same_v<Spec, TslMapNodeSpec>) {
             spec.keys_input_index = inputs.size();
             fields.emplace_back("__keys__", keys.value().schema);
             inputs.push_back(std::move(*keys));
@@ -788,12 +823,14 @@ namespace hgraph::subgraph_wiring_detail
         const auto refs = higher_order_input_refs(inputs, passive_materializers);
         auto make_builder = [&] {
             NodeTypeMetaData meta;
-            meta.display_name = "map_";
+            meta.display_name = std::is_same_v<Spec, MeshNodeSpec> ? "mesh_" : "map_";
             meta.input_schema = input_schema;
             meta.output_schema = output_schema;
             configure_passive_transport_inputs(meta, inputs);
             auto builder = [&] {
-                if constexpr (std::is_same_v<Spec, MapNodeSpec>) {
+                if constexpr (std::is_same_v<Spec, MeshNodeSpec>) {
+                    return mesh_node(std::move(meta), std::move(spec));
+                } else if constexpr (std::is_same_v<Spec, MapNodeSpec>) {
                     return map_node(std::move(meta), std::move(spec));
                 } else {
                     return tsl_map_node(std::move(meta), std::move(spec));

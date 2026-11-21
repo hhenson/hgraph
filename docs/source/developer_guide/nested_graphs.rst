@@ -38,6 +38,17 @@ child captures.
     auto mapped = compiled::map_(w, dictionary, std::array{offset.erased()},
                        compile_subgraph<PerKey>(w), MapKeyArg::First);
 
+    std::array arguments{left.erased(), offset.erased(), right.erased()};
+    std::array<std::size_t, 2> per_key{0, 2};
+    auto paired = compiled::map_(w, arguments, per_key, compile_subgraph<CombinePair>(w),
+                       MapKeyArg::None, joined_keys.erased());
+
+    auto folded = compiled::reduce_(w, dictionary, compile_subgraph<Combine>(w),
+                      seed.erased(), compiled::ReduceOrder::Ordered);
+
+    auto mesh = compiled::mesh_(w, dictionary, std::array{offset.erased()},
+                    compile_subgraph<PerKeyWithPeers>(w), MapKeyArg::First);
+
     auto captured = compiled::try_except_(w, std::array{input.erased()},
                         compile_subgraph<Checked>(w), ErrorCaptureOptions{.canonical_errors = true});
 
@@ -50,10 +61,29 @@ diagnostic detail. Both forms use the same runtime as ``try_except_<G>``.
 A switch branch takes the ordinary inputs in order. Set its ``takes_key``
 member to pass the selector first. A map child takes an optional leading key or
 list index, the element, then the broadcasts. Dictionary membership comes from
-the collection or an explicit key set. Captures bind as whole ports. Use
+the collection or an explicit key set. To multiplex multiple inputs, pass the
+ports in child argument order and the indices of the ports to split. For
+dictionaries supply the lifecycle key set, for example the union of both
+input key sets. Every multiplexed dictionary uses the same key type. The
+remaining inputs are broadcasts, including any whole dictionaries. The same
+form applies to ``map_sink_`` and ``mesh_``. A map over multiple dynamic lists
+splits by position and takes its size from the lists. Captures bind as whole ports. Use
 ``compiled::switch_sink_`` and ``compiled::map_sink_`` for outputless children. Each direct call
 owns its compiled graphs. The registered operators continue to intern calls
 using their callable identity and arguments.
+
+An associative reduction combines live dictionary or list elements. An omitted
+zero leaves an empty reduction invalid. A supplied zero is the empty result
+and participates in the singleton combination. An ordered reduction takes a
+zero and a binary child with accumulator and element inputs. Integer-keyed
+dictionaries and growing lists start with that zero. A fixed list folds its
+positions from left to right, using the zero for each invalid position.
+
+A compiled mesh takes a dictionary, optional broadcasts and an optional key
+set with the same input order as a compiled map. In the child, use
+``compiled::mesh_peer(w, key.erased(), schema_descriptor<Book>::ts_meta())``,
+where ``Book`` is the mesh output dictionary type. The nearest enclosing mesh
+creates and updates requested peers, including through nested child graphs.
 
 The model
 ---------
