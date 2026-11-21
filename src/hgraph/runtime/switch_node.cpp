@@ -2,6 +2,8 @@
 #include <hgraph/runtime/switch_node.h>
 #include <hgraph/util/scope.h>
 
+#include "nested_output_writer.h"
+
 #include <algorithm>
 #include <array>
 #include <memory>
@@ -231,7 +233,7 @@ bool bind_branch_output(const NodeView &view, const SwitchNodeContext &context,
     return true;
   }
 
-  bind_forwarding_output_to_source(branch_terminal, switch_output);
+  runtime_detail::bind_nested_output_writer(branch_terminal, switch_output);
   return true;
 }
 
@@ -292,7 +294,11 @@ void reset_switch_output(const NodeView &view, const SwitchNodeContext &context,
     static_cast<void>(mutation.move_value_from(std::move(empty)));
     return;
   }
-  static_cast<void>(output.data_view().clear_collection(evaluation_time));
+  // A local switch may itself write into a containing map or switch.
+  auto destination = resolve_forwarding_source(std::move(output));
+  if (destination.bound()) {
+    static_cast<void>(destination.begin_mutation(evaluation_time).invalidate());
+  }
 }
 
 [[nodiscard]] const SingleNestedGraphNodeSpec *

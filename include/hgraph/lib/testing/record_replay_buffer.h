@@ -250,7 +250,9 @@ namespace hgraph::testing
             else { mutation.push_back(entry.view()); }
         };
         if (rows.element_schema()->field_count == 3) {
-            write(sparse_dictionary_entry(rows.front().binding(), Value{when}.view(), delta.view(), invalid_children));
+            const auto *ops = checked_value_ops<IndexedValueOps>(buffer.binding(), "sparse recording");
+            const auto type = ops->element_binding(ops->context, buffer.data(), 0);
+            write(sparse_dictionary_entry(type, Value{when}.view(), delta.view(), invalid_children));
             return;
         }
         if (!invalid_children.has_value()) {

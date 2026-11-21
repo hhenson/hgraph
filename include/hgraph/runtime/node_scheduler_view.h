@@ -123,7 +123,7 @@ namespace hgraph
             return std::max(now_, wall_clock_.now());
         }
 
-        /** Earliest pending time, or ``MIN_DT`` when nothing is scheduled. */
+        /** Earliest pending time, or ``MIN_DT`` when none remain. During eval only future requests are pending. */
         [[nodiscard]] DateTime next_scheduled_time() const noexcept;
 
         /** Whether any events are pending. */
@@ -131,10 +131,8 @@ namespace hgraph
 
         /**
          * Whether the node is scheduled for the current evaluation cycle — i.e. the
-         * earliest pending event is *exactly* now. Mirrors the authoritative
-         * Python ``is_scheduled_now`` (``events[0][0] == evaluation_time``);
-         * fired events never linger below ``now`` because :cpp:func:`advance`
-         * consumes them.
+         * scheduler has a delivery at this evaluation time. A simultaneous
+         * input tick leaves this true, including when no later wake is pending.
          */
         [[nodiscard]] bool is_scheduled_now() const noexcept;
 

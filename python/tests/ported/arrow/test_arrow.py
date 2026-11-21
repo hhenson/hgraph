@@ -274,7 +274,8 @@ def test_if_then_else():
 
 def test_if_():
     one = const_(1)
-    fn = if_(eq_ << one).then(add_ << one) >> assert_(2)
+    # The false branch never publishes, withdrawing the previous result.
+    fn = if_(eq_ << one).then(add_ << one) >> assert_(2, None)
     print(fn)
     eval_([1, 2]) | fn
 

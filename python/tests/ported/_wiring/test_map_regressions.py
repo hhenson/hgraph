@@ -2,6 +2,8 @@
 # shape directly; no private Python builder behavior is part of this test.
 from dataclasses import dataclass
 
+import pytest
+
 import hgraph as hg
 from hgraph.test import eval_node
 
@@ -541,4 +543,29 @@ def test_key_only_map_combines_captured_reference_fields():
         {"right": {"status": False, "rejected": True}},
         {"left": {"status": False}},
         {"left": hg.REMOVE},
+    ]
+
+
+@pytest.mark.parametrize("operator", [hg.map_, hg.mesh_])
+def test_active_mapped_child_can_withdraw_while_its_key_remains(operator):
+    @hg.compute_node
+    def child(value: hg.TS[int], _output: hg.TS[int] = None) -> hg.TS[int]:
+        if value.value < 0:
+            _output.invalidate()
+        else:
+            return value.value
+
+    @hg.compute_node(active=("clock",), valid=("clock",))
+    def read(clock: hg.TS[int], values: hg.TSD[str, hg.TS[int]]) -> hg.TS[object]:
+        return {key: item.value if item.valid else None for key, item in values.items()}
+
+    @hg.graph
+    def run(values: hg.TSD[str, hg.TS[int]], clock: hg.TS[int]) -> hg.TS[object]:
+        return read(clock, operator(lambda value: child(value), values))
+
+    assert eval_node(run, [
+        {"q": 7, "z": 42}, {"q": -1}, None, {"q": 11}, {"q": hg.REMOVE}, None, {"q": 13},
+    ], list(range(7))) == [
+        {"q": 7, "z": 42}, {"q": None, "z": 42}, {"q": None, "z": 42},
+        {"q": 11, "z": 42}, {"z": 42}, {"z": 42}, {"q": 13, "z": 42},
     ]

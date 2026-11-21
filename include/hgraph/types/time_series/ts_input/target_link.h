@@ -110,6 +110,8 @@ namespace hgraph::detail
         // and lifetime notifications, not every value tick in the collection.
         bool tracks_structure{false};
         bool tracks_key{false};
+        // True when a nested writer uses the target as its output storage.
+        bool writes_parent_output{false};
         /** Bind-time scalar forwarding route, borrowed under ``target``'s
             existing endpoint lifetime protocol. Null for physical producers,
             REF values and structural targets. */

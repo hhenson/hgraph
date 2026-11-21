@@ -7,6 +7,8 @@
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_schema.h>
 
+#include "nested_output_writer.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -504,7 +506,7 @@ namespace hgraph::runtime_detail
         switch (mode)
         {
             case MapOutputBindingMode::ChildTerminalWritesElement:
-                bind_forwarding_output_to_source(child_terminal, element);
+                bind_nested_output_writer(child_terminal, element);
                 break;
             case MapOutputBindingMode::OutputElementForwardsToChildTerminal:
                 // Preserve the child's stable terminal endpoint rather than

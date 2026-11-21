@@ -55,19 +55,35 @@ namespace hgraph
             graph_->schedule_node(node_index_, state_->pending_events().front().first);
     }
 
+    namespace
+    {
+        // Delivery records remain available to due/tag queries until advance().
+        // During start, a request for the first evaluation is still pending.
+        std::span<const NodeSchedulerState::Event> pending_for_next_wake(
+            const NodeSchedulerState *state, DateTime now, bool started) noexcept
+        {
+            if (!state) { return {}; }
+            const auto events = state->pending_events();
+            if (!started || events.empty() || events.front().first > now) { return events; }
+            const auto next = std::ranges::upper_bound(events, now, {}, &NodeSchedulerState::Event::first);
+            return {next, events.end()};
+        }
+    }
+
     DateTime NodeScheduler::next_scheduled_time() const noexcept
     {
-        return is_scheduled() ? state_->pending_events().front().first : MIN_DT;
+        const auto pending = pending_for_next_wake(state_, now_, started_);
+        return pending.empty() ? MIN_DT : pending.front().first;
     }
 
     bool NodeScheduler::is_scheduled() const noexcept
     {
-        return state_ != nullptr && !state_->pending_events().empty();
+        return !pending_for_next_wake(state_, now_, started_).empty();
     }
 
     bool NodeScheduler::is_scheduled_now() const noexcept
     {
-        return is_scheduled() && state_->pending_events().front().first == now_;
+        return state_ && !state_->pending_events().empty() && state_->pending_events().front().first == now_;
     }
 
     bool NodeScheduler::has_tag(std::string_view tag) const
@@ -88,7 +104,7 @@ namespace hgraph
         const auto it = state_->tags.find(std::string{tag});
         if (it == state_->tags.end()) { return default_time; }
         const DateTime when = it->second;
-        state_->erase_event({when, it->first});
+        if (!started_ || when != now_) { state_->erase_event({when, it->first}); }
         state_->tags.erase(it);
         return when;
     }
@@ -128,11 +144,12 @@ namespace hgraph
         {
             if (const auto it = state_->tags.find(tag_value); it != state_->tags.end())
             {
-                state_->erase_event({it->second, tag_value});  // replace existing tagged event
+                if (!started_ || it->second != now_) { state_->erase_event({it->second, tag_value}); }
             }
         }
 
-        const DateTime prev_first = is_scheduled() ? state_->pending_events().front().first : MAX_DT;
+        const auto events = state_->pending_events();
+        const DateTime prev_first = events.empty() ? MAX_DT : events.front().first;
         if (tagged) { state_->tags[tag_value] = when; }  // only tagged events are indexed
         state_->insert_event({when, tag_value});
         const DateTime next = state_->pending_events().front().first;
@@ -142,25 +159,29 @@ namespace hgraph
     void NodeScheduler::un_schedule(const std::string &tag) const
     {
         require_state("un_schedule");
-        if (const auto it = state_->tags.find(tag); it != state_->tags.end())
-        {
-            state_->erase_event({it->second, it->first});
-            state_->tags.erase(it);
-        }
+        (void)pop_tag(tag);
     }
 
     void NodeScheduler::un_schedule() const
     {
         require_state("un_schedule");
-        if (!is_scheduled()) { return; }
-        state_->tags.erase(state_->pending_events().front().second);
-        state_->pop_event();
+        const auto pending = pending_for_next_wake(state_, now_, started_);
+        if (pending.empty()) { return; }
+        const auto &next = pending.front();
+        if (!next.second.empty()) { state_->tags.erase(next.second); }
+        if (&next == &state_->pending_events().front()) { state_->pop_event(); }
+        else { state_->erase_event(next); }
     }
 
     void NodeScheduler::reset() const
     {
         require_state("reset");
-        state_->clear_events();
+        if (started_ && is_scheduled_now())
+        {
+            // Keep the delivery record through this evaluation even after reset.
+            state_->events.resize(state_->events_head + 1);
+        }
+        else { state_->clear_events(); }
         state_->tags.clear();
     }
 
@@ -171,7 +192,12 @@ namespace hgraph
         {
             const auto pending = state_->pending_events();
             const std::string &tag = pending.front().second;
-            if (!tag.empty()) { state_->tags.erase(tag); }  // only tagged events are indexed
+            if (!tag.empty())
+            {
+                const auto it = state_->tags.find(tag);
+                // A delivered tag can already have been re-armed for another time.
+                if (it != state_->tags.end() && it->second == pending.front().first) { state_->tags.erase(it); }
+            }
             state_->pop_event();
         }
         if (graph_ != nullptr && !state_->pending_events().empty())
