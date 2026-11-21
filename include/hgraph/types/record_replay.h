@@ -173,6 +173,9 @@ namespace hgraph::record_replay
         AtStart,     ///< Publish the history through the restart time once.
         BeforeLive,  ///< Quietly restore earlier history before applying the live restart tick.
     };
+    /** Ensure each recorded dictionary member exists and clear its scalar child. */
+    HGRAPH_EXPORT void apply_recorded_invalid_children(const TSOutputView &target, const ValueView &keys);
+
     /** Backends implementing this callback can restore original sample times
         even when a simultaneous live tick supplies the first publication. */
     using SeedPublisher = void (*)(GlobalStateView, std::string_view, const TSOutputView &, SeedPublication);

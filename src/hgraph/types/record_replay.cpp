@@ -65,7 +65,9 @@ namespace hgraph::record_replay
                 const auto entry = entries.at(index).as_indexed_view();
                 const auto when = entry.at(0).checked_as<DateTime>();
                 if (when > start || (when == start && end == PrefixEnd::BeforeStart)) { break; }
-                apply_delta(history.view(when), entry.at(1));
+                const auto output = history.view(when);
+                apply_delta(output, entry.at(1));
+                if (entry.size() == 3) { apply_recorded_invalid_children(output, entry.at(2)); }
             }
             return index;
         }
@@ -78,7 +80,12 @@ namespace hgraph::record_replay
             apply_memory_prefix(buffer, history, target.evaluation_time(),
                                 mode == SeedPublication::AtStart ? PrefixEnd::ThroughStart : PrefixEnd::BeforeStart);
             if (!history.view(target.evaluation_time()).valid()) { return; }
-            publish_window_history(target, history.data_view(), mode);
+            if (mode == SeedPublication::AtStart && target.schema()->kind == TSTypeKind::TSD &&
+                target.schema()->element_ts()->kind == TSTypeKind::TS) {
+                reconcile_current_state(target, history.data_view(), {TSCurrentReconcileScope::Full, true, true});
+            } else {
+                publish_window_history(target, history.data_view(), mode);
+            }
         }
 
         void ensure_config_type()
@@ -266,9 +273,32 @@ namespace hgraph::record_replay
             reconcile_current_state(target, history, {TSCurrentReconcileScope::Full, true});
     }
 
+    void apply_recorded_invalid_children(const TSOutputView &target, const ValueView &keys)
+    {
+        if (!keys.has_value()) { return; }
+        if (target.schema()->kind != TSTypeKind::TSD || target.schema()->element_ts()->kind != TSTypeKind::TS) {
+            throw std::invalid_argument("recorded invalid children require a dictionary with scalar children");
+        }
+        auto mutation = target.as_dict().data_view().begin_mutation(target.evaluation_time());
+        for (const auto key : keys.as_set()) {
+            const auto child = mutation.at(key);
+            static_cast<void>(child.begin_mutation(target.evaluation_time()).invalidate());
+        }
+    }
+
     void publish_recorded_seed(GlobalStateView state, std::string_view fq_key, const TSOutputView &target,
                                SeedPublication mode)
     {
+        if (target.schema()->kind == TSTypeKind::TSD && target.schema()->element_ts()->kind == TSTypeKind::TS) {
+            const auto selected = config(state).backend;
+            if (selected == MEMORY || selected == TESTING) {
+                const auto buffer = state.get(":memory:" + std::string{fq_key});
+                if (buffer.valid() && buffer.as_list().element_schema()->field_count == 3) {
+                    publish_memory_seed(state, fq_key, target, mode);
+                    return;
+                }
+            }
+        }
         if (target.schema()->contains_window())
         {
             const auto selected = config(state).backend;

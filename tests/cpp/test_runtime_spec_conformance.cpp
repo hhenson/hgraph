@@ -37,6 +37,14 @@ namespace
                          Out<TS<Int>> out)
         {
             const auto n = step.value();
+            const bool present = n == 1 || n == 2 || n == 3 || n >= 6;
+            CHECK(ts.contains(Str{"X"}) == present);
+            if (present) {
+                const auto child = ts.at(Str{"X"});
+                const bool valid = n == 2 || n >= 6;
+                CHECK(child.valid() == valid);
+                if (valid) { CHECK(child.value() == 7); }
+            }
             CHECK_FALSE(ts.invalidated());
             std::size_t added = 0, removed = 0;
             for ([[maybe_unused]] const auto &key : ts.added_keys()) { ++added; }
@@ -62,6 +70,25 @@ namespace
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> step)
         {
             return wire<ObserveMembership>(w, step, wire<MembershipSource>(w, step)).as<TS<Int>>();
+        }
+    };
+
+    struct RecordMembershipGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> step)
+        {
+            const auto book = wire<MembershipSource>(w, step);
+            wire<stdlib::record>(w, book, Str{"book"}, arg<"recordable_id">(Str{"members"}));
+            return wire<ObserveMembership>(w, step, book);
+        }
+    };
+
+    struct ReplayMembershipGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> step)
+        {
+            const auto book = wire<stdlib::replay, Dict>(w, Str{"book"}, arg<"recordable_id">(Str{"members"}));
+            return wire<ObserveMembership>(w, step, book);
         }
     };
 
@@ -438,6 +465,29 @@ TEST_CASE("Native scalar SIGNAL latches preserve sampled reference controls", "[
 TEST_CASE("Runtime rules: membership and key set observations through native wiring", "[runtime-contract]")
 {
     CHECK_OUTPUT(hgraph::testing::eval_node<MembershipGraph>({0, 1, 2, 3, 4, 5, 6, 7}), {0, 1, 2, 3, 4, 5, 6, 7});
+}
+
+TEST_CASE("Memory replay preserves membership, scalar invalidation and key-set timing")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    record_replay::set_config(context.state().view(), {.backend = std::string{record_replay::MEMORY}});
+    const auto steps = values<Int>(0, 1, 2, 3, 4, 5, 6, 7);
+    CHECK_OUTPUT(eval_node<RecordMembershipGraph>(steps), steps);
+    CHECK_OUTPUT(eval_node<ReplayMembershipGraph>(steps), steps);
+
+    // A component restarted while X is invalid still sees its membership.
+    for (const auto step : {1, 2, 3, 4}) {
+        TSOutput seed{schema_descriptor<Dict>::ts_meta()};
+        const auto output = seed.view(MIN_ST + step * MIN_TD);
+        record_replay::publish_recorded_seed(context.state().view(), "members.book", output);
+        const Value x{Str{"X"}};
+        const auto dict = output.as_dict();
+        CHECK(dict.contains(x.view()) == (step != 4));
+        if (step != 4) { CHECK(dict.at(x.view()).valid() == (step == 2)); }
+    }
 }
 
 TEST_CASE("Runtime rules: dictionary sampling and withdrawal through native wiring", "[runtime-contract]")

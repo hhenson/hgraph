@@ -1,6 +1,7 @@
 #ifndef HGRAPH_LIB_TESTING_RECORD_REPLAY_BUFFER_H
 #define HGRAPH_LIB_TESTING_RECORD_REPLAY_BUFFER_H
 
+#include <hgraph/runtime/global_state.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_record_registry.h>
 #include <hgraph/types/metadata/type_registry.h>
@@ -226,6 +227,55 @@ namespace hgraph::testing
         const auto binding = delta.binding();
         return make_sparse_entry(binding, when, std::move(delta));
     }
+
+    /** Timed dictionary rows may additionally identify live keys with invalid scalar children.
+        Their ordinary delta retains the standard value/removal schema. */
+    inline Value sparse_dictionary_entry(ValueTypeRef type, const ValueView &when, const ValueView &delta,
+                                         const Value &invalid_children = {}) {
+        BundleBuilder entry{type};
+        entry.set(0, when);
+        entry.set(1, delta);
+        if (invalid_children.has_value()) { entry.set(2, invalid_children.view()); }
+        return entry.build();
+    }
+
+    inline void write_sparse_entry(GlobalStateView state, const std::string &key, DateTime when,
+                                   Value delta, const Value &invalid_children = {},
+                                   std::optional<std::size_t> index = {}) {
+        const auto buffer = state.get(key);
+        const auto rows = buffer.as_list();
+        const auto write = [&](const Value &entry) {
+            auto mutation = rows.begin_mutation();
+            if (index) { mutation.set(*index, entry.view()); }
+            else { mutation.push_back(entry.view()); }
+        };
+        if (rows.element_schema()->field_count == 3) {
+            write(sparse_dictionary_entry(rows.front().binding(), Value{when}.view(), delta.view(), invalid_children));
+            return;
+        }
+        if (!invalid_children.has_value()) {
+            const auto type = delta.binding();
+            write(make_sparse_entry(type, when, std::move(delta)));
+            return;
+        }
+        // Only recordings with a retained invalid child need the additional key set.
+        // Convert any historical rows before publishing the replacement in GlobalState.
+        const Value time{when};
+        const auto *schema = TypeRegistry::instance().tuple({time.schema(), delta.schema(), invalid_children.schema()});
+        const auto type = ValuePlanFactory::instance().realized_composite_type_for(
+            schema, std::array{time.binding(), delta.binding(), invalid_children.binding()});
+        const auto entry = sparse_dictionary_entry(type, time.view(), delta.view(), invalid_children);
+        Value promoted{mutable_list_type(type)};
+        auto append = promoted.as_list().begin_mutation();
+        for (std::size_t i = 0; i < rows.size(); ++i) {
+            const auto old = rows.at(i).as_indexed_view();
+            if (index == i) { append.push_back(entry.view()); }
+            else { append.push_back(sparse_dictionary_entry(type, old.at(0), old.at(1)).view()); }
+        }
+        if (!index) { append.push_back(entry.view()); }
+        state.set(key, std::move(promoted));
+    }
+
 }  // namespace hgraph::testing
 
 #endif  // HGRAPH_LIB_TESTING_RECORD_REPLAY_BUFFER_H

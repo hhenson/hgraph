@@ -71,7 +71,8 @@ def get_recorded_value(key="out", recordable_id=None):
     (``nodes.record``) and then falls back to the plain ``key`` — NB the
     plain-key form is this runtime's cycle-aligned harness recording (bare
     values, no timestamps); record with ``recordable_id=`` for the
-    timestamped shape."""
+    timestamped shape. A scalar dictionary records a retained invalid child
+    as ``INVALID_CHILD`` and an erased key as ``REMOVE``."""
     state = _active_global_state()
     if recordable_id is not None:
         return state[f":memory:{recordable_id}.{key}"]
@@ -99,12 +100,24 @@ def get_recording_label():
     return _active_global_state()[_RECORDER_LABEL_KEY]
 
 
-def _friendly_recording_delta(delta):
+class _RecordingMarker(_enum.Enum):
+    INVALID_CHILD = "INVALID_CHILD"
+
+    def __repr__(self):
+        return self.name
+
+
+# A live dictionary member with an invalid child in a timestamped memory recording.
+INVALID_CHILD = _RecordingMarker.INVALID_CHILD
+
+
+def _friendly_recording_delta(delta, invalid_children=()):
     if isinstance(delta, dict) and set(delta) in (
             {"removed", "modified"}, {"removed", "modified", "removed_strict"}):
         compact = dict(delta["modified"])
         compact.update((key, REMOVE) for key in delta["removed"])
         compact.update((key, REMOVE) for key in delta.get("removed_strict", ()))
+        compact.update((key, INVALID_CHILD) for key in invalid_children or ())
         return compact
     if isinstance(delta, dict) and set(delta) == {"added", "removed"}:
         return _SetDelta(
@@ -118,8 +131,7 @@ class _MemoryRecording(list):
     def __init__(self, owner, key, entries):
         self._owner = owner
         self._key = key
-        super().__init__((when, _friendly_recording_delta(delta))
-                         for when, delta in entries)
+        super().__init__((entry[0], _friendly_recording_delta(*entry[1:])) for entry in entries)
 
     def __setitem__(self, index, value):
         if isinstance(index, slice):
@@ -129,8 +141,13 @@ class _MemoryRecording(list):
         if index < 0 or index >= len(self):
             raise IndexError("memory recording assignment index out of range")
         when, delta = value
-        self._owner._impl._set_memory_recording_entry(
-            self._key, index, when, delta)
+        written = delta
+        invalid_children = set()
+        if isinstance(delta, dict):
+            invalid_children = {key for key, child in delta.items() if child is INVALID_CHILD}
+            if invalid_children:
+                written = {key: child for key, child in delta.items() if child is not INVALID_CHILD}
+        self._owner._impl._set_memory_recording_entry(self._key, index, when, written, invalid_children)
         super().__setitem__(index, value)
 
 
