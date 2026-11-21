@@ -2,15 +2,24 @@ cmake_minimum_required(VERSION 3.25)
 
 project(hgraph_install_consumer LANGUAGES CXX)
 
+add_subdirectory(independent)
+
+function(find_initial_sdk)
+    find_package(hgraph CONFIG REQUIRED)
+endfunction()
+find_initial_sdk()
+get_target_property(original_links hgraph::options INTERFACE_LINK_LIBRARIES)
 find_package(hgraph CONFIG REQUIRED)
+add_subdirectory(nested)
+get_target_property(current_links hgraph::options INTERFACE_LINK_LIBRARIES)
+if(NOT current_links STREQUAL original_links)
+    message(FATAL_ERROR "Repeated hgraph lookups changed the SDK link interface")
+endif()
 enable_testing()
 
-add_executable(hgraph_scalar_stream_consumer scalar_streams.cpp)
-add_executable(hgraph_mock_executor_consumer mock_executor.cpp)
 add_executable(hgraph_compiled_try_except_consumer compiled_try_except.cpp)
 add_executable(hgraph_optional_bundle_consumer optional_bundle_member.cpp)
-foreach(consumer IN ITEMS hgraph_scalar_stream_consumer hgraph_mock_executor_consumer
-        hgraph_compiled_try_except_consumer hgraph_optional_bundle_consumer)
+foreach(consumer IN ITEMS hgraph_compiled_try_except_consumer hgraph_optional_bundle_consumer)
     target_link_libraries(${consumer} PRIVATE hgraph::wiring)
     if(COMMAND hgraph_link_python_embedding)
         hgraph_link_python_embedding(${consumer})
