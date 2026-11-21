@@ -371,15 +371,15 @@ TEST_CASE("sampling a held duration window keeps the time of each retained obser
     CHECK(samples.at(1).as_bundle().at("time").checked_as<DateTime>() == MIN_ST + MIN_TD);
 }
 
-TEST_CASE("sampling a nested window retains its timestamp and sampling plain slots keeps patch semantics")
+TEST_CASE("sampling retains a nested window timestamp and a plain slot withdrawal")
 {
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<SampleNestedWindows>(values<Bool>(none, true), values<Int>(4)),
                  values<DateTime>(none, MIN_ST));
-    // When the source loses slot 0, the next sample of the partial plain
-    // list retains its previously published 4 at that position.
+    // Slot 0 is explicitly cleared between triggers. The following sample
+    // withdraws that position while slot 1 remains present.
     CHECK_OUTPUT(eval_node<SamplePartialScalars>(values<Bool>(true, none, true), values<Int>(0, 1)),
-                 values<Int>(4, none, 4));
+                 values<Int>(4, none, -1));
 }
 
 TEST_CASE("buffered duration windows release the surviving source observations as one snapshot")
