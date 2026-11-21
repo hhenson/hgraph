@@ -515,6 +515,41 @@ namespace
         }
     };
 
+    struct WithdrawingBranch
+    {
+        static void eval(In<"value", TS<Int>> value, Out<TS<Int>> out)
+        {
+            if (value.value() < 0) { static_cast<void>(out.begin_mutation(out.evaluation_time()).invalidate()); }
+            else if (value.value() > 7) { out.set(value.value()); }
+        }
+    };
+
+    struct WithdrawOnNegative
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value) { return wire<WithdrawingBranch>(w, value); }
+    };
+
+    struct ClockedSwitchRead
+    {
+        static void eval(In<"clock", TS<Int>>, In<"selected", TS<Int>, InputActivity::Passive, InputValidity::Unchecked> selected,
+                         Out<TS<Str>> out)
+        {
+            if (!selected.valid()) { out.set(Str{selected.modified() ? "invalid modified" : "invalid"}); }
+            else { out.set(std::to_string(selected.value()) + (selected.modified() ? " tick" : " held")); }
+        }
+    };
+
+    struct CompiledSwitchRead
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> key, Port<TS<Int>> value, Port<TS<Int>> clock)
+        {
+            auto selected = compiled::switch_(w, key, std::array{value.erased()},
+                {{Value{Int{1}}, compile_subgraph<DoubleBranch>(w)},
+                 {Value{Int{2}}, compile_subgraph<WithdrawOnNegative>(w)}});
+            return wire<ClockedSwitchRead>(w, clock, Port<void>{w, std::move(selected)}.as<TS<Int>>());
+        }
+    };
+
     struct PassiveEcho
     {
         static constexpr auto name = "passive_echo";
@@ -1556,6 +1591,17 @@ TEST_CASE("compiled switch: reselect starts a fresh child and default forwards i
                  values<Int>(1, 2, 3, 16, 1, 10));
 }
 
+
+TEST_CASE("compiled switch: a clocked reader follows the selected output through silence and withdrawal")
+{
+    using namespace hgraph;
+    CHECK_OUTPUT(eval_node<CompiledSwitchRead>(
+                     values<Int>(1, none, 2, none, none, none, none, 1, 2, none, 1),
+                     values<Int>(7, none, none, 9, -1, none, 13, 7, none, none, none),
+                     values<Int>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)),
+                 values<Str>("14 tick", "14 held", "invalid", "9 tick", "invalid", "invalid",
+                             "13 tick", "14 tick", "invalid", "invalid", "14 tick"));
+}
 
 TEST_CASE("compiled switch: sink case and fallback can take the selector")
 {

@@ -1,5 +1,6 @@
 #include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/runtime/switch_node.h>
+#include <hgraph/types/time_series/ts_input/target_link.h>
 #include <hgraph/util/scope.h>
 
 #include <algorithm>
@@ -232,6 +233,10 @@ bool bind_branch_output(const NodeView &view, const SwitchNodeContext &context,
   }
 
   bind_forwarding_output_to_source(branch_terminal, switch_output);
+  // The child writes into this output, including when it withdraws a value.
+  // Other forwarding links only observe their targets.
+  auto *writer = detail::mutable_target_link_storage(branch_terminal.data_view());
+  writer->state_.writes_parent_output = writer->bound();
   return true;
 }
 
@@ -292,7 +297,11 @@ void reset_switch_output(const NodeView &view, const SwitchNodeContext &context,
     static_cast<void>(mutation.move_value_from(std::move(empty)));
     return;
   }
-  static_cast<void>(output.data_view().clear_collection(evaluation_time));
+  // A local switch may itself write into a containing map or switch.
+  auto destination = resolve_forwarding_source(std::move(output));
+  if (destination.bound()) {
+    static_cast<void>(destination.begin_mutation(evaluation_time).invalidate());
+  }
 }
 
 [[nodiscard]] const SingleNestedGraphNodeSpec *

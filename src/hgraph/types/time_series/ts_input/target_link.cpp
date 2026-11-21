@@ -863,6 +863,7 @@ namespace hgraph::detail
 
         target = other.target;
         target_is_reference = std::exchange(other.target_is_reference, false);
+        writes_parent_output = std::exchange(other.writes_parent_output, false);
         tracks_structure = std::exchange(other.tracks_structure, false);
         scalar_target_link = std::exchange(other.scalar_target_link, nullptr);
         tracks_key = std::exchange(other.tracks_key, false);
@@ -1320,6 +1321,7 @@ namespace hgraph::detail
         unsubscribe_active_target();
         state_.unsubscribe_tracking();
         state_.target.reset();
+        state_.writes_parent_output = false;
         state_.tracks_structure = false;
         state_.tracks_key = false;
         state_.target_is_reference = false;
@@ -1343,6 +1345,7 @@ namespace hgraph::detail
             unsubscribe_handle_noexcept(observed, &state_);
         }
         state_.target.reset();
+        state_.writes_parent_output = false;
         state_.tracks_structure = false;
         state_.tracks_key = false;
     }
@@ -1354,6 +1357,7 @@ namespace hgraph::detail
         static_cast<void>(source);
         state_.clear_active_observed();
         state_.target.reset();
+        state_.writes_parent_output = false;
         state_.tracks_structure = false;
         state_.tracks_key = false;
         state_.target_is_reference = false;

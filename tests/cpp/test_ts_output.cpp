@@ -306,6 +306,25 @@ TEST_CASE("TSOutput owns root TSData and exposes TS validity")
     REQUIRE_FALSE(output.view(t2).delta_value().has_value());
 }
 
+TEST_CASE("Withdrawing an observing forwarding output leaves its producer valid")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *schema = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    TSOutput producer{*schema};
+    TSOutput observer{TSEndpointSchema::peered(schema)};
+    const auto next = MIN_ST + TimeDelta{1};
+    Value initial{std::int32_t{7}};
+    REQUIRE(producer.view(MIN_ST).begin_mutation(MIN_ST).copy_value_from(initial.view()));
+    observer.view(MIN_ST).bind_forwarding_target(producer.view(MIN_ST));
+
+    static_cast<void>(observer.view(next).begin_mutation(next).invalidate());
+    auto original = producer.view(next);
+    REQUIRE(original.valid());
+    REQUIRE_FALSE(original.modified());
+    REQUIRE(original.value().checked_as<std::int32_t>() == 7);
+}
+
 TEST_CASE("TSOutput move mutation moves an owned value without copy assignment")
 {
     using namespace hgraph;
