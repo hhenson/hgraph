@@ -4,6 +4,7 @@
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node.h>
 #include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_input/target_link.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/value.h>
 
@@ -614,7 +615,16 @@ bool invalidate_value(TSDataMutationView &mutation, bool discard_child) {
 }
 } // namespace
 
-bool TSDataMutationView::invalidate() { return invalidate_value(*this, false); }
+bool TSDataMutationView::invalidate() {
+  if (const auto *link = detail::target_link_storage(view());
+      link != nullptr && link->state_.writes_parent_output) {
+    const auto target = link->target_output();
+    if (target.bound()) {
+      return target.view(mutation_time_).begin_mutation(mutation_time_).invalidate();
+    }
+  }
+  return invalidate_value(*this, false);
+}
 
 void detail::discard_collection_child(TSDataView view, DateTime now) {
   auto mutation = view.begin_mutation(now);

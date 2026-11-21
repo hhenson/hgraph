@@ -516,6 +516,12 @@ by the record/replay *backend* (``RecordReplayConfig::backend``); ``replay`` is 
   it round-trips with ``get_recorded_value()`` (which reads
   ``:memory:nodes.record.out`` by default). This is the upstream
   ``_record_replay_in_memory`` semantics.
+  An owned dictionary can retain a key after its scalar, bundle, set, dictionary
+  or list child is cleared as a whole. On the
+  first such observation the memory backend extends its typed rows with an
+  additional key set. Earlier rows retain their original observations. In
+  Python the timestamped pairs expose ``{key: INVALID_CHILD}`` for this state,
+  ``{key: REMOVE}`` for erasure and ``{key: Null}`` for a published null.
 - **``record`` under ``"testing"``** → ``stdlib::dense_record_impl``:
   **dense, cycle-aligned**. Recordings are a plain-key ``List`` indexed by
   evaluation cycle (``MIN_ST + i*MIN_TD``; a hole = no tick that cycle), read

@@ -423,7 +423,7 @@ namespace hgraph::python_bridge
              nb::arg("key"), nb::arg("default") = nb::none())
         .def("_set_memory_recording_entry",
              [](GlobalState &self, const std::string &key, std::size_t index,
-                DateTime when, nb::handle python_delta) {
+                DateTime when, nb::handle python_delta, nb::set invalid_children) {
                  ValueView buffer = self.view().get(key);
                  if (!buffer.valid()) { throw nb::key_error(key.c_str()); }
                  const auto entries = buffer.as_list();
@@ -434,6 +434,7 @@ namespace hgraph::python_bridge
                  const auto current = entries.at(index).as_indexed_view();
                  const auto *delta_schema = current.at(1).schema();
                  nb::object canonical = nb::borrow(python_delta);
+                 Value invalid;
                  // A recording holds OBSERVED deltas ({removed, modified});
                  // the authored three-field shape is still accepted so an edit
                  // written against either schema round-trips.
@@ -474,14 +475,17 @@ namespace hgraph::python_bridge
                      shaped["modified"]       = std::move(modified);
                      if (strict_supported) { shaped["removed_strict"] = std::move(removed_strict); }
                      canonical = std::move(shaped);
+                     if (nb::len(invalid_children)) {
+                         invalid = py_to_value_as(invalid_children, delta_schema->fields[0].type);
+                     }
+                 } else if (nb::len(invalid_children)) {
+                     throw nb::type_error("INVALID_CHILD requires a dictionary recording");
                  }
                  Value delta = py_to_value_as(canonical, delta_schema);
-                 Value replacement = testing::make_sparse_entry(
-                     delta_schema, when, delta);
-                 buffer.as_list().begin_mutation().set(index, replacement.view());
+                 testing::write_sparse_entry(self.view(), key, when, std::move(delta), invalid, index);
              },
              nb::arg("key"), nb::arg("index"), nb::arg("when"),
-             nb::arg("delta"))
+             nb::arg("delta"), nb::arg("invalid_children") = nb::set())
         .def("__setitem__",
              [](GlobalState &self, const std::string &key, nb::handle value) {
                  self.view().set(key, py_to_value(value));

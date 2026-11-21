@@ -7092,7 +7092,7 @@ Accepted native overloads
 
 ``switch_`` — route through **one** child graph at a time, selected by ``key``. Mirrors Python ``switch_(key, cases, *ts)``:
 
-- on a key change the active branch is stopped and destroyed, the branch for the new key (else the default, else a runtime error) is built, bound and started, and the output **re-points** — sampling the new branch at the switch time (the sampled-runtime contract; a deliberate divergence from Python's ``value = None`` reset); - a branch may take the key as its first argument when that parameter is named ``key``; - the time-series arguments are variadic (``*ts``): branches bind them positionally, optionally preceded by the key.
+- on a key change the active branch is stopped and destroyed, the branch for the new key (else the default, else a runtime error) is built, bound and started, and the output **re-points** — sampling the new branch at the switch time. An ordinary reader sees an invalid result until that branch publishes, and again if it withdraws its output; - a branch may take the key as its first argument when that parameter is named ``key``; - the time-series arguments are variadic (``*ts``): branches bind them positionally, optionally preceded by the key.
 
 The outputless form of ``switch_``. Both markers resolve through the same operator registry name; this marker makes the output contract explicit to C++'s static ``wire<>`` return type.
 
