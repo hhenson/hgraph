@@ -211,7 +211,6 @@ namespace hgraph::persistence
                     self.observation->finish_row(self.handle->withdrawn_rows, self.observation_row++);
                     return;
                 }
-                if (self.observation) { self.observation->finish_row(self.handle->withdrawn_rows, self.handle->recorder.rows()); }
                 self.handle->recorder.end_row();
             }
 
@@ -662,7 +661,9 @@ namespace hgraph::persistence
                         emit_rows_to(layout, ts.base(), static_cast<Int>(handle->mode), now, as_of_cell,
                                      handle->emit_removals, recording.sink(), true);
                         recording.observation_row = -1;
-                        observation.finish_tick(now, as_of_cell, recording.sink());
+                        recording.observation = nullptr;
+                        observation.finish_tick(now, as_of_cell, handle->withdrawn_rows,
+                                                handle->recorder.rows(), recording.sink());
                     }
                 }
             }

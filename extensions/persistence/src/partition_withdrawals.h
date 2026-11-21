@@ -163,11 +163,11 @@ namespace hgraph::persistence::record_replay_frame_detail
 
         // Snap emits valid dictionary items. A newly withdrawn leaf still
         // owns its key, so give that otherwise omitted partition its own row.
-        void finish_tick(DateTime now, DateTime as_of, const stdlib::table_ts_detail::RowSink &sink)
+        void finish_tick(DateTime now, DateTime as_of, WithdrawnRows &rows, std::int64_t row,
+                         const stdlib::table_ts_detail::RowSink &sink)
         {
             const Value date{now}, revision{as_of}, retained{false};
-            while (!pending.empty()) {
-                const auto &keys = pending.begin()->first;
+            for (auto &[keys, paths] : pending) {
                 sink.cell(sink.context, 0, date.view());
                 sink.cell(sink.context, 1, revision.view());
                 std::size_t index = 0;
@@ -178,6 +178,7 @@ namespace hgraph::persistence::record_replay_frame_detail
                     }
                 }
                 sink.end_row(sink.context);
+                rows.emplace_back(row++, std::move(paths));
             }
         }
     };

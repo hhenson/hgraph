@@ -1,5 +1,5 @@
 #include "../runtime/checkpoint_signature.h"
-#include "wiring_error_context.h"
+#include "wiring_scalar_comparison.h"
 #include <hgraph/runtime/map_node.h>
 #include <hgraph/runtime/component_checkpoint.h>
 #include <hgraph/manifest/schema_descriptor.h>
@@ -81,7 +81,7 @@ struct InstanceKey {
 };
 
 struct InstanceKeyEqual {
-  wiring_detail::ErrorContextComparison error_contexts;
+  wiring_detail::ScalarComparison observable_scalars;
 
   bool operator()(const InstanceKey &key, const InstanceKey &other) const {
     const auto &[def, schema, inputs, scalars, component] = key;
@@ -95,7 +95,7 @@ struct InstanceKeyEqual {
     if (!scalars.has_value()) {
       return true;
     }
-    return scalars.equals(other.scalars) && error_contexts.equal(scalars, other.scalars);
+    return scalars.equals(other.scalars) && observable_scalars.equal(scalars, other.scalars);
   }
 };
 
