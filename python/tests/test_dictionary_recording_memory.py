@@ -1,5 +1,7 @@
 from typing import Optional
 
+import pytest
+
 import hgraph as hg
 
 
@@ -94,3 +96,57 @@ def test_append_an_unset_key_to_an_older_recording_preserves_its_history():
         assert hg.eval_node(replay, list(range(5))) == [
             "1 ['x'] []", "absent [] ['x']", "absent [] []", "invalid ['x'] []", "absent [] ['x']",
         ]
+
+
+class Price(hg.TimeSeriesSchema):
+    price: hg.TS[int]
+
+
+@pytest.mark.parametrize(("child_type", "publish", "read"), [
+    (hg.TSB[Price], lambda n: {"price": n}, lambda x: x.price.value),
+    (hg.TSS[int], lambda n: frozenset({n}), lambda x: tuple(sorted(x.value))),
+    (hg.TSD[str, hg.TS[int]], lambda n: {"price": n}, lambda x: x["price"].value),
+    (hg.TSL[hg.TS[int], hg.Size[1]], lambda n: (n,), lambda x: x[0].value),
+    (hg.TSL[hg.TS[int], hg.Size[-1]], lambda n: (n,), lambda x: x[0].value),
+], ids=["bundle", "set", "dictionary", "fixed-list", "growing-list"])
+def test_whole_collection_child_withdrawal_keeps_the_key_across_replay(child_type, publish, read):
+    book_type = hg.TSD[str, child_type]
+
+    @hg.compute_node
+    def write_book(step: hg.TS[int], _output: book_type = None) -> book_type:
+        match step.value:
+            case 0:
+                return {"x": publish(7), "neighbor": publish(42)}
+            case 1:
+                _output["x"].invalidate()
+            case 3:
+                return {"x": publish(11)}
+            case 4:
+                del _output["x"]
+
+    @hg.compute_node(active=("clock",), valid=("clock",))
+    def inspect(clock: hg.TS[int], book: book_type) -> hg.TS[object]:
+        return tuple(sorted((k, read(v) if v.valid else None) for k, v in book.items()))
+
+    @hg.graph
+    def record_book(clock: hg.TS[int]) -> hg.TS[object]:
+        book = write_book(clock)
+        hg.record(book, "rows", recordable_id="compound")
+        return inspect(clock, book)
+
+    @hg.graph
+    def read_book(clock: hg.TS[int]) -> hg.TS[object]:
+        return inspect(clock, hg.replay("rows", book_type, recordable_id="compound"))
+
+    ticks = list(range(6))
+    values = [(n,) if child_type == hg.TSS[int] else n for n in (7, 42, 11)]
+    first, neighbor, recovered = values
+    with hg.GlobalState():
+        hg.set_record_replay_config(hg.IN_MEMORY)
+        expected = [(("neighbor", neighbor), ("x", x)) for x in (first, None, None, recovered)]
+        expected.extend([(("neighbor", neighbor),)] * 2)
+        assert hg.eval_node(record_book, ticks) == expected
+        assert hg.eval_node(read_book, ticks) == expected
+        changes = hg.get_recorded_value("rows", "compound")
+        assert changes[1][1] == {"x": hg.INVALID_CHILD}
+        assert changes[-1][1] == {"x": hg.REMOVE}

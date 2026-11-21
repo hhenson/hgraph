@@ -61,6 +61,16 @@ namespace hgraph::stdlib
                    "." + std::string{key};
         }
 
+        inline bool records_child_membership(const TSValueTypeMetaData &schema)
+        {
+            if (schema.kind != TSTypeKind::TSD) { return false; }
+            switch (schema.element_ts()->kind) {
+                case TSTypeKind::TS: case TSTypeKind::TSB: case TSTypeKind::TSS:
+                case TSTypeKind::TSD: case TSTypeKind::TSL: return true;
+                default: return false;
+            }
+        }
+
         struct DictionaryChanges {
             Value cleared;
             Value removed;
@@ -68,7 +78,7 @@ namespace hgraph::stdlib
 
         // Value removal and membership removal use separate clocks. A child that
         // loses its value still belongs to the dictionary until its key is erased.
-        inline DictionaryChanges scalar_dictionary_changes(const TSInputView &in, const Value &delta) {
+        inline DictionaryChanges dictionary_changes(const TSInputView &in, const Value &delta) {
             const auto dict = in.as_dict();
             const auto data = dict.data_view();
             const auto captured_removals = delta.as_bundle().at(0);
@@ -78,14 +88,22 @@ namespace hgraph::stdlib
                 if (!cleared) { cleared.emplace(key_type); }
                 static_cast<void>(cleared->insert(key));
             };
+            const auto modified = delta.as_bundle().at(1).as_map();
+            const auto withdrawn = [&](const TSInputView &child) {
+                if (child.valid()) { return false; }
+                const auto &owned = child.data_view();
+                return owned.valid() && owned.tracking().cleared_at(in.evaluation_time());
+            };
             for (const auto &[key, child] : dict.added_items()) {
-                if (!child.valid()) { clear(key); }
+                // A captured positional edit creates its key and preserves the extent
+                // even when every position of the growing list is vacant.
+                if (!child.valid() && !modified.contains(key)) { clear(key); }
             }
             for (const auto &[key, child] : dict.modified_items()) {
-                if (!child.valid()) { clear(key); }
+                if (withdrawn(child)) { clear(key); }
             }
             for (const auto &key : captured_removals.as_set()) {
-                if (dict.contains(key)) { clear(key); }
+                if (dict.contains(key) && withdrawn(dict.at(key))) { clear(key); }
             }
             DictionaryChanges changes;
             if (cleared) { changes.cleared = cleared->build(); }
@@ -99,7 +117,7 @@ namespace hgraph::stdlib
 
         inline void append_dictionary_entry(GlobalStateView gs, const std::string &key, const TSInputView &in,
                                             Value delta, DateTime when) {
-            auto changes = scalar_dictionary_changes(in, delta);
+            auto changes = dictionary_changes(in, delta);
             if (changes.removed.has_value()) {
                 BundleBuilder observed{delta.binding()};
                 observed.set(0, std::move(changes.removed));
@@ -116,7 +134,7 @@ namespace hgraph::stdlib
         {
             std::string  fq_key{};
             ValueTypeRef delta_binding{nullptr};
-            bool scalar_dictionary{false};
+            bool dictionary_membership{false};
         };
 
         /** replay's cursor plus the start-resolved sparse fq key. */
@@ -290,7 +308,7 @@ namespace hgraph::stdlib
                     traits, recordable_id.value(), key.value()),
                 .delta_binding = testing::recording_binding_for(
                     schema->delta_value_schema),
-                .scalar_dictionary = schema->kind == TSTypeKind::TSD && schema->element_ts()->kind == TSTypeKind::TS});
+                .dictionary_membership = record_replay_memory_detail::records_child_membership(*schema)});
             // The recording exists from the recorder's start (runtime spec
             // OP-11): a series that never ticks leaves an EMPTY recording, not
             // none (parity #1315). An existing one is kept, so a recovered run
@@ -318,7 +336,7 @@ namespace hgraph::stdlib
                 gs.set(resolved.fq_key, testing::make_sparse_buffer(resolved.delta_binding));
                 buffer = gs.get(resolved.fq_key);
             }
-            if (resolved.scalar_dictionary) {
+            if (resolved.dictionary_membership) {
                 record_replay_memory_detail::append_dictionary_entry(gs, resolved.fq_key, ts.base(), std::move(delta), now);
                 return;
             }

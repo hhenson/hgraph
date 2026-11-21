@@ -92,6 +92,66 @@ namespace
         }
     };
 
+    using SetBook = TSD<Str, TSS<Int>>;
+
+    struct WriteSetChild
+    {
+        static void eval(In<"step", TS<Int>> step, Out<SetBook> out)
+        {
+            const Str key{"X"};
+            switch (step.value()) {
+                case 0:
+                    out.at(key).add(Int{7});
+                    out.at(Str{"Z"}).add(Int{42});
+                    break;
+                case 1: {
+                    auto child = out.at(key);
+                    static_cast<void>(child.base().begin_mutation(child.evaluation_time()).invalidate());
+                    break;
+                }
+                case 3: out.at(key).add(Int{11}); break;
+                case 4: static_cast<void>(out.erase(key)); break;
+            }
+        }
+    };
+
+    struct ReadSetChild
+    {
+        static void eval(In<"step", TS<Int>> step,
+                         In<"book", SetBook, InputValidity::Unchecked, InputActivity::Passive> book,
+                         Out<TS<Int>> out)
+        {
+            CHECK(book.at(Str{"Z"}).contains(Int{42}));
+            const auto n = step.value();
+            REQUIRE(book.contains(Str{"X"}) == (n < 4));
+            if (n < 4) {
+                const auto child = book.at(Str{"X"});
+                CHECK(child.valid() == (n == 0 || n == 3));
+                CHECK(child.contains(Int{7}) == (n == 0));
+                CHECK(child.contains(Int{11}) == (n == 3));
+            }
+            CHECK(std::ranges::distance(book.removed_keys()) == (n == 4 ? 1 : 0));
+            out.set(n);
+        }
+    };
+
+    template <bool Replay>
+    struct RecordedSetChildGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> step)
+        {
+            const auto key = Str{"book"};
+            const auto id = arg<"recordable_id">(Str{"sets"});
+            if constexpr (Replay) {
+                return wire<ReadSetChild>(w, step, wire<stdlib::replay, SetBook>(w, key, id));
+            } else {
+                auto book = wire<WriteSetChild>(w, step);
+                wire<stdlib::record>(w, book, key, id);
+                return wire<ReadSetChild>(w, step, book);
+            }
+        }
+    };
+
     template <bool Right>
     struct DictionarySource
     {
@@ -488,6 +548,18 @@ TEST_CASE("Memory replay preserves membership, scalar invalidation and key-set t
         CHECK(dict.contains(x.view()) == (step != 4));
         if (step != 4) { CHECK(dict.at(x.view()).valid() == (step == 2)); }
     }
+}
+
+TEST_CASE("Memory replay preserves set child membership and clears old contents before recovery")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    record_replay::set_config(context.state().view(), {.backend = std::string{record_replay::MEMORY}});
+    const auto steps = values<Int>(0, 1, 2, 3, 4, 5);
+    CHECK_OUTPUT(eval_node<RecordedSetChildGraph<false>>(steps), steps);
+    CHECK_OUTPUT(eval_node<RecordedSetChildGraph<true>>(steps), steps);
 }
 
 TEST_CASE("Runtime rules: dictionary sampling and withdrawal through native wiring", "[runtime-contract]")

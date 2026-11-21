@@ -18,7 +18,7 @@ public operator they implement rather than listed as top-level operators.
    * - Surface
      - Names
    * - ``hgraph.__all__``
-     - 223
+     - 224
    * - Public operator groups
      - 189
    * - Public submodules
@@ -58,6 +58,7 @@ Top-level wildcard exports
    * - ``Graph``
    * - ``GraphConfiguration``
    * - ``GraphWiringNodeClass``
+   * - ``INVALID_CHILD``
    * - ``IN_MEMORY``
    * - ``IN_MEMORY_DENSE``
    * - ``IncorrectTypeBinding``

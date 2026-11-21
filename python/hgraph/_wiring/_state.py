@@ -71,7 +71,7 @@ def get_recorded_value(key="out", recordable_id=None):
     (``nodes.record``) and then falls back to the plain ``key`` — NB the
     plain-key form is this runtime's cycle-aligned harness recording (bare
     values, no timestamps); record with ``recordable_id=`` for the
-    timestamped shape. A scalar dictionary records a retained invalid child
+    timestamped shape. A dictionary records a retained, wholly invalid child
     as ``INVALID_CHILD`` and an erased key as ``REMOVE``."""
     state = _active_global_state()
     if recordable_id is not None:
