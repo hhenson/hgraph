@@ -5,6 +5,13 @@ endif()
 
 # Exercise SDK dependency discovery without fetching or compiling dependencies.
 foreach(_arrow_kind IN ITEMS shared static)
+    add_test(NAME hgraph.arrow_dependencies.${_arrow_kind}.siblings
+        COMMAND "${CMAKE_COMMAND}"
+            -S "${CMAKE_CURRENT_SOURCE_DIR}/cmake/arrow_dependency_siblings"
+            -B "${CMAKE_CURRENT_BINARY_DIR}/arrow_dependencies/${_arrow_kind}-siblings"
+            "-DHGRAPH_CMAKE_DIR=${PROJECT_SOURCE_DIR}/cmake"
+            "-DARROW_KIND=${_arrow_kind}"
+            -DPRELOAD=none)
     foreach(_arrow_preload IN ITEMS none core core_compute core_acero all)
         add_test(NAME hgraph.arrow_dependencies.${_arrow_kind}.${_arrow_preload}
             COMMAND "${CMAKE_COMMAND}"
