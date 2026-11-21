@@ -14,6 +14,7 @@ namespace hgraph
 {
     class TSDataView;
     class TSOutputView;
+    class TSInputView;
 }
 
 namespace hgraph::record_replay
@@ -175,6 +176,10 @@ namespace hgraph::record_replay
     };
     /** Ensure each recorded dictionary member exists and clear its scalar child. */
     HGRAPH_EXPORT void apply_recorded_invalid_children(const TSOutputView &target, const ValueView &keys);
+
+    /** Capture the paths of explicitly withdrawn descendants within a valid dictionary child. */
+    HGRAPH_EXPORT Value capture_recorded_invalid_paths(const TSInputView &input);
+    HGRAPH_EXPORT void apply_recorded_invalid_paths(const TSOutputView &output, const ValueView &paths);
 
     /** Backends implementing this callback can restore original sample times
         even when a simultaneous live tick supplies the first publication. */

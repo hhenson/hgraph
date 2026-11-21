@@ -150,3 +150,156 @@ def test_whole_collection_child_withdrawal_keeps_the_key_across_replay(child_typ
         changes = hg.get_recorded_value("rows", "compound")
         assert changes[1][1] == {"x": hg.INVALID_CHILD}
         assert changes[-1][1] == {"x": hg.REMOVE}
+
+
+class RecordedPair(hg.TimeSeriesSchema):
+    price: hg.TS[Optional[int]]
+    keep: hg.TS[Optional[int]]
+
+
+@pytest.mark.parametrize("keyed", [False, True])
+def test_partial_child_withdrawal_survives_recording_edit_and_replay(keyed):
+    child_type = hg.TSD[str, hg.TS[Optional[int]]] if keyed else hg.TSB[RecordedPair]
+    book_type = hg.TSD[str, child_type]
+
+    @hg.compute_node
+    def write_pair(step: hg.TS[int], _output: book_type = None) -> book_type:
+        match step.value:
+            case 0:
+                return {"x": {"price": 7, "keep": 13}, "z": {"keep": 42}}
+            case 1:
+                _output["x"]["price"].invalidate()
+            case 3:
+                return {"x": {"price": 11}}
+            case 4:
+                return {"x": {"price": hg.Null}}
+            case 5:
+                _output["x"]["price"].invalidate()
+                return {"x": {"keep": 14}}
+            case 6 if keyed:
+                del _output["x"]["price"]
+            case 7:
+                return {"x": {"price": 15}}
+            case 8:
+                del _output["x"]
+            case 9:
+                return {"x": {"price": 19, "keep": 17}}
+            case 10:
+                _output["x"].invalidate()
+
+    @hg.compute_node(active=("clock",), valid=("clock",))
+    def read_pair(clock: hg.TS[int], book: book_type) -> hg.TS[object]:
+        if "x" not in book:
+            return "absent", None, book["z"]["keep"].value
+        child = book["x"]
+        if not child.valid:
+            return "invalid", "invalid", book["z"]["keep"].value
+        if keyed and "price" not in child:
+            value = "absent"
+        elif child["price"].valid:
+            value = child["price"].value
+        else:
+            value = "invalid"
+        return value, child["keep"].value if child.valid else "invalid", book["z"]["keep"].value
+
+    @hg.graph
+    def live_pair(clock: hg.TS[int]) -> hg.TS[object]:
+        book = write_pair(clock)
+        hg.record(book, "rows", recordable_id="nested")
+        return read_pair(clock, book)
+
+    @hg.graph
+    def replay_pair(clock: hg.TS[int]) -> hg.TS[object]:
+        return read_pair(clock, hg.replay("rows", book_type, recordable_id="nested"))
+
+    clock = list(range(10))
+    expected = [
+        (7, 13, 42), ("invalid", 13, 42), ("invalid", 13, 42), (11, 13, 42),
+        (None, 13, 42), ("invalid", 14, 42), ("absent" if keyed else "invalid", 14, 42),
+        (15, 14, 42), ("absent", None, 42), (19, 17, 42),
+    ]
+    with hg.GlobalState():
+        hg.set_record_replay_config(hg.IN_MEMORY)
+        assert hg.eval_node(live_pair, clock) == expected
+        rows = hg.get_recorded_value("rows", "nested")
+        changed = rows[1][1]["x"]
+        assert (changed["modified"] if keyed else changed)["price"] is hg.INVALID_CHILD
+        assert hg.eval_node(replay_pair, clock) == expected
+        for i, row in enumerate(rows):
+            rows[i] = row
+        assert hg.eval_node(replay_pair, clock) == expected
+
+        # A historical row could record the empty edit but had no evidence of
+        # the withdrawn field. It must still replay its original observation.
+        clear = rows[1]
+        rows[1] = clear[0], {"x": {"removed": frozenset(), "modified": {}} if keyed else {}}
+        assert hg.eval_node(replay_pair, clock)[1:3] == [(7, 13, 42)] * 2
+        rows[1] = clear
+        assert hg.eval_node(replay_pair, clock) == expected
+        if not keyed:
+            with pytest.raises(KeyError):
+                rows[1] = clear[0], {"x": {"unknown": hg.INVALID_CHILD}}
+            assert hg.get_recorded_value("rows", "nested")[1] == clear
+
+    # Promote a recording that already has a whole-child withdrawal, then edit it.
+    with hg.GlobalState() as state:
+        hg.set_record_replay_config(hg.IN_MEMORY)
+        hg.eval_node(live_pair, [0, 10, 0])
+        previous = list(hg.get_recorded_value("rows", "nested"))
+        assert previous[1][1] == {"x": hg.INVALID_CHILD}
+        assert len(state._impl[":memory:nested.rows"][0]) == 3
+        hg.eval_node(live_pair, [0, 1], __start_time__=hg.MIN_ST + 4 * hg.MIN_TD)
+        promoted = hg.get_recorded_value("rows", "nested")
+        assert list(promoted[:3]) == previous
+        assert len(state._impl[":memory:nested.rows"][0]) == 4
+        promoted[1] = previous[1]
+        assert list(hg.get_recorded_value("rows", "nested")[:3]) == previous
+
+
+class ObjectField(hg.TimeSeriesSchema):
+    payload: hg.TS[object]
+
+
+@pytest.mark.parametrize("shape", ["scalar", "dictionary-member", "bundle-field", "nested-key"])
+def test_edit_opaque_payload_preserves_literal_marker(shape):
+    scalar = hg.TS[object]
+    wrapped = {
+        "scalar": (scalar, lambda v: v, lambda v: v),
+        "dictionary-member": (hg.TSD[str, scalar], lambda v: {"x": v}, lambda v: v["x"]),
+        "bundle-field": (hg.TSD[str, hg.TSB[ObjectField]], lambda v: {"x": {"payload": v}},
+                         lambda v: v["x"]["payload"]),
+        "nested-key": (hg.TSD[str, hg.TSD[str, scalar]], lambda v: {"x": {"payload": v}},
+                       lambda v: v["x"]["payload"]),
+    }
+    schema, wrap, unwrap = wrapped[shape]
+
+    @hg.compute_node
+    def publish(step: hg.TS[int]) -> schema:
+        return wrap({"ordinary": step.value})
+
+    @hg.graph
+    def write_objects(clock: hg.TS[int]) -> schema:
+        value = publish(clock)
+        hg.record(value, "objects", recordable_id="marker")
+        return value
+
+    @hg.compute_node(active=("clock",), valid=("clock",))
+    def read_object(clock: hg.TS[int], value: schema) -> scalar:
+        return unwrap(value).value
+
+    @hg.graph
+    def replay_objects(clock: hg.TS[int]) -> scalar:
+        return read_object(clock, hg.replay("objects", schema, recordable_id="marker"))
+
+    with hg.GlobalState():
+        hg.set_record_replay_config(hg.IN_MEMORY)
+        hg.eval_node(write_objects, [1, 2])
+        rows = hg.get_recorded_value("objects", "marker")
+        literal = {"kind": {"item": hg.INVALID_CHILD}}
+        changed = wrap(literal)
+        if shape == "nested-key":
+            changed = {"x": {"removed": frozenset(), "modified": {"payload": literal}}}
+        rows[0] = rows[0][0], changed
+        first, second = hg.eval_node(replay_objects, [1, 2])
+        assert first["kind"]["item"] is hg.INVALID_CHILD
+        assert second == {"ordinary": 2}
