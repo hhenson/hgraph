@@ -181,6 +181,75 @@ def test_sample():
     ]
 
 
+def test_sample_retains_an_invalid_dictionary_child_and_a_valid_null():
+    from typing import Optional
+    from hgraph import Null
+
+    book_type = TSD[str, TS[Optional[int]]]
+
+    @compute_node
+    def book(step: TS[int], _output: TSD = None) -> book_type:
+        match step.value:
+            case 0:
+                _output.get_or_create("q")
+                return {"z": 42, "nullable": Null}
+            case 1 | 3:
+                return {"q": step.value}
+            case 2:
+                _output["q"].invalidate()
+            case 4:
+                del _output["q"]
+            case 5:
+                return {"q": Null}
+
+    @compute_node(active=("clock",), valid=("clock",))
+    def read(clock: TS[int], values: book_type) -> TS[object]:
+        return {key: child.value if child.valid else "invalid" for key, child in values.items()}
+
+    @graph
+    def run(step: TS[int], trigger: TS[int], clock: TS[int]) -> TS[object]:
+        return read(clock, sample(trigger, book(step)))
+
+    rows = eval_node(run, [0, 1, None, 2, None, 3, None, 4, None, 5, None],
+                     [0, None, 2, None, 4, None, 6, None, 8, None, 10], list(range(11)))
+    assert [row.get("q", "absent") for row in rows] == [
+        "invalid", "invalid", 1, 1, "invalid", "invalid", 3, 3, "absent", "absent", None,
+    ]
+    assert all(row["z"] == 42 and row["nullable"] is None for row in rows)
+
+
+def test_sample_preserves_invalid_keys_and_sample_times_for_window_children():
+    from hgraph import TSW, WindowSize
+
+    book_type = TSD[str, TSW[int, WindowSize[3], WindowSize[1]]]
+
+    @compute_node
+    def book(step: TS[int], _output: TSD = None) -> book_type:
+        match step.value:
+            case 0:
+                _output.get_or_create("q")
+                return {"z": 42}
+            case 1 | 3:
+                return {"q": step.value * 7}
+            case 2:
+                _output["q"].invalidate()
+
+    @compute_node(active=("clock",), valid=("clock",))
+    def compare(clock: TS[int], live: book_type, sampled: book_type) -> TS[bool]:
+        def snapshot(values):
+            return {key: (tuple(child.value), tuple(child.value_times)) if child.valid else None
+                    for key, child in values.items()}
+
+        return snapshot(live) == snapshot(sampled)
+
+    @graph
+    def run(step: TS[int], tick: TS[int], clock: TS[int]) -> TS[bool]:
+        live = book(step)
+        return compare(clock, live, sample(tick, live))
+
+    assert eval_node(run, [0, 1, 2, None, 3], list(range(5)), list(range(5))) == [True] * 5
+
+
 def test_sample_accepts_anonymous_structural_signal():
     @graph
     def g(left: TS[int], right: TS[int], value: TS[str]) -> TS[str]:

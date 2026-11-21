@@ -36,7 +36,7 @@ namespace hgraph
         /** Mirror dictionary membership exactly: a key whose source child is
             invalid is kept, with an invalid child, rather than dropped (the
             time-series rule TS-19). Without it a target holds the valid
-            children only, which is what a publication snapshot wants. */
+            children only. */
         bool membership{false};
     };
 

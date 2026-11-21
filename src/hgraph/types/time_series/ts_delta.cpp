@@ -503,8 +503,10 @@ namespace hgraph
             mutation.touch();
             for (const auto &[key, child_value] : source_map)
             {
-                auto child = mutation.at(key);
-                apply_current_value(TSOutputView{out.output(), child, out.evaluation_time()}, child_value);
+                TSOutputView child{out.output(), mutation.at(key), out.evaluation_time()};
+                // A present key can have no published child value (TS-19).
+                if (child_value.has_value()) { apply_current_value(child, child_value); }
+                else { static_cast<void>(child.begin_mutation(out.evaluation_time()).invalidate()); }
             }
 
             std::vector<Value> removals;
@@ -1213,7 +1215,11 @@ namespace hgraph
         {
             if (options.scope == TSCurrentReconcileScope::Sample)
             {
-                if constexpr (RetainsSampleTimes) { options = {TSCurrentReconcileScope::Full, true}; }
+                if constexpr (RetainsSampleTimes)
+                {
+                    // Copy window history and the membership of any enclosing dictionary.
+                    options = {TSCurrentReconcileScope::Full, true, true};
+                }
                 else
                 {
                     apply_current_value(target, source.value());
