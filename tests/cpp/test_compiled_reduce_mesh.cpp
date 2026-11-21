@@ -1,4 +1,6 @@
+#include <hgraph/lib/std/component.h>
 #include <hgraph/lib/std/operators/impl/higher_order_impl.h>
+#include <hgraph/runtime/component_checkpoint.h>
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
@@ -71,14 +73,20 @@ template <bool direct> struct Mesh {
         }
     }
 };
+struct SavedMesh {
+    static Port<Book> compose(Wiring &w, Port<Book> links, Port<TSS<Int>> keys) {
+        return stdlib::component<Mesh<true>>(w, "mesh_strategy", links, keys);
+    }
+};
+
 }
 
 TEST_CASE("compiled reduce uses the operator's empty, singleton, ordered and fixed-list rules") {
     stdlib::register_standard_operators();
     constexpr auto ordered = compiled::ReduceOrder::Ordered;
     check_reduce<Book, N, stdlib::add_, compiled::ReduceOrder::Associative>(
-        values<Value>(dict_delta<Int,N>({}), dict_delta<Int,N>({{0, 4}}), dict_delta<Int,N>({{1, 7}}),
-                      none, dict_delta<Int,N>({}, {1}), dict_delta<Int,N>({}, {0}), dict_delta<Int,N>({{0, 2}})),
+        values<Value>(dict_delta<Int, N>({}), dict_delta<Int, N>({{0, 4}}), dict_delta<Int, N>({{1, 7}}),
+                      none, dict_delta<Int, N>({}, {1}), dict_delta<Int, N>({}, {0}), dict_delta<Int, N>({{0, 2}})),
         values<Int>(10, none, none, 20), values<Int>(10, 14, 11, none, 24, 20, 22));
     const auto fixed = values<Value>(list_delta<N>({{0, 3}}), list_delta<N>({{2, 5}}), none);
     const auto totals = values<Int>(13, 8, none);
@@ -86,8 +94,8 @@ TEST_CASE("compiled reduce uses the operator's empty, singleton, ordered and fix
     CHECK_OUTPUT((eval_node<Reduction<TSL<N, 3>, N, stdlib::add_, compiled::ReduceOrder::Associative, true>>(
                       fixed, values<Int>(10, none, none))), totals);
     check_reduce<Book, TS<Str>, Append, ordered>(
-        values<Value>(dict_delta<Int,N>({}), dict_delta<Int,N>({{0, 1}, {1, 2}}), none,
-                      dict_delta<Int,N>({}, {1}), dict_delta<Int,N>({}, {0})),
+        values<Value>(dict_delta<Int, N>({}), dict_delta<Int, N>({{0, 1}, {1, 2}}), none,
+                      dict_delta<Int, N>({}, {1}), dict_delta<Int, N>({}, {0})),
         values<Str>("a", none, "b"), values<Str>("a", "a12", "b12", "b1", "b"));
     check_reduce<TSL<N>, N, stdlib::sub_, ordered>(
         values<Value>(dynamic_list_delta<N>({{0, 1}}, {}, 1), dynamic_list_delta<N>({{1, 2}}, {}, 2),
@@ -100,10 +108,30 @@ TEST_CASE("compiled reduce uses the operator's empty, singleton, ordered and fix
 
 TEST_CASE("compiled mesh follows peer changes and explicit removal and re-add with the ordinary timing") {
     stdlib::register_standard_operators();
-    const auto links = values<Value>(dict_delta<Int,N>({{2, 1}}), dict_delta<Int,N>({{2, 0}}), none, none);
+    const auto links = values<Value>(dict_delta<Int, N>({{2, 1}}), dict_delta<Int, N>({{2, 0}}), none, none);
     const auto keys = values<Value>(set_delta<Int>({2}, {}), none, set_delta<Int>({}, {2}), set_delta<Int>({2}, {}));
-    const auto expected = values<Value>(dict_delta<Int,N>({{1, 1}, {2, 3}}), dict_delta<Int,N>({{0, 0}, {2, 2}}, {1}),
-                                        dict_delta<Int,N>({}, {0, 2}), dict_delta<Int,N>({{0, 0}, {2, 2}}));
+    const auto expected = values<Value>(dict_delta<Int, N>({{1, 1}, {2, 3}}), dict_delta<Int, N>({{0, 0}, {2, 2}}, {1}),
+                                        dict_delta<Int, N>({}, {0, 2}), dict_delta<Int, N>({{0, 0}, {2, 2}}));
     CHECK_OUTPUT(eval_node<Mesh<false>>(links, keys), expected);
     CHECK_OUTPUT(eval_node<Mesh<true>>(links, keys), expected);
+}
+
+TEST_CASE("a compiled mesh resumes a saved peer subscription without an extra tick") {
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> image;
+    configure_component_recovery(context.state().view(), ComponentRecoveryConfig{
+        .component_id = "mesh_strategy",
+        .load = [&] { return image; },
+        .commit = [&](const ComponentCheckpoint &saved) { image = saved; },
+    });
+    const auto resume = MIN_ST + MIN_TD;
+    CHECK_OUTPUT(eval_node_with_options<SavedMesh>({.start_time = MIN_ST, .end_time = resume},
+                     values<Value>(dict_delta<Int, N>({{2, 1}})), values<Value>(set_delta<Int>({2}, {}))),
+                 values<Value>(dict_delta<Int, N>({{1, 1}, {2, 3}})));
+    REQUIRE(image.has_value());
+    CHECK_OUTPUT(eval_node_with_options<SavedMesh>({.start_time = resume, .end_time = resume + 3 * MIN_TD},
+                     values<Value>(none, dict_delta<Int, N>({{2, 0}}), none),
+                     values<Value>(none, none, set_delta<Int>({}, {2}))),
+                 values<Value>(none, dict_delta<Int, N>({{0, 0}, {2, 2}}, {1}), dict_delta<Int, N>({}, {0, 2})));
 }

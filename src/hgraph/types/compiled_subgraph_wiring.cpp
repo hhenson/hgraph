@@ -247,7 +247,6 @@ namespace {
         }
         // The operator folds fixed positions, defaulting each invalid position to
         // zero. Its first position is the accumulator, unlike a dynamic fold's seed.
-        if (schema->fixed_size() == 0) { return zero; }
         auto leaf = [&](std::size_t i) {
             auto port = subgraph_wiring_detail::tsl_element_ref(collection, i, element);
             return stdlib::wire_default_sources(w, std::move(port), zero);
