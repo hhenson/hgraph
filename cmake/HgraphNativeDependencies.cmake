@@ -23,14 +23,11 @@ if(NOT TARGET simdjson::simdjson)
     endif()
 endif()
 # Imported and fetched targets can outlive the directory or function that
-# discovered their package version. Keep the checked version on the target.
+# discovered their package version. Keep the discovered version on the target.
 get_property(_hgraph_simdjson_version TARGET simdjson::simdjson PROPERTY _HGRAPH_SIMDJSON_VERSION)
 if(_hgraph_simdjson_version)
     set(simdjson_VERSION "${_hgraph_simdjson_version}")
-else()
-    if(NOT DEFINED simdjson_VERSION OR simdjson_VERSION VERSION_LESS 4.5)
-        message(FATAL_ERROR "hgraph requires simdjson >= 4.5; found ${simdjson_VERSION}")
-    endif()
+elseif(DEFINED simdjson_VERSION)
     get_target_property(_hgraph_simdjson_target simdjson::simdjson ALIASED_TARGET)
     if(NOT _hgraph_simdjson_target)
         set(_hgraph_simdjson_target simdjson::simdjson)

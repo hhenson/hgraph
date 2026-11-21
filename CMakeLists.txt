@@ -770,6 +770,10 @@ if(NOT HGRAPH_BUILD_SHARED OR NOT HGRAPH_BUILD_PYTHON_BINDINGS)
         "set(HGRAPH_SPDLOG_FETCH_VERSION \"${spdlog_VERSION}\")\n"
         "set(HGRAPH_SIMDJSON_FETCH_VERSION \"${simdjson_VERSION}\")\n"
         "include(\"\${CMAKE_CURRENT_LIST_DIR}/HgraphNativeDependencies.cmake\")\n"
+        # simdjson's package version file uses same-minor compatibility.
+        "if(simdjson_VERSION VERSION_LESS 4.5)\n"
+        "  message(FATAL_ERROR \"hgraph requires simdjson >= 4.5, found \${simdjson_VERSION}\")\n"
+        "endif()\n"
     )
     if(NOT HGRAPH_BUILD_SHARED AND
        _hgraph_selected_time_zone_backend STREQUAL "date")
