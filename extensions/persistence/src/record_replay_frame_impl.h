@@ -611,12 +611,12 @@ namespace hgraph::persistence
             std::vector<std::string> validity_columns;
             if (track_validity.value() && record_replay_frame_detail::supports_partition_withdrawals(layout)) {
                 for (std::size_t depth = 0; depth + 1 < layout.levels.size(); ++depth) {
-                    std::string name = "__key_" + std::to_string(depth + 1) + "_valid__";
-                    while (std::find(columns.names.begin(), columns.names.end(), name) != columns.names.end()) {
-                        name += '_';
+                    std::string validity_name = "__key_" + std::to_string(depth + 1) + "_valid__";
+                    while (std::find(columns.names.begin(), columns.names.end(), validity_name) != columns.names.end()) {
+                        validity_name += '_';
                     }
-                    validity_columns.push_back(name);
-                    columns.names.push_back(std::move(name));
+                    validity_columns.push_back(validity_name);
+                    columns.names.push_back(std::move(validity_name));
                     columns.metas.push_back(scalar_descriptor<Bool>::value_meta());
                 }
             }
@@ -713,8 +713,8 @@ namespace hgraph::persistence
                         observation.finish_tick(now, as_of_cell, handle->withdrawn_rows,
                                                 handle->recorder.rows(), recording.sink());
                     }
-                    for (const auto &[key, valid] : observation.prefixes) {
-                        record_replay_frame_detail::write_dictionary_validity(layout, key, valid, now, as_of_cell,
+                    for (const auto &[partition, valid] : observation.prefixes) {
+                        record_replay_frame_detail::write_dictionary_validity(layout, partition, valid, now, as_of_cell,
                             recording.sink(), handle->recorder, handle->first_validity);
                     }
                 }
