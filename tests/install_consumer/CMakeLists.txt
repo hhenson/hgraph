@@ -2,7 +2,10 @@ cmake_minimum_required(VERSION 3.25)
 
 project(hgraph_install_consumer LANGUAGES CXX)
 
-find_package(hgraph CONFIG REQUIRED)
+function(find_initial_sdk)
+    find_package(hgraph CONFIG REQUIRED)
+endfunction()
+find_initial_sdk()
 get_target_property(original_links hgraph::options INTERFACE_LINK_LIBRARIES)
 find_package(hgraph CONFIG REQUIRED)
 add_subdirectory(nested)

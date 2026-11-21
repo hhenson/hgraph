@@ -772,8 +772,9 @@ if(NOT HGRAPH_BUILD_SHARED OR NOT HGRAPH_BUILD_PYTHON_BINDINGS)
         "include(\"\${CMAKE_CURRENT_LIST_DIR}/HgraphNativeDependencies.cmake\")\n"
         # Static consumers link these implementation dependencies. The
         # simdjson floor is explicit because its package version file uses
-        # same-minor compatibility.
-        "if(simdjson_VERSION VERSION_LESS 4.5)\n"
+        # same-minor compatibility. Once imported, its verified target can
+        # outlive the function scope that provided simdjson_VERSION.
+        "if(NOT _hgraph_configured AND simdjson_VERSION VERSION_LESS 4.5)\n"
         "  message(FATAL_ERROR \"hgraph requires simdjson >= 4.5; found \${simdjson_VERSION}\")\n"
         "endif()\n"
     )
@@ -817,6 +818,10 @@ endif()
 
 file(WRITE "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
     "include(CMakeFindDependencyMacro)\n"
+    "set(_hgraph_configured FALSE)\n"
+    "if(TARGET hgraph::options)\n"
+    "  get_property(_hgraph_configured TARGET hgraph::options PROPERTY _HGRAPH_SDK_CONFIGURED)\n"
+    "endif()\n"
     "${_hgraph_config_dependencies}"
 )
 # Validate dependencies in each caller's scope before importing or modifying
@@ -824,7 +829,6 @@ file(WRITE "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
 set(_hgraph_config_targets "")
 string(APPEND _hgraph_config_targets
     "include(\"\${CMAKE_CURRENT_LIST_DIR}/hgraphTargets.cmake\")\n"
-    "get_property(_hgraph_configured TARGET hgraph::options PROPERTY _HGRAPH_SDK_CONFIGURED)\n"
     "if(_hgraph_configured)\n"
     "  return()\n"
     "endif()\n"
