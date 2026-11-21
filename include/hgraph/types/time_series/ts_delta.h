@@ -45,6 +45,11 @@ namespace hgraph
      */
     [[nodiscard]] HGRAPH_EXPORT Value capture_delta(const TSInputView &in);
 
+    /** Forward this cycle's live changes between matching time-series endpoints.
+        An explicitly withdrawn child is distinguishable from an omitted sparse
+        edit while the source endpoint is available. */
+    HGRAPH_EXPORT void forward_delta(const TSOutputView &out, const TSInputView &in);
+
     /** Capture the portable change directly from owned or bound window storage.
         The returned value owns its removed samples and their original timestamps. */
     [[nodiscard]] HGRAPH_EXPORT Value capture_window_delta(const TSWDataView &window, DateTime evaluation_time);

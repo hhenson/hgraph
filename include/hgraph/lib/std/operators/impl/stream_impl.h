@@ -1020,7 +1020,7 @@ namespace hgraph::stdlib
                 {
                     // Open and flowing: forward the DELTA (a whole-value
                     // apply would re-publish unchanged container entries).
-                    apply_delta(out, capture_delta(ts.base()).view());
+                    forward_delta(out, ts.base());
                 }
             }
             else if (condition_true && was_true && ts.modified())
@@ -1461,7 +1461,7 @@ namespace hgraph::stdlib
                 return;
             }
 
-            if (ts.modified() && ts.valid()) { apply_delta(out, capture_delta(ts.base()).view()); }
+            if (ts.modified() && ts.valid()) { forward_delta(out, ts.base()); }
         }
     };
 
@@ -2070,8 +2070,7 @@ namespace hgraph::stdlib
         }
     };
 
-    /** take(ts, timedelta) over any other shape: the delta is sufficient,
-        for the same reason the count form gives. */
+    /** The duration limit uses the same live changes as count-based take. */
     struct take_by_time_impl
     {
         static constexpr bool replays_output_events = true;
@@ -2087,7 +2086,7 @@ namespace hgraph::stdlib
         {
             stream_impl_detail::take_time_eval(
                 ts, count.value(), opened,
-                [&] { apply_delta(out, capture_delta(ts.base()).view()); });
+                [&] { forward_delta(out, ts.base()); });
         }
     };
 
@@ -2115,9 +2114,7 @@ namespace hgraph::stdlib
         }
     };
 
-    /** take over any other time-series shape: gap-free from the source's
-        first tick, so the DELTA is sufficient (a whole-value apply would
-        re-publish unchanged container entries — the filter_ rule). */
+    /** Forward live changes until the count is exhausted. */
     struct take_impl
     {
         static constexpr bool replays_output_events = true;
@@ -2136,7 +2133,7 @@ namespace hgraph::stdlib
         {
             stream_impl_detail::take_eval(
                 ts, count.value(), seen,
-                [&] { apply_delta(out, capture_delta(ts.base()).view()); });
+                [&] { forward_delta(out, ts.base()); });
         }
     };
 
@@ -2172,7 +2169,7 @@ namespace hgraph::stdlib
             if (index == count.value()) { reconcile_current_state(out, ts.base(), {TSCurrentReconcileScope::Sample}); }
             else if (index > count.value())
             {
-                apply_delta(out, capture_delta(ts.base()).view());
+                forward_delta(out, ts.base());
             }
             seen.set(index + 1);
         }

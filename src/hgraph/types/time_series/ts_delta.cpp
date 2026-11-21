@@ -2053,6 +2053,102 @@ namespace hgraph
         throw std::logic_error("capture_delta requires a canonical input type record");
     }
 
+    namespace
+    {
+        void forward_changes(const TSOutputView &out, const TSInputView &in);
+
+        bool explicitly_withdrawn(const TSInputView &in)
+        {
+            if (in.valid()) { return false; }
+            const auto &data = in.data_view();
+            if (data.valid()) { return data.tracking().cleared_at(in.evaluation_time()); }
+            // A followed child can also lose its designation. Keyed inputs may
+            // still owe structural removals on that wake; let their strategy
+            // forward them. An empty scalar route has no delta to carry.
+            return in.modified() && !ts_data_detail::child_delta_worth_capturing(in);
+        }
+
+        void forward_child(const TSOutputView &out, const TSInputView &in)
+        {
+            if (explicitly_withdrawn(in)) { invalidate_target(out); }
+            else if ((in.modified() || ts_data_detail::has_list_edit(in)) &&
+                     ts_data_detail::child_delta_worth_capturing(in)) { forward_changes(out, in); }
+        }
+
+        void forward_changes(const TSOutputView &out, const TSInputView &in)
+        {
+            const auto apply = out.data_view().ops().apply_delta_impl;
+            if (apply == &ts_data_detail::apply_delta_tsb)
+            {
+                const auto bundle = in.as_bundle();
+                const auto dest = out.as_bundle();
+                for (std::size_t i = 0; i < bundle.size(); ++i) { forward_child(dest.at(i), bundle.at(i)); }
+            }
+            else if (apply == &ts_data_detail::apply_delta_tsd)
+            {
+                const auto dict = in.as_dict();
+                const auto dest = out.as_dict();
+                auto mutation = dest.begin_mutation(out.evaluation_time());
+                if (dict.structure_modified())
+                {
+                    for (auto key : dict.removed_keys())
+                    {
+                        // A reopened filter can already have discarded this key.
+                        if (dest.contains(key) && !dict.contains(key)) { static_cast<void>(mutation.erase(key)); }
+                    }
+                    for (auto key : dict.added_keys()) { static_cast<void>(mutation.at(key)); }
+                }
+                for (const auto &[key, child] : dict.modified_items())
+                {
+                    if (dict.contains(key))
+                    {
+                        forward_child(TSOutputView{out.output(), mutation.at(key), out.evaluation_time()}, child);
+                    }
+                }
+            }
+            else if (apply == &ts_data_detail::apply_delta_tsl)
+            {
+                const auto list = in.as_list();
+                auto dest = out.as_list();
+                if (const auto size = list.size_modified()) { dest.resize(*size); }
+                for (const auto i : list.removed_positions())
+                {
+                    if (i < dest.size()) { invalidate_target(dest.at(i)); }
+                }
+                // An inner list may have changed extent without any live position.
+                if (in.schema()->element_ts()->kind == TSTypeKind::TSL)
+                {
+                    for (const auto &[i, child] : list.items()) { forward_child(dest.at(i), child); }
+                }
+                else
+                {
+                    for (const auto &[i, child] : list.modified_items()) { forward_child(dest.at(i), child); }
+                }
+            }
+            else
+            {
+                apply_delta(out, capture_delta(in).view());
+                return;
+            }
+            // An empty first patch validates a collection. Changes with no
+            // effect on an already valid destination keep its existing cadence.
+            if (!out.valid() && in.valid() && in.modified())
+            {
+                out.data_view().begin_mutation(out.evaluation_time()).mark_empty_delta();
+            }
+        }
+    }
+
+    void forward_delta(const TSOutputView &out, const TSInputView &in)
+    {
+        const auto &schema = require_schema(out.schema(), "forward_delta");
+        if (!out.bound() || in.schema() != &schema)
+        {
+            throw std::invalid_argument("forward_delta requires matching time-series endpoints and a bound output");
+        }
+        forward_changes(out, in);
+    }
+
     Value capture_dict_delta_where(const TSInputView &in, DeltaKeySelector selects,
                                    const void *context)
     {

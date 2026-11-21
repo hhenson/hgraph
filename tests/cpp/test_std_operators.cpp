@@ -1303,6 +1303,43 @@ namespace
         }
     };
 
+    using ForwardedQuote = UnNamedTSB<Field<"bid", TS<Int>>, Field<"ask", TS<Int>>>;
+
+    struct WriteForwardedQuote
+    {
+        static void eval(In<"phase", TS<Int>> phase, Out<ForwardedQuote> out)
+        {
+            auto bid = out.field<"bid">();
+            switch (phase.value())
+            {
+            case 0: bid.set(Int{7}); out.field<"ask">().set(Int{42}); break;
+            case 1: static_cast<void>(bid.begin_mutation(out.evaluation_time()).invalidate()); break;
+            case 2: out.field<"ask">().set(Int{43}); break;
+            case 3: bid.set(Int{11}); break;
+            }
+        }
+    };
+
+    struct ReadForwardedQuote
+    {
+        static void eval(In<"clock", TS<Bool>>,
+                         In<"quote", ForwardedQuote, InputActivity::Passive> quote, Out<TS<Str>> out)
+        {
+            const auto bid = quote.field<"bid">();
+            out.set(fmt::format("{}/{}", bid.valid() ? std::to_string(bid.value()) : "invalid",
+                                quote.field<"ask">().value()));
+        }
+    };
+
+    struct DropForwardedQuote
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> phase, Port<TS<Bool>> clock)
+        {
+            const auto source = wire<WriteForwardedQuote>(w, phase);
+            return wire<ReadForwardedQuote>(w, clock, wire<stdlib::drop>(w, source, Int{0}).as<ForwardedQuote>());
+        }
+    };
+
     struct TakeByTimeDictGraph
     {
         static constexpr auto name = "take_by_time_dict_graph";
@@ -5602,6 +5639,14 @@ TEST_CASE("std operators: the date ATTRIBUTE spelling re-emits an unchanged comp
     // An attribute the date does not carry must not be swallowed by the new
     // overload: it stays a failure rather than silently answering.
     CHECK_THROWS(eval_node<DateUnknownAttributeGraph>(dates()));
+}
+
+TEST_CASE("a count-based drop forwards withdrawals without changing its neighbor")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<DropForwardedQuote>(values<Int>(0, 1, 2, 3, none),
+                                               values<Bool>(true, true, true, true, true)),
+                 values<Str>("7/42", "invalid/42", "invalid/43", "11/43", "11/43"));
 }
 
 TEST_CASE("std operators: drop with a duration publishes the held value at the boundary")
