@@ -1055,7 +1055,7 @@ The full interface:
    * - ``schedule(delta[, tag][, on_wall_clock])``
      - schedule ``delta`` (``TimeDelta``) after ``now()``.
    * - ``is_scheduled()`` / ``is_scheduled_now()``
-     - whether anything is pending / the earliest event is *exactly* this cycle.
+     - during evaluation, whether a future request is pending / whether this cycle delivered a wake.
    * - ``next_scheduled_time()``
      - the earliest pending time (``MIN_DT`` when empty).
    * - ``has_tag(tag)`` / ``tag_time(tag[, default])``
@@ -1065,9 +1065,14 @@ The full interface:
    * - ``pop_tag(tag[, default])``
      - remove a tagged event and return its time.
    * - ``un_schedule(tag)`` / ``un_schedule()``
-     - cancel a tagged event / the earliest event.
+     - cancel the named request / the earliest pending request.
    * - ``reset()``
-     - cancel everything.
+     - cancel all pending requests.
+
+During evaluation, cancelling or rearming a timer leaves ``is_scheduled_now()``
+true for the rest of a delivered wake. Rearming its tag changes ``tag_time(tag)``
+to the new time. If an input defers publication when it coincides with an alarm,
+handle that input before publishing the alarm's value.
 
 A ``tag`` names an event so it can be replaced (re-scheduling the same tag moves
 it rather than adding a second event), queried, or cancelled. When a node fires
