@@ -5,11 +5,77 @@
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_template_test_macros.hpp>
 
 namespace
 {
     using namespace hgraph;
     using Dict = TSD<Str, TS<Int>>;
+
+    using RecordFields = UnNamedTSB<Field<"price", TS<Int>>, Field<"keep", TS<Int>>>;
+
+    template <bool Keyed>
+    using RecordChild = std::conditional_t<Keyed, TSD<Int, TS<Int>>, RecordFields>;
+
+    template <bool Keyed, bool Price, typename Child>
+    auto recorded_field(Child &child) {
+        if constexpr (Keyed) { return child.at(Int{Price ? 1 : 2}); }
+        else if constexpr (Price) { return child.template field<"price">(); }
+        else { return child.template field<"keep">(); }
+    }
+
+    template <bool Keyed> struct WriteNestedFields {
+        static void eval(In<"step", TS<Int>> step, Out<TSD<Str, RecordChild<Keyed>>> out) {
+            if (step.value() == 4) { static_cast<void>(out.erase(Str{"x"})); return; }
+            auto x = out.at(Str{"x"});
+            auto price = recorded_field<Keyed, true>(x);
+            switch (step.value()) {
+                case 0: {
+                    price.set(Int{7});
+                    recorded_field<Keyed, false>(x).set(Int{13});
+                    auto neighbor = out.at(Str{"z"});
+                    recorded_field<Keyed, false>(neighbor).set(Int{42});
+                    break;
+                }
+                case 1: static_cast<void>(price.begin_mutation(price.evaluation_time()).invalidate()); break;
+                case 3: price.set(Int{11}); break;
+                case 5: price.set(Int{19}); recorded_field<Keyed, false>(x).set(Int{17}); break;
+            }
+        }
+    };
+
+    template <bool Keyed> struct ReadNestedFields {
+        static void eval(In<"step", TS<Int>> step,
+                         In<"book", TSD<Str, RecordChild<Keyed>>, InputValidity::Unchecked, InputActivity::Passive> book,
+                         Out<TS<Int>> out) {
+            const auto z = book.at(Str{"z"});
+            if (recorded_field<Keyed, false>(z).value() != 42) { throw std::logic_error("neighbor changed"); }
+            if (!book.contains(Str{"x"})) { out.set(Int{-2}); return; }
+            const auto x = book.at(Str{"x"});
+            if (!x.valid() || recorded_field<Keyed, false>(x).value() != (step.value() == 5 ? 17 : 13)) {
+                throw std::logic_error("outer child or sibling changed");
+            }
+            if constexpr (Keyed) {
+                if (!x.contains(Int{1})) { throw std::logic_error("price key was erased"); }
+            }
+            const auto price = recorded_field<Keyed, true>(x);
+            out.set(price.valid() ? price.value() : Int{-1});
+        }
+    };
+
+    template <bool Keyed, bool Replay> struct NestedFieldsGraph {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> step) {
+            const Str key = Keyed ? "nested-dict" : "nested-bundle";
+            const auto id = arg<"recordable_id">(Str{"fields"});
+            if constexpr (Replay) {
+                return wire<ReadNestedFields<Keyed>>(w, step, wire<stdlib::replay, TSD<Str, RecordChild<Keyed>>>(w, key, id));
+            } else {
+                auto book = wire<WriteNestedFields<Keyed>>(w, step);
+                wire<stdlib::record>(w, book, key, id);
+                return wire<ReadNestedFields<Keyed>>(w, step, book);
+            }
+        }
+    };
 
     struct MembershipSource
     {
@@ -547,6 +613,40 @@ TEST_CASE("Memory replay preserves membership, scalar invalidation and key-set t
         const auto dict = output.as_dict();
         CHECK(dict.contains(x.view()) == (step != 4));
         if (step != 4) { CHECK(dict.at(x.view()).valid() == (step == 2)); }
+    }
+}
+
+TEMPLATE_TEST_CASE_SIG("Memory replay and restart preserve withdrawn nested fields and their siblings",
+                       "[record_replay]", ((bool Keyed), Keyed), false, true)
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    record_replay::set_config(context.state().view(), {.backend = std::string{record_replay::MEMORY}});
+    const auto clock = values<Int>(0, 1, 2, 3, 4, 5);
+    const auto expected = values<Int>(7, -1, -1, 11, -2, 19);
+    const auto live = eval_node<NestedFieldsGraph<Keyed, false>>(clock);
+    const auto replayed = eval_node<NestedFieldsGraph<Keyed, true>>(clock);
+    CHECK_OUTPUT(live, expected);
+    CHECK_OUTPUT(replayed, expected);
+
+    const auto state = context.state().view();
+    const auto recorded = state.get(Keyed ? ":memory:fields.nested-dict" : ":memory:fields.nested-bundle");
+    state.set(":memory:copied.fields", Value{recorded});
+    REQUIRE(state.get(":memory:copied.fields").binding() == recorded.binding());
+    for (Int tick : {1, 2, 3}) {
+        TSOutput seed{schema_descriptor<TSD<Str, RecordChild<Keyed>>>::ts_meta()};
+        auto out = seed.view(MIN_ST + tick * MIN_TD);
+        record_replay::publish_recorded_seed(state, "copied.fields", out);
+        const auto x = out.as_dict().at(Value{Str{"x"}}.view());
+        REQUIRE(x.valid());
+        const auto get = [&](bool price) {
+            if constexpr (Keyed) { return x.as_dict().at(Value{Int{price ? 1 : 2}}.view()); }
+            else { const auto bundle = x.as_bundle(); return bundle.at(price ? "price" : "keep"); }
+        };
+        CHECK(get(false).value().template checked_as<Int>() == 13);
+        CHECK(get(true).valid() == (tick == 3));
     }
 }
 

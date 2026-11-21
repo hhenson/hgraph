@@ -522,6 +522,11 @@ by the record/replay *backend* (``RecordReplayConfig::backend``); ``replay`` is 
   additional key set. Earlier rows retain their original observations. In
   Python the timestamped pairs expose ``{key: INVALID_CHILD}`` for this state,
   ``{key: REMOVE}`` for erasure and ``{key: Null}`` for a published null.
+  If a field in a still-valid bundle or nested dictionary is withdrawn,
+  a fourth column records its typed path through the observed delta. The
+  accessor exposes ``INVALID_CHILD`` at that field. Reading, editing or
+  replaying the row preserves the other fields. Older rows have no path
+  column and replay the observations they originally recorded.
 - **``record`` under ``"testing"``** → ``stdlib::dense_record_impl``:
   **dense, cycle-aligned**. Recordings are a plain-key ``List`` indexed by
   evaluation cycle (``MIN_ST + i*MIN_TD``; a hole = no tick that cycle), read
