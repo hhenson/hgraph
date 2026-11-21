@@ -22,6 +22,21 @@ if(NOT TARGET simdjson::simdjson)
         target_compile_features(simdjson PRIVATE cxx_std_20)
     endif()
 endif()
+# Imported and fetched targets can outlive the directory or function that
+# discovered their package version. Keep the checked version on the target.
+get_property(_hgraph_simdjson_version TARGET simdjson::simdjson PROPERTY _HGRAPH_SIMDJSON_VERSION)
+if(_hgraph_simdjson_version)
+    set(simdjson_VERSION "${_hgraph_simdjson_version}")
+else()
+    if(NOT DEFINED simdjson_VERSION OR simdjson_VERSION VERSION_LESS 4.5)
+        message(FATAL_ERROR "hgraph requires simdjson >= 4.5; found ${simdjson_VERSION}")
+    endif()
+    get_target_property(_hgraph_simdjson_target simdjson::simdjson ALIASED_TARGET)
+    if(NOT _hgraph_simdjson_target)
+        set(_hgraph_simdjson_target simdjson::simdjson)
+    endif()
+    set_property(TARGET ${_hgraph_simdjson_target} PROPERTY _HGRAPH_SIMDJSON_VERSION "${simdjson_VERSION}")
+endif()
 if(hgraph_WITH_ARROW AND ((NOT TARGET Arrow::arrow_shared AND NOT TARGET Arrow::arrow_static) OR
    (NOT TARGET ArrowCompute::arrow_compute_shared AND NOT TARGET ArrowCompute::arrow_compute_static) OR
    (NOT TARGET ArrowAcero::arrow_acero_shared AND NOT TARGET ArrowAcero::arrow_acero_static)))
