@@ -2057,22 +2057,22 @@ namespace hgraph
     {
         void forward_changes(const TSOutputView &out, const TSInputView &in);
 
-        bool explicitly_withdrawn(const TSInputView &in)
+        // Build the destination cursor only for a real change. A wide bundle
+        // commonly forwards just one field in this evaluation.
+        template <typename Destination>
+        void forward_child(const TSInputView &in, Destination destination)
         {
-            if (in.valid()) { return false; }
             const auto &data = in.data_view();
-            if (data.valid()) { return data.tracking().cleared_at(in.evaluation_time()); }
-            // A followed child can also lose its designation. Keyed inputs may
-            // still owe structural removals on that wake; let their strategy
-            // forward them. An empty scalar route has no delta to carry.
-            return in.modified() && !ts_data_detail::child_delta_worth_capturing(in);
-        }
-
-        void forward_child(const TSOutputView &out, const TSInputView &in)
-        {
-            if (explicitly_withdrawn(in)) { invalidate_target(out); }
-            else if ((in.modified() || ts_data_detail::has_list_edit(in)) &&
-                     ts_data_detail::child_delta_worth_capturing(in)) { forward_changes(out, in); }
+            if (data.valid() && data.tracking().cleared_at(in.evaluation_time()) && !in.valid())
+            {
+                invalidate_target(destination());
+                return;
+            }
+            if (!in.modified() && !ts_data_detail::has_list_edit(in)) { return; }
+            if (ts_data_detail::child_delta_worth_capturing(in)) { forward_changes(destination(), in); }
+            // A followed child can lose its designation. A detached keyed link
+            // can still owe removals above; a lost scalar has no delta to copy.
+            else if (!data.valid()) { invalidate_target(destination()); }
         }
 
         void forward_changes(const TSOutputView &out, const TSInputView &in)
@@ -2082,7 +2082,10 @@ namespace hgraph
             {
                 const auto bundle = in.as_bundle();
                 const auto dest = out.as_bundle();
-                for (std::size_t i = 0; i < bundle.size(); ++i) { forward_child(dest.at(i), bundle.at(i)); }
+                for (std::size_t i = 0; i < bundle.size(); ++i)
+                {
+                    forward_child(bundle.at(i), [&] { return dest.at(i); });
+                }
             }
             else if (apply == &ts_data_detail::apply_delta_tsd)
             {
@@ -2102,7 +2105,7 @@ namespace hgraph
                 {
                     if (dict.contains(key))
                     {
-                        forward_child(TSOutputView{out.output(), mutation.at(key), out.evaluation_time()}, child);
+                        forward_child(child, [&] { return TSOutputView{out.output(), mutation.at(key), out.evaluation_time()}; });
                     }
                 }
             }
@@ -2118,11 +2121,11 @@ namespace hgraph
                 // An inner list may have changed extent without any live position.
                 if (in.schema()->element_ts()->kind == TSTypeKind::TSL)
                 {
-                    for (const auto &[i, child] : list.items()) { forward_child(dest.at(i), child); }
+                    for (const auto &[i, child] : list.items()) { forward_child(child, [&] { return dest.at(i); }); }
                 }
                 else
                 {
-                    for (const auto &[i, child] : list.modified_items()) { forward_child(dest.at(i), child); }
+                    for (const auto &[i, child] : list.modified_items()) { forward_child(child, [&] { return dest.at(i); }); }
                 }
             }
             else
