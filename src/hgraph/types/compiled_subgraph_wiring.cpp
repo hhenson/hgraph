@@ -1,5 +1,10 @@
 #include <hgraph/types/impl/compiled_subgraph_wiring.h>
 
+#include <hgraph/runtime/ordered_reduce_node.h>
+#include <hgraph/runtime/reduce_node.h>
+#include <hgraph/lib/std/std_nodes.h>
+#include <hgraph/types/impl/default_wiring.h>
+
 #include <numeric>
 
 namespace hgraph {
@@ -8,6 +13,9 @@ namespace {
 
     struct CompiledSwitchSite {};
     struct CompiledMapSite {};
+    struct CompiledMeshSite {};
+    struct CompiledMeshPeer {};
+    struct CompiledReduceSite {};
     struct CompiledTryExceptSite {};
 
     void check_child_inputs(const CompiledSubGraph &child, std::span<const TSValueTypeMetaData *const> sources)
@@ -78,7 +86,7 @@ namespace {
     {
         auto &registry = TypeRegistry::instance();
         const auto *key_ts = [&] {
-            if constexpr (std::is_same_v<Spec, MapNodeSpec>) { return registry.ts(schema->key_type()); }
+            if constexpr (!std::is_same_v<Spec, TslMapNodeSpec>) { return registry.ts(schema->key_type()); }
             else { return ts_type<TS<Int>>(); }
         }();
         const auto *element = mapped_element_schema(child);
@@ -118,8 +126,8 @@ namespace {
         spec.child.input_bindings = std::move(child.input_bindings);
         spec.child.output_binding = std::move(child.output_binding);
         const TSValueTypeMetaData *output = nullptr;
-        if constexpr (std::is_same_v<Spec, MapNodeSpec>) {
-            spec.key_output_schema = key == MapKeyArg::First ? key_ts : nullptr;
+        if constexpr (!std::is_same_v<Spec, TslMapNodeSpec>) {
+            spec.key_output_schema = std::is_same_v<Spec, MeshNodeSpec> || key == MapKeyArg::First ? key_ts : nullptr;
             if (!keys) { keys = tsd_key_set_ref(inputs[0]); }
             if (registry.dereference(keys->schema) != registry.tss(schema->key_type())) {
                 throw std::invalid_argument("map_: explicit keys must be a set of the dictionary key type");
@@ -132,7 +140,8 @@ namespace {
         }
         if (element != nullptr) { bind_map_terminal(spec, child, element, "map_"); }
         return add_compiled_map(w, std::move(inputs), std::move(schemas), std::move(spec), output,
-                                typeid(CompiledMapSite), std::nullopt, std::move(keys));
+                                std::is_same_v<Spec, MeshNodeSpec> ? typeid(CompiledMeshSite) : typeid(CompiledMapSite),
+                                std::nullopt, std::move(keys));
     }
 
     WiringPortRef wire_collection(Wiring &w, WiringPortRef collection, std::span<const WiringPortRef> broadcast,
@@ -194,5 +203,124 @@ void compiled::map_sink_(Wiring &w, WiringPortRef collection, std::span<const Wi
                CompiledSubGraph child, MapKeyArg key, std::optional<WiringPortRef> keys)
 {
     wire_collection(w, std::move(collection), broadcast, std::move(child), key, std::move(keys), false);
+}
+
+WiringPortRef compiled::mesh_(Wiring &w, WiringPortRef collection, std::span<const WiringPortRef> broadcast,
+                              CompiledSubGraph child, MapKeyArg key, std::optional<WiringPortRef> keys)
+{
+    const auto *schema = TypeRegistry::instance().dereference(collection.schema);
+    if (!schema || schema->kind != TSTypeKind::TSD) { throw std::invalid_argument("mesh_: requires a dictionary"); }
+    collection = graph_wiring_detail::adapt_source_for_input(w, schema, std::move(collection));
+    return wire_compiled_map<MeshNodeSpec>(w, std::move(collection), broadcast, std::move(child), key,
+                                           std::move(keys), schema, true);
+}
+
+WiringPortRef compiled::mesh_peer(Wiring &w, WiringPortRef key, const TSValueTypeMetaData *mesh_schema)
+{
+    auto &registry = TypeRegistry::instance();
+    if (!mesh_schema || mesh_schema->kind != TSTypeKind::TSD ||
+        registry.dereference(key.schema) != registry.ts(mesh_schema->key_type())) {
+        throw std::invalid_argument("mesh_peer: key must match the requested mesh dictionary");
+    }
+    const auto *element = mesh_schema->element_ts();
+    const auto *key_schema = registry.ts(mesh_schema->key_type());
+    return subgraph_wiring_detail::wire_mesh_peer(w, key, WiringPortRef::null_source(element),
+                                                 key_schema, element, typeid(CompiledMeshPeer));
+}
+
+namespace {
+    SingleNestedGraphNodeSpec reduce_child(CompiledSubGraph child)
+    {
+        SingleNestedGraphNodeSpec spec;
+        spec.graph_builder = std::move(child.graph_builder);
+        spec.input_bindings = std::move(child.input_bindings);
+        spec.output_binding = std::move(child.output_binding);
+        return spec;
+    }
+
+    WiringPortRef ordered_fixed_list(Wiring &w, const WiringPortRef &collection, const TSValueTypeMetaData *schema,
+                                     const WiringPortRef &zero, const CompiledSubGraph &child)
+    {
+        const auto *element = schema->element_ts();
+        if (!time_series_value_equivalent(element, zero.schema)) {
+            throw std::invalid_argument("reduce_: an ordered fixed list requires a zero of its element type");
+        }
+        // The operator folds fixed positions, defaulting each invalid position to
+        // zero. Its first position is the accumulator, unlike a dynamic fold's seed.
+        if (schema->fixed_size() == 0) { return zero; }
+        auto leaf = [&](std::size_t i) {
+            auto port = subgraph_wiring_detail::tsl_element_ref(collection, i, element);
+            return stdlib::wire_default_sources(w, std::move(port), zero);
+        };
+        auto accumulator = leaf(0);
+        for (std::size_t i = 1; i < schema->fixed_size(); ++i) {
+            std::array inputs{graph_wiring_detail::adapt_source_for_input(w, child.input_schemas[0], accumulator),
+                              graph_wiring_detail::adapt_source_for_input(w, child.input_schemas[1], leaf(i))};
+            NodeTypeMetaData meta;
+            meta.display_name = "reduce_ordered";
+            meta.input_schema = TypeRegistry::instance().un_named_tsb({{"lhs", child.input_schemas[0]},
+                                                                       {"rhs", child.input_schemas[1]}});
+            meta.output_schema = child.output_schema;
+            const auto *input_schema = meta.input_schema;
+            auto builder = single_nested_graph_node(std::move(meta), reduce_child(child));
+            builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(input_schema, inputs));
+            accumulator = w.add_unique_node(typeid(CompiledReduceSite), std::move(builder), inputs, {});
+        }
+        return accumulator;
+    }
+}
+
+WiringPortRef compiled::reduce_(Wiring &w, WiringPortRef collection, CompiledSubGraph child,
+                                std::optional<WiringPortRef> zero, ReduceOrder order)
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *schema = registry.dereference(collection.schema);
+    if (!schema || (schema->kind != TSTypeKind::TSD && schema->kind != TSTypeKind::TSL)) {
+        throw std::invalid_argument("reduce_: requires a dictionary or list");
+    }
+    collection = graph_wiring_detail::adapt_source_for_input(w, schema, std::move(collection));
+    if (!child.captured_inputs.empty() || !child.external_service_inputs.empty()) {
+        throw std::invalid_argument("reduce_: the combiner must have only its two explicit inputs");
+    }
+    const bool ordered = order == ReduceOrder::Ordered;
+    if (ordered && !zero) { throw std::invalid_argument("reduce_: an ordered fold requires zero"); }
+    if (ordered && schema->kind == TSTypeKind::TSD && schema->key_type() != scalar_descriptor<Int>::value_meta()) {
+        throw std::invalid_argument("reduce_: an ordered dictionary requires contiguous integer keys");
+    }
+    const auto *element = schema->element_ts();
+    if (zero) {
+        const auto *zero_type = registry.dereference(zero->schema);
+        if (!ordered && !time_series_value_equivalent(element, zero_type)) {
+            throw std::invalid_argument("reduce_: zero must match the collection element");
+        }
+        *zero = graph_wiring_detail::adapt_source_for_input(w, zero_type, std::move(*zero));
+        if (zero->is_structural_source()) {
+            *zero = wire<stdlib::pass_through_node>(w, Port<void>{w, std::move(*zero)}).erased();
+        }
+    }
+    const auto *result = ordered ? zero->schema : element;
+    check_child_inputs(child, std::array{result, element});
+    if (!child.output_schema || !time_series_value_equivalent(child.output_schema, result)) {
+        throw std::invalid_argument("reduce_: the combiner output must match the accumulator");
+    }
+    if (ordered && schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl()) {
+        return ordered_fixed_list(w, collection, schema, *zero, child);
+    }
+    std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields{{"ts", schema}};
+    std::vector<WiringPortRef> inputs{std::move(collection)};
+    if (zero) {
+        fields.emplace_back("zero", zero->schema);
+        inputs.push_back(std::move(*zero));
+    }
+    NodeTypeMetaData meta;
+    meta.display_name = ordered ? "reduce_ordered" : "reduce";
+    meta.input_schema = registry.un_named_tsb(fields);
+    meta.output_schema = result;
+    const auto *input_schema = meta.input_schema;
+    NodeBuilder builder = ordered
+        ? ordered_reduce_node(std::move(meta), OrderedReduceNodeSpec{.child = reduce_child(std::move(child))})
+        : reduce_node(std::move(meta), ReduceNodeSpec{.child = reduce_child(std::move(child)), .has_zero = zero.has_value()});
+    builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(input_schema, inputs));
+    return w.add_unique_node(typeid(CompiledReduceSite), std::move(builder), inputs, {});
 }
 }
