@@ -1,4 +1,5 @@
 #include <hgraph/types/value/specialized_views.h>
+#include "../wiring_scalar_key.h"
 
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/value/value.h>
@@ -13,6 +14,12 @@
 
 namespace hgraph
 {
+    std::atomic<detail::StoredZeroSignsMatch> &detail::stored_zero_signs_comparison() noexcept
+    {
+        static std::atomic<StoredZeroSignsMatch> comparator{nullptr};
+        return comparator;
+    }
+
     namespace
     {
         [[nodiscard]] const char *schema_name(const ValueTypeMetaData *schema) noexcept

@@ -67,7 +67,7 @@ def test_signed_zero_scalar_arguments_keep_their_sign_in_either_wiring_order():
         assert eval_node(configured, [1.0, None, 1.0], reverse=reverse) == [tick, None, tick]
 
 
-def test_equal_python_owned_configurations_share_one_reader_on_each_input_tick():
+def test_computed_python_fields_with_distinct_private_state_evaluate_independently():
     getter_reads = []
     evaluations = []
 
@@ -101,5 +101,5 @@ def test_equal_python_owned_configurations_share_one_reader_on_each_input_tick()
         return pair(read(tick, Rate()), read(tick, Rate()))
 
     assert eval_node(graph, [1, None, 3]) == [(2.5, 2.5), None, (2.5, 2.5)]
-    assert evaluations == [1, 3]
-    assert getter_reads == [2.5, 2.5]
+    assert evaluations == [1, 1, 3, 3]
+    assert getter_reads == [2.5] * 4

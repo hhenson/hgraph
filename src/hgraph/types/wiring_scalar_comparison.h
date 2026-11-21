@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "wiring_scalar_key.h"
+
 namespace hgraph::wiring_detail {
 
 /** Compare diagnostic provenance and floating-zero signs in value-equal scalar arguments.
@@ -53,9 +55,9 @@ private:
         if (schema->is_named_bundle()) {
             const auto *provider = ValuePlanFactory::python_storage_provider();
             if (provider && provider->python_bundle_schema && provider->python_bundle_schema(schema)) {
-                // Python equality controls sharing. Reading a field for its sign
-                // could execute an arbitrary descriptor.
-                result &= ~Zero;
+                // A storage provider can compare the retained backing objects without invoking field getters.
+                if (detail::stored_zero_signs_comparison().load(std::memory_order_acquire)) { result |= Zero; }
+                else { result &= ~Zero; }
             } else {
                 // A realized native base can contain a derived floating field.
                 result |= Zero;
@@ -74,6 +76,15 @@ private:
         if (!left.has_value() || !right.has_value()) { return left.has_value() == right.has_value(); }
         selected &= details(left.schema());
         if (left.data() == right.data() || selected == None) { return true; }
+        if ((selected & Zero) && left.schema()->is_named_bundle()) {
+            if (const auto compare = detail::stored_zero_signs_comparison().load(std::memory_order_acquire)) {
+                if (const auto same = compare(left, right)) {
+                    if (!*same) { return false; }
+                    selected &= ~Zero;
+                    if (selected == None) { return true; }
+                }
+            }
+        }
         if (left.is_atomic()) {
             if (const auto *error = left.try_as<CanonicalError>()) {
                 return error->context == right.checked_as<CanonicalError>().context;
