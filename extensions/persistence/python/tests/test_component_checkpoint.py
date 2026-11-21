@@ -312,6 +312,8 @@ def pending_alarms(ts: hg.TS[int], scheduler: hg.SCHEDULER = None) -> hg.TS[int]
     if ts.modified and ts.value == -1:
         scheduler.un_schedule("second")
         scheduler.schedule(hg.MIN_TD, "first")
+        # This input defers publication even when it coincides with a delivered alarm.
+        return
     if scheduler.is_scheduled_now and scheduler.has_tag("first"):
         return ts.value
     if scheduler.is_scheduled_now and scheduler.has_tag("second"):
@@ -344,6 +346,9 @@ def test_pending_scheduler_restores_without_recordable_state(tmp_path, replace):
 
     assert day("one", None, 0, 2, [7, None]) is None
     if replace:
+        assert day("continuous", None, 0, 7, [7, None, -1, None, None, None, None]) == [
+            None, None, None, -1, None, None, None
+        ]
         assert day("two", "one", 2, 7, [-1, None, None, None, None]) == [None, -1, None, None, None]
     else:
         assert day("two", "one", 2, 4, [None, None]) == [7, None]
