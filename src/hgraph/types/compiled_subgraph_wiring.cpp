@@ -79,8 +79,92 @@ namespace {
                                    std::nullopt, typeid(CompiledSwitchSite), "switch_");
     }
 
+    constexpr std::array<std::size_t, 1> first_collection{0};
+
+    std::vector<WiringPortRef> collection_and_broadcasts(WiringPortRef collection,
+                                                         std::span<const WiringPortRef> broadcast)
+    {
+        std::vector<WiringPortRef> inputs;
+        inputs.reserve(broadcast.size() + 1);
+        inputs.push_back(std::move(collection));
+        inputs.insert(inputs.end(), broadcast.begin(), broadcast.end());
+        return inputs;
+    }
+
+    const TSValueTypeMetaData *collection_schema(std::span<const WiringPortRef> inputs,
+                                                 std::span<const std::size_t> multiplexed)
+    {
+        if (multiplexed.empty()) { throw std::invalid_argument("map_: at least one collection must be multiplexed"); }
+        if (multiplexed.front() >= inputs.size()) { throw std::invalid_argument("map_: invalid multiplexed index"); }
+        return TypeRegistry::instance().dereference(inputs[multiplexed.front()].schema);
+    }
+
+    const TSValueTypeMetaData *checked_map_collection(const TSValueTypeMetaData *input,
+                                                      const TSValueTypeMetaData *first)
+    {
+        const auto *collection = TypeRegistry::instance().dereference(input);
+        if (first->is_unbounded_tsl()) {
+            if (!collection || !collection->is_unbounded_tsl()) {
+                throw std::invalid_argument("map_: every multiplexed list must be dynamic");
+            }
+        } else if (!collection || collection->kind != TSTypeKind::TSD || collection->key_type() != first->key_type()) {
+            throw std::invalid_argument("map_: multiplexed dictionaries must have the same key type");
+        }
+        return collection;
+    }
+
     template <typename Spec>
-    WiringPortRef wire_compiled_map(Wiring &w, WiringPortRef collection, std::span<const WiringPortRef> broadcast,
+    std::vector<const TSValueTypeMetaData *> bind_map_arguments(
+        Wiring &w, Spec &spec, CompiledSubGraph &child, std::vector<WiringPortRef> &inputs,
+        std::span<const std::size_t> multiplexed, MapKeyArg key, const TSValueTypeMetaData *key_ts,
+        const TSValueTypeMetaData *schema)
+    {
+        std::vector<const TSValueTypeMetaData *> child_schemas;
+        if (key == MapKeyArg::First) {
+            child_schemas.push_back(key_ts);
+            spec.args.push_back(MapArgSource{.kind = MapArgSourceKind::Key});
+        }
+        std::vector<const TSValueTypeMetaData *> schemas;
+        const auto offset = child_schemas.size();
+        for (const auto &port : inputs) {
+            schemas.push_back(port.schema);
+            child_schemas.push_back(port.schema);
+            spec.args.push_back(MapArgSource{.kind = MapArgSourceKind::OuterInput, .outer_index = schemas.size() - 1});
+        }
+        for (const auto index : multiplexed) {
+            if (index >= inputs.size()) { throw std::invalid_argument("map_: invalid multiplexed index"); }
+            auto &source = spec.args[offset + index];
+            if (source.kind == MapArgSourceKind::Element) {
+                throw std::invalid_argument("map_: multiplexed indices must be unique");
+            }
+            const auto *collection = checked_map_collection(schemas[index], schema);
+            if constexpr (std::is_same_v<Spec, MeshNodeSpec>) {
+                inputs[index] = graph_wiring_detail::adapt_source_for_input(w, collection, std::move(inputs[index]));
+                schemas[index] = inputs[index].schema;
+            }
+            source.kind = MapArgSourceKind::Element;
+            child_schemas[offset + index] = collection->element_ts();
+            spec.multiplexed_inputs.push_back(index);
+        }
+        const auto explicit_count = inputs.size();
+        check_child_inputs(child, child_schemas);
+        for (auto &port : child.captured_inputs) {
+            schemas.push_back(port.schema);
+            inputs.push_back(std::move(port));
+        }
+        for (auto &service : child.external_service_inputs) {
+            auto port = materialize_external_service_input(w, std::move(service));
+            schemas.push_back(port.schema);
+            inputs.push_back(std::move(port));
+        }
+        for (std::size_t i = explicit_count; i < inputs.size(); ++i) {
+            spec.args.push_back(MapArgSource{.kind = MapArgSourceKind::OuterInput, .outer_index = i});
+        }
+        return schemas;
+    }
+
+    template <typename Spec>
+    WiringPortRef wire_compiled_map(Wiring &w, std::vector<WiringPortRef> inputs, std::span<const std::size_t> multiplexed,
                                     CompiledSubGraph child, MapKeyArg key, std::optional<WiringPortRef> keys,
                                     const TSValueTypeMetaData *schema, bool returns_value)
     {
@@ -94,41 +178,17 @@ namespace {
             throw std::invalid_argument(returns_value ? "map_: child must produce an output" : "map_sink_: child must be a sink");
         }
         Spec spec;
-        std::vector<const TSValueTypeMetaData *> child_schemas;
-        if (key == MapKeyArg::First) {
-            child_schemas.push_back(key_ts);
-            spec.args.push_back(MapArgSource{.kind = MapArgSourceKind::Key});
-        }
-        std::vector<WiringPortRef> inputs{std::move(collection)};
-        std::vector<const TSValueTypeMetaData *> schemas{inputs.front().schema};
-        child_schemas.push_back(schema->element_ts());
-        for (const auto &port : broadcast) {
-            inputs.push_back(port);
-            schemas.push_back(port.schema);
-            child_schemas.push_back(port.schema);
-        }
-        check_child_inputs(child, child_schemas);
-        for (auto &port : child.captured_inputs) {
-            schemas.push_back(port.schema);
-            inputs.push_back(std::move(port));
-        }
-        for (auto &service : child.external_service_inputs) {
-            auto port = materialize_external_service_input(w, std::move(service));
-            schemas.push_back(port.schema);
-            inputs.push_back(std::move(port));
-        }
-        spec.multiplexed_inputs.push_back(0);
-        spec.args.push_back(MapArgSource{.kind = MapArgSourceKind::Element, .outer_index = 0});
-        for (std::size_t i = 1; i < inputs.size(); ++i) {
-            spec.args.push_back(MapArgSource{.kind = MapArgSourceKind::OuterInput, .outer_index = i});
-        }
+        auto schemas = bind_map_arguments(w, spec, child, inputs, multiplexed, key, key_ts, schema);
         spec.child.graph_builder = std::move(child.graph_builder);
         spec.child.input_bindings = std::move(child.input_bindings);
         spec.child.output_binding = std::move(child.output_binding);
         const TSValueTypeMetaData *output = nullptr;
         if constexpr (!std::is_same_v<Spec, TslMapNodeSpec>) {
             spec.key_output_schema = std::is_same_v<Spec, MeshNodeSpec> || key == MapKeyArg::First ? key_ts : nullptr;
-            if (!keys) { keys = tsd_key_set_ref(inputs[0]); }
+            if (!keys && multiplexed.size() > 1) {
+                throw std::invalid_argument("map_: multiple dictionaries require an explicit lifecycle key set");
+            }
+            if (!keys) { keys = tsd_key_set_ref(inputs[multiplexed.front()]); }
             if (registry.dereference(keys->schema) != registry.tss(schema->key_type())) {
                 throw std::invalid_argument("map_: explicit keys must be a set of the dictionary key type");
             }
@@ -144,17 +204,17 @@ namespace {
                                 std::nullopt, std::move(keys));
     }
 
-    WiringPortRef wire_collection(Wiring &w, WiringPortRef collection, std::span<const WiringPortRef> broadcast,
+    WiringPortRef wire_collection(Wiring &w, std::vector<WiringPortRef> inputs, std::span<const std::size_t> multiplexed,
                                  CompiledSubGraph child, MapKeyArg key, std::optional<WiringPortRef> keys,
                                  bool returns_value)
     {
-        const auto *schema = TypeRegistry::instance().dereference(collection.schema);
+        const auto *schema = collection_schema(inputs, multiplexed);
         if (schema != nullptr && schema->kind == TSTypeKind::TSD) {
-            return wire_compiled_map<MapNodeSpec>(w, std::move(collection), broadcast, std::move(child),
+            return wire_compiled_map<MapNodeSpec>(w, std::move(inputs), multiplexed, std::move(child),
                                                   key, std::move(keys), schema, returns_value);
         }
         if (schema != nullptr && schema->is_unbounded_tsl()) {
-            return wire_compiled_map<TslMapNodeSpec>(w, std::move(collection), broadcast, std::move(child),
+            return wire_compiled_map<TslMapNodeSpec>(w, std::move(inputs), multiplexed, std::move(child),
                                                      key, std::move(keys), schema, returns_value);
         }
         throw std::invalid_argument("map_: collection must be a dictionary or dynamic list");
@@ -196,23 +256,44 @@ WiringPortRef compiled::try_except_(Wiring &w, std::span<const WiringPortRef> in
 WiringPortRef compiled::map_(Wiring &w, WiringPortRef collection, std::span<const WiringPortRef> broadcast,
                    CompiledSubGraph child, MapKeyArg key, std::optional<WiringPortRef> keys)
 {
-    return wire_collection(w, std::move(collection), broadcast, std::move(child), key, std::move(keys), true);
+    return wire_collection(w, collection_and_broadcasts(std::move(collection), broadcast), first_collection, std::move(child), key, std::move(keys), true);
 }
 
 void compiled::map_sink_(Wiring &w, WiringPortRef collection, std::span<const WiringPortRef> broadcast,
                CompiledSubGraph child, MapKeyArg key, std::optional<WiringPortRef> keys)
 {
-    wire_collection(w, std::move(collection), broadcast, std::move(child), key, std::move(keys), false);
+    wire_collection(w, collection_and_broadcasts(std::move(collection), broadcast), first_collection, std::move(child), key, std::move(keys), false);
 }
 
 WiringPortRef compiled::mesh_(Wiring &w, WiringPortRef collection, std::span<const WiringPortRef> broadcast,
                               CompiledSubGraph child, MapKeyArg key, std::optional<WiringPortRef> keys)
 {
-    const auto *schema = TypeRegistry::instance().dereference(collection.schema);
+    auto inputs = collection_and_broadcasts(std::move(collection), broadcast);
+    return mesh_(w, inputs, first_collection, std::move(child), key, std::move(keys));
+}
+
+WiringPortRef compiled::map_(Wiring &w, std::span<const WiringPortRef> inputs,
+                             std::span<const std::size_t> multiplexed, CompiledSubGraph child,
+                             MapKeyArg key, std::optional<WiringPortRef> keys)
+{
+    return wire_collection(w, {inputs.begin(), inputs.end()}, multiplexed, std::move(child), key, std::move(keys), true);
+}
+
+void compiled::map_sink_(Wiring &w, std::span<const WiringPortRef> inputs,
+                         std::span<const std::size_t> multiplexed, CompiledSubGraph child,
+                         MapKeyArg key, std::optional<WiringPortRef> keys)
+{
+    wire_collection(w, {inputs.begin(), inputs.end()}, multiplexed, std::move(child), key, std::move(keys), false);
+}
+
+WiringPortRef compiled::mesh_(Wiring &w, std::span<const WiringPortRef> inputs,
+                              std::span<const std::size_t> multiplexed, CompiledSubGraph child,
+                              MapKeyArg key, std::optional<WiringPortRef> keys)
+{
+    const auto *schema = collection_schema(inputs, multiplexed);
     if (!schema || schema->kind != TSTypeKind::TSD) { throw std::invalid_argument("mesh_: requires a dictionary"); }
-    collection = graph_wiring_detail::adapt_source_for_input(w, schema, std::move(collection));
-    return wire_compiled_map<MeshNodeSpec>(w, std::move(collection), broadcast, std::move(child), key,
-                                           std::move(keys), schema, true);
+    return wire_compiled_map<MeshNodeSpec>(w, {inputs.begin(), inputs.end()}, multiplexed, std::move(child),
+                                           key, std::move(keys), schema, true);
 }
 
 WiringPortRef compiled::mesh_peer(Wiring &w, WiringPortRef key, const TSValueTypeMetaData *mesh_schema)

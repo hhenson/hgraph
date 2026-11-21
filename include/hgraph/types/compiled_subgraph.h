@@ -285,6 +285,16 @@ namespace hgraph
         HGRAPH_EXPORT void map_sink_(Wiring &w, WiringPortRef collection, std::span<const WiringPortRef> broadcast,
             CompiledSubGraph child, MapKeyArg key = MapKeyArg::None, std::optional<WiringPortRef> keys = {});
 
+        /** Supply all child arguments in order. Each index in multiplexed selects a dictionary
+         * element or dynamic list position; all other ports remain whole. Multiple dictionaries
+         * must share a key type and the caller supplies their lifecycle key set. */
+        [[nodiscard]] HGRAPH_EXPORT WiringPortRef map_(Wiring &w, std::span<const WiringPortRef> inputs,
+            std::span<const std::size_t> multiplexed, CompiledSubGraph child,
+            MapKeyArg key = MapKeyArg::None, std::optional<WiringPortRef> keys = {});
+        HGRAPH_EXPORT void map_sink_(Wiring &w, std::span<const WiringPortRef> inputs,
+            std::span<const std::size_t> multiplexed, CompiledSubGraph child,
+            MapKeyArg key = MapKeyArg::None, std::optional<WiringPortRef> keys = {});
+
         /** An associative reduction accepts a same-element zero or leaves an empty collection invalid.
          * Ordered reduction requires a live zero. An integer-keyed dictionary or dynamic list uses it
          * as the seed, while a fixed list uses it as the default for each invalid position. */
@@ -297,6 +307,10 @@ namespace hgraph
          * may read another instance with mesh_peer, including through a nested child graph. */
         [[nodiscard]] HGRAPH_EXPORT WiringPortRef mesh_(Wiring &w, WiringPortRef collection,
             std::span<const WiringPortRef> broadcast, CompiledSubGraph child,
+            MapKeyArg key = MapKeyArg::None, std::optional<WiringPortRef> keys = {});
+
+        [[nodiscard]] HGRAPH_EXPORT WiringPortRef mesh_(Wiring &w, std::span<const WiringPortRef> inputs,
+            std::span<const std::size_t> multiplexed, CompiledSubGraph child,
             MapKeyArg key = MapKeyArg::None, std::optional<WiringPortRef> keys = {});
 
         /** Read the output of the nearest enclosing mesh at key. Its TSD schema supplies the peer's

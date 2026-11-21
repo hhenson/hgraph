@@ -73,6 +73,57 @@ template <bool direct> struct Mesh {
         }
     }
 };
+struct Weighted {
+    static Port<N> compose(Wiring &w, Port<N> left, Port<N> offset, Port<N> right) {
+        auto sum = wire<stdlib::add_>(w, left, right);
+        return wire<stdlib::add_>(w, sum, offset).as<N>();
+    }
+};
+
+template <typename Owner, bool direct> struct Multiple {
+    static Port<Book> compose(Wiring &w, Port<Book> left, Port<N> offset, Port<Book> right, Port<TSS<Int>> keys) {
+        if constexpr (direct) {
+            const std::array inputs{left.erased(), offset.erased(), right.erased()};
+            constexpr std::array<std::size_t, 2> split{0, 2};
+            if constexpr (std::is_same_v<Owner, stdlib::mesh_>) {
+                return {w, compiled::mesh_(w, inputs, split, compile_subgraph<Weighted>(w), MapKeyArg::None, keys.erased())};
+            } else {
+                return {w, compiled::map_(w, inputs, split, compile_subgraph<Weighted>(w), MapKeyArg::None, keys.erased())};
+            }
+        } else {
+            return wire<Owner>(w, fn<Weighted>(), left, offset, right, arg<"__keys__">(keys)).template as<Book>();
+        }
+    }
+};
+struct RecordPair {
+    static inline std::vector<std::pair<Int, Int>> visits;
+    static void eval(In<"key", N> key, In<"value", N> value) {
+        visits.emplace_back(key.value(), value.value());
+    }
+};
+struct VisitPair {
+    static void compose(Wiring &w, NamedPort<"key", N> key, Port<N> left, Port<N> offset, Port<N> right) {
+        wire<RecordPair>(w, key, Weighted::compose(w, left, offset, right));
+    }
+};
+template <bool direct> struct MultipleSink {
+    static Port<Book> compose(Wiring &w, Port<Book> left, Port<N> offset, Port<Book> right, Port<TSS<Int>> keys) {
+        if constexpr (direct) {
+            const std::array inputs{left.erased(), offset.erased(), right.erased()};
+            compiled::map_sink_(w, inputs, std::array<std::size_t, 2>{0, 2}, compile_subgraph<VisitPair>(w),
+                                MapKeyArg::First, keys.erased());
+        } else {
+            wire<stdlib::map_sink_>(w, fn<VisitPair>(), left, offset, right, arg<"__keys__">(keys));
+        }
+        return left;
+    }
+};
+struct MultipleLists {
+    static Port<TSL<N>> compose(Wiring &w, Port<TSL<N>> left, Port<N> offset, Port<TSL<N>> right) {
+        const std::array inputs{left.erased(), offset.erased(), right.erased()};
+        return {w, compiled::map_(w, inputs, std::array<std::size_t, 2>{0, 2}, compile_subgraph<Weighted>(w))};
+    }
+};
 struct SavedMesh {
     static Port<Book> compose(Wiring &w, Port<Book> links, Port<TSS<Int>> keys) {
         return stdlib::component<Mesh<true>>(w, "mesh_strategy", links, keys);
@@ -134,4 +185,57 @@ TEST_CASE("a compiled mesh resumes a saved peer subscription without an extra ti
                      values<Value>(none, dict_delta<Int, N>({{2, 0}}), none),
                      values<Value>(none, none, set_delta<Int>({}, {2}))),
                  values<Value>(none, dict_delta<Int, N>({{0, 0}, {2, 2}}, {1}), dict_delta<Int, N>({}, {0, 2})));
+}
+
+TEST_CASE("compiled map and mesh bind multiple per-key collections in child argument order") {
+    stdlib::register_standard_operators();
+    const auto left = values<Value>(dict_delta<Int, N>({{1, 2}, {2, 3}}), none, none,
+                                    dict_delta<Int, N>({}, {1}), none, dict_delta<Int, N>({{1, 8}}));
+    const auto right = values<Value>(dict_delta<Int, N>({{1, 10}}), dict_delta<Int, N>({{2, 20}}), none, none, none, none);
+    const auto offset = values<Int>(5, none, 6);
+    const auto keys = values<Value>(set_delta<Int>({1}, {}), set_delta<Int>({2}, {}), none, none,
+                                    set_delta<Int>({}, {1}), set_delta<Int>({1}, {}));
+    const auto expected = values<Value>(dict_delta<Int, N>({{1, 17}}), dict_delta<Int, N>({{2, 28}}),
+                                        dict_delta<Int, N>({{1, 18}, {2, 29}}), none, dict_delta<Int, N>({}, {1}),
+                                        dict_delta<Int, N>({{1, 24}}));
+    CHECK_OUTPUT((eval_node<Multiple<stdlib::map_, false>>(left, offset, right, keys)), expected);
+    CHECK_OUTPUT((eval_node<Multiple<stdlib::map_, true>>(left, offset, right, keys)), expected);
+    CHECK_OUTPUT((eval_node<Multiple<stdlib::mesh_, false>>(left, offset, right, keys)), expected);
+    CHECK_OUTPUT((eval_node<Multiple<stdlib::mesh_, true>>(left, offset, right, keys)), expected);
+    RecordPair::visits.clear();
+    CHECK_OUTPUT(eval_node<MultipleSink<false>>(left, offset, right, keys), left);
+    auto operator_visits = RecordPair::visits;
+    std::ranges::sort(operator_visits);
+    CHECK(operator_visits == std::vector<std::pair<Int, Int>>{{1, 17}, {1, 18}, {1, 24}, {2, 28}, {2, 29}});
+    RecordPair::visits.clear();
+    CHECK_OUTPUT(eval_node<MultipleSink<true>>(left, offset, right, keys), left);
+    std::ranges::sort(RecordPair::visits);
+    CHECK(RecordPair::visits == operator_visits);
+    const auto a = values<Value>(dynamic_list_delta<N>({{0, 2}}, {}, 1), dynamic_list_delta<N>({{1, 4}}, {}, 2));
+    const auto b = values<Value>(dynamic_list_delta<N>({{0, 3}}, {}, 1), dynamic_list_delta<N>({{1, 5}}, {}, 2));
+    const auto listed = values<Value>(dynamic_list_delta<N>({{0, 15}}, {}, 1), dynamic_list_delta<N>({{1, 19}}, {}, 2));
+    CHECK_OUTPUT(eval_node<MultipleLists>(a, values<Int>(10), b), listed);
+}
+
+TEST_CASE("compiled dictionary map validates its multiplexed indices, collection types and lifecycle keys") {
+    stdlib::register_standard_operators();
+    Wiring w;
+    const auto book = WiringPortRef::null_source(schema_descriptor<Book>::ts_meta());
+    const auto other = WiringPortRef::null_source(schema_descriptor<TSD<Str, N>>::ts_meta());
+    const auto key_set = WiringPortRef::null_source(schema_descriptor<TSS<Int>>::ts_meta());
+    const auto offset = WiringPortRef::null_source(schema_descriptor<N>::ts_meta());
+    const auto child = compile_subgraph<Weighted>(w);
+    const std::array inputs{book, offset, book};
+    const auto wire_map = [&](std::span<const std::size_t> split, std::optional<WiringPortRef> keys) {
+        return compiled::map_(w, inputs, split, child, MapKeyArg::None, keys);
+    };
+    CHECK_THROWS_AS(wire_map({}, key_set), std::invalid_argument);
+    CHECK_THROWS_AS(wire_map(std::array<std::size_t, 1>{3}, key_set), std::invalid_argument);
+    CHECK_THROWS_AS(wire_map(std::array<std::size_t, 2>{0, 0}, key_set), std::invalid_argument);
+    CHECK_THROWS_AS(wire_map(std::array<std::size_t, 2>{0, 1}, key_set), std::invalid_argument);
+    constexpr std::array<std::size_t, 2> split{0, 2};
+    CHECK_THROWS_AS(wire_map(split, std::nullopt), std::invalid_argument);
+    CHECK_THROWS_AS(wire_map(split, offset), std::invalid_argument);
+    CHECK_THROWS_AS(compiled::mesh_(w, std::array{book, offset, other}, split, child, MapKeyArg::None, key_set),
+                    std::invalid_argument);
 }
