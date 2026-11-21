@@ -210,6 +210,53 @@ TEST_CASE("REF adapter checkpoint describes chained adapters and fixed interior 
     restored_second.data_view().unsubscribe(&observer);
 }
 
+TEST_CASE("a saved nullable designation expires when its plain producer is destroyed", "[reference]")
+{
+    const auto *plain = schema_descriptor<TS<Int>>::ts_meta();
+    const auto *reference = schema_descriptor<REF<TS<Optional<Int>>>>::ts_meta();
+    TimeSeriesReference saved;
+    {
+        TSOutput producer{plain};
+        const auto adapter = producer.view(MIN_ST).binding_for(*reference);
+        saved = adapter.view(MIN_ST).value().checked_as<TimeSeriesReference>();
+        REQUIRE(saved.is_peered());
+        CHECK_FALSE(saved.is_valid(MIN_ST));
+        write(producer.view(MIN_ST), Value{Int{5}}, MIN_ST);
+        CHECK(saved.is_valid(MIN_ST));
+    }
+    CHECK(saved.is_empty());
+}
+
+TEST_CASE("REF adapter checkpoint preserves the nullable target of a plain output", "[checkpoint][reference]")
+{
+    const auto *plain = schema_descriptor<TS<Int>>::ts_meta();
+    const auto *nullable = schema_descriptor<TS<Optional<Int>>>::ts_meta();
+    const auto *reference = schema_descriptor<REF<TS<Optional<Int>>>>::ts_meta();
+    TSOutput source{plain};
+    const auto time = MIN_ST + MIN_TD;
+    write(source.view(time), Value{Int{5}}, time);
+    const auto ref = source.view(time).binding_for(*reference);
+    const auto borrowed = source.view(time).binding_for(*nullable);
+    const auto descriptor = source.checkpoint_alternative(ref);
+    REQUIRE(descriptor);
+    CHECK(descriptor->source.same_as(borrowed));
+    CHECK(descriptor->requested_schema == reference);
+    CHECK(borrowed.view(time).binding_for(*reference).same_as(ref));
+    const auto images = source.capture_checkpoint_alternatives({});
+    REQUIRE(images.size() == 1);
+
+    TSOutput restored{plain};
+    write(restored.view(time), Value{Int{7}}, time);
+    const auto target = restored.view(time).binding_for(*nullable);
+    const auto recovered = restored.checkpoint_binding_for(restored.view(time), *reference);
+    restored.restore_checkpoint_alternative(restored.view(time), *reference, images.front().clocks, time);
+    const auto saved = recovered.view(time).value().checked_as<TimeSeriesReference>();
+    CHECK(saved.target_schema() == nullable);
+    CHECK(saved.target_output().same_as(target));
+    CHECK(saved.target_output().view(time).value().as_optional().value().checked_as<Int>() == 7);
+    CHECK_THROWS(target.view(time).begin_mutation(time));
+}
+
 TEST_CASE("REF adapter checkpoint index visits each scalar adapter once", "[checkpoint][reference]")
 {
     auto &registry = TypeRegistry::instance();

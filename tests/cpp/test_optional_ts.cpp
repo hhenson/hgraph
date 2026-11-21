@@ -387,7 +387,22 @@ TEST_CASE("nullable binding: erased reads borrow the payload and cannot mutate i
     CHECK(descriptor->requested_schema == nullable);
 }
 
-TEST_CASE("nullable binding: widening does not admit whole collections or nullable references")
+TEST_CASE("nullable binding: a plain output may be designated through a nullable view")
+{
+    using Plain = TS<Int>;
+    using Nullable = TS<Optional<Int>>;
+    using Reference = REF<Nullable>;
+    STATIC_REQUIRE(graph_wiring_detail::statically_accepts_output_v<Reference, Plain>);
+    STATIC_REQUIRE_FALSE(graph_wiring_detail::statically_accepts_output_v<Reference, REF<Plain>>);
+    STATIC_REQUIRE_FALSE(graph_wiring_detail::statically_accepts_output_v<REF<Plain>, Nullable>);
+    const auto *plain = schema_descriptor<Plain>::ts_meta();
+    const auto *reference = schema_descriptor<Reference>::ts_meta();
+    ResolutionMap resolution;
+    CHECK(graph_wiring_detail::input_accepts_output_schema(reference, plain));
+    CHECK(input_ts_pattern_match(to_pattern<Reference>(), plain, resolution));
+}
+
+TEST_CASE("nullable binding: widening keeps exact payload, reference and collection types")
 {
     const auto check = []<typename Expected, typename Actual>() {
         const auto *expected = schema_descriptor<Expected>::ts_meta();
@@ -399,6 +414,9 @@ TEST_CASE("nullable binding: widening does not admit whole collections or nullab
     check.operator()<TSD<Str, TS<Optional<Int>>>, TSD<Str, TS<Int>>>();
     check.operator()<TSL<TS<Optional<Int>>, 2>, TSL<TS<Int>, 2>>();
     check.operator()<REF<TS<Optional<Int>>>, REF<TS<Int>>>();
+    check.operator()<REF<TS<Int>>, TS<Optional<Int>>>();
+    check.operator()<REF<TS<Optional<Int>>>, TS<Str>>();
+    check.operator()<TSL<REF<TS<Optional<Int>>>, 2>, TSL<TS<Int>, 2>>();
 }
 
 TEST_CASE("nullable binding: references retarget and subsequent ticks remain visible")

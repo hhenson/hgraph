@@ -248,7 +248,10 @@ producer's next write or lifetime.
 
 A ``TS<T>`` source binds to ``TS<Optional<T>>`` through a read-only view over
 its existing payload and tracking. No conversion node is inserted. Overloads
-accept this widening and prefer an exact ``TS<T>`` match. The reverse binding
+accept this widening and prefer an exact ``TS<T>`` match. A
+``REF<TS<Optional<T>>>`` input may designate the same read-only view of a
+plain output. Sampling its reference preserves the producer's identity and
+follows subsequent values, invalidation and recovery. The reverse binding
 is rejected.
 
 No arithmetic or container operator applies to an ``Optional``: it is no tuple and no

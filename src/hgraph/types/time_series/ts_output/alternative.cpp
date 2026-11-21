@@ -38,6 +38,24 @@ namespace hgraph::detail
                    source->value_schema == requested.value_schema->element_type;
         }
 
+        // An ordinary plain scalar may be designated through its read-only
+        // nullable view. Existing REF designations retain their exact target type.
+        const TSValueTypeMetaData *nullable_reference_target(const TSValueTypeMetaData *source,
+                                                             const TSValueTypeMetaData &requested)
+        {
+            if (source == nullptr || source->kind != TSTypeKind::TS || requested.kind != TSTypeKind::REF)
+                return nullptr;
+            const auto *target = requested.referenced_ts();
+            return target != nullptr && alternative_route_matches_nullable(source, *target) ? target : nullptr;
+        }
+
+        TSOutputView reference_source(const TSOutputView &source, const TSValueTypeMetaData &requested)
+        {
+            if (const auto *target = nullable_reference_target(source.schema(), requested))
+                return source.binding_for(*target).view(source.evaluation_time());
+            return source.borrowed_ref();
+        }
+
         struct ToRefBuildContext
         {
             const TSOutput *output{nullptr};
@@ -2531,16 +2549,18 @@ namespace hgraph::detail
         const TSValueTypeMetaData &requested_schema) noexcept
     {
         return source_schema != nullptr &&
-               (alternative_route_matches_nullable(source_schema, requested_schema) ||
+               (nullable_reference_target(source_schema, requested_schema) != nullptr ||
+                alternative_route_matches_nullable(source_schema, requested_schema) ||
                 alternative_route_matches_to_ref(source_schema, requested_schema) ||
                 alternative_route_matches_from_ref(source_schema, requested_schema) ||
                 alternative_route_matches_from_ref_interior(source_schema, requested_schema) ||
                 reference_to_item_references(source_schema, requested_schema));
     }
 
-    TSOutputHandle TSOutputAlternativeStore::binding_for(const TSOutputView &source,
+    TSOutputHandle TSOutputAlternativeStore::binding_for(const TSOutputView &original,
                                                          const TSValueTypeMetaData &requested_schema)
     {
+        const auto source = reference_source(original, requested_schema);
         struct AlternativeRoute
         {
             using BindFn = TSOutputHandle (TSOutputAlternativeStore::*)(
@@ -2583,8 +2603,9 @@ namespace hgraph::detail
     }
 
     TSOutputHandle TSOutputAlternativeStore::checkpoint_binding_for(
-        const TSOutputView &source, const TSValueTypeMetaData &requested_schema)
+        const TSOutputView &original, const TSValueTypeMetaData &requested_schema)
     {
+        const auto source = reference_source(original, requested_schema);
         const auto key = key_for(source, requested_schema);
         if (alternative_route_matches_nullable(source.schema(), requested_schema))
         {
@@ -2733,9 +2754,10 @@ namespace hgraph::detail
         return result;
     }
 
-    void TSOutputAlternativeStore::restore_checkpoint_alternative(const TSOutputView &source,
+    void TSOutputAlternativeStore::restore_checkpoint_alternative(const TSOutputView &original,
         const TSValueTypeMetaData &requested_schema, const TSCheckpointImage &clocks, DateTime time)
     {
+        const auto source = reference_source(original, requested_schema);
         static_cast<void>(checkpoint_binding_for(source, requested_schema));
         const auto key = key_for(source, requested_schema);
         if (nullable_alternatives_.find(key) != nullptr) { return; }
