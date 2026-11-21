@@ -1,6 +1,8 @@
 #include <hgraph/types/record_replay.h>
 
 #include <hgraph/runtime/graph.h>
+#include <hgraph/lib/testing/record_replay_buffer.h>
+#include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/time_series/ts_data/checkpoint.h>
@@ -67,7 +69,8 @@ namespace hgraph::record_replay
                 if (when > start || (when == start && end == PrefixEnd::BeforeStart)) { break; }
                 const auto output = history.view(when);
                 apply_delta(output, entry.at(1));
-                if (entry.size() == 3) { apply_recorded_invalid_children(output, entry.at(2)); }
+                if (entry.size() >= 3) { apply_recorded_invalid_children(output, entry.at(2)); }
+                if (entry.size() == 4) { apply_recorded_invalid_paths(output, entry.at(3)); }
             }
             return index;
         }
@@ -81,7 +84,7 @@ namespace hgraph::record_replay
                                 mode == SeedPublication::AtStart ? PrefixEnd::ThroughStart : PrefixEnd::BeforeStart);
             if (!history.view(target.evaluation_time()).valid()) { return; }
             if (mode == SeedPublication::AtStart && target.schema()->kind == TSTypeKind::TSD &&
-                buffer.as_list().element_schema()->field_count == 3) {
+                buffer.as_list().element_schema()->field_count >= 3) {
                 reconcile_current_state(target, history.data_view(), {TSCurrentReconcileScope::Full, true, true});
             } else {
                 publish_window_history(target, history.data_view(), mode);
@@ -273,6 +276,110 @@ namespace hgraph::record_replay
             reconcile_current_state(target, history, {TSCurrentReconcileScope::Full, true});
     }
 
+    namespace
+    {
+        // These selectors also address the nested observed delta returned by the
+        // Python recording accessor. A nested TSD records its entries in "modified".
+        struct RecordedPath {
+            const RecordedPath *parent;
+            const ValueView &key;
+        };
+
+        void append_selectors(ListBuilder &parts, const RecordedPath &path) {
+            if (path.parent) { append_selectors(parts, *path.parent); }
+            parts.push_back(testing::make_any(path.key));
+        }
+
+        bool has_recordable_fields(const TSValueTypeMetaData &schema) {
+            return schema.kind == TSTypeKind::TSB || schema.kind == TSTypeKind::TSD;
+        }
+
+        void collect_withdrawals(const TSInputView &input, const RecordedPath &path,
+                                 std::optional<ListBuilder> &paths) {
+            const auto inspect = [&](const TSInputView &child, const RecordedPath &at, bool added = false) {
+                if (!child.valid()) {
+                    const auto &data = child.data_view();
+                    // A vacant list may still publish a positional edit. Replaying that
+                    // edit retains its extent, whereas clearing its owner would lose it.
+                    if (child.schema()->kind == TSTypeKind::TSL && data.valid() &&
+                        data.tracking().last_modified_time == input.evaluation_time()) { return; }
+                    if (!added && (!data.valid() || !data.tracking().cleared_at(input.evaluation_time()))) { return; }
+                    ListBuilder parts{ValuePlanFactory::instance().type_for(TypeRegistry::instance().any())};
+                    append_selectors(parts, at);
+                    Value complete = parts.build();
+                    if (!paths) { paths.emplace(complete.binding()); }
+                    paths->push_back(std::move(complete));
+                } else if (child.modified() && has_recordable_fields(*child.schema())) {
+                    collect_withdrawals(child, at, paths);
+                }
+            };
+            if (input.schema()->kind == TSTypeKind::TSB) {
+                const auto bundle = input.as_bundle();
+                for (const auto &[name, field] : bundle.items()) {
+                    const auto &owned = field.data_view();
+                    const bool cleared = !field.valid() && owned.valid() && owned.tracking().cleared_at(input.evaluation_time());
+                    if (cleared || (field.modified() && has_recordable_fields(*field.schema()))) {
+                        const Value key{Str{name}};
+                        inspect(field, {&path, key.view()});
+                    }
+                }
+            } else {
+                const Value modified{Str{"modified"}};
+                const RecordedPath children{&path, modified.view()};
+                const auto dict = input.as_dict();
+                for (const auto &[key, child] : dict.modified_items()) {
+                    inspect(child, {&children, key});
+                }
+                if (!dict.structure_modified()) { return; }
+                for (const auto &[key, child] : dict.added_items()) {
+                    if (!child.valid()) { inspect(child, {&children, key}, true); }
+                }
+                for (const auto key : dict.removed_keys()) {
+                    if (dict.contains(key)) { inspect(dict.at(key), {&children, key}); }
+                }
+            }
+        }
+    }
+
+    Value capture_recorded_invalid_paths(const TSInputView &input) {
+        if (!has_recordable_fields(*input.schema()->element_ts())) { return {}; }
+        const auto dict = input.as_dict();
+        std::optional<ListBuilder> paths;
+        for (const auto &[key, child] : dict.modified_items()) {
+            if (child.valid()) { collect_withdrawals(child, {nullptr, key}, paths); }
+        }
+        return paths ? paths->build() : Value{};
+    }
+
+    void apply_recorded_invalid_paths(const TSOutputView &output, const ValueView &paths) {
+        if (!paths.has_value()) { return; }
+        for (const auto path : paths.as_list()) {
+            const auto selectors = path.as_list();
+            if (output.schema()->kind != TSTypeKind::TSD || selectors.size() < 2) {
+                throw std::invalid_argument("a recorded descendant withdrawal requires a nested dictionary path");
+            }
+            auto current = output.data_view().borrowed_ref();
+            for (std::size_t i = 0; i < selectors.size(); ++i) {
+                auto key = selectors.at(i).as_any().get();
+                if (current.schema()->kind == TSTypeKind::TSB) {
+                    auto bundle = current.as_bundle();
+                    current = bundle.at(key.checked_as<Str>());
+                } else if (current.schema()->kind == TSTypeKind::TSD) {
+                    if (i != 0) {
+                        if (key.checked_as<Str>() != "modified" || ++i >= selectors.size()) {
+                            throw std::invalid_argument("invalid dictionary withdrawal path");
+                        }
+                        key = selectors.at(i).as_any().get();
+                    }
+                    current = current.as_dict().begin_mutation(output.evaluation_time()).at(key);
+                } else {
+                    throw std::invalid_argument("recorded withdrawal path traverses a scalar");
+                }
+            }
+            static_cast<void>(current.begin_mutation(output.evaluation_time()).invalidate());
+        }
+    }
+
     void apply_recorded_invalid_children(const TSOutputView &target, const ValueView &keys)
     {
         if (!keys.has_value()) { return; }
@@ -293,7 +400,7 @@ namespace hgraph::record_replay
             const auto selected = config(state).backend;
             if (selected == MEMORY || selected == TESTING) {
                 const auto buffer = state.get(":memory:" + std::string{fq_key});
-                if (buffer.valid() && buffer.as_list().element_schema()->field_count == 3) {
+                if (buffer.valid() && buffer.as_list().element_schema()->field_count >= 3) {
                     publish_memory_seed(state, fq_key, target, mode);
                     return;
                 }

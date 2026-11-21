@@ -65,3 +65,41 @@ def test_signed_zero_scalar_arguments_keep_their_sign_in_either_wiring_order():
         sign = -1.0 if reverse else 1.0
         tick = (sign, -sign, sign * inf, -sign * inf, sign * inf, -sign * inf)
         assert eval_node(configured, [1.0, None, 1.0], reverse=reverse) == [tick, None, tick]
+
+
+def test_computed_python_fields_with_distinct_private_state_evaluate_independently():
+    getter_reads = []
+    evaluations = []
+
+    @hg.register_python_object_type(fields={"divisor": float})
+    class Rate:
+        def __init__(self):
+            self.private_cache = object()
+
+        def __eq__(self, other):
+            return type(other) is Rate
+
+        def __hash__(self):
+            return 0
+
+        @property
+        def divisor(self):
+            getter_reads.append(2.5)
+            return 2.5
+
+    @compute_node
+    def read(tick: TS[int], rate: Rate) -> TS[float]:
+        evaluations.append(tick.value)
+        return rate.divisor
+
+    @compute_node
+    def pair(a: TS[float], b: TS[float]) -> TS[tuple[float, float]]:
+        return a.value, b.value
+
+    @hg.graph
+    def graph(tick: TS[int]) -> TS[tuple[float, float]]:
+        return pair(read(tick, Rate()), read(tick, Rate()))
+
+    assert eval_node(graph, [1, None, 3]) == [(2.5, 2.5), None, (2.5, 2.5)]
+    assert evaluations == [1, 1, 3, 3]
+    assert getter_reads == [2.5] * 4

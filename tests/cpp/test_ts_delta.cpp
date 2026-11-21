@@ -8,6 +8,8 @@
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
+#include <hgraph/lib/std/operators/registration.h>
+#include <hgraph/lib/std/operators/stream.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/runtime/registry_snapshot.h>
@@ -223,6 +225,13 @@ template <typename Source, typename S> struct HeldCollectionGraph {
     return wire<HeldCollectionObserver<S>>(w, step, wire<Source>(w, action));
   }
 };
+template <typename Source, typename S> struct SampleHeldCollection {
+  static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>> action, Port<TS<Int>> trigger, Port<TS<Int>> clock) {
+    auto value = wire<Source>(w, action);
+    auto sampled = wire<stdlib::sample>(w, trigger, value).template as<S>();
+    return wire<HeldCollectionObserver<S>>(w, clock, sampled);
+  }
+};
 // Retained and projected values have one semantic hash, including typed holes.
 void check_held_hash_lookup(const ValueView &observed, const ValueView &retained) {
   REQUIRE(observed.equals(retained));
@@ -243,6 +252,16 @@ TEST_CASE("public C++ wiring observes invalid collection children on an independ
   const auto expected = values<Bool>(none, true, none, false, false, none, true);
   CHECK_OUTPUT((eval_node<HeldCollectionGraph<HeldListSource, HeldSamples>>(actions, steps)), expected);
   CHECK_OUTPUT((eval_node<HeldCollectionGraph<HeldMapSource, HeldBook>>(actions, steps)), expected);
+}
+
+TEST_CASE("Sampling lists and dictionaries holds child validity until the next trigger") {
+  stdlib::register_standard_operators();
+  const auto actions = values<Int>(1, 2, none, 3, none);
+  const auto triggers = values<Int>(1, none, 2, none, 3);
+  const auto clock = values<Int>(0, 1, 2, 3, 4);
+  const auto expected = values<Bool>(true, true, false, false, true);
+  CHECK_OUTPUT((eval_node<SampleHeldCollection<HeldMapSource, HeldBook>>(actions, triggers, clock)), expected);
+  CHECK_OUTPUT((eval_node<SampleHeldCollection<HeldListSource, HeldSamples>>(actions, triggers, clock)), expected);
 }
 
 TEST_CASE("TSData realizations select a non-missing current-state policy") {
@@ -551,6 +570,24 @@ TEST_CASE("held collection retention keeps nested fixed-list holes", "[held-chil
     REQUIRE(nested.at(0).checked_as<Int>() == 7);
     REQUIRE_FALSE(nested.at(1).has_value());
   }
+}
+
+TEST_CASE("A retained bundle value sees a withdrawal through its source field") {
+  const auto *schema = schema_descriptor<Quote>::ts_meta();
+  TSOutput source{schema};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+  input.view(nullptr, MIN_ST).bind_output(source.view(MIN_ST));
+  apply_delta(source.view(MIN_ST), tsb_delta<Quote>(7, 42).view());
+  Value before{input.view(nullptr, MIN_ST).value()};
+  const auto now = MIN_ST + MIN_TD;
+  auto current = source.view(now);
+  auto fields = current.as_bundle();
+  auto bid = fields.at(0);
+  REQUIRE(bid.begin_mutation(now).invalidate());
+  Value after{input.view(nullptr, now).value()};
+  CHECK_FALSE(after.view().as_bundle().at("bid").has_value());
+  CHECK(after.view().as_bundle().at("ask").checked_as<Int>() == 42);
+  CHECK(before.view().as_bundle().at("bid").checked_as<Int>() == 7);
 }
 
 TEST_CASE("current-state reconciliation preserves fixed-structure child validity") {

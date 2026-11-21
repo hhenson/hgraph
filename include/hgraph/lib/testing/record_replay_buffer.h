@@ -75,10 +75,7 @@ namespace hgraph::testing
 
     // Private representation identity preserves the format through owning
     // Value and GlobalState copies without changing the canonical List schema.
-    [[nodiscard]] inline ValueTypeRef dense_buffer_binding(ValueTypeRef binding, DenseBufferLayout layout) {
-        const char *label = "testing.dense.seeded";
-        if (layout == DenseBufferLayout::Typed) { label = "testing.dense.typed"; }
-        else if (layout == DenseBufferLayout::ObservedSeed) { label = "testing.dense.observed_seed"; }
+    [[nodiscard]] inline ValueTypeRef recording_buffer_binding(ValueTypeRef binding, std::string_view label) {
         const auto &record = TypeRecordRegistry::instance().intern(TypeRecordDefinition{
             .key = TypeRecordKey{.schema = &binding.schema()->header,
                                  .role   = TypeRole::Instance,
@@ -90,6 +87,12 @@ namespace hgraph::testing
             .capabilities    = binding.capabilities(),
         });
         return ValueTypeRef::checked(AnyPtr::typed_null(record));
+    }
+    [[nodiscard]] inline ValueTypeRef dense_buffer_binding(ValueTypeRef binding, DenseBufferLayout layout) {
+        const char *label = "testing.dense.seeded";
+        if (layout == DenseBufferLayout::Typed) { label = "testing.dense.typed"; }
+        else if (layout == DenseBufferLayout::ObservedSeed) { label = "testing.dense.observed_seed"; }
+        return recording_buffer_binding(binding, label);
     }
     [[nodiscard]] inline DenseBufferLayout dense_buffer_layout(ValueTypeRef binding) noexcept {
         if (binding) {
@@ -228,54 +231,113 @@ namespace hgraph::testing
         return make_sparse_entry(binding, when, std::move(delta));
     }
 
-    /** Timed dictionary rows may additionally identify live keys with invalid scalar children.
-        Their ordinary delta retains the standard value/removal schema. */
-    inline Value sparse_dictionary_entry(ValueTypeRef type, const ValueView &when, const ValueView &delta,
-                                         const Value &invalid_children = {}) {
+    // Preserve the endpoint's structural shape through Value copies. A TSB's
+    // delta schema gives the field order; a TSD's delta schema gives the key
+    // type. Scalar fields (including arbitrary maps) are opaque to row edits.
+    inline constexpr std::string_view sparse_shape_prefix = "testing.sparse.members:";
+    inline void append_sparse_member_shape(std::string &shape, const TSValueTypeMetaData &schema) {
+        if (schema.kind == TSTypeKind::TSB) {
+            shape.push_back('B');
+            for (std::size_t i = 0; i < schema.field_count(); ++i) {
+                append_sparse_member_shape(shape, *schema.fields()[i].type);
+            }
+        } else if (schema.kind == TSTypeKind::TSD) {
+            shape.push_back('D');
+            append_sparse_member_shape(shape, *schema.element_ts());
+        } else {
+            shape.push_back('S');
+        }
+    }
+
+    inline void initialize_sparse_buffer(GlobalStateView state, const std::string &key, ValueTypeRef delta_type,
+                                         const TSValueTypeMetaData &schema) {
+        const auto previous = state.get(key);
+        const bool nested = schema.kind == TSTypeKind::TSD &&
+            (schema.element_ts()->kind == TSTypeKind::TSB || schema.element_ts()->kind == TSTypeKind::TSD);
+        if (!nested) {
+            if (!previous.valid()) { state.set(key, make_sparse_buffer(delta_type)); }
+            return;
+        }
+        if (previous.valid() && previous.binding().record()->implementation_name().starts_with(sparse_shape_prefix)) {
+            return;
+        }
+        std::string shape{sparse_shape_prefix};
+        append_sparse_member_shape(shape, *schema.element_ts());
+        const auto binding = previous.valid() ? previous.binding() : mutable_list_type(sparse_entry_binding(delta_type));
+        Value typed{recording_buffer_binding(binding, shape)};
+        if (previous.valid()) {
+            auto add = typed.as_list().begin_mutation();
+            for (const auto row : previous.as_list()) { add.push_back(row); }
+        }
+        state.set(key, std::move(typed));
+    }
+
+    /** Later columns preserve whole-child and descendant withdrawals. */
+    inline Value sparse_dictionary_entry_with_paths(ValueTypeRef type, const ValueView &when, const ValueView &delta,
+                                         const ValueView &invalid_children, const ValueView &paths) {
         BundleBuilder entry{type};
         entry.set(0, when);
         entry.set(1, delta);
-        if (invalid_children.has_value()) { entry.set(2, invalid_children.view()); }
+        if (invalid_children.has_value()) { entry.set(2, invalid_children); }
+        if (paths.has_value()) { entry.set(3, paths); }
         return entry.build();
+    }
+
+    inline Value sparse_dictionary_entry(ValueTypeRef type, const ValueView &when, const ValueView &delta,
+                                         const Value &invalid_children = {}) {
+        return sparse_dictionary_entry_with_paths(type, when, delta, invalid_children.view(), {});
+    }
+
+    inline void write_sparse_entry_with_paths(GlobalStateView state, const std::string &key, DateTime when,
+                                   Value delta, const Value &invalid_children,
+                                   std::optional<std::size_t> index, const Value &paths) {
+        const auto buffer = state.get(key);
+        const auto rows = buffer.as_list();
+        const auto width = rows.element_schema()->field_count;
+        const unsigned needed = paths.has_value() ? 4 : invalid_children.has_value() ? 3 : 2;
+        const Value time{when};
+        if (width >= needed) {
+            const auto *ops = checked_value_ops<IndexedValueOps>(buffer.binding(), "sparse recording");
+            const auto type = width == 2 ? delta.binding() : ops->element_binding(ops->context, buffer.data(), 0);
+            auto entry = width == 2 ? make_sparse_entry(type, when, std::move(delta))
+                                    : sparse_dictionary_entry_with_paths(type, time.view(), delta.view(),
+                                                                         invalid_children.view(), paths.view());
+            auto edit = rows.begin_mutation();
+            if (index) { edit.set(*index, entry.view()); }
+            else { edit.push_back(entry.view()); }
+            return;
+        }
+
+        // Promote the typed list atomically on the first withdrawal of the new kind.
+        const auto removed = delta.as_bundle().at(0).binding();
+        std::vector<ValueTypeRef> bindings{time.binding(), delta.binding(), removed};
+        if (paths.has_value()) { bindings.push_back(paths.binding()); }
+        std::vector<const ValueTypeMetaData *> schemas;
+        for (const auto &binding : bindings) { schemas.push_back(binding.schema()); }
+        const auto type = ValuePlanFactory::instance().realized_composite_type_for(
+            TypeRegistry::instance().tuple(schemas), bindings);
+        const auto entry = sparse_dictionary_entry_with_paths(type, time.view(), delta.view(), invalid_children.view(), paths.view());
+        const auto previous_label = buffer.binding().record()->implementation_name();
+        const auto list_type = mutable_list_type(type);
+        Value promoted{previous_label.starts_with(sparse_shape_prefix)
+                           ? recording_buffer_binding(list_type, previous_label) : list_type};
+        auto append = promoted.as_list().begin_mutation();
+        for (std::size_t i = 0; i < rows.size(); ++i) {
+            const auto old = rows.at(i).as_indexed_view();
+            if (index == i) { append.push_back(entry.view()); }
+            else {
+                const auto cleared = width >= 3 ? old.at(2) : ValueView{};
+                append.push_back(sparse_dictionary_entry_with_paths(type, old.at(0), old.at(1), cleared, {}).view());
+            }
+        }
+        if (!index) { append.push_back(entry.view()); }
+        state.set(key, std::move(promoted));
     }
 
     inline void write_sparse_entry(GlobalStateView state, const std::string &key, DateTime when,
                                    Value delta, const Value &invalid_children = {},
                                    std::optional<std::size_t> index = {}) {
-        const auto buffer = state.get(key);
-        const auto rows = buffer.as_list();
-        const auto write = [&](const Value &entry) {
-            auto mutation = rows.begin_mutation();
-            if (index) { mutation.set(*index, entry.view()); }
-            else { mutation.push_back(entry.view()); }
-        };
-        if (rows.element_schema()->field_count == 3) {
-            const auto *ops = checked_value_ops<IndexedValueOps>(buffer.binding(), "sparse recording");
-            const auto type = ops->element_binding(ops->context, buffer.data(), 0);
-            write(sparse_dictionary_entry(type, Value{when}.view(), delta.view(), invalid_children));
-            return;
-        }
-        if (!invalid_children.has_value()) {
-            const auto type = delta.binding();
-            write(make_sparse_entry(type, when, std::move(delta)));
-            return;
-        }
-        // Only recordings with a retained invalid child need the additional key set.
-        // Convert any historical rows before publishing the replacement in GlobalState.
-        const Value time{when};
-        const auto *schema = TypeRegistry::instance().tuple({time.schema(), delta.schema(), invalid_children.schema()});
-        const auto type = ValuePlanFactory::instance().realized_composite_type_for(
-            schema, std::array{time.binding(), delta.binding(), invalid_children.binding()});
-        const auto entry = sparse_dictionary_entry(type, time.view(), delta.view(), invalid_children);
-        Value promoted{mutable_list_type(type)};
-        auto append = promoted.as_list().begin_mutation();
-        for (std::size_t i = 0; i < rows.size(); ++i) {
-            const auto old = rows.at(i).as_indexed_view();
-            if (index == i) { append.push_back(entry.view()); }
-            else { append.push_back(sparse_dictionary_entry(type, old.at(0), old.at(1)).view()); }
-        }
-        if (!index) { append.push_back(entry.view()); }
-        state.set(key, std::move(promoted));
+        write_sparse_entry_with_paths(state, key, when, std::move(delta), invalid_children, index, {});
     }
 
 }  // namespace hgraph::testing

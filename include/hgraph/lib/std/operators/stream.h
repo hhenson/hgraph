@@ -18,6 +18,8 @@ namespace hgraph::stdlib
      */
 
     /** Sample the latest valid value of ``ts`` whenever ``signal`` ticks.
+        A sampled bundle or list keeps each field or position's validity.
+        A sampled dictionary keeps each present key, including one whose child is invalid.
         Ticks from ``ts`` alone update the value available to sample but do not produce output.
         @param signal Trigger whose tick timing controls output; its value is ignored.
         @param ts Input whose latest value is sampled.
