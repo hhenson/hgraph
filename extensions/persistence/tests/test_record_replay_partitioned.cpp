@@ -68,6 +68,7 @@ namespace test_detail
 
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -865,4 +866,210 @@ TEST_CASE("partitioned record/replay: an omitted renamed removal projection is r
     CHECK_THROWS_WITH(eval_node<ReplayGraph<PriceDict>>(),
                       Catch::Matchers::ContainsSubstring("stored projection names that column "
                                                          "'gone'"));
+}
+
+namespace
+{
+    using PriceBook = TSD<Str, TSD<Str, PriceDict>>;
+
+    struct UpdatePriceDictionary
+    {
+        static void eval(In<"clock", TS<Int>> clock, Scalar<"priced", Bool> priced,
+                         Scalar<"sibling", Bool> sibling, Scalar<"price_key", Str> price_key, Out<PriceBook> book)
+        {
+            const Int tick = clock.value();
+            if (tick == 2) { return; }
+            auto entry = book.at(Str{"x"});
+            if (tick == 4) {
+                entry.at(Str{"keep"}).set(Str{"amount"}, Int{17});
+                return;
+            }
+            auto price = entry.at(price_key.value());
+            if (tick == 1) {
+                static_cast<void>(price.base().begin_mutation(price.evaluation_time()).invalidate());
+            } else {
+                if (tick == 0 && sibling.value()) { entry.at(Str{"keep"}).set(Str{"amount"}, Int{13}); }
+                if ((tick == 0 && priced.value()) || (tick == 3 && sibling.value())) {
+                    price.set(Str{"amount"}, tick == 0 ? Int{7} : Int{11});
+                } else {
+                    price.begin_mutation(price.evaluation_time()).touch();
+                }
+            }
+        }
+    };
+
+    struct ObservePriceDictionary
+    {
+        static void eval(In<"clock", TS<Int>>,
+                         In<"book", PriceBook, InputValidity::Unchecked, InputActivity::Passive> book,
+                         Scalar<"sibling", Bool> sibling, Scalar<"price_key", Str> price_key, Out<TS<Int>> out)
+        {
+            REQUIRE(book.contains(Str{"x"}));
+            auto entry = book.at(Str{"x"});
+            REQUIRE(entry.valid());
+            REQUIRE(entry.contains(price_key.value()));
+            REQUIRE(entry.contains(Str{"keep"}) == sibling.value());
+            if (entry.contains(Str{"keep"})) { REQUIRE(entry.at(Str{"keep"}).at(Str{"amount"}).value() == 13); }
+            auto price = entry.at(price_key.value());
+            if (!price.valid()) { out.set(Int{-1}); }
+            else if (price.size() == 0) { out.set(Int{-2}); }
+            else { out.set(price.at(Str{"amount"}).value()); }
+        }
+    };
+
+    template <stdlib::ToTableMode Mode, bool Segmented> struct RecordPriceDictionaries
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> clock, Scalar<"priced", Bool> priced,
+                                     Scalar<"sibling", Bool> sibling, Scalar<"price_key", Str> price_key)
+        {
+            auto book = wire<UpdatePriceDictionary>(w, clock, priced, sibling, price_key);
+            wire<stdlib::record>(w, book, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                                 arg<"mode">(Mode), arg<"flush_rows">(Int{Segmented ? 1 : 0}), arg<"track_validity">(true));
+            return wire<ObservePriceDictionary>(w, clock, book, sibling, price_key);
+        }
+    };
+
+    struct ReplayPriceDictionaries
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> clock, Scalar<"sibling", Bool> sibling, Scalar<"price_key", Str> price_key)
+        {
+            return wire<ObservePriceDictionary>(w, clock, ReplayGraph<PriceBook>::compose(w), sibling, price_key);
+        }
+    };
+
+    // Observe each price transition directly through the stored child, even
+    // when a sibling wakes the parent or a repeated clear leaves it unchanged.
+    struct PriceEvents
+    {
+        static void eval(In<"book", PriceBook> book, DateTime now, Out<TS<Int>> out)
+        {
+            auto price = book.at(Str{"x"}).at(Str{"price"});
+            if (price.base().data_view().tracking().cleared_at(now)) { out.set(Int{-1}); }
+            else if (price.modified()) { out.set(price.at(Str{"amount"}).value()); }
+        }
+    };
+
+    enum class ValidityOption { Default, Off, On };
+
+    template <ValidityOption Option> struct RecordPriceEvents
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> clock)
+        {
+            auto book = wire<UpdatePriceDictionary>(w, clock, true, true, Str{"price"});
+            if constexpr (Option == ValidityOption::Default) {
+                wire<stdlib::record>(w, book, Str{"ticks"}, arg<"recordable_id">(Str{"book"}));
+            } else {
+                wire<stdlib::record>(w, book, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                                     arg<"track_validity">(Option == ValidityOption::On));
+            }
+            return wire<PriceEvents>(w, book);
+        }
+    };
+
+    struct ReplayPriceEvents
+    {
+        static Port<TS<Int>> compose(Wiring &w)
+        {
+            return wire<PriceEvents>(w, ReplayGraph<PriceBook>::compose(w));
+        }
+    };
+
+    struct RecordingDirectory
+    {
+        std::filesystem::path path = std::filesystem::temp_directory_path() /
+            ("hgraph_prefix_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        ~RecordingDirectory() { std::error_code ignored; std::filesystem::remove_all(path, ignored); }
+    };
+
+    template <stdlib::ToTableMode Mode, bool Segmented> void check_closed_price_recordings()
+    {
+        struct Scenario { bool priced; bool sibling; Str price_key; };
+        std::vector<Scenario> cases{{true, true, "price"}, {false, true, "price"},
+                                    {false, false, "price"}};
+        if constexpr (Mode == stdlib::ToTableMode::Tick && !Segmented) {
+            cases.push_back({false, false, Str(400'000, 'p')});
+        }
+        for (const auto &[priced, sibling, price_key] : cases) {
+            CAPTURE(static_cast<Int>(Mode), Segmented, priced, sibling, price_key.size());
+            RecordingDirectory dir;
+            const FrameStoreConfig store{.location = LocalLocation{dir.path.string()},
+                                         .format = parquet_available() ? Format::Parquet : Format::ArrowIpc};
+            const auto clock = values<Int>(0, 1, 2, 3);
+            const auto expected = values<Int>(priced ? 7 : -2, -1, -1, sibling ? 11 : -2);
+            {
+                GlobalContext context;
+                use_frame_backend(context);
+                persistence::set_frame_store(context.state().view(), make_frame_store(store));
+                using Writer = RecordPriceDictionaries<Mode, Segmented>;
+                CHECK_OUTPUT(eval_node<Writer>(clock, arg<"priced">(priced), arg<"sibling">(sibling),
+                                                arg<"price_key">(price_key)), expected);
+                const auto raw = test_detail::store_read("book.ticks");
+                CHECK(persistence::is_segmented_recording(raw) == Segmented);
+                if (!Segmented && !sibling) { CHECK(frame_rows(raw) == 3); }
+            }
+            {
+                GlobalContext reopened;
+                use_frame_backend(reopened);
+                persistence::set_frame_store(reopened.state().view(), make_frame_store(store));
+                CHECK_OUTPUT(eval_node<ReplayPriceDictionaries>(clock, arg<"sibling">(sibling), arg<"price_key">(price_key)), expected);
+            }
+        }
+    }
+}
+
+TEST_CASE("partitioned record/replay: reopened files retain an empty or withdrawn dictionary prefix")
+{
+    using enum stdlib::ToTableMode;
+    check_closed_price_recordings<Tick, false>();
+    check_closed_price_recordings<Tick, true>();
+    check_closed_price_recordings<Sample, false>();
+    check_closed_price_recordings<Sample, true>();
+    check_closed_price_recordings<Snap, false>();
+    check_closed_price_recordings<Snap, true>();
+}
+
+TEST_CASE("partitioned record/replay: reopened files preserve the times of individual price transitions")
+{
+    const auto commands = values<Int>(0, 1, 1, 4, 2, 3, 1, 1, 2, 3);
+    const auto expected = values<Int>(7, -1, none, none, none, 11, -1, none, none, 11);
+    RecordingDirectory dir;
+    const FrameStoreConfig store{.location = LocalLocation{dir.path.string()},
+                                 .format = parquet_available() ? Format::Parquet : Format::ArrowIpc};
+    {
+        GlobalContext context;
+        use_frame_backend(context);
+        persistence::set_frame_store(context.state().view(), make_frame_store(store));
+        CHECK_OUTPUT(eval_node<RecordPriceEvents<ValidityOption::On>>(commands), expected);
+    }
+    {
+        GlobalContext reopened;
+        use_frame_backend(reopened);
+        persistence::set_frame_store(reopened.state().view(), make_frame_store(store));
+        CHECK_OUTPUT(eval_node<ReplayPriceEvents>(), expected);
+    }
+}
+
+TEST_CASE("partitioned record/replay: reopened files omit intermediate validity by default or explicit opt-out")
+{
+    const auto check = []<ValidityOption Option>() {
+        RecordingDirectory dir;
+        const FrameStoreConfig store{.location = LocalLocation{dir.path.string()},
+                                     .format = parquet_available() ? Format::Parquet : Format::ArrowIpc};
+        {
+            GlobalContext context;
+            use_frame_backend(context);
+            persistence::set_frame_store(context.state().view(), make_frame_store(store));
+            CHECK_OUTPUT(eval_node<RecordPriceEvents<Option>>(values<Int>(0, 1, 2, 3)),
+                         values<Int>(7, -1, none, 11));
+            const auto raw = test_detail::store_read("book.ticks");
+            CHECK(frame_rows(raw) == 3);
+            CHECK(raw.table->schema()->GetFieldIndex("__key_2_valid__") == -1);
+        }
+        GlobalContext reopened;
+        use_frame_backend(reopened);
+        persistence::set_frame_store(reopened.state().view(), make_frame_store(store));
+        CHECK_OUTPUT(eval_node<ReplayPriceEvents>(), values<Int>(7, none, none, 11));
+    };
+    check.template operator()<ValidityOption::Default>();
+    check.template operator()<ValidityOption::Off>();
 }

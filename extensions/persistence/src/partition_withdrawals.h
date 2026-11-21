@@ -74,11 +74,13 @@ namespace hgraph::persistence::record_replay_frame_detail
         };
 
         const PartitionLayout &layout;
+        bool track_validity;
         std::unordered_map<std::vector<Value>, std::vector<FieldPath>, KeyHash> pending;
+        std::unordered_map<std::vector<Value>, bool, KeyHash> prefixes;
         std::vector<Value> row_key;
         bool removed{false};
 
-        explicit PartitionObservation(const PartitionLayout &layout_) : layout{layout_} {}
+        explicit PartitionObservation(const PartitionLayout &layout_, bool track) : layout{layout_}, track_validity{track} {}
 
         struct Key {
             const Key *parent;
@@ -128,8 +130,15 @@ namespace hgraph::persistence::record_replay_frame_detail
                 const Key key{parent, layout.levels[depth], part};
                 if (depth + 1 == layout.levels.size()) {
                     if (depth > 0 || child.has_current_value()) { inspect_fields(child, now, key, fields); }
-                } else if (child.has_current_value()) {
-                    collect(child, depth + 1, now, &key, fields);
+                } else {
+                    const bool valid = child.has_current_value();
+                    if (track_validity && (child.tracking().cleared_at(now) ||
+                        (valid && child.tracking().last_modified_time == now && child.as_dict().size() == 0))) {
+                        std::vector<Value> parts;
+                        append_key(parts, key);
+                        prefixes[std::move(parts)] = valid;
+                    }
+                    if (valid) { collect(child, depth + 1, now, &key, fields); }
                 }
             };
             for (const auto &[key, child] : dict.modified_items(now)) { inspect(key, child); }
