@@ -269,6 +269,42 @@ namespace
         }
     };
 
+    struct WithdrawNegative
+    {
+        static void eval(In<"value", TS<Int>> value, Out<TS<Int>> out)
+        {
+            if (value.value() < 0) { static_cast<void>(out.begin_mutation(out.evaluation_time()).invalidate()); }
+            else { out.set(value.value()); }
+        }
+    };
+
+    struct MappedWithdrawNegative
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value) { return wire<WithdrawNegative>(w, value); }
+    };
+
+    struct ClockedMappedValues
+    {
+        static void eval(In<"clock", TS<Int>>,
+                         In<"values", TSL<TS<Int>>, InputActivity::Passive, InputValidity::Unchecked> values,
+                         Out<TS<Str>> out)
+        {
+            Str result = std::to_string(values.size());
+            for (std::size_t i = 0; i < values.size(); ++i)
+                result += values[i].valid() ? ":" + std::to_string(values[i].value()) : ":invalid";
+            out.set(result);
+        }
+    };
+
+    struct ReadCompiledMappedValues
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TSL<TS<Int>>> values, Port<TS<Int>> clock)
+        {
+            auto mapped = compiled::map_(w, values.erased(), {}, compile_subgraph<MappedWithdrawNegative>(w));
+            return wire<ClockedMappedValues>(w, clock, Port<TSL<TS<Int>>>{w, std::move(mapped)});
+        }
+    };
+
     struct SumIndexNode
     {
         static void eval(In<"index", TS<Int>> index, In<"value", TS<Int>> value,
@@ -4157,4 +4193,15 @@ TEST_CASE("compiled map: dynamic lists broadcast whole ports and pass their inde
         values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}, {1, 20}}, {}, 2), none), values<Int>(2, 3)),
         values<Value>(dynamic_list_delta<TS<Int>>({{0, 12}, {1, 23}}, {}, 2),
                       dynamic_list_delta<TS<Int>>({{0, 13}, {1, 24}})));
+}
+
+
+TEST_CASE("compiled map preserves a growing position when its producer withdraws")
+{
+    using namespace hgraph;
+    CHECK_OUTPUT(eval_node<ReadCompiledMappedValues>(
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 7}, {1, 42}}, {}, 2),
+                      dynamic_list_delta<TS<Int>>({{0, -1}}), none, dynamic_list_delta<TS<Int>>({{0, 11}})),
+        values<Int>(0, 1, 2, 3)),
+        values<Str>("2:7:42", "2:invalid:42", "2:invalid:42", "2:11:42"));
 }

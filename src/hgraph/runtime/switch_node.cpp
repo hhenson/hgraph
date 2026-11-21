@@ -1,7 +1,8 @@
 #include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/runtime/switch_node.h>
-#include <hgraph/types/time_series/ts_input/target_link.h>
 #include <hgraph/util/scope.h>
+
+#include "nested_output_writer.h"
 
 #include <algorithm>
 #include <array>
@@ -232,11 +233,7 @@ bool bind_branch_output(const NodeView &view, const SwitchNodeContext &context,
     return true;
   }
 
-  bind_forwarding_output_to_source(branch_terminal, switch_output);
-  // The child writes into this output, including when it withdraws a value.
-  // Other forwarding links only observe their targets.
-  auto *writer = detail::mutable_target_link_storage(branch_terminal.data_view());
-  writer->state_.writes_parent_output = writer->bound();
+  runtime_detail::bind_nested_output_writer(branch_terminal, switch_output);
   return true;
 }
 
