@@ -22,8 +22,8 @@ namespace hgraph
         Incremental,
         /** Make the target's complete live state match the source. */
         Full,
-        /** Sample a held endpoint. A shape carrying observation history copies
-            that history; other shapes apply their normal whole-value semantics. */
+        /** Sample a held endpoint, including field/position validity, dictionary
+            membership, and original window observation times. */
         Sample,
     };
 

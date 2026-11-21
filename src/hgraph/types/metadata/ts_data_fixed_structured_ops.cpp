@@ -611,7 +611,7 @@ namespace hgraph::ts_data_plan_factory_detail
             return state->projected_value_surface ? memory : advance(memory, state->layout_ptr()->value_offset);
         }
 
-        static void mark_tsb_value_field_valid(const FixedTSDataContext *state, void *memory, std::size_t index)
+        static void record_tsb_value_field_validity(const FixedTSDataContext *state, void *memory, std::size_t index)
         {
             if (state->schema->kind != TSTypeKind::TSB) { return; }
             if (state->projected_value_surface) { return; }
@@ -626,11 +626,20 @@ namespace hgraph::ts_data_plan_factory_detail
                 throw std::logic_error("fixed TSB value binding is not resolved");
             }
             const auto *indexed_ops = checked_value_ops<IndexedValueOps>(binding, "fixed TSB child value");
-            if (indexed_ops->mutable_element_at == nullptr)
+            if (indexed_ops->mutable_element_at == nullptr || indexed_ops->clear_element == nullptr)
             {
                 throw std::logic_error("fixed TSB value binding cannot mark field validity");
             }
-            (void)indexed_ops->mutable_element_at(indexed_ops->context, fixed_mutable_value_memory(state, memory), index);
+            auto *value = fixed_mutable_value_memory(state, memory);
+            const auto &ops = child_ops(state->element_type(index));
+            if (ops.tracking_impl(ops.context, child_data(state, memory, index))->last_modified_time == MIN_DT)
+            {
+                indexed_ops->clear_element(indexed_ops->context, value, index);
+            }
+            else
+            {
+                (void)indexed_ops->mutable_element_at(indexed_ops->context, value, index);
+            }
         }
 
         static void fixed_record_child_modified(const void *context, void *memory, std::size_t child_id, DateTime)
@@ -639,7 +648,7 @@ namespace hgraph::ts_data_plan_factory_detail
             if (state->validity_offset != ListValidity::unknown) {
                 static_cast<ListValidity *>(advance(memory, state->validity_offset))->changed(child_id);
             }
-            mark_tsb_value_field_valid(state, memory, child_id);
+            record_tsb_value_field_validity(state, memory, child_id);
         }
 
         [[nodiscard]] static const void *fixed_delta_memory(const void *, const void *memory) noexcept
