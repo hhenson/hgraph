@@ -10,6 +10,7 @@
 // (missing state and wall-clock fallback without realtime support).
 
 #include <hgraph/runtime/node_scheduler.h>
+#include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/util/date_time.h>
 
@@ -41,6 +42,28 @@ namespace
                 fired.set(fired.get() + 1);
                 out.set(fired.get());
             }
+        }
+    };
+
+    template <bool CancelNext>
+    struct PendingWakeNode
+    {
+        static void start(NodeScheduler scheduler)
+        {
+            for (const Int offset : {1, 3, 5}) { scheduler.schedule(offset * MIN_TD); }
+        }
+
+        static void eval(In<"pulse", TS<Int>> pulse, NodeScheduler scheduler, Out<TS<Int>> out)
+        {
+            if constexpr (CancelNext)
+            {
+                if (scheduler.now() == MIN_ST + MIN_TD) { scheduler.un_schedule(); }
+            }
+            if (scheduler.is_scheduled_now())
+            {
+                out.set(scheduler.is_scheduled() ? (scheduler.next_scheduled_time() - MIN_ST) / MIN_TD : -1);
+            }
+            else if (pulse.modified()) { out.set(-2); }  // an independent input
         }
     };
 }  // namespace
@@ -370,6 +393,50 @@ TEST_CASE("node scheduler: many pending alarms fire through public node evaluati
     const auto result = testing::eval_node<SchedulerDrainNode>({count});
     REQUIRE(result.size() == static_cast<std::size_t>(count + 1));
     for (Int i = 0; i <= count; ++i) { CHECK(result[static_cast<std::size_t>(i)] == i); }
+}
+
+TEST_CASE("node scheduler: a delivered wake observes and can cancel only later pending times")
+{
+    using testing::values;
+    const auto pulse = values<Int>(0, std::nullopt, std::nullopt, 3);
+    CHECK_OUTPUT(testing::eval_node<PendingWakeNode<false>>(pulse), values<Int>(-2, 3, std::nullopt, 5, std::nullopt, -1));
+    CHECK_OUTPUT(testing::eval_node<PendingWakeNode<true>>(pulse), values<Int>(-2, 5, std::nullopt, -2, std::nullopt, -1));
+    CHECK_OUTPUT(testing::eval_node<PendingWakeNode<true>>({0}), values<Int>(-2, 5, std::nullopt, std::nullopt, std::nullopt, -1));
+}
+
+TEST_CASE("node scheduler: all simultaneous deliveries are distinct from future tagged and untagged requests")
+{
+    NodeSchedulerState state;
+    NodeScheduler start{state, nullptr, 0, base, false};
+    start.schedule(base, "a");
+    start.schedule(base, "b");
+    start.schedule(base);
+    start.schedule(base + one, "next");
+    start.schedule(base + one * 2);
+    REQUIRE(start.next_scheduled_time() == base);
+
+    NodeScheduler now{state, nullptr, 0, base};
+    REQUIRE(now.tag_is_scheduled_now("a"));
+    REQUIRE(now.tag_is_scheduled_now("b"));
+    REQUIRE(now.next_scheduled_time() == base + one);
+    now.un_schedule();
+    CHECK_FALSE(now.has_tag("next"));
+    CHECK(now.tag_is_scheduled_now("b"));
+    CHECK(now.next_scheduled_time() == base + one * 2);
+    now.un_schedule("b");
+    CHECK(now.is_scheduled_now());
+    now.schedule(base + 3 * one, "a");
+    now.advance();
+    CHECK(now.tag_time("a") == base + 3 * one);
+    CHECK_FALSE(now.is_scheduled_now());
+
+    NodeScheduler last{state, nullptr, 0, base + 2 * one};
+    last.reset();
+    CHECK(last.is_scheduled_now());
+    CHECK_FALSE(last.is_scheduled());
+    CHECK(last.next_scheduled_time() == MIN_DT);
+    last.advance();
+    CHECK(state.pending_events().empty());
 }
 
 TEST_CASE("node scheduler: wall-clock alarms fall back to graph time in simulation")
