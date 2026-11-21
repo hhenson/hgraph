@@ -333,48 +333,70 @@ using namespace hgraph::persistence::store;
         }
     };
 
-    struct QuoteUpdates
+    using QuoteBundle = UnNamedTSB<Field<"bid", TS<Int>>, Field<"ask", TS<Int>>>;
+    using BundledPrices = TSD<Str, QuoteBundle>;
+
+    template <typename Book, typename Quote> auto bid_field(Quote &quote)
     {
-        static void eval(In<"step", TS<Int>> step, Out<NestedPriceDict> book)
+        if constexpr (std::is_same_v<Book, BundledPrices>) { return quote.template field<"bid">(); }
+        else { return quote.at(Str{"bid"}); }
+    }
+
+    template <typename Book, typename Quote> auto ask_field(Quote &quote)
+    {
+        if constexpr (std::is_same_v<Book, BundledPrices>) { return quote.template field<"ask">(); }
+        else { return quote.at(Str{"ask"}); }
+    }
+
+    template <typename Book> struct QuoteUpdates
+    {
+        static void eval(In<"step", TS<Int>> step, Out<Book> book)
         {
             auto quote = book.at(Str{"x"});
+            auto bid = bid_field<Book>(quote);
             if (step.value() == 0) {
-                quote.set(Str{"bid"}, Int{7});
-                quote.set(Str{"ask"}, Int{13});
+                bid.set(Int{7});
+                ask_field<Book>(quote).set(Int{13});
             } else if (step.value() == 1) {
-                auto bid = quote.at(Str{"bid"});
                 static_cast<void>(bid.begin_mutation(bid.evaluation_time()).invalidate());
             } else if (step.value() == 3) {
-                quote.set(Str{"bid"}, Int{11});
+                bid.set(Int{11});
             }
         }
     };
 
-    struct ReadQuoteOnClock
+    template <typename Book> struct ReadQuoteOnClock
     {
         static void eval(In<"clock", TS<Int>>,
-                         In<"book", NestedPriceDict, InputValidity::Unchecked, InputActivity::Passive> book,
+                         In<"book", Book, InputValidity::Unchecked, InputActivity::Passive> book,
                          Out<TS<Int>> out)
         {
+            REQUIRE(book.contains(Str{"x"}));
             auto quote = book.at(Str{"x"});
             REQUIRE(quote.valid());
-            REQUIRE(quote.contains(Str{"bid"}));
-            REQUIRE(quote.at(Str{"ask"}).value() == 13);
-            auto bid = quote.at(Str{"bid"});
+            if constexpr (std::is_same_v<Book, NestedPriceDict>) { REQUIRE(quote.contains(Str{"bid"})); }
+            REQUIRE(ask_field<Book>(quote).value() == 13);
+            auto bid = bid_field<Book>(quote);
             out.set(bid.valid() ? bid.value() : Int{-1});
         }
     };
 
-    template <bool Replay> struct ReadRecordedQuote
+    template <typename Book, stdlib::ToTableMode Mode, bool Segmented> struct WriteQuote
     {
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> clock)
         {
-            if constexpr (Replay) {
-                return wire<ReadQuoteOnClock>(w, clock, ReplayGraph<NestedPriceDict>::compose(w));
-            } else {
-                return wire<ReadQuoteOnClock>(w, clock,
-                     RecordGraph<NestedPriceDict>::compose(w, wire<QuoteUpdates>(w, clock)));
-            }
+            auto source = wire<QuoteUpdates<Book>>(w, clock);
+            wire<stdlib::record>(w, source, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                                 arg<"mode">(Mode), arg<"flush_rows">(Int{Segmented ? 1 : 0}));
+            return wire<ReadQuoteOnClock<Book>>(w, clock, source);
+        }
+    };
+
+    template <typename Book> struct ReplayQuote
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> clock)
+        {
+            return wire<ReadQuoteOnClock<Book>>(w, clock, ReplayGraph<Book>::compose(w));
         }
     };
 
@@ -407,14 +429,38 @@ TEST_CASE("partitioned record/replay: a TSD round-trips through the store")
     CHECK_OUTPUT(eval_node<ReplayGraph<PriceDict>>(), values<Value>(first, second, third));
 }
 
+namespace
+{
+    template <typename Book, stdlib::ToTableMode Mode, bool Segmented>
+    void check_withdrawn_quote()
+    {
+        CAPTURE(static_cast<Int>(Mode), Segmented);
+        GlobalContext context;
+        use_frame_backend(context);
+        const auto clock = values<Int>(0, 1, 2, 3);
+        const auto expected = values<Int>(7, -1, -1, 11);
+        using Writer = WriteQuote<Book, Mode, Segmented>;
+        CHECK_OUTPUT(eval_node<Writer>(clock), expected);
+        CHECK(persistence::is_segmented_recording(test_detail::store_read("book.ticks")) == Segmented);
+        CHECK_OUTPUT(eval_node<ReplayQuote<Book>>(clock), expected);
+    }
+
+    template <typename Book> void check_quote_modes()
+    {
+        using enum stdlib::ToTableMode;
+        check_withdrawn_quote<Book, Tick, false>();
+        check_withdrawn_quote<Book, Tick, true>();
+        check_withdrawn_quote<Book, Sample, false>();
+        check_withdrawn_quote<Book, Sample, true>();
+        check_withdrawn_quote<Book, Snap, false>();
+        check_withdrawn_quote<Book, Snap, true>();
+    }
+}
+
 TEST_CASE("partitioned record/replay: a dictionary field can withdraw while its key and sibling remain")
 {
-    GlobalContext context;
-    use_frame_backend(context);
-    const auto clock = values<Int>(0, 1, 2, 3);
-    const auto expected = values<Int>(7, -1, -1, 11);
-    CHECK_OUTPUT(eval_node<ReadRecordedQuote<false>>(clock), expected);
-    CHECK_OUTPUT(eval_node<ReadRecordedQuote<true>>(clock), expected);
+    SECTION("bundle fields") { check_quote_modes<BundledPrices>(); }
+    SECTION("dictionary fields") { check_quote_modes<NestedPriceDict>(); }
 }
 
 TEST_CASE("partitioned record/replay: an outer nested-TSD removal uses its key "
