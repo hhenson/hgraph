@@ -298,7 +298,7 @@ void reset_switch_output(const NodeView &view, const SwitchNodeContext &context,
   // A local switch may itself write into a containing map or switch.
   auto destination = resolve_forwarding_source(std::move(output));
   if (destination.bound()) {
-    detail::invalidate_replaced_value(destination.data_view(), evaluation_time);
+    detail::invalidate_replaced_value(destination.data_view(), evaluation_time, /*publish_replacement=*/true);
   }
 }
 

@@ -864,6 +864,7 @@ ts…)``).
      Replacing a branch withdraws its old value and discards any window
      history in that storage. If the new branch is silent, readers are
      notified and see an invalid, unmodified output until it publishes.
+     A retained window's next publication carries a replacement delta.
      An active branch can also withdraw its own value and publish again.
 
   A ``RefCopy`` switch publishes **one token transition per cycle**. On a

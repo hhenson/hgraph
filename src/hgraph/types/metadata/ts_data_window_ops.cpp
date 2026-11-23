@@ -457,6 +457,13 @@ namespace hgraph::ts_data_plan_factory_detail
                 tick_ = {};
             }
 
+            void discard_owned_history(bool publish_replacement) noexcept
+            {
+                const bool pending = publish_replacement || replacement_pending();
+                discard_history();
+                if (pending) { tick_.state.mark(WindowTickState::Replaced); }
+            }
+
             [[nodiscard]] const void *element_at(std::size_t index) const
             {
                 if (index >= size_) { throw std::out_of_range("TSW window storage index out of range"); }
@@ -585,7 +592,18 @@ namespace hgraph::ts_data_plan_factory_detail
             void begin_tick(DateTime modified_time)
             {
                 invalidate_delta_projection();
-                if (tick_.time != modified_time) { tick_ = WindowTick{.time = modified_time}; }
+                if (tick_.time != modified_time)
+                {
+                    const unsigned effect = replacement_pending() ? WindowTickState::Replaced : 0U;
+                    tick_ = WindowTick{.time = modified_time, .state = WindowTickState{effect}};
+                }
+            }
+
+            // A withdrawn window owes a replacement on its next publication.
+            // Until then it has no tick time or observable delta.
+            [[nodiscard]] bool replacement_pending() const noexcept
+            {
+                return tick_.time == MIN_DT && tick_.state.has(WindowTickState::Replaced);
             }
 
             void record_removals(std::size_t count, DateTime modified_time)
@@ -630,6 +648,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 WindowTick next{.time = modified_time, .state = WindowTickState{WindowTickState::Applied}};
                 if (added.has_value()) { next.state.mark(WindowTickState::Added); }
                 if (cleared) { next.state.mark(WindowTickState::Cleared); }
+                if (replacement_pending()) { next.state.mark(WindowTickState::Replaced); }
                 next.append(removed.size(), [&](std::size_t index) {
                     const auto sample = removed.at(index).as_bundle();
                     const auto value = sample.at(0);
@@ -1016,7 +1035,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     // Discard a retired tick's transient samples on a later explicit
                     // mutation, even if the new evaluation has no expiry to publish.
-                    if (modified_time > tick().time) { begin_tick(modified_time); }
+                    if (modified_time > tick().time && !replacement_pending()) { begin_tick(modified_time); }
                     return false;
                 }
                 evict_oldest(dropped, modified_time);
@@ -1250,8 +1269,8 @@ namespace hgraph::ts_data_plan_factory_detail
             void configure_ts_ops()
             {
                 static const detail::TSDataOwnershipOps ownership{
-                    .discard_child_history = [](const void *context, void *memory) noexcept {
-                        storage<Storage>(window_mutable_value_memory(context, memory)).discard_history();
+                    .discard_child_history = [](const void *context, void *memory, bool publish_replacement) noexcept {
+                        storage<Storage>(window_mutable_value_memory(context, memory)).discard_owned_history(publish_replacement);
                     },
                 };
                 ops = TSWDataOps{};

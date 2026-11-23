@@ -556,7 +556,9 @@ bool TSDataMutationView::move_value_from(ValueView source) {
 }
 
 namespace {
-bool invalidate_value(TSDataMutationView &mutation, bool discard_child) {
+enum class RetainedHistory { Preserve, Discard, PublishReplacement };
+
+bool invalidate_value(TSDataMutationView &mutation, RetainedHistory history) {
   void *memory = mutation.mutable_data();
   TSDataView current = mutation.view();
   const DateTime now = mutation.current_mutation_time();
@@ -564,11 +566,13 @@ bool invalidate_value(TSDataMutationView &mutation, bool discard_child) {
   const auto &table = current.ops();
   const bool drop_extent = table.kind == TSTypeKind::TSL && !table.is_target_link &&
       current.as_list().supports_resize() && current.as_list().size() != 0;
-  if (!was_valid && !discard_child && !drop_extent) {
+  if (!was_valid && history == RetainedHistory::Preserve && !drop_extent) {
     return false;
   }
 
   if (const auto *ownership = table.ownership_ops; ownership != nullptr) {
+    const auto child_history = history == RetainedHistory::Preserve && ownership->discard_contents != nullptr
+        ? RetainedHistory::Discard : history;
     const std::size_t children =
         ownership->child_count(table.context, current.data());
     for (std::size_t index = 0; index < children; ++index) {
@@ -586,10 +590,10 @@ bool invalidate_value(TSDataMutationView &mutation, bool discard_child) {
       }
       TSDataMutationView child{TSDataView{child_ref.type, child_ref.data},
                                now};
-      static_cast<void>(invalidate_value(child, discard_child || ownership->discard_contents != nullptr));
+      static_cast<void>(invalidate_value(child, child_history));
     }
-    if (discard_child && ownership->discard_child_history != nullptr) {
-      ownership->discard_child_history(table.context, memory);
+    if (history != RetainedHistory::Preserve && ownership->discard_child_history != nullptr) {
+      ownership->discard_child_history(table.context, memory, history == RetainedHistory::PublishReplacement);
     }
     if ((was_valid || drop_extent) && ownership->discard_contents != nullptr) {
       ownership->discard_contents(table.context, memory, now);
@@ -628,12 +632,13 @@ bool TSDataMutationView::invalidate() {
       return target.view(mutation_time_).begin_mutation(mutation_time_).invalidate();
     }
   }
-  return invalidate_value(*this, false);
+  return invalidate_value(*this, RetainedHistory::Preserve);
 }
 
-void detail::invalidate_replaced_value(const TSDataView &view, DateTime now) {
+void detail::invalidate_replaced_value(const TSDataView &view, DateTime now, bool publish_replacement) {
   auto mutation = view.begin_mutation(now);
-  static_cast<void>(invalidate_value(mutation, true));
+  static_cast<void>(invalidate_value(mutation,
+      publish_replacement ? RetainedHistory::PublishReplacement : RetainedHistory::Discard));
 }
 
 
