@@ -288,14 +288,19 @@ namespace hgraph::subgraph_wiring_detail
 
     /** The one place a switch's output mode is decided (nested_graphs.rst,
         "switch_ output modes"): a REF output copies the selected terminal's
-        token; a value output forwards to the terminal when any branch needs
-        its terminal preserved, and is otherwise owned by the switch. */
+        token; a window output forwards to the selected branch's own history.
+        Other value outputs forward when any branch needs its terminal
+        preserved, and are otherwise owned by the switch. */
     [[nodiscard]] inline SwitchOutputMode switch_output_mode_for(
         const TSValueTypeMetaData *output_schema, bool any_branch_preserves_terminal)
     {
         if (output_schema != nullptr && output_schema->kind == TSTypeKind::REF)
         {
             return SwitchOutputMode::RefCopy;
+        }
+        if (output_schema != nullptr && output_schema->kind == TSTypeKind::TSW)
+        {
+            return SwitchOutputMode::Forwarding;
         }
         return any_branch_preserves_terminal ? SwitchOutputMode::Forwarding
                                              : SwitchOutputMode::Local;

@@ -550,6 +550,58 @@ namespace
         }
     };
 
+    template <typename Window, Int Offset>
+    struct WriteSwitchWindow
+    {
+        static void eval(In<"sample", TS<Int>> sample, Out<Window> out)
+        {
+            if (sample.value() >= 0) { out.push(sample.value() + Offset); }
+        }
+    };
+
+    template <typename Window, Int Offset>
+    struct SwitchWindowBranch
+    {
+        static Port<Window> compose(Wiring &w, Port<TS<Int>> sample)
+        {
+            return wire<WriteSwitchWindow<Window, Offset>>(w, sample);
+        }
+    };
+
+    template <typename Window>
+    struct ReadSwitchWindow
+    {
+        static void eval(In<"clock", TS<Int>>,
+                         In<"window", Window, InputActivity::Passive, InputValidity::Unchecked> window,
+                         Out<TS<Str>> out)
+        {
+            if (!window.valid())
+            {
+                out.set(Str{"invalid"});
+                return;
+            }
+            Str readings;
+            for (std::size_t index = 0; index < window.size(); ++index)
+            {
+                if (index != 0) { readings += ','; }
+                readings += std::to_string(window.at(index));
+            }
+            out.set(std::move(readings));
+        }
+    };
+
+    template <typename Window>
+    struct CompiledSwitchWindow
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> key, Port<TS<Int>> sample, Port<TS<Int>> clock)
+        {
+            auto selected = compiled::switch_(w, key.erased(), std::array{sample.erased()},
+                {{Value{Int{1}}, compile_subgraph<SwitchWindowBranch<Window, 0>>(w)},
+                 {Value{Int{2}}, compile_subgraph<SwitchWindowBranch<Window, 100>>(w)}});
+            return wire<ReadSwitchWindow<Window>>(w, clock, Port<void>{w, std::move(selected)}.template as<Window>());
+        }
+    };
+
     struct PassiveEcho
     {
         static constexpr auto name = "passive_echo";
@@ -1601,6 +1653,24 @@ TEST_CASE("compiled switch: a clocked reader follows the selected output through
                      values<Int>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)),
                  values<Str>("14 tick", "14 held", "invalid", "9 tick", "invalid", "invalid",
                              "13 tick", "14 tick", "invalid", "invalid", "14 tick"));
+}
+
+TEST_CASE("compiled switch: a window follows the selected branch's sample history")
+{
+    using namespace hgraph;
+    const auto keys = values<Int>(1, none, 2, none, 1, none, none);
+    const auto samples = values<Int>(1, 2, 3, 4, -1, -1, 7);
+    const auto clock = values<Int>(0, 1, 2, 3, 4, 5, 6);
+    const auto expected = values<Str>("1", "1,2", "103", "103,104", "invalid", "invalid", "7");
+
+    SECTION("count window")
+    {
+        CHECK_OUTPUT((eval_node<CompiledSwitchWindow<TSW<Int, 2, 1>>>(keys, samples, clock)), expected);
+    }
+    SECTION("duration window")
+    {
+        CHECK_OUTPUT((eval_node<CompiledSwitchWindow<TSWDuration<Int, 100, 0>>>(keys, samples, clock)), expected);
+    }
 }
 
 TEST_CASE("compiled switch: sink case and fallback can take the selector")
