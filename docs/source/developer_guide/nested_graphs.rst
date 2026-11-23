@@ -840,9 +840,9 @@ ts…)``).
   and the new branch is bound and started. The stopped branch remains in the
   previous slot until the following switch, when it is destroyed before that
   slot is reused. At most one child is running.
-- **Output ownership**: the switch has one fixed node output. In Local mode,
-  branch terminals are peered into it. For a VALUE branch under a ``REF``-shaped
-  switch, the branch terminal owns its value inside its A/B graph slot
+- **Output ownership**: the switch has one fixed node output. Ordinary branch
+  terminals are peered into it. For a VALUE branch under a ``REF``-shaped
+  switch, the branch terminal instead owns its value inside its A/B graph slot
   and the switch publishes a reference to that terminal. No secondary backing
   output is allocated.
 - **switch_ output modes** (``SwitchOutputMode`` on ``SwitchNodeSpec``,
@@ -856,15 +856,15 @@ ts…)``).
      terminal is a reference is recorded on the branch as
      ``output_terminal_is_reference``).
   ``Forwarding``
-     a window output or another value output where some branch needs its
-     terminal preserved, such as a terminal at a sub-path. The switch output
-     forwards to the active terminal. Each window terminal holds its own
-     sample history, so the newly selected branch starts with a fresh window.
+     a value output where some branch needs its terminal preserved (a
+     terminal at a sub-path): the switch output forwards to the active
+     terminal.
   ``Local``
      a value output owned by the switch; the active terminal writes into it.
-     Replacing a branch withdraws its old value. The output stays invalid
-     until the new branch publishes. An active branch can also withdraw its
-     own value and publish again.
+     Replacing a branch withdraws its old value and discards any window
+     history in that storage. If the new branch is silent, readers are
+     notified and see an invalid, unmodified output until it publishes.
+     An active branch can also withdraw its own value and publish again.
 
   A ``RefCopy`` switch publishes **one token transition per cycle**. On a
   branch change the previous token stays published until the new branch's

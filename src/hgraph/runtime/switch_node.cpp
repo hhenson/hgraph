@@ -2,6 +2,7 @@
 #include <hgraph/runtime/switch_node.h>
 #include <hgraph/util/scope.h>
 
+#include "../types/time_series/ts_data/ownership.h"
 #include "nested_output_writer.h"
 
 #include <algorithm>
@@ -297,7 +298,7 @@ void reset_switch_output(const NodeView &view, const SwitchNodeContext &context,
   // A local switch may itself write into a containing map or switch.
   auto destination = resolve_forwarding_source(std::move(output));
   if (destination.bound()) {
-    static_cast<void>(destination.begin_mutation(evaluation_time).invalidate());
+    detail::invalidate_replaced_value(destination.data_view(), evaluation_time);
   }
 }
 

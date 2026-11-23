@@ -441,7 +441,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     while (pending.reset_begin < end)
                     {
                         TSDataView child{element_type_, child_memory(pending.reset_begin)};
-                        detail::discard_collection_child(std::move(child), delta_time());
+                        detail::invalidate_replaced_value(child, delta_time());
                         ++pending.reset_begin;
                     }
                 }

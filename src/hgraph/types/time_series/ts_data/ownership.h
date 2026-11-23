@@ -51,7 +51,7 @@ namespace hgraph::detail
             Fixed shapes and borrowed projections keep their storage topology. */
         void (*discard_contents)(const void *, void *, DateTime) = nullptr;
         /** Some leaves retain private history across standalone invalidation.
-            Recreating a collection child discards that history. */
+            Replacing their owning value discards that history. */
         void (*discard_child_history)(const void *, void *) noexcept = nullptr;
     };
 
@@ -61,7 +61,8 @@ namespace hgraph::detail
         and callbacks must not throw. */
     void subscribe_dynamic_list_slots(const TSDataView &list, SlotObserver *observer);
     void unsubscribe_dynamic_list_slots(const TSDataView &list, SlotObserver *observer) noexcept;
-    void discard_collection_child(TSDataView view, DateTime now);
+    /** Withdraw a replaced value and discard the history its owned leaves retain. */
+    void invalidate_replaced_value(const TSDataView &view, DateTime now);
     [[nodiscard]] bool ts_data_alive_at(TSDataView endpoint, DateTime time) noexcept;
     void attach_owned_ts_data_parents(TSDataView root);
     void attach_owned_ts_data_parent(TSDataView child, const TSDataView &parent, std::size_t child_id);

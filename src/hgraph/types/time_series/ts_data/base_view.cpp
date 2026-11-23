@@ -631,7 +631,7 @@ bool TSDataMutationView::invalidate() {
   return invalidate_value(*this, false);
 }
 
-void detail::discard_collection_child(TSDataView view, DateTime now) {
+void detail::invalidate_replaced_value(const TSDataView &view, DateTime now) {
   auto mutation = view.begin_mutation(now);
   static_cast<void>(invalidate_value(mutation, true));
 }
