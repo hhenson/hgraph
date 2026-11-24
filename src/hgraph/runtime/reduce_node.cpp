@@ -12,6 +12,7 @@
 #include <hgraph/types/value/value_hash.h>
 #include <hgraph/util/scope.h>
 
+#include "reduce_capture_bindings.h"
 #include "reduce_output_binding.h"
 
 #include <ankerl/unordered_dense.h>
@@ -38,10 +39,14 @@ namespace hgraph
         using runtime_detail::bind_reduce_output;
         using runtime_detail::reduce_output_endpoint_schema;
 
+        struct ReduceNodeStorage;
+
         struct CombinerEntry
         {
-            GraphValue     graph{};
-            TSOutputHandle output{};
+            ReduceNodeStorage *owner{nullptr};
+            std::size_t        position{0};
+            GraphValue         graph{};
+            TSOutputHandle     output{};
         };
 
         /** Where an aggregate currently comes from, without materialising it. */
@@ -99,6 +104,34 @@ namespace hgraph
                 lifted         = lifted_kernel;
                 leaf_value_ops = operand_ops;
                 for (auto &bank : combiner_banks) { bank.bind_graph_layout(graph_layout); }
+            }
+
+            /** Captured targets can schedule a child without ticking the reduce input. */
+            void observe(CombinerEntry &entry, std::size_t position)
+            {
+                entry.owner = this;
+                entry.position = position;
+                entry.graph.view().set_child_schedule_observer(
+                    [](void *raw, DateTime, bool due_now) {
+                        auto &entry = *static_cast<CombinerEntry *>(raw);
+                        auto &storage = *entry.owner;
+                        // Retired storage can survive a shape change through this cycle.
+                        if (entry.position >= storage.combiners.size() ||
+                            storage.combiners[entry.position] != &entry)
+                        {
+                            return;
+                        }
+                        if (due_now)
+                        {
+                            storage.scheduled_combiners.push_back(entry.position);
+                            std::push_heap(storage.scheduled_combiners.begin(), storage.scheduled_combiners.end());
+                        }
+                        else
+                        {
+                            storage.has_future_combiner_schedule = true;
+                        }
+                    },
+                    &entry);
             }
 
             // Root-first (ascending heap index) teardown: a parent combiner's
@@ -183,6 +216,7 @@ namespace hgraph
             bool source_handles_initialised{false};
             TSOutputHandle collection_source{};
             TSOutputHandle zero_source{};
+            std::vector<TSOutputHandle> capture_sources{};
 
             // Once a keyed root changes identity, publish through one stable
             // output for the rest of this node's lifetime. Downstream REF
@@ -203,6 +237,10 @@ namespace hgraph
             std::vector<std::size_t> modified_leaves{};
             std::vector<std::size_t> structural_leaves{};
             std::vector<std::size_t> structural_positions{};
+            /** Max-heap of due child positions for a reduction with captures. */
+            std::vector<std::size_t> scheduled_combiners{};
+            // A paused capture combiner saves its position; other graph
+            // combiners save a cursor into evaluation_positions.
             std::size_t              resume_candidate_plus_one{0};
             bool                     has_future_combiner_schedule{false};
 
@@ -421,6 +459,13 @@ namespace hgraph
             bank.destroy_at(position);
         }
 
+        [[nodiscard]] TSOutputView capture_output(const NodeView &view, const ReduceNodeSpec &spec,
+                                                  std::size_t argument, DateTime evaluation_time)
+        {
+            const std::size_t first_capture = spec.has_zero ? 2 : 1;
+            return view.input(evaluation_time).indexed_child_at(first_capture + argument - 2).bound_output();
+        }
+
         /** Resolve an aggregate to the output it aliases. */
         [[nodiscard]] TSOutputView aggregate_output(const NodeView &view, const ReduceNodeContext &context,
                                                     const ReduceNodeStorage &storage, const Aggregate &aggregate,
@@ -444,9 +489,11 @@ namespace hgraph
                     const auto &output_binding = context.spec.child.output_binding;
                     if (output_binding->kind == NestedGraphOutputBinding::Kind::ParentInput)
                     {
-                        const std::size_t side = output_binding->parent_source_path[0];
-                        Aggregate source = resolve_aggregate(storage, 2 * aggregate.index + 1 + side);
-                        auto output = aggregate_output(view, context, storage, source, evaluation_time);
+                        const std::size_t argument = output_binding->parent_source_path[0];
+                        auto output = argument < 2
+                            ? aggregate_output(view, context, storage,
+                                  resolve_aggregate(storage, 2 * aggregate.index + 1 + argument), evaluation_time)
+                            : capture_output(view, context.spec, argument, evaluation_time);
                         if (output.bound() && output_binding->parent_source_path.size() > 1)
                         {
                             output = walk_ts_path(
@@ -479,8 +526,10 @@ namespace hgraph
             auto child = entry.graph.view();
             for (const NestedGraphInputBinding &binding : context.spec.child.input_bindings)
             {
-                const Aggregate &side = binding.source_path[0] == 0 ? left : right;
-                auto source = aggregate_output(view, context, storage, side, evaluation_time);
+                const std::size_t argument = binding.source_path[0];
+                auto source = argument < 2
+                    ? aggregate_output(view, context, storage, argument == 0 ? left : right, evaluation_time)
+                    : capture_output(view, context.spec, argument, evaluation_time);
                 if (!binding.source_path.empty() && binding.source_path.size() > 1 && source.bound())
                 {
                     source = walk_ts_path(
@@ -490,8 +539,10 @@ namespace hgraph
                 auto target = walk_ts_path(child.node_at(binding.target.node).input(evaluation_time),
                                            binding.target.path);
                 source = detail::declared_source_view(target, std::move(source), binding.source_view_schema);
-                const bool same_source = target.bound() && source.bound() &&
-                                         target.bound_output().handle().same_as(source.handle());
+                const bool same_source = argument < 2
+                    ? target.bound() && source.bound() &&
+                          target.bound_output().handle().same_as(source.handle())
+                    : source.bound() && target.bound_to_source(source);
                 if (same_source || (!target.bound() && !source.bound())) { continue; }
 
                 if (sampled)
@@ -1545,6 +1596,7 @@ namespace hgraph
                     entry->graph = context.spec.child.graph_builder.make_nested_graph(
                         view.pointer(),
                         bank.graph_memory(position), context.graph_layout);
+                    if (!storage.capture_sources.empty()) { storage.observe(*entry, position); }
                     if (context.spec.child.output_binding->kind != NestedGraphOutputBinding::Kind::ParentInput)
                     {
                         entry->output = walk_ts_path(
@@ -1636,6 +1688,8 @@ namespace hgraph
         {
             auto root_input = view.input(evaluation_time);
             auto collection_input = root_input.indexed_child_at(0);
+            const bool captures_changed = runtime_detail::refresh_reduce_captures(
+                root_input, context.spec.has_zero ? 2 : 1, storage.capture_sources);
 
             TSOutputHandle collection_source = effective_output_handle(collection_input.bound_output());
             TSOutputHandle zero_source{};
@@ -1678,8 +1732,11 @@ namespace hgraph
 
             const bool zero_affects_structure =
                 zero_repointed && storage.dense_to_key.size() <= 1;
-            full_structure = full_structure || zero_affects_structure;
-            if (structural || collection_repointed || zero_affects_structure || !storage.published)
+            const bool captures_affect_combiners =
+                captures_changed && storage.dense_to_key.size() >= (context.spec.has_zero ? 1U : 2U);
+            full_structure = full_structure || zero_affects_structure || captures_affect_combiners;
+            if (structural || collection_repointed || zero_affects_structure || captures_affect_combiners ||
+                !storage.published)
             {
                 rebuild_structure(view, context, storage, evaluation_time, full_structure);
                 return true;
@@ -1803,6 +1860,54 @@ namespace hgraph
             storage.has_future_combiner_schedule = false;
         }
 
+        bool evaluate_combiner(const NodeView &view, ReduceNodeStorage &storage, std::size_t position,
+                               DateTime evaluation_time, bool resuming)
+        {
+            const auto *entry = storage.combiners[position];
+            if (entry == nullptr || !entry->graph.has_value()) { return true; }
+            const auto child = entry->graph.view();
+            if ((resuming || child.next_scheduled_time() <= evaluation_time) && !child.evaluate(evaluation_time))
+            {
+                return false;
+            }
+            if (const DateTime next = child.next_scheduled_time(); next != MAX_DT && next > evaluation_time)
+            {
+                storage.has_future_combiner_schedule = true;
+                view.graph().schedule_node(view.node_index(), next);
+            }
+            return true;
+        }
+
+        bool evaluate_captured_combiners(const NodeView &view, ReduceNodeStorage &storage, DateTime evaluation_time)
+        {
+            if (storage.resume_candidate_plus_one != 0)
+            {
+                if (!evaluate_combiner(view, storage, storage.resume_candidate_plus_one - 1, evaluation_time, true))
+                {
+                    return false;
+                }
+                storage.resume_candidate_plus_one = 0;
+            }
+            auto &due = storage.scheduled_combiners;
+            while (!due.empty())
+            {
+                const std::size_t position = due.front();
+                do
+                {
+                    std::pop_heap(due.begin(), due.end());
+                    due.pop_back();
+                } while (!due.empty() && due.front() == position);
+                // A child's output may schedule its parent during this call.
+                // The observer adds it to the same heap at its lower index.
+                if (!evaluate_combiner(view, storage, position, evaluation_time, false))
+                {
+                    storage.resume_candidate_plus_one = position + 1;
+                    return false;
+                }
+            }
+            return true;
+        }
+
         // Evaluates the combiner tree, supporting pause/resume. A combiner that pauses (a
         // mesh nested in the reduce function needs a sibling) propagates the pause: save the
         // descending-position cursor and return false so the enclosing mesh resolves it and
@@ -1843,6 +1948,20 @@ namespace hgraph
                 return true;
             }
 
+            if (!storage.capture_sources.empty())
+            {
+                if (!resuming)
+                {
+                    auto &due = storage.scheduled_combiners;
+                    due.insert(due.end(), storage.evaluation_positions.begin(), storage.evaluation_positions.end());
+                    std::make_heap(due.begin(), due.end());
+                    storage.evaluation_positions.clear();
+                }
+                if (!evaluate_captured_combiners(view, storage, evaluation_time)) { return false; }
+                finish_reduce_publication(storage, evaluation_time);
+                return true;
+            }
+
             // Evaluate due combiners deepest-first (descending heap index): a leaf tick
             // schedules its combiner directly; that combiner's output tick schedules its
             // parent (lower index, processed later), so the cascade settles in one pass.
@@ -1853,21 +1972,12 @@ namespace hgraph
             for (std::size_t candidate = start_candidate;
                  candidate < storage.evaluation_positions.size(); ++candidate)
             {
-                const std::size_t position = storage.evaluation_positions[candidate];
-                const auto &entry = storage.combiners[position];
-                if (entry == nullptr || !entry->graph.has_value()) { continue; }
-                auto       child       = entry->graph.view();
                 const bool resume_this = resuming && candidate == start_candidate;
-                if ((child.next_scheduled_time() <= evaluation_time || resume_this) &&
-                    !child.evaluate(evaluation_time))
+                if (!evaluate_combiner(view, storage, storage.evaluation_positions[candidate], evaluation_time,
+                                       resume_this))
                 {
                     storage.resume_candidate_plus_one = candidate + 1;
                     return false;
-                }
-                if (const DateTime next = child.next_scheduled_time(); next != MAX_DT && next > evaluation_time)
-                {
-                    storage.has_future_combiner_schedule = true;
-                    view.graph().schedule_node(view.node_index(), next);
                 }
             }
             storage.resume_candidate_plus_one = 0;
@@ -1891,6 +2001,7 @@ namespace hgraph
                 errors.capture([&] { stop_combiner(entry); });
             }
             storage.evaluation_positions.clear();
+            storage.scheduled_combiners.clear();
             storage.modified_leaves.clear();
             storage.structural_leaves.clear();
             storage.structural_positions.clear();
@@ -1938,7 +2049,8 @@ namespace hgraph
             const auto &context = *static_cast<const ReduceNodeContext *>(typed.internal_context());
             const auto &storage = *MemoryUtils::cast<const ReduceNodeStorage>(typed.internal_storage());
             if (storage.resume_candidate_plus_one != 0 || storage.has_future_combiner_schedule ||
-                storage.publication_full_reconcile || storage.publication_sample_all ||
+                !storage.scheduled_combiners.empty() || storage.publication_full_reconcile ||
+                storage.publication_sample_all ||
                 storage.lifted_root_dirty)
             {
                 throw std::invalid_argument("component checkpoint: reduce has unfinished work");
@@ -2171,12 +2283,15 @@ namespace hgraph
             const auto typed = view.as<ReduceNodeView>();
             const auto &context = *static_cast<const ReduceNodeContext *>(typed.internal_context());
             auto &storage = *MemoryUtils::cast<ReduceNodeStorage>(typed.internal_storage());
-            auto collection_input = view.input(time).indexed_child_at(0);
+            auto inputs = view.input(time);
+            auto collection_input = inputs.indexed_child_at(0);
             storage.collection_source = effective_output_handle(collection_input.bound_output());
             if (context.spec.has_zero)
             {
-                storage.zero_source = effective_output_handle(view.input(time).indexed_child_at(1).bound_output());
+                storage.zero_source = effective_output_handle(inputs.indexed_child_at(1).bound_output());
             }
+            (void)runtime_detail::refresh_reduce_captures(inputs, context.spec.has_zero ? 2 : 1,
+                                                          storage.capture_sources);
             // Each saved leaf below must identify a distinct, valid input. An
             // equal live count makes that membership exhaustive as well: a
             // consistent-looking image must not silently omit an untouched key.
@@ -2280,7 +2395,18 @@ namespace hgraph
                 return;
             }
             for (std::size_t position = storage.combiners.size(); position-- > 0;)
-                if (auto *entry = storage.combiners[position]) { entry->graph.view().start(time); }
+            {
+                if (auto *entry = storage.combiners[position])
+                {
+                    const auto child = entry->graph.view();
+                    if (!storage.capture_sources.empty()) { storage.observe(*entry, position); }
+                    child.start(time);
+                    if (!storage.capture_sources.empty() && child.next_scheduled_time() != MAX_DT)
+                    {
+                        storage.has_future_combiner_schedule = true;
+                    }
+                }
+            }
         }
 
         // A combiner graph may hold a transient sink, which starts fresh. With no
@@ -2330,11 +2456,17 @@ namespace hgraph
             {
                 throw std::invalid_argument("reduce_node requires a combiner output binding");
             }
+            const std::size_t first_capture = spec.has_zero ? 2 : 1;
             if (meta.input_schema == nullptr || meta.input_schema->kind != TSTypeKind::TSB ||
-                meta.input_schema->field_count() != (spec.has_zero ? 2 : 1))
+                meta.input_schema->field_count() < first_capture)
             {
                 throw std::invalid_argument(
-                    "reduce_node requires input schema [ts] with an optional trailing zero");
+                    "reduce_node requires input schema [ts], optional zero, then captures");
+            }
+            const std::size_t boundary_count = 2 + meta.input_schema->field_count() - first_capture;
+            if (spec.lifted_kernel != nullptr && boundary_count != 2)
+            {
+                throw std::invalid_argument("reduce_node lifted combiner cannot take captured inputs");
             }
             const auto *fields = meta.input_schema->fields();
             if (fields[0].type == nullptr ||
@@ -2356,10 +2488,11 @@ namespace hgraph
             }
             if (output_binding.kind == NestedGraphOutputBinding::Kind::ParentInput)
             {
-                if (output_binding.parent_source_path.empty() || output_binding.parent_source_path[0] > 1)
+                if (output_binding.parent_source_path.empty() ||
+                    output_binding.parent_source_path[0] >= boundary_count)
                 {
                     throw std::invalid_argument(
-                        "reduce_node parent-input combiner output must select lhs or rhs");
+                        "reduce_node parent-input combiner output must select a combiner argument");
                 }
                 if (spec.lifted_kernel != nullptr)
                 {
@@ -2373,9 +2506,9 @@ namespace hgraph
 
             for (const NestedGraphInputBinding &binding : spec.child.input_bindings)
             {
-                if (binding.source_path.empty() || binding.source_path[0] > 1)
+                if (binding.source_path.empty() || binding.source_path[0] >= boundary_count)
                 {
-                    throw std::invalid_argument("reduce_node combiner inputs must be sourced from lhs or rhs");
+                    throw std::invalid_argument("reduce_node combiner input source ordinal is out of range");
                 }
                 if (binding.target.node >= child_node_count)
                 {

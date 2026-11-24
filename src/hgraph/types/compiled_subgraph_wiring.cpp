@@ -5,6 +5,7 @@
 #include <hgraph/lib/std/std_nodes.h>
 #include <hgraph/types/impl/default_wiring.h>
 
+#include <iterator>
 #include <numeric>
 
 namespace hgraph {
@@ -310,6 +311,25 @@ WiringPortRef compiled::mesh_peer(Wiring &w, WiringPortRef key, const TSValueTyp
 }
 
 namespace {
+    using ReduceInputFields = std::vector<std::pair<std::string, const TSValueTypeMetaData *>>;
+
+    void append_reduce_captures(ReduceInputFields &fields, std::span<const WiringPortRef> captures)
+    {
+        for (std::size_t i = 0; i < captures.size(); ++i) {
+            fields.emplace_back("capture_" + std::to_string(i), captures[i].schema);
+        }
+    }
+
+    std::vector<WiringInputRef> reduce_input_refs(std::span<const WiringPortRef> inputs,
+                                                  std::span<const std::size_t> passive_captures,
+                                                  std::size_t first_capture)
+    {
+        std::vector<std::size_t> materializers;
+        materializers.reserve(passive_captures.size());
+        for (const auto index : passive_captures) { materializers.push_back(first_capture + index); }
+        return higher_order_input_refs(inputs, materializers);
+    }
+
     SingleNestedGraphNodeSpec reduce_child(CompiledSubGraph child)
     {
         SingleNestedGraphNodeSpec spec;
@@ -320,7 +340,9 @@ namespace {
     }
 
     WiringPortRef ordered_fixed_list(Wiring &w, const WiringPortRef &collection, const TSValueTypeMetaData *schema,
-                                     const WiringPortRef &zero, const CompiledSubGraph &child)
+                                     const WiringPortRef &zero, const CompiledSubGraph &child,
+                                     std::span<const WiringPortRef> captures,
+                                     std::span<const std::size_t> passive_captures)
     {
         const auto *element = schema->element_ts();
         if (!time_series_value_equivalent(element, zero.schema)) {
@@ -333,18 +355,27 @@ namespace {
             return stdlib::wire_default_sources(w, std::move(port), zero);
         };
         auto accumulator = leaf(0);
+        ReduceInputFields fields{{"lhs", child.input_schemas[0]}, {"rhs", child.input_schemas[1]}};
+        append_reduce_captures(fields, captures);
+        const auto *input_schema = TypeRegistry::instance().un_named_tsb(fields);
         for (std::size_t i = 1; i < schema->fixed_size(); ++i) {
-            std::array inputs{graph_wiring_detail::adapt_source_for_input(w, child.input_schemas[0], accumulator),
-                              graph_wiring_detail::adapt_source_for_input(w, child.input_schemas[1], leaf(i))};
+            std::vector<WiringPortRef> inputs{
+                graph_wiring_detail::adapt_source_for_input(w, child.input_schemas[0], accumulator),
+                graph_wiring_detail::adapt_source_for_input(w, child.input_schemas[1], leaf(i))};
+            inputs.insert(inputs.end(), captures.begin(), captures.end());
             NodeTypeMetaData meta;
             meta.display_name = "reduce_ordered";
-            meta.input_schema = TypeRegistry::instance().un_named_tsb({{"lhs", child.input_schemas[0]},
-                                                                       {"rhs", child.input_schemas[1]}});
+            meta.input_schema = input_schema;
             meta.output_schema = child.output_schema;
-            const auto *input_schema = meta.input_schema;
+            if (!captures.empty()) { configure_passive_transport_inputs(meta, inputs); }
             auto builder = single_nested_graph_node(std::move(meta), reduce_child(child));
             builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(input_schema, inputs));
-            accumulator = w.add_unique_node(typeid(CompiledReduceSite), std::move(builder), inputs, {});
+            if (captures.empty()) {
+                accumulator = w.add_unique_node(typeid(CompiledReduceSite), std::move(builder), inputs, {});
+            } else {
+                const auto refs = reduce_input_refs(inputs, passive_captures, 2);
+                accumulator = w.add_unique_node(typeid(CompiledReduceSite), std::move(builder), refs, {});
+            }
         }
         return accumulator;
     }
@@ -359,8 +390,8 @@ WiringPortRef compiled::reduce_(Wiring &w, WiringPortRef collection, CompiledSub
         throw std::invalid_argument("reduce_: requires a dictionary or list");
     }
     collection = graph_wiring_detail::adapt_source_for_input(w, schema, std::move(collection));
-    if (!child.captured_inputs.empty() || !child.external_service_inputs.empty()) {
-        throw std::invalid_argument("reduce_: the combiner must have only its two explicit inputs");
+    if (!child.external_service_inputs.empty()) {
+        throw std::invalid_argument("reduce_: combiner external service inputs are unsupported");
     }
     const bool ordered = order == ReduceOrder::Ordered;
     if (ordered && !zero) { throw std::invalid_argument("reduce_: an ordered fold requires zero"); }
@@ -383,24 +414,36 @@ WiringPortRef compiled::reduce_(Wiring &w, WiringPortRef collection, CompiledSub
     if (!child.output_schema || !time_series_value_equivalent(child.output_schema, result)) {
         throw std::invalid_argument("reduce_: the combiner output must match the accumulator");
     }
+    auto captures = std::move(child.captured_inputs);
+    std::vector<const TSValueTypeMetaData *> capture_schemas(child.input_schemas.begin() + 2,
+                                                           child.input_schemas.end());
+    const auto passive_captures = materialize_structural_broadcast_inputs(w, captures, capture_schemas, {});
     if (ordered && schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl()) {
-        return ordered_fixed_list(w, collection, schema, *zero, child);
+        return ordered_fixed_list(w, collection, schema, *zero, child, captures, passive_captures);
     }
-    std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields{{"ts", schema}};
+    ReduceInputFields fields{{"ts", schema}};
     std::vector<WiringPortRef> inputs{std::move(collection)};
     if (zero) {
         fields.emplace_back("zero", zero->schema);
         inputs.push_back(std::move(*zero));
     }
+    const auto first_capture = inputs.size();
+    append_reduce_captures(fields, captures);
+    inputs.insert(inputs.end(), std::make_move_iterator(captures.begin()), std::make_move_iterator(captures.end()));
     NodeTypeMetaData meta;
     meta.display_name = ordered ? "reduce_ordered" : "reduce";
     meta.input_schema = registry.un_named_tsb(fields);
     meta.output_schema = result;
     const auto *input_schema = meta.input_schema;
+    if (inputs.size() != first_capture) { configure_passive_transport_inputs(meta, inputs); }
     NodeBuilder builder = ordered
         ? ordered_reduce_node(std::move(meta), OrderedReduceNodeSpec{.child = reduce_child(std::move(child))})
         : reduce_node(std::move(meta), ReduceNodeSpec{.child = reduce_child(std::move(child)), .has_zero = zero.has_value()});
     builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(input_schema, inputs));
-    return w.add_unique_node(typeid(CompiledReduceSite), std::move(builder), inputs, {});
+    if (inputs.size() == first_capture) {
+        return w.add_unique_node(typeid(CompiledReduceSite), std::move(builder), inputs, {});
+    }
+    const auto refs = reduce_input_refs(inputs, passive_captures, first_capture);
+    return w.add_unique_node(typeid(CompiledReduceSite), std::move(builder), refs, {});
 }
 }

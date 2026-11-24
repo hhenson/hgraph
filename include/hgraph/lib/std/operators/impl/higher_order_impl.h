@@ -519,7 +519,7 @@ namespace hgraph::stdlib
             if (!combiner_graph.captured_inputs.empty())
             {
                 throw std::invalid_argument(
-                    "reduce: the combiner captured outer ports - outer-port capture is only supported by map_ yet");
+                    "reduce: use compiled::reduce_ for a combiner that captures outer ports");
             }
             if (combiner_graph.output_schema == nullptr || !combiner_graph.output_binding.has_value())
             {

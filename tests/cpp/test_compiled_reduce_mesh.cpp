@@ -4,9 +4,11 @@
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
+#include <hgraph/types/context_wiring.h>
 #include <hgraph/types/generated.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 namespace {
 using namespace hgraph;
@@ -47,6 +49,101 @@ void check_reduce(const auto &collection, const auto &zero, const auto &expected
     CHECK_OUTPUT((eval_node<Reduction<Collection, Acc, Op, order, false>>(collection, zero)), expected);
     CHECK_OUTPUT((eval_node<Reduction<Collection, Acc, Op, order, true>>(collection, zero)), expected);
 }
+
+template <compiled::ReduceOrder order> struct CapturedCombiner {
+    static Port<N> compose(Wiring &w, Port<N> accumulator, Port<N> member) {
+        const auto bias = wire<stdlib::add_>(w, context::get<N>(w, "reduce_bias"),
+                                            context::get<N>(w, "reduce_offset")).as<N>();
+        if constexpr (order == compiled::ReduceOrder::Ordered) {
+            return wire<stdlib::sub_>(w, wire<stdlib::sub_>(w, accumulator, member), bias).as<N>();
+        } else {
+            return wire<stdlib::add_>(w, wire<stdlib::add_>(w, accumulator, member), bias).as<N>();
+        }
+    }
+};
+
+template <typename Collection, compiled::ReduceOrder order> struct CapturedReduction {
+    static Port<N> compose(Wiring &w, Port<Collection> collection, Port<N> bias) {
+        return reduce(w, collection, bias, std::nullopt);
+    }
+
+    static Port<N> compose_seeded(Wiring &w, Port<Collection> collection, Port<N> bias, Port<N> zero) {
+        return reduce(w, collection, bias, zero.erased());
+    }
+
+  private:
+    static Port<N> reduce(Wiring &w, Port<Collection> collection, Port<N> bias,
+                          std::optional<WiringPortRef> zero) {
+        context::scope<"reduce_bias"> capture{w, bias};
+        context::scope<"reduce_offset"> offset{w, wire<stdlib::const_, N>(w, Int{0})};
+        return {w, compiled::reduce_(w, collection.erased(), compile_subgraph<CapturedCombiner<order>>(w),
+                                     std::move(zero), order)};
+    }
+};
+
+template <typename Collection, compiled::ReduceOrder order> struct SeededCapturedReduction {
+    static Port<N> compose(Wiring &w, Port<Collection> collection, Port<N> bias, Port<N> zero) {
+        return CapturedReduction<Collection, order>::compose_seeded(w, collection, bias, zero);
+    }
+};
+
+template <typename Collection>
+void check_captured_reduce(const auto &collection, Int first_ordered, Int second_ordered, Int third_ordered) {
+    constexpr auto associative = compiled::ReduceOrder::Associative;
+    constexpr auto ordered = compiled::ReduceOrder::Ordered;
+    const auto bias = values<Int>(10, 20, 30, none);
+    const auto zero = values<Int>(100, none, none, none);
+    const auto totals = values<Int>(26, 46, 68, none);
+    CHECK_OUTPUT((eval_node<CapturedReduction<Collection, associative>>(collection, bias)), totals);
+    CHECK_OUTPUT((eval_node<SeededCapturedReduction<Collection, associative>>(collection, bias, zero)), totals);
+    CHECK_OUTPUT((eval_node<SeededCapturedReduction<Collection, ordered>>(collection, bias, zero)),
+                 values<Int>(first_ordered, second_ordered, third_ordered, none));
+}
+
+struct SelectedCapture {
+    static void eval(In<"left", N> left, In<"right", N> right, In<"select_right", TS<Bool>> select_right,
+                     Out<REF<N>> output) {
+        output.set(select_right.value() ? right.reference() : left.reference());
+    }
+};
+
+struct ReturnCapture {
+    static Port<N> compose(Wiring &w, Port<N>, Port<N>) {
+        return context::get<N>(w, "reduce_bias");
+    }
+};
+
+template <compiled::ReduceOrder order> struct ReduceCapturedReference {
+    static Port<N> compose(Wiring &w, Port<Book> collection, Port<N> left, Port<N> right,
+                           Port<TS<Bool>> select_right, Port<N> zero) {
+        const auto selected = wire<SelectedCapture>(w, left, right, select_right).as<REF<N>>();
+        context::scope<"reduce_bias"> capture{w, selected};
+        return {w, compiled::reduce_(w, collection.erased(), compile_subgraph<ReturnCapture>(w),
+                                     zero.erased(), order)};
+    }
+};
+
+struct StableCapture {
+    static void eval(In<"target", N> target, Out<REF<N>> output) {
+        if (!output.valid()) { output.set(target.reference()); }
+    }
+};
+
+struct ReadCapture {
+    static Port<N> compose(Wiring &w, Port<N> accumulator, Port<N> member) {
+        const auto sum = wire<stdlib::add_>(w, accumulator, member).as<N>();
+        return wire<stdlib::add_>(w, sum, context::get<N>(w, "reduce_bias")).as<N>();
+    }
+};
+
+template <typename Collection> struct ReadCapturedReference {
+    static Port<N> compose(Wiring &w, Port<Collection> collection, Port<N> target, Port<N> zero) {
+        const auto ref = wire<StableCapture>(w, target).as<REF<N>>();
+        context::scope<"reduce_bias"> capture{w, ref};
+        return {w, compiled::reduce_(w, collection.erased(), compile_subgraph<ReadCapture>(w),
+                                     zero.erased(), compiled::ReduceOrder::Associative)};
+    }
+};
 
 template <bool direct> struct ReadPeer {
     static Port<N> compose(Wiring &w, NamedPort<"key", N> key, Port<N> target) {
@@ -155,6 +252,76 @@ TEST_CASE("compiled reduce uses the operator's empty, singleton, ordered and fix
         values<Value>(list_delta<N>({{0, 1}}), list_delta<N>({{1, 2}, {2, 3}, {3, 4}}),
                       none, list_delta<N>({{0, 10}})),
         values<Int>(100, none, 7), values<Int>(-299, -8, none, 1));
+}
+
+TEST_CASE("compiled reduce broadcasts a captured input through both reduction orders") {
+    stdlib::register_standard_operators();
+    check_captured_reduce<Book>(
+        values<Value>(dict_delta<Int, N>({{0, 1}, {1, 2}, {2, 3}}), none,
+                      dict_delta<Int, N>({{2, 5}}), none),
+        64, 34, 2);
+    check_captured_reduce<TSL<N>>(
+        values<Value>(dynamic_list_delta<N>({{0, 1}, {1, 2}, {2, 3}}, {}, 3), none,
+                      dynamic_list_delta<N>({{2, 5}}), none),
+        64, 34, 2);
+    check_captured_reduce<TSL<N, 3>>(
+        values<Value>(list_delta<N>({{0, 1}, {1, 2}, {2, 3}}), none,
+                      list_delta<N>({{2, 5}}), none),
+        -24, -44, -66);
+}
+
+TEST_CASE("compiled reduce capture ticks keep the empty and singleton rules") {
+    stdlib::register_standard_operators();
+    constexpr auto associative = compiled::ReduceOrder::Associative;
+    const auto book = values<Value>(dict_delta<Int, N>({}), dict_delta<Int, N>({{0, 4}}), none,
+                                    dict_delta<Int, N>({{1, 7}}), dict_delta<Int, N>({}, {1}),
+                                    dict_delta<Int, N>({}, {0}), none);
+    const auto bias = values<Int>(10, none, 20, none, none, none, 30);
+    const auto zero = values<Int>(100, none, none, none, none, none, none);
+    CHECK_OUTPUT((eval_node<CapturedReduction<Book, associative>>(book, bias)),
+                 values<Int>(none, 4, none, 31, 4, none, none));
+    CHECK_OUTPUT((eval_node<SeededCapturedReduction<Book, associative>>(book, bias, zero)),
+                 values<Int>(100, 114, 124, 31, 124, 100, none));
+}
+
+TEST_CASE("compiled reduce can return a captured reference that changes its source") {
+    stdlib::register_standard_operators();
+    const auto book = values<Value>(dict_delta<Int, N>({{0, 1}, {1, 2}}), none, none, none);
+    const auto left = values<Int>(10, none, none, none);
+    const auto right = values<Int>(20, none, 21, none);
+    const auto select_right = values<Bool>(false, true, none, false);
+    const auto zero = values<Int>(100, none, none, none);
+    const auto expected = values<Int>(10, 20, 21, 10);
+    CHECK_OUTPUT(eval_node<ReduceCapturedReference<compiled::ReduceOrder::Associative>>(
+                     book, left, right, select_right, zero), expected);
+    CHECK_OUTPUT(eval_node<ReduceCapturedReference<compiled::ReduceOrder::Ordered>>(
+                     book, left, right, select_right, zero), expected);
+}
+
+TEST_CASE("compiled associative reduce reads every due captured reference target") {
+    stdlib::register_standard_operators();
+    const auto target = values<Int>(1000, 1001, 1002, none, none, 1005, 1006, none);
+    const auto zero = values<Int>(100, none, none, none, none, none, 200, none);
+    const auto expected = values<Int>(3010, 3013, 3020, none, 3022, 3031, 3034, none);
+    CHECK_OUTPUT(eval_node<ReadCapturedReference<Book>>(
+                     values<Value>(dict_delta<Int, N>({{0, 1}, {1, 2}, {2, 3}, {3, 4}}), none,
+                                   dict_delta<Int, N>({{0, 5}}), none, dict_delta<Int, N>({{3, 6}})),
+                     target, zero),
+                 expected);
+    CHECK_OUTPUT(eval_node<ReadCapturedReference<TSL<N>>>(
+                     values<Value>(dynamic_list_delta<N>({{0, 1}, {1, 2}, {2, 3}, {3, 4}}, {}, 4), none,
+                                   dynamic_list_delta<N>({{0, 5}}), none, dynamic_list_delta<N>({{3, 6}})),
+                     target, zero),
+                 expected);
+}
+
+TEST_CASE("compiled ordered reduce still requires zero for a captured combiner") {
+    stdlib::register_standard_operators();
+    constexpr auto ordered = compiled::ReduceOrder::Ordered;
+    CHECK_THROWS_WITH(
+        (eval_node<CapturedReduction<Book, ordered>>(
+            values<Value>(dict_delta<Int, N>({{0, 1}, {1, 2}})), values<Int>(10))),
+        "reduce_: an ordered fold requires zero");
 }
 
 TEST_CASE("compiled mesh follows peer changes and explicit removal and re-add with the ordinary timing") {

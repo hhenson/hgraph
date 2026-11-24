@@ -75,9 +75,13 @@ using their callable identity and arguments.
 An associative reduction combines live dictionary or list elements. An omitted
 zero leaves an empty reduction invalid. A supplied zero is the empty result
 and participates in the singleton combination. An ordered reduction takes a
-zero and a binary child with accumulator and element inputs. Integer-keyed
+zero and a child with accumulator and element inputs. Integer-keyed
 dictionaries and growing lists start with that zero. A fixed list folds its
 positions from left to right, using the zero for each invalid position.
+Both orders pass the combiner's captured ports after its two explicit inputs.
+All live combiners share those ports. A captured input tick schedules the
+combiners that read it, including when the collection and zero stay unchanged.
+An associative reduction without zero still forwards a singleton directly.
 
 A compiled mesh takes a dictionary, optional broadcasts and an optional key
 set with the same input order as a compiled map. In the child, use
@@ -551,10 +555,10 @@ index — a parent has a lower index than its children, so it evaluates after
 them). When the TSD root modifies or re-points, v1 conservatively reconciles
 the current key set and refreshes live combiner/root bindings; this covers
 ordinary add/remove deltas and forwarding/REF retargets, including same-key
-different-source retargets. Combiner evaluation is **unconditional** per
-pass, like the other nested operators: a same-cycle notification lands in a
-child's schedule array but not its cached next time, and an idle child
-evaluate is a cheap scan. Re-binding samples held values (``bind_output``
+different-source retargets. When a combiner has captures, the child schedule
+observer adds due combiners to the same deepest-first pass. A captured
+reference's target can schedule a combiner while the collection or zero
+also changes. Re-binding samples held values (``bind_output``
 notifies on valid-source binds), and a root **re-point to an already-valid
 source is a tick of the reduce output at the publication time** (the aliased
 value changed without the target writing — ``mark_modified`` through the
