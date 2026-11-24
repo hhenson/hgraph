@@ -17,6 +17,7 @@
 #include <hgraph/lib/testing/mock_runtime.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/lib/testing/runtime_support.h>
+#include <hgraph/runtime/checkpoint_codec.h>
 #include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -24,17 +25,20 @@
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/subgraph_wiring.h>
+#include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/wired_fn.h>
 
 #include "nested_lifecycle_test_support.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_template_test_macros.hpp>
 
 #include <array>
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <type_traits>
 #include <vector>
 
 namespace switch_repro
@@ -547,6 +551,258 @@ namespace
                 {{Value{Int{1}}, compile_subgraph<DoubleBranch>(w)},
                  {Value{Int{2}}, compile_subgraph<WithdrawOnNegative>(w)}});
             return wire<ClockedSwitchRead>(w, clock, Port<void>{w, std::move(selected)}.as<TS<Int>>());
+        }
+    };
+
+    using CountSwitchWindow = TSW<Int, 2, 1>;
+    using DurationSwitchWindow = TSWDuration<Int, 100, 0>;
+    using SwitchWindowBundle = UnNamedTSB<Field<"window", CountSwitchWindow>, Field<"number", TS<Int>>>;
+    using SwitchWindowList = TSL<CountSwitchWindow, 2>;
+    using SwitchWindowDict = TSD<Int, CountSwitchWindow>;
+
+    template <typename Window>
+    void publish_switch_window(Out<Window> &out, Int value)
+    {
+        out.push(value);
+    }
+
+    void publish_switch_window(Out<SwitchWindowBundle> &out, Int value)
+    {
+        out.field<"window">().push(value);
+        out.field<"number">().set(value);
+    }
+
+    void publish_switch_window(Out<SwitchWindowList> &out, Int value)
+    {
+        out[0].push(value);
+        out[1].push(value + 1000);
+    }
+
+    void publish_switch_window(Out<SwitchWindowDict> &out, Int value)
+    {
+        out[Int{1}].push(value);
+    }
+
+    template <typename Result, Int Offset>
+    struct WriteSwitchWindow
+    {
+        static void eval(In<"sample", TS<Int>> sample, Out<Result> out)
+        {
+            if (sample.value() >= 0) { publish_switch_window(out, sample.value() + Offset); }
+        }
+    };
+
+    template <typename Result, Int Offset>
+    struct SwitchWindowBranch
+    {
+        static Port<Result> compose(Wiring &w, Port<TS<Int>> sample)
+        {
+            return wire<WriteSwitchWindow<Result, Offset>>(w, sample);
+        }
+    };
+
+    template <typename Window>
+    Str window_samples(const Window &window)
+    {
+        if (!window.valid()) { return "invalid"; }
+        Str readings;
+        for (std::size_t index = 0; index < window.size(); ++index)
+        {
+            if (index != 0) { readings += ','; }
+            readings += std::to_string(window.at(index));
+        }
+        return readings;
+    }
+
+    template <typename Window>
+    Str window_observation(const Window &window)
+    {
+        return window_samples(window) + (window.modified() ? " tick" : " held");
+    }
+
+    template <typename Window>
+    struct ReadSwitchWindow
+    {
+        static void eval(In<"clock", TS<Int>, InputActivity::Passive> clock,
+                         In<"window", Window, InputActivity::Active, InputValidity::Unchecked> window,
+                         Out<TS<Str>> out)
+        {
+            if (clock.modified()) { out.set(window_observation(window)); }
+        }
+    };
+
+    struct ReadSwitchWindowBundle
+    {
+        static void eval(In<"clock", TS<Int>, InputActivity::Passive> clock,
+                         In<"bundle", SwitchWindowBundle, InputActivity::Active, InputValidity::Unchecked> bundle,
+                         Out<TS<Str>> out)
+        {
+            if (!clock.modified()) { return; }
+            const auto number = bundle.field<"number">();
+            Str ordinary = number.valid() ? std::to_string(number.value()) : "invalid";
+            ordinary += number.modified() ? " tick" : " held";
+            out.set(window_observation(bundle.field<"window">()) + "|" + ordinary);
+        }
+    };
+
+    struct ReadSwitchWindowList
+    {
+        static void eval(In<"clock", TS<Int>, InputActivity::Passive> clock,
+                         In<"list", SwitchWindowList, InputActivity::Active, InputValidity::Unchecked> list,
+                         Out<TS<Str>> out)
+        {
+            if (clock.modified())
+            {
+                out.set(window_observation(list[0]) + "|" + window_observation(list[1]));
+            }
+        }
+    };
+
+    struct ReadSwitchWindowDict
+    {
+        static void eval(In<"clock", TS<Int>, InputActivity::Passive> clock,
+                         In<"dict", SwitchWindowDict, InputActivity::Active, InputValidity::Unchecked> dict,
+                         Out<TS<Str>> out)
+        {
+            if (!clock.modified()) { return; }
+            out.set(dict.valid()
+                        ? window_observation(dict[Int{1}])
+                        : Str{dict.modified() ? "invalid tick" : "invalid held"});
+        }
+    };
+
+    template <typename Result>
+    Port<Result> select_switch_window(Wiring &w, Port<TS<Int>> key, Port<TS<Int>> sample)
+    {
+        auto selected = compiled::switch_(w, key.erased(), std::array{sample.erased()},
+                {{Value{Int{1}}, compile_subgraph<SwitchWindowBranch<Result, 0>>(w)},
+                 {Value{Int{2}}, compile_subgraph<SwitchWindowBranch<Result, 100>>(w)}});
+        return Port<void>{w, std::move(selected)}.template as<Result>();
+    }
+
+    template <typename Result, typename Reader = ReadSwitchWindow<Result>>
+    struct CompiledSwitchWindow
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> key, Port<TS<Int>> sample, Port<TS<Int>> clock)
+        {
+            return wire<Reader>(w, clock, select_switch_window<Result>(w, key, sample));
+        }
+    };
+
+    template <typename Result>
+    struct ReplaySwitchDelta
+    {
+        static void eval(In<"live", Result, InputActivity::Active, InputValidity::Unchecked> live, Out<Result> replayed)
+        {
+            if (live.valid() && live.modified())
+            {
+                apply_delta(replayed.base(), capture_delta(live.base()).view());
+            }
+            else if (!live.valid() && replayed.base().valid())
+            {
+                // Follow validity notifications as well as deltas. Ordinary
+                // invalidation preserves a fixed window's retained history.
+                static_cast<void>(replayed.base().begin_mutation(replayed.evaluation_time()).invalidate());
+            }
+        }
+    };
+
+    template <typename Result, typename Endpoint>
+    Str replayed_switch_window_samples(const Endpoint &value)
+    {
+        if (!value.valid()) { return "invalid"; }
+        if constexpr (std::is_same_v<Result, SwitchWindowBundle>)
+        {
+            return window_samples(value.template field<"window">());
+        }
+        else if constexpr (std::is_same_v<Result, SwitchWindowList>)
+        {
+            return window_samples(value[0]) + "|" + window_samples(value[1]);
+        }
+        else if constexpr (std::is_same_v<Result, SwitchWindowDict>)
+        {
+            return value.contains(Int{1}) ? window_samples(value[Int{1}]) : Str{"empty"};
+        }
+        else { return window_samples(value); }
+    }
+
+    template <typename Result>
+    struct CompareSwitchReplay
+    {
+        static void eval(In<"clock", TS<Int>, InputActivity::Passive> clock,
+                         In<"live", Result, InputActivity::Active, InputValidity::Unchecked> live,
+                         In<"replayed", Result, InputActivity::Passive, InputValidity::Unchecked> replayed,
+                         Out<TS<Bool>> out)
+        {
+            if (clock.modified())
+            {
+                out.set(replayed_switch_window_samples<Result>(live) == replayed_switch_window_samples<Result>(replayed));
+            }
+        }
+    };
+
+    template <typename Result>
+    struct CompiledSwitchReplay
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>> key, Port<TS<Int>> sample, Port<TS<Int>> clock)
+        {
+            const auto selected = select_switch_window<Result>(w, key, sample);
+            const auto replayed = wire<ReplaySwitchDelta<Result>>(w, selected);
+            return wire<CompareSwitchReplay<Result>>(w, clock, selected, replayed);
+        }
+    };
+
+    struct CheckpointWithdrawnWindow
+    {
+        static void eval(In<"live", CountSwitchWindow, InputActivity::Active, InputValidity::Unchecked> live,
+                         Out<TS<Bool>> out)
+        {
+            if (live.valid()) { return; }
+            const auto now = live.evaluation_time();
+            const auto source = live.base().bound_output();
+            GraphCheckpointImage graph;
+            NodeCheckpointImage node;
+            node.id = "saved-window";
+            node.signature = "window";
+            node.output = capture_ts_checkpoint(source.data_view());
+            graph.nodes.push_back(std::move(node));
+            std::string bytes;
+            encode_graph_checkpoint(graph, bytes, now);
+
+            TSOutput restored{source.schema()};
+            const auto image = decode_graph_checkpoint(bytes);
+            auto restored_data = restored.data_view();
+            restore_ts_checkpoint(restored_data, *image.nodes.front().output);
+            const auto next = now + MIN_TD;
+            auto restored_window = restored_data.as_window();
+            restored_window.begin_mutation(next).push(Value{Int{104}}.view());
+
+            TSOutput replica{source.schema()};
+            auto replica_data = replica.data_view();
+            auto replica_window = replica_data.as_window();
+            replica_window.begin_mutation(now - 2 * MIN_TD).push(Value{Int{1}}.view());
+            replica_window.begin_mutation(now - MIN_TD).push(Value{Int{2}}.view());
+            apply_delta(replica.view(next), capture_window_delta(restored_window, next).view());
+            out.set(replica_window.size() == 1 && replica_window.front().checked_as<Int>() == Int{104});
+        }
+    };
+
+    struct ReadFirstSwitchDelta
+    {
+        static void eval(In<"live", CountSwitchWindow> live, Out<TS<Bool>> out)
+        {
+            const auto delta = capture_delta(live.base());
+            const auto fields = delta.view().as_bundle();
+            out.set(!fields.at("replacement").has_value() && fields.at("added").as_indexed_view().size() == 1);
+        }
+    };
+
+    template <typename Reader>
+    struct CompiledSwitchWindowDelta
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>> key, Port<TS<Int>> sample)
+        {
+            return wire<Reader>(w, select_switch_window<CountSwitchWindow>(w, key, sample));
         }
     };
 
@@ -1601,6 +1857,126 @@ TEST_CASE("compiled switch: a clocked reader follows the selected output through
                      values<Int>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)),
                  values<Str>("14 tick", "14 held", "invalid", "9 tick", "invalid", "invalid",
                              "13 tick", "14 tick", "invalid", "invalid", "14 tick"));
+}
+
+TEST_CASE("compiled switch: a window follows the selected branch's sample history")
+{
+    using namespace hgraph;
+    const auto keys = values<Int>(1, none, 2, none, 1, none, none);
+    const auto samples = values<Int>(1, 2, 3, 4, -1, -1, 7);
+    const auto clock = values<Int>(0, 1, 2, 3, 4, 5, 6);
+    const auto expected = values<Str>("1 tick", "1,2 tick", "103 tick", "103,104 tick",
+                                      "invalid held", none, "7 tick");
+
+    SECTION("count window")
+    {
+        CHECK_OUTPUT(eval_node<CompiledSwitchWindow<CountSwitchWindow>>(keys, samples, clock), expected);
+    }
+    SECTION("duration window")
+    {
+        CHECK_OUTPUT(eval_node<CompiledSwitchWindow<DurationSwitchWindow>>(keys, samples, clock), expected);
+    }
+}
+
+TEST_CASE("compiled switch: a bundle's window follows the branch alongside an ordinary field")
+{
+    using namespace hgraph;
+    using Graph = CompiledSwitchWindow<SwitchWindowBundle, ReadSwitchWindowBundle>;
+    const auto keys = values<Int>(1, none, 2, none, 1, none);
+    const auto clock = values<Int>(0, 1, 2, 3, 4, 5);
+
+    SECTION("immediate publication")
+    {
+        CHECK_OUTPUT(eval_node<Graph>(keys, values<Int>(1, 2, 3, 4, 5, 6), clock),
+                     values<Str>("1 tick|1 tick", "1,2 tick|2 tick", "103 tick|103 tick",
+                                 "103,104 tick|104 tick", "5 tick|5 tick", "5,6 tick|6 tick"));
+    }
+    SECTION("silent selection invalidates the ordinary field without a tick")
+    {
+        CHECK_OUTPUT(eval_node<Graph>(keys, values<Int>(1, 2, -1, 4, -1, 6), clock),
+                     values<Str>("1 tick|1 tick", "1,2 tick|2 tick", "invalid held|invalid held",
+                                 "104 tick|104 tick", "invalid held|invalid held", "6 tick|6 tick"));
+    }
+}
+
+TEST_CASE("compiled switch: each list element starts with the selected branch's window")
+{
+    using namespace hgraph;
+    using Graph = CompiledSwitchWindow<SwitchWindowList, ReadSwitchWindowList>;
+    const auto keys = values<Int>(1, none, 2, none, 1, none);
+    const auto clock = values<Int>(0, 1, 2, 3, 4, 5);
+    SECTION("immediate publication")
+    {
+        CHECK_OUTPUT(eval_node<Graph>(keys, values<Int>(1, 2, 3, 4, 5, 6), clock),
+                     values<Str>("1 tick|1001 tick", "1,2 tick|1001,1002 tick", "103 tick|1103 tick",
+                                 "103,104 tick|1103,1104 tick", "5 tick|1005 tick", "5,6 tick|1005,1006 tick"));
+    }
+    SECTION("silent selection")
+    {
+        CHECK_OUTPUT(eval_node<Graph>(keys, values<Int>(1, 2, -1, 4, -1, 6), clock),
+                     values<Str>("1 tick|1001 tick", "1,2 tick|1001,1002 tick", "invalid held|invalid held",
+                                 "104 tick|1104 tick", "invalid held|invalid held", "6 tick|1006 tick"));
+    }
+}
+
+TEST_CASE("compiled switch: a dictionary replaces its branch's window entries")
+{
+    using namespace hgraph;
+    using Graph = CompiledSwitchWindow<SwitchWindowDict, ReadSwitchWindowDict>;
+    const auto keys = values<Int>(1, none, 2, none, 1, none);
+    const auto clock = values<Int>(0, 1, 2, 3, 4, 5);
+    SECTION("immediate publication")
+    {
+        CHECK_OUTPUT(eval_node<Graph>(keys, values<Int>(1, 2, 3, 4, 5, 6), clock),
+                     values<Str>("1 tick", "1,2 tick", "103 tick", "103,104 tick", "5 tick", "5,6 tick"));
+    }
+    SECTION("silent selection")
+    {
+        CHECK_OUTPUT(eval_node<Graph>(keys, values<Int>(1, 2, -1, 4, -1, 6), clock),
+                     values<Str>("1 tick", "1,2 tick", "invalid held", "104 tick", "invalid held", "6 tick"));
+    }
+}
+
+TEMPLATE_TEST_CASE("compiled switch: window deltas replay across branch changes", "[switch]",
+                   CountSwitchWindow, DurationSwitchWindow, SwitchWindowBundle, SwitchWindowList)
+{
+    using namespace hgraph;
+    using Graph = CompiledSwitchReplay<TestType>;
+    const auto keys = values<Int>(1, none, 2, none, 1, none);
+    const auto clock = values<Int>(0, 1, 2, 3, 4, 5);
+    const auto equal = values<Bool>(true, true, true, true, true, true);
+
+    SECTION("immediate publication")
+    {
+        CHECK_OUTPUT(eval_node<Graph>(keys, values<Int>(1, 2, 3, 4, 5, 6), clock), equal);
+    }
+    SECTION("silent selection")
+    {
+        CHECK_OUTPUT(eval_node<Graph>(keys, values<Int>(1, 2, -1, 4, -1, 6), clock), equal);
+    }
+}
+
+TEST_CASE("compiled switch: dictionary window deltas replay on same-cycle key reuse")
+{
+    using namespace hgraph;
+    using Graph = CompiledSwitchReplay<SwitchWindowDict>;
+    CHECK_OUTPUT(eval_node<Graph>(values<Int>(1, none, 2, none, 1, none), values<Int>(1, 2, 3, 4, 5, 6),
+                                  values<Int>(0, 1, 2, 3, 4, 5)),
+                 values<Bool>(true, true, true, true, true, true));
+}
+
+TEST_CASE("compiled switch: a checkpointed window owes its replacement after a silent selection")
+{
+    using namespace hgraph;
+    using Graph = CompiledSwitchWindowDelta<CheckpointWithdrawnWindow>;
+    CHECK_OUTPUT(eval_node<Graph>(values<Int>(1, none, 2), values<Int>(1, 2, -1)), values<Bool>(none, none, true));
+}
+
+TEST_CASE("compiled switch: a window with no previous samples publishes an ordinary first arrival")
+{
+    using namespace hgraph;
+    using Graph = CompiledSwitchWindowDelta<ReadFirstSwitchDelta>;
+    CHECK_OUTPUT(eval_node<Graph>(values<Int>(1, 2), values<Int>(-1, 3)), values<Bool>(none, true));
 }
 
 TEST_CASE("compiled switch: sink case and fallback can take the selector")

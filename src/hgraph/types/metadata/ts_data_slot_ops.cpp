@@ -773,7 +773,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 // An ordinary remove clears the published bit. On a retained
                 // slot the bit therefore distinguishes a removal that preceded
                 // a whole-owner reset. The old child stays readable up to here.
-                detail::discard_collection_child(TSDataView{element_type_, values_.value_memory(slot)}, now);
+                detail::invalidate_replaced_value(TSDataView{element_type_, values_.value_memory(slot)}, now);
                 value_published_.reset(slot);
             }
 

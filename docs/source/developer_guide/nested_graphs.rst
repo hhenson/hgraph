@@ -861,9 +861,11 @@ ts…)``).
      terminal.
   ``Local``
      a value output owned by the switch; the active terminal writes into it.
-     Replacing a branch withdraws its old value. The output stays invalid
-     until the new branch publishes. An active branch can also withdraw its
-     own value and publish again.
+     Replacing a branch withdraws its old value and discards any window
+     history in that storage. If the new branch is silent, readers are
+     notified and see an invalid, unmodified output until it publishes.
+     A retained window's next publication carries a replacement delta.
+     An active branch can also withdraw its own value and publish again.
 
   A ``RefCopy`` switch publishes **one token transition per cycle**. On a
   branch change the previous token stays published until the new branch's

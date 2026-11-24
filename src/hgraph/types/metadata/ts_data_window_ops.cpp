@@ -370,6 +370,13 @@ namespace hgraph::ts_data_plan_factory_detail
 
             [[nodiscard]] DateTime replaced_time() const noexcept { return tick_.state.has(WindowTickState::Replaced) ? tick_.time : MIN_DT; }
 
+            // A withdrawn window owes a replacement on its next publication.
+            // Until then it has no tick time or observable delta.
+            [[nodiscard]] bool replacement_pending() const noexcept
+            {
+                return tick_.time == MIN_DT && tick_.state.has(WindowTickState::Replaced);
+            }
+
             [[nodiscard]] ValueView removal_value(std::size_t index) const
             {
                 if (const auto *ring = std::get_if<WindowTick::RingRemoval>(&tick_.removals))
@@ -450,11 +457,20 @@ namespace hgraph::ts_data_plan_factory_detail
                 }
             }
 
-            void discard_history() noexcept
+            void discard_history(bool pending_replacement = false) noexcept
             {
                 invalidate_delta_projection();
                 clear();
                 tick_ = {};
+                if (pending_replacement) { tick_.state.mark(WindowTickState::Replaced); }
+            }
+
+            void discard_owned_history(DateTime now, bool publish_replacement) noexcept
+            {
+                // A withdrawal also discards any departures accumulated this
+                // cycle before consumers can see them.
+                const bool discarded_samples = !empty() || (tick_.time == now && tick_.size() != 0);
+                discard_history(replacement_pending() || (publish_replacement && discarded_samples));
             }
 
             [[nodiscard]] const void *element_at(std::size_t index) const
@@ -585,7 +601,11 @@ namespace hgraph::ts_data_plan_factory_detail
             void begin_tick(DateTime modified_time)
             {
                 invalidate_delta_projection();
-                if (tick_.time != modified_time) { tick_ = WindowTick{.time = modified_time}; }
+                if (tick_.time != modified_time)
+                {
+                    const unsigned effect = replacement_pending() ? WindowTickState::Replaced : 0U;
+                    tick_ = WindowTick{.time = modified_time, .state = WindowTickState{effect}};
+                }
             }
 
             void record_removals(std::size_t count, DateTime modified_time)
@@ -630,6 +650,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 WindowTick next{.time = modified_time, .state = WindowTickState{WindowTickState::Applied}};
                 if (added.has_value()) { next.state.mark(WindowTickState::Added); }
                 if (cleared) { next.state.mark(WindowTickState::Cleared); }
+                if (replacement_pending()) { next.state.mark(WindowTickState::Replaced); }
                 next.append(removed.size(), [&](std::size_t index) {
                     const auto sample = removed.at(index).as_bundle();
                     const auto value = sample.at(0);
@@ -1016,7 +1037,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     // Discard a retired tick's transient samples on a later explicit
                     // mutation, even if the new evaluation has no expiry to publish.
-                    if (modified_time > tick().time) { begin_tick(modified_time); }
+                    if (modified_time > tick().time && !replacement_pending()) { begin_tick(modified_time); }
                     return false;
                 }
                 evict_oldest(dropped, modified_time);
@@ -1250,8 +1271,8 @@ namespace hgraph::ts_data_plan_factory_detail
             void configure_ts_ops()
             {
                 static const detail::TSDataOwnershipOps ownership{
-                    .discard_child_history = [](const void *context, void *memory) noexcept {
-                        storage<Storage>(window_mutable_value_memory(context, memory)).discard_history();
+                    .discard_child_history = [](const void *context, void *memory, DateTime now, bool publish_replacement) noexcept {
+                        storage<Storage>(window_mutable_value_memory(context, memory)).discard_owned_history(now, publish_replacement);
                     },
                 };
                 ops = TSWDataOps{};
@@ -1369,6 +1390,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 TSCheckpointImage image;
                 image.schema = view.schema();
                 image.last_modified_time = view.last_modified_time();
+                // A pending replacement is invalid and has discarded every
+                // sample. It carries no payload, unlike an ordinary empty list.
+                if (window.replacement_pending()) { return image; }
                 image.window_times.reserve(window.size());
                 // The public count-window value schema has a fixed extent and
                 // pads incomplete values. Checkpoint only live samples instead.
@@ -1393,6 +1417,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (window_size(self, view.data()) != 0)
                     throw std::invalid_argument("window checkpoint restore requires empty endpoint storage");
                 const auto *schema = image.payload.schema();
+                if (schema == nullptr && image.last_modified_time == MIN_DT && image.window_times.empty()) { return; }
                 if (!image.payload.has_value() || schema == nullptr ||
                     schema->value_kind() != ValueTypeKind::List || schema->is_fixed_size() ||
                     schema->element_type != self->layout->element_binding.schema())
@@ -1428,7 +1453,10 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 const auto *self = ctx(view.ops().context);
                 auto &window = storage<Storage>(window_mutable_value_memory(self, view.mutable_data()));
-                window.restore_checkpoint(image.payload.view().as_indexed_view(), image.window_times);
+                if (image.payload.has_value())
+                    window.restore_checkpoint(image.payload.view().as_indexed_view(), image.window_times);
+                else
+                    window.discard_history(/*pending_replacement=*/true);
                 window_mutable_tracking(self, view.mutable_data())->last_modified_time = image.last_modified_time;
             }
 

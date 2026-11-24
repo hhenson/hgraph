@@ -311,14 +311,20 @@ TEST_CASE("TSW checkpoint: malformed samples are refused before mutation", "[che
     push(source_data, 10, 0);
     push(source_data, 20, 1);
     auto image = capture_ts_checkpoint(source_data);
-    const auto error = GENERATE(0, 1, 2, 3, 4, 5, 6, 7);
+    const auto error = GENERATE(0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
     if (error == 0) { image.window_times.pop_back(); }
     if (error == 1) { image.window_times[0] = MIN_DT; }
     if (error == 2) { image.window_times[0] = MIN_ST + MIN_TD * 2; }
     if (error == 3) { image.window_times.back() = MIN_ST + MIN_TD * 2; }
     if (error == 4) { image.payload = Value{Int{1}}; }
     if (error == 5) { image.keys.emplace_back(Int{1}); }
-    if (error >= 6)
+    if (error == 8 || error == 9)
+    {
+        image.payload = Value{};
+        if (error == 8) { image.window_times.clear(); }
+        else { image.last_modified_time = MIN_DT; }
+    }
+    if (error == 6 || error == 7)
     {
         ListBuilder values{ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta())};
         values.push_back(Int{10});
