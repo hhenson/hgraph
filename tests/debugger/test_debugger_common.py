@@ -160,7 +160,7 @@ class CommonDebuggerFormattingTest(unittest.TestCase):
         self.assertTrue(common.debug_descriptor_valid(descriptor))
         summary = common.debug_descriptor_summary(descriptor)
         self.assertIn("valid layout=Atomic atomic=SignedInteger", summary)
-        self.assertFalse(common.debug_descriptor_valid(atomic_descriptor(abi_version=4)))
+        self.assertFalse(common.debug_descriptor_valid(atomic_descriptor(abi_version=common.DEBUG_DESCRIPTOR_ABI_VERSION + 1)))
         self.assertFalse(common.debug_descriptor_valid(atomic_descriptor(flags=4)))
         self.assertTrue(
             common.debug_descriptor_valid(

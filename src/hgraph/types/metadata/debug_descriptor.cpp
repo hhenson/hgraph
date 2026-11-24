@@ -229,25 +229,13 @@ namespace hgraph
 
             [[nodiscard]] const DebugDescriptor &intern_time_series(
                 const SchemaHeader &schema, const MemoryUtils::StoragePlan &plan,
-                const TypeRecord &value_type, const TypeRecord &delta_type,
-                std::size_t value_offset, std::size_t tracking_offset,
-                std::size_t last_modified_offset, std::size_t parent_offset, std::size_t observers_offset,
-                bool delta_aliases_value, const DebugField *fields, std::size_t field_count,
+                const DebugTimeSeriesLayout &layout, const DebugField *fields, std::size_t field_count,
                 const void *representation)
             {
                 auto entry = std::make_unique<DescriptorEntry>();
                 if (field_count != 0) { entry->fields.assign(fields, fields + field_count); }
                 entry->own_field_names();
-                entry->time_series_layout = DebugTimeSeriesLayout{
-                    .value_type = &value_type,
-                    .delta_type = &delta_type,
-                    .value_offset = value_offset,
-                    .tracking_offset = tracking_offset,
-                    .last_modified_offset = last_modified_offset,
-                    .parent_offset = parent_offset,
-                    .observers_offset = observers_offset,
-                    .delta_aliases_value = delta_aliases_value,
-                };
+                entry->time_series_layout = layout;
                 entry->descriptor = DebugDescriptor{
                     .magic = DEBUG_DESCRIPTOR_MAGIC,
                     .abi_version = DEBUG_DESCRIPTOR_ABI_VERSION,
@@ -491,10 +479,18 @@ namespace hgraph
         bool delta_aliases_value, const DebugField *fields, std::size_t field_count,
         const void *representation)
     {
-        return descriptor_registry().intern_time_series(
-            schema, plan, value_type, delta_type, value_offset, tracking_offset,
-            last_modified_offset, parent_offset, observers_offset, delta_aliases_value,
+        return intern_time_series_debug_descriptor(schema, plan,
+            DebugTimeSeriesLayout{&value_type, &delta_type, value_offset, tracking_offset,
+                                  last_modified_offset, parent_offset, observers_offset, delta_aliases_value},
             fields, field_count, representation);
+    }
+
+    const DebugDescriptor &intern_time_series_debug_descriptor(
+        const SchemaHeader &schema, const MemoryUtils::StoragePlan &plan,
+        const DebugTimeSeriesLayout &layout, const DebugField *fields, std::size_t field_count,
+        const void *representation)
+    {
+        return descriptor_registry().intern_time_series(schema, plan, layout, fields, field_count, representation);
     }
 
     const DebugDescriptor *find_value_debug_descriptor(const ValueTypeMetaData &schema,

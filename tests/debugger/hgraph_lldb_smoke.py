@@ -107,6 +107,12 @@ def run(debugger, _command, _exe_ctx, result, _internal_dict):
         _require(_summary(_global(target, "fixture_value_view")), "value=42")
         _require(_summary(_global(target, "fixture_value_type")), "ValueTypeRef{int32}")
         _require(_summary(_global(target, "fixture_ts_data_view")), "TSDataView{TS[")
+        for name, expected in (("modified", "7 [modified]"), ("retained", "7"),
+                               ("null", "null [modified]"), ("invalid", "<invalid>")):
+            actual = _summary(_global(target, "fixture_" + name))
+            if actual != expected:
+                raise RuntimeError("{}: expected {}, got {}".format(name, expected, actual))
+
         input_view = _global(target, "fixture_ts_input_view")
         output_view = _global(target, "fixture_ts_output_view")
         _require(_summary(input_view), "TSInputView{")

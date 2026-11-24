@@ -70,3 +70,5 @@ From an installed CMake package:
   the common schema header, so overlapping numeric kind values are unambiguous.
 - Invalid magic, ABI, family, role, access, and required pointers are reported
   as invalid or malformed instead of being cast to a guessed representation.
+
+LLDB shows scalar `In` and `Out` values at the endpoint's evaluation time. A current publication carries `[modified]`. A retained value has no suffix. A valid empty nullable shows `null`, and an invalid endpoint shows `<invalid>`. Unsupported representations show `<unavailable>`. The printer follows scalar input links and nullable widening through the SDK's read-only debug descriptors.

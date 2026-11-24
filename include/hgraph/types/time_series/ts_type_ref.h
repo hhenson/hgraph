@@ -68,7 +68,7 @@ namespace hgraph
         friend HGRAPH_EXPORT TSRoleTypeRef intern_ts_type(
             const TSValueTypeMetaData &, TypeRole,
             const MemoryUtils::StoragePlan &, const TSDataOps &,
-            std::string_view, std::uint16_t);
+            std::string_view, std::uint16_t, TSRoleTypeRef);
         explicit constexpr TSRoleTypeRef(const TypeRecord *record) noexcept : record_(record) {}
 
         const TypeRecord *record_{nullptr};
@@ -165,6 +165,10 @@ namespace hgraph
     using TSOutputTypeRef = BasicTSTypeRef<TypeRole::Output>;
 
     // The default is compiled into the caller. Validate it before reading ops.
+    [[nodiscard]] HGRAPH_EXPORT TSRoleTypeRef intern_ts_type(
+        const TSValueTypeMetaData &schema, TypeRole role, const MemoryUtils::StoragePlan &plan,
+        const TSDataOps &ops, std::string_view implementation_label, std::uint16_t ops_abi_version,
+        TSRoleTypeRef borrowed_source);
     [[nodiscard]] HGRAPH_EXPORT TSRoleTypeRef intern_ts_type(
         const TSValueTypeMetaData &schema,
         TypeRole role,

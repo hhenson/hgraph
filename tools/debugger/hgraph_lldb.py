@@ -262,6 +262,12 @@ def pointer_payload(record_value, data_address):
         if snapshot["layout"] != 7:
             return common._MISSING, None
         layout = time_series_layout_at(record_value, snapshot["time_series_layout"])
+        if not common.debug_descriptor_valid(snapshot):
+            return common._MISSING, None
+        if not integer(child(layout, "inline_scalar")):
+            schema = schema_snapshot(dereference(child(record_value, "schema")))
+            if schema["kind"] == 0:
+                return common._MISSING, None
         value_record = record_at(record_value, pointer(child(layout, "value_type")))
         value = atomic_value(
             value_record, data_address + integer(child(layout, "value_offset"))
@@ -620,6 +626,10 @@ def runtime_wrapper_pointer(value, name="pointer"):
     if kind == "TSOutputHandle":
         return ts_storage_pointer(child(value, "data_"), name)
     if kind == "TSInputView":
+        import hgraph_lldb_endpoints as endpoints
+        resolved = endpoints.resolve(value)
+        if isinstance(resolved, tuple):
+            return make_any_pointer(value, name, resolved[0], resolved[1], 0)
         return ts_view_pointer(child(child(value, "data_"), "value_data"), name)
     return lldb.SBValue()
 
@@ -687,6 +697,11 @@ def type_ref_summary(value, _internal_dict, _options):
 
 def runtime_wrapper_summary(value, _internal_dict, _options):
     try:
+        if wrapper_name(value) in ("TSInputView", "TSOutputView"):
+            import hgraph_lldb_endpoints as endpoints
+            state = endpoints.resolve(value)
+            if isinstance(state, str):
+                return "{}{{{}}}".format(wrapper_name(value), state)
         return concise_wrapper_summary(runtime_wrapper_pointer(value), wrapper_name(value))
     except Exception as exc:
         return "{}{{<printer error: {}>}}".format(wrapper_name(value), exc)
@@ -1099,7 +1114,12 @@ class RuntimeWrapperSyntheticProvider(SyntheticProvider):
 
 
 def __lldb_init_module(debugger, _internal_dict):
+    import hgraph_lldb_endpoints
+    # LLDB resolves Python callbacks in its own command interpreter namespace.
+    debugger.HandleCommand("script import hgraph_lldb_endpoints")
     summaries = (
+        (r"^hgraph::In<[^,]*, hgraph::TS<.*>$", "hgraph_lldb_endpoints.summary"),
+        (r"^hgraph::Out<hgraph::TS<.*>$", "hgraph_lldb_endpoints.summary"),
         (r"^hgraph::SchemaHeader$", "hgraph_lldb.schema_header_summary"),
         (r"^hgraph::TypeRecord$", "hgraph_lldb.type_record_summary"),
         (r"^hgraph::DebugDescriptor$", "hgraph_lldb.debug_descriptor_summary"),

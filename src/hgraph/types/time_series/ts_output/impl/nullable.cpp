@@ -144,7 +144,8 @@ namespace hgraph::detail
                         ? source_ops.value_as_delta_to_python_impl(source_ops.context, memory)
                         : source_ops.to_python_impl(source_ops.context, memory);
                 };
-                type = intern_ts_type(requested, TypeRole::Output, plan, ops, "ts.borrowed-nullable");
+                type = intern_ts_type(requested, TypeRole::Output, plan, ops, "ts.borrowed-nullable",
+                                      TS_DATA_OPS_ABI_VERSION, source);
             }
         };
     }
