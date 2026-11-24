@@ -12,6 +12,7 @@
 #include <hgraph/types/value/value_hash.h>
 #include <hgraph/util/scope.h>
 
+#include "reduce_capture_bindings.h"
 #include "reduce_output_binding.h"
 
 #include <ankerl/unordered_dense.h>
@@ -183,6 +184,7 @@ namespace hgraph
             bool source_handles_initialised{false};
             TSOutputHandle collection_source{};
             TSOutputHandle zero_source{};
+            std::vector<TSOutputHandle> capture_sources{};
 
             // Once a keyed root changes identity, publish through one stable
             // output for the rest of this node's lifetime. Downstream REF
@@ -421,6 +423,13 @@ namespace hgraph
             bank.destroy_at(position);
         }
 
+        [[nodiscard]] TSOutputView capture_output(const NodeView &view, const ReduceNodeSpec &spec,
+                                                  std::size_t argument, DateTime evaluation_time)
+        {
+            const std::size_t first_capture = spec.has_zero ? 2 : 1;
+            return view.input(evaluation_time).indexed_child_at(first_capture + argument - 2).bound_output();
+        }
+
         /** Resolve an aggregate to the output it aliases. */
         [[nodiscard]] TSOutputView aggregate_output(const NodeView &view, const ReduceNodeContext &context,
                                                     const ReduceNodeStorage &storage, const Aggregate &aggregate,
@@ -444,9 +453,11 @@ namespace hgraph
                     const auto &output_binding = context.spec.child.output_binding;
                     if (output_binding->kind == NestedGraphOutputBinding::Kind::ParentInput)
                     {
-                        const std::size_t side = output_binding->parent_source_path[0];
-                        Aggregate source = resolve_aggregate(storage, 2 * aggregate.index + 1 + side);
-                        auto output = aggregate_output(view, context, storage, source, evaluation_time);
+                        const std::size_t argument = output_binding->parent_source_path[0];
+                        auto output = argument < 2
+                            ? aggregate_output(view, context, storage,
+                                  resolve_aggregate(storage, 2 * aggregate.index + 1 + argument), evaluation_time)
+                            : capture_output(view, context.spec, argument, evaluation_time);
                         if (output.bound() && output_binding->parent_source_path.size() > 1)
                         {
                             output = walk_ts_path(
@@ -479,8 +490,10 @@ namespace hgraph
             auto child = entry.graph.view();
             for (const NestedGraphInputBinding &binding : context.spec.child.input_bindings)
             {
-                const Aggregate &side = binding.source_path[0] == 0 ? left : right;
-                auto source = aggregate_output(view, context, storage, side, evaluation_time);
+                const std::size_t argument = binding.source_path[0];
+                auto source = argument < 2
+                    ? aggregate_output(view, context, storage, argument == 0 ? left : right, evaluation_time)
+                    : capture_output(view, context.spec, argument, evaluation_time);
                 if (!binding.source_path.empty() && binding.source_path.size() > 1 && source.bound())
                 {
                     source = walk_ts_path(
@@ -490,8 +503,10 @@ namespace hgraph
                 auto target = walk_ts_path(child.node_at(binding.target.node).input(evaluation_time),
                                            binding.target.path);
                 source = detail::declared_source_view(target, std::move(source), binding.source_view_schema);
-                const bool same_source = target.bound() && source.bound() &&
-                                         target.bound_output().handle().same_as(source.handle());
+                const bool same_source = argument < 2
+                    ? target.bound() && source.bound() &&
+                          target.bound_output().handle().same_as(source.handle())
+                    : source.bound() && target.bound_to_source(source);
                 if (same_source || (!target.bound() && !source.bound())) { continue; }
 
                 if (sampled)
@@ -1636,6 +1651,8 @@ namespace hgraph
         {
             auto root_input = view.input(evaluation_time);
             auto collection_input = root_input.indexed_child_at(0);
+            const bool captures_changed = runtime_detail::refresh_reduce_captures(
+                root_input, context.spec.has_zero ? 2 : 1, storage.capture_sources);
 
             TSOutputHandle collection_source = effective_output_handle(collection_input.bound_output());
             TSOutputHandle zero_source{};
@@ -1678,8 +1695,11 @@ namespace hgraph
 
             const bool zero_affects_structure =
                 zero_repointed && storage.dense_to_key.size() <= 1;
-            full_structure = full_structure || zero_affects_structure;
-            if (structural || collection_repointed || zero_affects_structure || !storage.published)
+            const bool captures_affect_combiners =
+                captures_changed && storage.dense_to_key.size() >= (context.spec.has_zero ? 1U : 2U);
+            full_structure = full_structure || zero_affects_structure || captures_affect_combiners;
+            if (structural || collection_repointed || zero_affects_structure || captures_affect_combiners ||
+                !storage.published)
             {
                 rebuild_structure(view, context, storage, evaluation_time, full_structure);
                 return true;
@@ -2171,12 +2191,15 @@ namespace hgraph
             const auto typed = view.as<ReduceNodeView>();
             const auto &context = *static_cast<const ReduceNodeContext *>(typed.internal_context());
             auto &storage = *MemoryUtils::cast<ReduceNodeStorage>(typed.internal_storage());
-            auto collection_input = view.input(time).indexed_child_at(0);
+            auto inputs = view.input(time);
+            auto collection_input = inputs.indexed_child_at(0);
             storage.collection_source = effective_output_handle(collection_input.bound_output());
             if (context.spec.has_zero)
             {
-                storage.zero_source = effective_output_handle(view.input(time).indexed_child_at(1).bound_output());
+                storage.zero_source = effective_output_handle(inputs.indexed_child_at(1).bound_output());
             }
+            (void)runtime_detail::refresh_reduce_captures(inputs, context.spec.has_zero ? 2 : 1,
+                                                          storage.capture_sources);
             // Each saved leaf below must identify a distinct, valid input. An
             // equal live count makes that membership exhaustive as well: a
             // consistent-looking image must not silently omit an untouched key.
@@ -2330,11 +2353,17 @@ namespace hgraph
             {
                 throw std::invalid_argument("reduce_node requires a combiner output binding");
             }
+            const std::size_t first_capture = spec.has_zero ? 2 : 1;
             if (meta.input_schema == nullptr || meta.input_schema->kind != TSTypeKind::TSB ||
-                meta.input_schema->field_count() != (spec.has_zero ? 2 : 1))
+                meta.input_schema->field_count() < first_capture)
             {
                 throw std::invalid_argument(
-                    "reduce_node requires input schema [ts] with an optional trailing zero");
+                    "reduce_node requires input schema [ts], optional zero, then captures");
+            }
+            const std::size_t boundary_count = 2 + meta.input_schema->field_count() - first_capture;
+            if (spec.lifted_kernel != nullptr && boundary_count != 2)
+            {
+                throw std::invalid_argument("reduce_node lifted combiner cannot take captured inputs");
             }
             const auto *fields = meta.input_schema->fields();
             if (fields[0].type == nullptr ||
@@ -2356,10 +2385,11 @@ namespace hgraph
             }
             if (output_binding.kind == NestedGraphOutputBinding::Kind::ParentInput)
             {
-                if (output_binding.parent_source_path.empty() || output_binding.parent_source_path[0] > 1)
+                if (output_binding.parent_source_path.empty() ||
+                    output_binding.parent_source_path[0] >= boundary_count)
                 {
                     throw std::invalid_argument(
-                        "reduce_node parent-input combiner output must select lhs or rhs");
+                        "reduce_node parent-input combiner output must select a combiner argument");
                 }
                 if (spec.lifted_kernel != nullptr)
                 {
@@ -2373,9 +2403,9 @@ namespace hgraph
 
             for (const NestedGraphInputBinding &binding : spec.child.input_bindings)
             {
-                if (binding.source_path.empty() || binding.source_path[0] > 1)
+                if (binding.source_path.empty() || binding.source_path[0] >= boundary_count)
                 {
-                    throw std::invalid_argument("reduce_node combiner inputs must be sourced from lhs or rhs");
+                    throw std::invalid_argument("reduce_node combiner input source ordinal is out of range");
                 }
                 if (binding.target.node >= child_node_count)
                 {

@@ -75,9 +75,13 @@ using their callable identity and arguments.
 An associative reduction combines live dictionary or list elements. An omitted
 zero leaves an empty reduction invalid. A supplied zero is the empty result
 and participates in the singleton combination. An ordered reduction takes a
-zero and a binary child with accumulator and element inputs. Integer-keyed
+zero and a child with accumulator and element inputs. Integer-keyed
 dictionaries and growing lists start with that zero. A fixed list folds its
 positions from left to right, using the zero for each invalid position.
+Both orders pass the combiner's captured ports after its two explicit inputs.
+All live combiners share those ports. A captured input tick schedules the
+combiners that read it, including when the collection and zero stay unchanged.
+An associative reduction without zero still forwards a singleton directly.
 
 A compiled mesh takes a dictionary, optional broadcasts and an optional key
 set with the same input order as a compiled map. In the child, use

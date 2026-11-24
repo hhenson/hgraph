@@ -9,6 +9,7 @@
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/util/scope.h>
 
+#include "reduce_capture_bindings.h"
 #include "reduce_output_binding.h"
 
 #include <algorithm>
@@ -186,6 +187,7 @@ namespace hgraph
             // of these re-points, never merely because the collection ticked.
             TSOutputHandle collection_source{};
             TSOutputHandle zero_source{};
+            std::vector<TSOutputHandle> capture_sources{};
             bool primed{false};
             bool published{false};
             std::size_t resume_index_plus_one{0};
@@ -394,7 +396,7 @@ namespace hgraph
             return schema.kind == TSTypeKind::TSD ? dict_ops : list_ops;
         }
 
-        /** Bind link ``index`` to its accumulator and element, and resolve what it publishes. */
+        /** Bind link ``index`` to its arguments and resolve what it publishes. */
         void bind_link(
             const NodeView &view,
             const OrderedReduceContext &context,
@@ -409,9 +411,11 @@ namespace hgraph
             }
 
             const auto source_for = [&](const std::vector<std::size_t> &path) {
-                TSOutputView source = path[0] == 0
-                                          ? accumulator_source(view, storage, index, evaluation_time)
-                                          : collection_element_output(view, context, index, evaluation_time);
+                TSOutputView source = [&] {
+                    if (path[0] == 0) { return accumulator_source(view, storage, index, evaluation_time); }
+                    if (path[0] == 1) { return collection_element_output(view, context, index, evaluation_time); }
+                    return view.input(evaluation_time).indexed_child_at(path[0]).bound_output();
+                }();
                 if (path.size() > 1 && source.bound())
                 {
                     source = walk_ts_path(std::move(source), std::span<const std::size_t>{path}.subspan(1));
@@ -525,6 +529,7 @@ namespace hgraph
         {
             auto root = view.input(evaluation_time);
             auto ts = root.indexed_child_at(0);
+            const bool captures_changed = runtime_detail::refresh_reduce_captures(root, 2, storage.capture_sources);
             const TSOutputView collection = ts.bound_output();
             const TSOutputView zero = zero_output(view, evaluation_time);
             const bool collection_repointed =
@@ -546,7 +551,7 @@ namespace hgraph
             // Everything from there down may publish something different, so it
             // is rebound too -- and nothing above it is touched.
             std::size_t rebind_from = kept;
-            if (collection_repointed) { rebind_from = 0; }
+            if (collection_repointed || captures_changed) { rebind_from = 0; }
             else if (zero_repointed && kept != 0) { rebind_from = 0; }
             else if (ts.valid() && ts.modified() && ts.schema()->kind == TSTypeKind::TSD)
             {
@@ -762,7 +767,8 @@ namespace hgraph
             auto &storage = *MemoryUtils::cast<OrderedReduceStorage>(typed.internal_storage());
             const Int primed = storage.primed;
             const Int published = storage.published;
-            auto input = view.input(time).indexed_child_at(0);
+            auto inputs = view.input(time);
+            auto input = inputs.indexed_child_at(0);
             const auto current_count = input.valid() ? context.collection_ops->size(input, unvalidated) : 0;
             if ((primed != 0 && current_count != image.children.size()) ||
                 (published != 0 && primed != static_cast<Int>(input.valid())))
@@ -780,6 +786,7 @@ namespace hgraph
             const TSOutputView zero = zero_output(view, time);
             storage.collection_source = collection.bound() ? collection.handle() : TSOutputHandle{};
             storage.zero_source = zero.bound() ? zero.handle() : TSOutputHandle{};
+            (void)runtime_detail::refresh_reduce_captures(inputs, 2, storage.capture_sources);
             auto output = view.output(time);
             TSOutputView source;
             if (published != 0)
@@ -848,10 +855,11 @@ namespace hgraph
                 throw std::invalid_argument("ordered_reduce_node requires a combiner output binding");
             }
             if (meta.input_schema == nullptr || meta.input_schema->kind != TSTypeKind::TSB ||
-                meta.input_schema->field_count() != 2)
+                meta.input_schema->field_count() < 2)
             {
-                throw std::invalid_argument("ordered_reduce_node requires input schema [ts, zero]");
+                throw std::invalid_argument("ordered_reduce_node requires input schema [ts, zero] followed by captures");
             }
+            const std::size_t boundary_count = meta.input_schema->field_count();
             const auto *fields = meta.input_schema->fields();
             const auto *collection = fields[0].type;
             if (collection == nullptr ||
@@ -877,10 +885,11 @@ namespace hgraph
             }
             if (output_binding.kind == NestedGraphOutputBinding::Kind::ParentInput)
             {
-                if (output_binding.parent_source_path.empty() || output_binding.parent_source_path[0] > 1)
+                if (output_binding.parent_source_path.empty() ||
+                    output_binding.parent_source_path[0] >= boundary_count)
                 {
                     throw std::invalid_argument(
-                        "ordered_reduce_node parent-input output must select accumulator or element");
+                        "ordered_reduce_node parent-input output must select a combiner argument");
                 }
             }
             else if (output_binding.source.node >= child_node_count)
@@ -890,11 +899,11 @@ namespace hgraph
             }
             for (const NestedGraphInputBinding &binding : spec.child.input_bindings)
             {
-                if (binding.source_path.empty() || binding.source_path[0] > 1 ||
+                if (binding.source_path.empty() || binding.source_path[0] >= boundary_count ||
                     binding.target.node >= child_node_count)
                 {
                     throw std::invalid_argument(
-                        "ordered_reduce_node combiner inputs must be sourced from lhs or rhs");
+                        "ordered_reduce_node combiner input binding is out of range");
                 }
             }
         }
