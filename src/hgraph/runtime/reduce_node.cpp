@@ -39,10 +39,14 @@ namespace hgraph
         using runtime_detail::bind_reduce_output;
         using runtime_detail::reduce_output_endpoint_schema;
 
+        struct ReduceNodeStorage;
+
         struct CombinerEntry
         {
-            GraphValue     graph{};
-            TSOutputHandle output{};
+            ReduceNodeStorage *owner{nullptr};
+            std::size_t        position{0};
+            GraphValue         graph{};
+            TSOutputHandle     output{};
         };
 
         /** Where an aggregate currently comes from, without materialising it. */
@@ -100,6 +104,34 @@ namespace hgraph
                 lifted         = lifted_kernel;
                 leaf_value_ops = operand_ops;
                 for (auto &bank : combiner_banks) { bank.bind_graph_layout(graph_layout); }
+            }
+
+            /** Captured targets can schedule a child without ticking the reduce input. */
+            void observe(CombinerEntry &entry, std::size_t position)
+            {
+                entry.owner = this;
+                entry.position = position;
+                entry.graph.view().set_child_schedule_observer(
+                    [](void *raw, DateTime, bool due_now) {
+                        auto &entry = *static_cast<CombinerEntry *>(raw);
+                        auto &storage = *entry.owner;
+                        // Retired storage can survive a shape change through this cycle.
+                        if (entry.position >= storage.combiners.size() ||
+                            storage.combiners[entry.position] != &entry)
+                        {
+                            return;
+                        }
+                        if (due_now)
+                        {
+                            storage.scheduled_combiners.push_back(entry.position);
+                            std::push_heap(storage.scheduled_combiners.begin(), storage.scheduled_combiners.end());
+                        }
+                        else
+                        {
+                            storage.has_future_combiner_schedule = true;
+                        }
+                    },
+                    &entry);
             }
 
             // Root-first (ascending heap index) teardown: a parent combiner's
@@ -205,6 +237,10 @@ namespace hgraph
             std::vector<std::size_t> modified_leaves{};
             std::vector<std::size_t> structural_leaves{};
             std::vector<std::size_t> structural_positions{};
+            /** Max-heap of due child positions for a reduction with captures. */
+            std::vector<std::size_t> scheduled_combiners{};
+            // A paused capture combiner saves its position; other graph
+            // combiners save a cursor into evaluation_positions.
             std::size_t              resume_candidate_plus_one{0};
             bool                     has_future_combiner_schedule{false};
 
@@ -1560,6 +1596,7 @@ namespace hgraph
                     entry->graph = context.spec.child.graph_builder.make_nested_graph(
                         view.pointer(),
                         bank.graph_memory(position), context.graph_layout);
+                    if (!storage.capture_sources.empty()) { storage.observe(*entry, position); }
                     if (context.spec.child.output_binding->kind != NestedGraphOutputBinding::Kind::ParentInput)
                     {
                         entry->output = walk_ts_path(
@@ -1823,6 +1860,54 @@ namespace hgraph
             storage.has_future_combiner_schedule = false;
         }
 
+        bool evaluate_combiner(const NodeView &view, ReduceNodeStorage &storage, std::size_t position,
+                               DateTime evaluation_time, bool resuming)
+        {
+            const auto *entry = storage.combiners[position];
+            if (entry == nullptr || !entry->graph.has_value()) { return true; }
+            const auto child = entry->graph.view();
+            if ((resuming || child.next_scheduled_time() <= evaluation_time) && !child.evaluate(evaluation_time))
+            {
+                return false;
+            }
+            if (const DateTime next = child.next_scheduled_time(); next != MAX_DT && next > evaluation_time)
+            {
+                storage.has_future_combiner_schedule = true;
+                view.graph().schedule_node(view.node_index(), next);
+            }
+            return true;
+        }
+
+        bool evaluate_captured_combiners(const NodeView &view, ReduceNodeStorage &storage, DateTime evaluation_time)
+        {
+            if (storage.resume_candidate_plus_one != 0)
+            {
+                if (!evaluate_combiner(view, storage, storage.resume_candidate_plus_one - 1, evaluation_time, true))
+                {
+                    return false;
+                }
+                storage.resume_candidate_plus_one = 0;
+            }
+            auto &due = storage.scheduled_combiners;
+            while (!due.empty())
+            {
+                const std::size_t position = due.front();
+                do
+                {
+                    std::pop_heap(due.begin(), due.end());
+                    due.pop_back();
+                } while (!due.empty() && due.front() == position);
+                // A child's output may schedule its parent during this call.
+                // The observer adds it to the same heap at its lower index.
+                if (!evaluate_combiner(view, storage, position, evaluation_time, false))
+                {
+                    storage.resume_candidate_plus_one = position + 1;
+                    return false;
+                }
+            }
+            return true;
+        }
+
         // Evaluates the combiner tree, supporting pause/resume. A combiner that pauses (a
         // mesh nested in the reduce function needs a sibling) propagates the pause: save the
         // descending-position cursor and return false so the enclosing mesh resolves it and
@@ -1863,6 +1948,20 @@ namespace hgraph
                 return true;
             }
 
+            if (!storage.capture_sources.empty())
+            {
+                if (!resuming)
+                {
+                    auto &due = storage.scheduled_combiners;
+                    due.insert(due.end(), storage.evaluation_positions.begin(), storage.evaluation_positions.end());
+                    std::make_heap(due.begin(), due.end());
+                    storage.evaluation_positions.clear();
+                }
+                if (!evaluate_captured_combiners(view, storage, evaluation_time)) { return false; }
+                finish_reduce_publication(storage, evaluation_time);
+                return true;
+            }
+
             // Evaluate due combiners deepest-first (descending heap index): a leaf tick
             // schedules its combiner directly; that combiner's output tick schedules its
             // parent (lower index, processed later), so the cascade settles in one pass.
@@ -1873,21 +1972,12 @@ namespace hgraph
             for (std::size_t candidate = start_candidate;
                  candidate < storage.evaluation_positions.size(); ++candidate)
             {
-                const std::size_t position = storage.evaluation_positions[candidate];
-                const auto &entry = storage.combiners[position];
-                if (entry == nullptr || !entry->graph.has_value()) { continue; }
-                auto       child       = entry->graph.view();
                 const bool resume_this = resuming && candidate == start_candidate;
-                if ((child.next_scheduled_time() <= evaluation_time || resume_this) &&
-                    !child.evaluate(evaluation_time))
+                if (!evaluate_combiner(view, storage, storage.evaluation_positions[candidate], evaluation_time,
+                                       resume_this))
                 {
                     storage.resume_candidate_plus_one = candidate + 1;
                     return false;
-                }
-                if (const DateTime next = child.next_scheduled_time(); next != MAX_DT && next > evaluation_time)
-                {
-                    storage.has_future_combiner_schedule = true;
-                    view.graph().schedule_node(view.node_index(), next);
                 }
             }
             storage.resume_candidate_plus_one = 0;
@@ -1911,6 +2001,7 @@ namespace hgraph
                 errors.capture([&] { stop_combiner(entry); });
             }
             storage.evaluation_positions.clear();
+            storage.scheduled_combiners.clear();
             storage.modified_leaves.clear();
             storage.structural_leaves.clear();
             storage.structural_positions.clear();
@@ -1958,7 +2049,8 @@ namespace hgraph
             const auto &context = *static_cast<const ReduceNodeContext *>(typed.internal_context());
             const auto &storage = *MemoryUtils::cast<const ReduceNodeStorage>(typed.internal_storage());
             if (storage.resume_candidate_plus_one != 0 || storage.has_future_combiner_schedule ||
-                storage.publication_full_reconcile || storage.publication_sample_all ||
+                !storage.scheduled_combiners.empty() || storage.publication_full_reconcile ||
+                storage.publication_sample_all ||
                 storage.lifted_root_dirty)
             {
                 throw std::invalid_argument("component checkpoint: reduce has unfinished work");
@@ -2303,7 +2395,18 @@ namespace hgraph
                 return;
             }
             for (std::size_t position = storage.combiners.size(); position-- > 0;)
-                if (auto *entry = storage.combiners[position]) { entry->graph.view().start(time); }
+            {
+                if (auto *entry = storage.combiners[position])
+                {
+                    const auto child = entry->graph.view();
+                    if (!storage.capture_sources.empty()) { storage.observe(*entry, position); }
+                    child.start(time);
+                    if (!storage.capture_sources.empty() && child.next_scheduled_time() != MAX_DT)
+                    {
+                        storage.has_future_combiner_schedule = true;
+                    }
+                }
+            }
         }
 
         // A combiner graph may hold a transient sink, which starts fresh. With no

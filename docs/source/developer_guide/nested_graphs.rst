@@ -555,10 +555,10 @@ index — a parent has a lower index than its children, so it evaluates after
 them). When the TSD root modifies or re-points, v1 conservatively reconciles
 the current key set and refreshes live combiner/root bindings; this covers
 ordinary add/remove deltas and forwarding/REF retargets, including same-key
-different-source retargets. Combiner evaluation is **unconditional** per
-pass, like the other nested operators: a same-cycle notification lands in a
-child's schedule array but not its cached next time, and an idle child
-evaluate is a cheap scan. Re-binding samples held values (``bind_output``
+different-source retargets. When a combiner has captures, the child schedule
+observer adds due combiners to the same deepest-first pass. A captured
+reference's target can schedule a combiner while the collection or zero
+also changes. Re-binding samples held values (``bind_output``
 notifies on valid-source binds), and a root **re-point to an already-valid
 source is a tick of the reduce output at the publication time** (the aliased
 value changed without the target writing — ``mark_modified`` through the

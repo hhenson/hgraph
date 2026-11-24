@@ -391,7 +391,7 @@ WiringPortRef compiled::reduce_(Wiring &w, WiringPortRef collection, CompiledSub
     }
     collection = graph_wiring_detail::adapt_source_for_input(w, schema, std::move(collection));
     if (!child.external_service_inputs.empty()) {
-        throw std::invalid_argument("reduce_: the combiner must have only its two explicit inputs");
+        throw std::invalid_argument("reduce_: combiner external service inputs are unsupported");
     }
     const bool ordered = order == ReduceOrder::Ordered;
     if (ordered && !zero) { throw std::invalid_argument("reduce_: an ordered fold requires zero"); }

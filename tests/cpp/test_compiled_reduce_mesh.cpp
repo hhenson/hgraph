@@ -123,6 +123,28 @@ template <compiled::ReduceOrder order> struct ReduceCapturedReference {
     }
 };
 
+struct StableCapture {
+    static void eval(In<"target", N> target, Out<REF<N>> output) {
+        if (!output.valid()) { output.set(target.reference()); }
+    }
+};
+
+struct ReadCapture {
+    static Port<N> compose(Wiring &w, Port<N> accumulator, Port<N> member) {
+        const auto sum = wire<stdlib::add_>(w, accumulator, member).as<N>();
+        return wire<stdlib::add_>(w, sum, context::get<N>(w, "reduce_bias")).as<N>();
+    }
+};
+
+template <typename Collection> struct ReadCapturedReference {
+    static Port<N> compose(Wiring &w, Port<Collection> collection, Port<N> target, Port<N> zero) {
+        const auto ref = wire<StableCapture>(w, target).as<REF<N>>();
+        context::scope<"reduce_bias"> capture{w, ref};
+        return {w, compiled::reduce_(w, collection.erased(), compile_subgraph<ReadCapture>(w),
+                                     zero.erased(), compiled::ReduceOrder::Associative)};
+    }
+};
+
 template <bool direct> struct ReadPeer {
     static Port<N> compose(Wiring &w, NamedPort<"key", N> key, Port<N> target) {
         auto peer = [&]() -> Port<N> {
@@ -274,6 +296,23 @@ TEST_CASE("compiled reduce can return a captured reference that changes its sour
                      book, left, right, select_right, zero), expected);
     CHECK_OUTPUT(eval_node<ReduceCapturedReference<compiled::ReduceOrder::Ordered>>(
                      book, left, right, select_right, zero), expected);
+}
+
+TEST_CASE("compiled associative reduce reads every due captured reference target") {
+    stdlib::register_standard_operators();
+    const auto target = values<Int>(1000, 1001, 1002, none, none, 1005, 1006, none);
+    const auto zero = values<Int>(100, none, none, none, none, none, 200, none);
+    const auto expected = values<Int>(3010, 3013, 3020, none, 3022, 3031, 3034, none);
+    CHECK_OUTPUT(eval_node<ReadCapturedReference<Book>>(
+                     values<Value>(dict_delta<Int, N>({{0, 1}, {1, 2}, {2, 3}, {3, 4}}), none,
+                                   dict_delta<Int, N>({{0, 5}}), none, dict_delta<Int, N>({{3, 6}})),
+                     target, zero),
+                 expected);
+    CHECK_OUTPUT(eval_node<ReadCapturedReference<TSL<N>>>(
+                     values<Value>(dynamic_list_delta<N>({{0, 1}, {1, 2}, {2, 3}, {3, 4}}, {}, 4), none,
+                                   dynamic_list_delta<N>({{0, 5}}), none, dynamic_list_delta<N>({{3, 6}})),
+                     target, zero),
+                 expected);
 }
 
 TEST_CASE("compiled ordered reduce still requires zero for a captured combiner") {
