@@ -103,7 +103,9 @@ namespace hgraph
         /** TSW only: one chronological time per live value in the dynamic-list
          * payload. No capacity padding, per-sample schema or recursive image.
          * Retained samples also survive endpoint invalidation; last_modified_time
-         * independently retains endpoint validity. Expiry remains push-driven.
+         * independently retains endpoint validity. An invalid window image
+         * whose payload is absent owes a replacement on its next publication.
+         * An ordinary empty window carries an empty list. Expiry remains push-driven.
          */
         std::vector<DateTime> window_times{};
         std::vector<TSCheckpointImage> children{};

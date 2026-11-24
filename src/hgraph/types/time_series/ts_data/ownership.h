@@ -52,7 +52,7 @@ namespace hgraph::detail
         void (*discard_contents)(const void *, void *, DateTime) = nullptr;
         /** Some leaves retain private history across standalone invalidation.
             A replacement may require their next delta to start a new history. */
-        void (*discard_child_history)(const void *, void *, bool publish_replacement) noexcept = nullptr;
+        void (*discard_child_history)(const void *, void *, DateTime now, bool publish_replacement) noexcept = nullptr;
     };
 
     /** Observe the live child positions of an owned growing list. Callbacks see

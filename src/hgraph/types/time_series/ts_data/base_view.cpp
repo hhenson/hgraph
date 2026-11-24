@@ -593,7 +593,7 @@ bool invalidate_value(TSDataMutationView &mutation, RetainedHistory history) {
       static_cast<void>(invalidate_value(child, child_history));
     }
     if (history != RetainedHistory::Preserve && ownership->discard_child_history != nullptr) {
-      ownership->discard_child_history(table.context, memory, history == RetainedHistory::PublishReplacement);
+      ownership->discard_child_history(table.context, memory, now, history == RetainedHistory::PublishReplacement);
     }
     if ((was_valid || drop_extent) && ownership->discard_contents != nullptr) {
       ownership->discard_contents(table.context, memory, now);

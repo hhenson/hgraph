@@ -17,6 +17,7 @@
 #include <hgraph/lib/testing/mock_runtime.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/lib/testing/runtime_support.h>
+#include <hgraph/runtime/checkpoint_codec.h>
 #include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -748,6 +749,60 @@ namespace
             const auto selected = select_switch_window<Result>(w, key, sample);
             const auto replayed = wire<ReplaySwitchDelta<Result>>(w, selected);
             return wire<CompareSwitchReplay<Result>>(w, clock, selected, replayed);
+        }
+    };
+
+    struct CheckpointWithdrawnWindow
+    {
+        static void eval(In<"live", CountSwitchWindow, InputActivity::Active, InputValidity::Unchecked> live,
+                         Out<TS<Bool>> out)
+        {
+            if (live.valid()) { return; }
+            const auto now = live.evaluation_time();
+            const auto source = live.base().bound_output();
+            GraphCheckpointImage graph;
+            NodeCheckpointImage node;
+            node.id = "saved-window";
+            node.signature = "window";
+            node.output = capture_ts_checkpoint(source.data_view());
+            graph.nodes.push_back(std::move(node));
+            std::string bytes;
+            encode_graph_checkpoint(graph, bytes, now);
+
+            TSOutput restored{source.schema()};
+            const auto image = decode_graph_checkpoint(bytes);
+            auto restored_data = restored.data_view();
+            restore_ts_checkpoint(restored_data, *image.nodes.front().output);
+            const auto next = now + MIN_TD;
+            auto restored_window = restored_data.as_window();
+            restored_window.begin_mutation(next).push(Value{Int{104}}.view());
+
+            TSOutput replica{source.schema()};
+            auto replica_data = replica.data_view();
+            auto replica_window = replica_data.as_window();
+            replica_window.begin_mutation(now - 2 * MIN_TD).push(Value{Int{1}}.view());
+            replica_window.begin_mutation(now - MIN_TD).push(Value{Int{2}}.view());
+            apply_delta(replica.view(next), capture_window_delta(restored_window, next).view());
+            out.set(replica_window.size() == 1 && replica_window.front().checked_as<Int>() == Int{104});
+        }
+    };
+
+    struct ReadFirstSwitchDelta
+    {
+        static void eval(In<"live", CountSwitchWindow> live, Out<TS<Bool>> out)
+        {
+            const auto delta = capture_delta(live.base());
+            const auto fields = delta.view().as_bundle();
+            out.set(!fields.at("replacement").has_value() && fields.at("added").as_indexed_view().size() == 1);
+        }
+    };
+
+    template <typename Reader>
+    struct CompiledSwitchWindowDelta
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>> key, Port<TS<Int>> sample)
+        {
+            return wire<Reader>(w, select_switch_window<CountSwitchWindow>(w, key, sample));
         }
     };
 
@@ -1908,6 +1963,20 @@ TEST_CASE("compiled switch: dictionary window deltas replay on same-cycle key re
     CHECK_OUTPUT(eval_node<Graph>(values<Int>(1, none, 2, none, 1, none), values<Int>(1, 2, 3, 4, 5, 6),
                                   values<Int>(0, 1, 2, 3, 4, 5)),
                  values<Bool>(true, true, true, true, true, true));
+}
+
+TEST_CASE("compiled switch: a checkpointed window owes its replacement after a silent selection")
+{
+    using namespace hgraph;
+    using Graph = CompiledSwitchWindowDelta<CheckpointWithdrawnWindow>;
+    CHECK_OUTPUT(eval_node<Graph>(values<Int>(1, none, 2), values<Int>(1, 2, -1)), values<Bool>(none, none, true));
+}
+
+TEST_CASE("compiled switch: a window with no previous samples publishes an ordinary first arrival")
+{
+    using namespace hgraph;
+    using Graph = CompiledSwitchWindowDelta<ReadFirstSwitchDelta>;
+    CHECK_OUTPUT(eval_node<Graph>(values<Int>(1, 2), values<Int>(-1, 3)), values<Bool>(none, true));
 }
 
 TEST_CASE("compiled switch: sink case and fallback can take the selector")
