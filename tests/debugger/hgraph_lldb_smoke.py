@@ -1,5 +1,7 @@
 """Batch LLDB validation for the hgraph type-erasure printers."""
 
+import json
+
 import lldb
 
 
@@ -50,7 +52,62 @@ def _require_keyed_nested_graphs(value, label):
             raise RuntimeError("{} child graph has no node navigation".format(label))
 
 
-def run(debugger, _command, _exe_ctx, result, _internal_dict):
+def _graph(debugger, exe_ctx, arguments=""):
+    reply = lldb.SBCommandReturnObject()
+    debugger.GetCommandInterpreter().HandleCommand(
+        "hgraph-graph {}".format(arguments).strip(), exe_ctx, reply
+    )
+    if not reply.Succeeded():
+        raise RuntimeError("hgraph-graph {} failed: {}".format(arguments, reply.GetError()))
+    return json.loads(reply.GetOutput())
+
+
+def _require_graph_report(report, label):
+    if report.get("version") != 1 or "error" in report or report.get("label") != label:
+        raise RuntimeError("hgraph-graph: expected node {}, got {}".format(label, report))
+    return report
+
+
+def _require_paused_graph(debugger, exe_ctx):
+    # The fixture stops inside the sink's fourth evaluation.
+    sink = _require_graph_report(_graph(debugger, exe_ctx), "debugger_nested_sink")
+    inputs = {port["name"]: port for port in sink["inputs"]}
+    sources = {name: [link["label"] for link in port["links"]] for name, port in inputs.items()}
+    if sources != {"switched": ["switch_"], "mapped": ["map_"], "meshed": ["mesh_"]}:
+        raise RuntimeError("hgraph-graph sink inputs are incomplete: {}".format(sink))
+    for name in ("mapped", "meshed"):
+        if inputs[name]["value"] != "<unavailable>":
+            raise RuntimeError("hgraph-graph showed a collection as a scalar: {}".format(sink))
+
+    snapshot = sink["snapshot"]
+    switch = _require_graph_report(
+        _graph(debugger, exe_ctx, "{} {}".format(snapshot, inputs["switched"]["links"][0]["node"])),
+        "switch_",
+    )
+    if (switch["snapshot"], switch["stop"]) != (snapshot, sink["stop"]):
+        raise RuntimeError("hgraph-graph changed snapshot within one stop: {}".format(switch))
+    if not any(
+        link["node"] == sink["node"] and link["port"] == "switched"
+        for port in switch["outputs"]
+        for link in port["links"]
+    ):
+        raise RuntimeError("hgraph-graph switch output does not reach the sink: {}".format(switch))
+
+    # The switch reads the replayed value 4, which ticked at this evaluation.
+    values = []
+    for port in switch["inputs"]:
+        for link in port["links"]:
+            source = _graph(debugger, exe_ctx, "{} {}".format(snapshot, link["node"]))
+            values.extend(output["value"] for output in source.get("outputs", ()))
+    if "4 [modified]" not in values:
+        raise RuntimeError("hgraph-graph switch sources show {}".format(values))
+
+    stale = _graph(debugger, exe_ctx, "{} 0".format(snapshot + 1))
+    if "error" not in stale:
+        raise RuntimeError("hgraph-graph accepted another snapshot: {}".format(stale))
+
+
+def run(debugger, _command, exe_ctx, result, _internal_dict):
     try:
         target = debugger.GetSelectedTarget()
 
@@ -132,6 +189,7 @@ def run(debugger, _command, _exe_ctx, result, _internal_dict):
             raise RuntimeError("TSInputView navigation is incomplete")
         if not {"data", "owner", "owner_node", "evaluation_time", "delta"}.issubset(_children(output_view)):
             raise RuntimeError("TSOutputView navigation is incomplete")
+        _require_paused_graph(debugger, exe_ctx)
     except Exception as error:
         result.SetError(str(error))
         return
