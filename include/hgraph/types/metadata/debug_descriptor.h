@@ -21,7 +21,7 @@ namespace hgraph
     struct DebugTimeSeriesLayout;
 
     inline constexpr std::uint32_t DEBUG_DESCRIPTOR_MAGIC = 0x48474444u;
-    inline constexpr std::uint16_t DEBUG_DESCRIPTOR_ABI_VERSION = 3;
+    inline constexpr std::uint16_t DEBUG_DESCRIPTOR_ABI_VERSION = 4;
     inline constexpr std::uint32_t DEBUG_DYNAMIC_LAYOUT_MAGIC = 0x4847444cu;
     inline constexpr std::uint16_t DEBUG_DYNAMIC_LAYOUT_ABI_VERSION = 3;
     inline constexpr std::size_t DEBUG_OWNER_IDENTITY_OFFSET = 0;
@@ -191,6 +191,10 @@ namespace hgraph
         std::size_t parent_offset{0};
         std::size_t observers_offset{0};
         bool delta_aliases_value{false};
+        // Scalar layouts describe the representation, including passive/forwarding inputs.
+        bool inline_scalar{false};
+        std::size_t target_handle_offset{static_cast<std::size_t>(-1)};
+        const TypeRecord *borrowed_source{nullptr};
 
         [[nodiscard]] bool valid() const noexcept;
         [[nodiscard]] constexpr bool operator==(const DebugTimeSeriesLayout &) const noexcept = default;
@@ -232,6 +236,11 @@ namespace hgraph
         const SchemaHeader &schema, const MemoryUtils::StoragePlan &plan, DebugLayoutKind layout,
         const DebugField *fields, std::size_t field_count, const TypeRecord *key_type = nullptr,
         const TypeRecord *element_type = nullptr, const DebugDynamicLayout *dynamic_layout = nullptr);
+
+    [[nodiscard]] HGRAPH_EXPORT const DebugDescriptor &intern_time_series_debug_descriptor(
+        const SchemaHeader &schema, const MemoryUtils::StoragePlan &plan,
+        const DebugTimeSeriesLayout &layout, const DebugField *fields, std::size_t field_count,
+        const void *representation);
 
     [[nodiscard]] HGRAPH_EXPORT const DebugDescriptor &intern_time_series_debug_descriptor(
         const SchemaHeader &schema, const MemoryUtils::StoragePlan &plan,

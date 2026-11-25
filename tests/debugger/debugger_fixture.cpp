@@ -47,6 +47,12 @@ Value fixture_bundle_value{};
 Value fixture_list_value{};
 Value fixture_set_value{};
 Value fixture_map_value{};
+using DebugInt = Out<TS<std::int32_t>>;
+using DebugOptional = Out<TS<Optional<std::int32_t>>>;
+DebugInt fixture_modified{TSOutputView{}, MIN_DT};
+DebugInt fixture_retained{TSOutputView{}, MIN_DT};
+DebugInt fixture_invalid{TSOutputView{}, MIN_DT};
+DebugOptional fixture_null{TSOutputView{}, MIN_DT};
 TSOutput fixture_tss_output{};
 TSOutput fixture_tsd_output{};
 TSOutput fixture_tsb_output{};
@@ -183,6 +189,15 @@ int main()
     fixture_map_pointer = AnyPtr::read_only(*map_view.record(), map_view.data());
 
     const auto *ts_int = registry.ts(int_schema);
+    TSOutput scalar{*ts_int}, invalid{*ts_int}, nullable{*registry.ts(registry.optional(int_schema))};
+    fixture_modified = DebugInt{scalar.view(MIN_ST), MIN_ST};
+    fixture_modified.set(7);
+    const auto later = MIN_ST + smallest_time_increment();
+    fixture_retained = DebugInt{scalar.view(later), later};
+    fixture_invalid = DebugInt{invalid.view(later), later};
+    fixture_null = DebugOptional{nullable.view(MIN_ST), MIN_ST};
+    fixture_null.set(Null);
+
     fixture_tss_output = TSOutput{*registry.tss(int_schema)};
     {
         auto data = fixture_tss_output.data_view();

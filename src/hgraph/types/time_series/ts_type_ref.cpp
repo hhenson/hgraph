@@ -4,6 +4,7 @@
 #include <hgraph/types/metadata/debug_descriptor.h>
 #include <hgraph/types/time_series/ts_data/ops.h>
 #include <hgraph/util/scope.h>
+#include <hgraph/types/time_series/ts_input/target_link.h>
 
 #include <stdexcept>
 #include <string>
@@ -83,6 +84,14 @@ namespace hgraph
                                  std::string_view implementation_label,
                                  std::uint16_t ops_abi_version)
     {
+        return intern_ts_type(schema, role, plan, ops, implementation_label, ops_abi_version, {});
+    }
+
+    TSRoleTypeRef intern_ts_type(const TSValueTypeMetaData &schema, TypeRole role,
+                                 const MemoryUtils::StoragePlan &plan, const TSDataOps &ops,
+                                 std::string_view implementation_label, std::uint16_t ops_abi_version,
+                                 TSRoleTypeRef borrowed_source)
+    {
         if (ops_abi_version != TS_DATA_OPS_ABI_VERSION)
         {
             throw std::invalid_argument(
@@ -132,15 +141,28 @@ namespace hgraph
                 reinterpret_cast<const std::byte *>(&tracking_sample.parent) - tracking_base);
             const auto observers_in_tracking = static_cast<std::size_t>(
                 reinterpret_cast<const std::byte *>(&tracking_sample.observers) - tracking_base);
-            debug = &intern_time_series_debug_descriptor(
-                schema.header, plan, *layout->value_binding.record(), *layout->delta_binding.record(),
-                layout->value_offset, layout->tracking_offset,
-                layout->tracking_offset + last_modified_in_tracking,
-                layout->tracking_offset + parent_in_tracking,
-                layout->tracking_offset + observers_in_tracking,
-                schema.kind == TSTypeKind::TS || schema.kind == TSTypeKind::SIGNAL,
-                debug_fields.data(), debug_fields.size(),
-                &ops);
+            DebugTimeSeriesLayout debug_layout{
+                .value_type = layout->value_binding.record(), .delta_type = layout->delta_binding.record(),
+                .value_offset = layout->value_offset, .tracking_offset = layout->tracking_offset,
+                .last_modified_offset = layout->tracking_offset + last_modified_in_tracking,
+                .parent_offset = layout->tracking_offset + parent_in_tracking,
+                .observers_offset = layout->tracking_offset + observers_in_tracking,
+                .delta_aliases_value = schema.kind == TSTypeKind::TS || schema.kind == TSTypeKind::SIGNAL,
+                .inline_scalar = schema.kind == TSTypeKind::TS && ops.direct_native_value && !ops.value_view_impl,
+                .borrowed_source = borrowed_source.record(),
+            };
+            if (schema.kind == TSTypeKind::TS && ops.is_target_link)
+            {
+                // Compute once using the compiled layout, even in a stripped SDK.
+                static const auto target_offset = [] {
+                    const detail::TSInputTargetLinkStorage sample{};
+                    return reinterpret_cast<const std::byte *>(&sample.target_output()) -
+                           reinterpret_cast<const std::byte *>(&sample);
+                }();
+                debug_layout.target_handle_offset = layout->tracking_offset + target_offset;
+            }
+            debug = &intern_time_series_debug_descriptor(schema.header, plan, debug_layout,
+                                                         debug_fields.data(), debug_fields.size(), &ops);
         }
         const TypeRecordDefinition definition{
             .key = TypeRecordKey{.schema = &schema.header,

@@ -120,7 +120,7 @@ TEST_CASE("debug descriptor common enums and layouts are fixed", "[type-erasure]
     using namespace hgraph;
 
     STATIC_REQUIRE(DEBUG_DESCRIPTOR_MAGIC == 0x48474444u);
-    STATIC_REQUIRE(DEBUG_DESCRIPTOR_ABI_VERSION == 3);
+    STATIC_REQUIRE(DEBUG_DESCRIPTOR_ABI_VERSION == 4);
     STATIC_REQUIRE(DEBUG_DYNAMIC_LAYOUT_MAGIC == 0x4847444cu);
     STATIC_REQUIRE(DEBUG_DYNAMIC_LAYOUT_ABI_VERSION == 3);
     STATIC_REQUIRE(sizeof(DebugLayoutKind) == sizeof(std::uint8_t));
