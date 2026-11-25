@@ -135,6 +135,7 @@ On macOS:
 
    lldb --batch \
        -o 'command script import tools/debugger/hgraph_lldb.py' \
+       -o 'command script import tools/debugger/hgraph_lldb_graph.py' \
        -o 'command script import tests/debugger/hgraph_lldb_smoke.py' \
        -o 'breakpoint set --name hgraph_debugger_fixture_stop' \
        -o run -o hgraph-smoke \
@@ -162,7 +163,10 @@ pointers, and unsupported ABI versions.  The fixture also runs real switch,
 map, and mesh nodes to the point where both switch banks are populated and
 keyed slots contain one live and one stopped/pending child.  The validators
 expand those children into their nested graph nodes, require keys 22 and 33,
-and verify that the physically erased key 11 is no longer visible.
+and verify that the physically erased key 11 is no longer visible.  The LLDB
+validator also runs ``hgraph-graph`` at the paused sink, follows its
+``switched`` connection to ``switch_`` and requires the replayed value
+``4 [modified]``.
 
 Some VM security configurations deny ``ptrace``.  In that environment GDB may
 load both scripts successfully but fail with ``Couldn't get registers`` before

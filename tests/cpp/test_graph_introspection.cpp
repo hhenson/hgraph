@@ -18,7 +18,11 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <algorithm>
+#include <cstddef>
+#include <cstring>
 #include <exception>
+#include <span>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -171,6 +175,23 @@ TEST_CASE("debug descriptors navigate graph node allocations")
     REQUIRE(graph_debug->layout == DebugLayoutKind::Graph);
     REQUIRE(graph_debug->field_count == builder.node_count());
 
+    const auto &wiring = graph_type.schema()->debug_wiring;
+    REQUIRE(wiring.version == 1);
+    REQUIRE(wiring.node_count == builder.node_count());
+    REQUIRE(wiring.edge_count == builder.edges().size());
+    for (std::size_t i = 0; i < wiring.edge_count; ++i)
+    {
+        const auto &edge = builder.edges()[i];
+        const auto &debug_edge = wiring.edges[i];
+        CHECK(debug_edge.source_node == graph_edge_source_node(edge.source_node));
+        CHECK(debug_edge.source_kind == graph_edge_source_kind(edge.source_node));
+        CHECK(debug_edge.target_node == edge.target_node);
+        CHECK(std::ranges::equal(std::span(debug_edge.source_path, debug_edge.source_depth), edge.source_path));
+        CHECK(std::ranges::equal(std::span(debug_edge.target_path, debug_edge.target_depth), edge.target_path));
+        CHECK(wiring.nodes[debug_edge.source_node].output.data_offset != static_cast<std::size_t>(-1));
+        CHECK(wiring.nodes[debug_edge.target_node].input.type_offset != static_cast<std::size_t>(-1));
+    }
+
     for (std::size_t index = 0; index < builder.node_count(); ++index)
     {
         const NodeTypeRef node_type = builder.nodes()[index].type();
@@ -180,6 +201,62 @@ TEST_CASE("debug descriptors navigate graph node allocations")
         REQUIRE(node_type.record()->debug->valid());
         REQUIRE(node_type.record()->debug->layout == DebugLayoutKind::Node);
     }
+}
+
+TEST_CASE("debug wiring offsets lead from a node to its endpoint records")
+{
+    using namespace hgraph;
+
+    // A schema nobody published carries no inspection metadata.
+    STATIC_REQUIRE(DebugGraphWiring{}.version == 0);
+
+    // The debugger reads one word at node + offset; it must be the live record.
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(build_graph<ThrowingGraph>());
+    auto executor = executor_builder.make_executor();
+    const GraphView graph = executor.view().graph();
+    const DebugDescriptor *graph_debug = graph.type().record()->debug;
+    const auto &wiring = graph.schema()->debug_wiring;
+    REQUIRE(graph_debug != nullptr);
+    REQUIRE(wiring.version == 1);
+    REQUIRE(wiring.node_count == graph.node_count());
+
+    constexpr auto absent = static_cast<std::size_t>(-1);
+    const auto word = [](const std::byte *address) {
+        const void *value{};
+        std::memcpy(&value, address, sizeof value);
+        return value;
+    };
+    // Returns whether the endpoint exists, so the caller can count coverage.
+    const auto expect = [&](const std::byte *node, const DebugTSStorageOffsets &offsets, bool present,
+                            const auto &real) {
+        CHECK((offsets.type_offset != absent) == present);
+        CHECK((offsets.data_offset != absent) == present);
+        if (present && offsets.type_offset != absent && offsets.data_offset != absent)
+        {
+            const auto view = real();
+            const TSDataView &data = view.data_view();
+            CHECK(word(node + offsets.type_offset) == data.type_ref().record());
+            CHECK(word(node + offsets.data_offset) == data.data());
+        }
+        return present;
+    };
+
+    std::size_t inputs = 0, outputs = 0;
+    for (std::size_t index = 0; index < graph.node_count(); ++index)
+    {
+        const NodeView node = graph.node_at(index);
+        const auto *address = static_cast<const std::byte *>(graph.data()) + graph_debug->fields[index].offset;
+        REQUIRE(address == node.data());
+        const auto &ports = wiring.nodes[index];
+        if (expect(address, ports.input, node.has_input(), [&] { return node.input(MIN_ST); })) { ++inputs; }
+        if (expect(address, ports.output, node.has_output(), [&] { return node.output(MIN_ST); })) { ++outputs; }
+        expect(address, ports.error_output, node.has_error_output(), [&] { return node.error_output(MIN_ST); });
+        expect(address, ports.recordable_state, node.has_recordable_state(),
+               [&] { return node.recordable_state(MIN_ST); });
+    }
+    CHECK(inputs > 0);
+    CHECK(outputs > 0);
 }
 
 TEST_CASE("checkpoint preparation cleanup detaches unstarted runtime bindings without user hooks", "[checkpoint][graph]")

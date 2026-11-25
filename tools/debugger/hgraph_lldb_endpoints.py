@@ -49,6 +49,10 @@ def resolve(value):
     raw_view = hg.child(cursor, "raw_data")
     view = raw_view if hg.valid(raw_view) else cursor
     record_addr, address = storage(hg.child(view, "storage_"))
+    return resolve_storage(value, record_addr, address)
+
+
+def resolve_storage(value, record_addr, address):
     if not record_addr:
         return None
     record = hg.record_at(value, record_addr)
@@ -93,14 +97,20 @@ def resolve(value):
     return UNAVAILABLE
 
 
-def summary(value, _internal_dict, _options=None):
-    resolved = resolve(value)
+def display(value, resolved, now):
     if not isinstance(resolved, tuple):
         return resolved or UNAVAILABLE
     _, address, layout, latest = resolved
     record = hg.record_at(value, hg.pointer(hg.child(layout, "value_type")))
     text = scalar_text(record, address + hg.integer(hg.child(layout, "value_offset")))
-    evaluation = hg.child(value, "evaluation_time_")
+    return text + (" [modified]" if latest == now and text != UNAVAILABLE else "")
+
+
+def evaluation_time(value):
     error = lldb.SBError()
-    now = evaluation.GetData().GetSignedInt64(error, 0)
-    return text + (" [modified]" if error.Success() and latest == now and text != UNAVAILABLE else "")
+    now = value.GetData().GetSignedInt64(error, 0)
+    return now if error.Success() else None
+
+
+def summary(value, _internal_dict, _options=None):
+    return display(value, resolve(value), evaluation_time(hg.child(value, "evaluation_time_")))

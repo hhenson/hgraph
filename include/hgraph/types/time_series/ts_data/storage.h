@@ -12,6 +12,13 @@ namespace hgraph
         void invalidate_owned_ts_data_tree(TSDataView root) noexcept;
     }
 
+    /** Offsets of the runtime type reference and payload pointer in an endpoint owner. */
+    struct DebugTSStorageOffsets
+    {
+        std::size_t type_offset{static_cast<std::size_t>(-1)};
+        std::size_t data_offset{static_cast<std::size_t>(-1)};
+    };
+
     class TSDataOwnedStorage
     {
       public:
@@ -30,6 +37,13 @@ namespace hgraph
         [[nodiscard]] const void *data() const noexcept { return data_; }
         void reset() noexcept;
 
+        [[nodiscard]] DebugTSStorageOffsets debug_offsets(const void *owner) const noexcept
+        {
+            const auto *base = static_cast<const std::byte *>(owner);
+            return {static_cast<std::size_t>(reinterpret_cast<const std::byte *>(&type_) - base),
+                    static_cast<std::size_t>(reinterpret_cast<const std::byte *>(&data_) - base)};
+        }
+
       private:
         void construct_default(TSRoleTypeRef type, const MemoryUtils::AllocatorOps &allocator);
         void construct_copy(const TSDataOwnedStorage &other);
@@ -47,6 +61,10 @@ namespace hgraph
       public:
         using storage_type = TSDataOwnedStorage;
 
+        [[nodiscard]] DebugTSStorageOffsets debug_offsets(const void *owner) const noexcept
+        {
+            return storage_.debug_offsets(owner);
+        }
         TSData() noexcept;
         explicit TSData(TSRoleTypeRef type) : storage_(type) {}
         explicit TSData(TSDataTypeRef type) : TSData(type.as_role()) {}

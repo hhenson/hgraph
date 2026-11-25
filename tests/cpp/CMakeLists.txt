@@ -147,6 +147,7 @@ if(HGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS AND APPLE)
         add_test(NAME hgraph.debugger_lldb
             COMMAND "${HGRAPH_LLDB_EXECUTABLE}" --batch
                 -o "command script import \"${PROJECT_SOURCE_DIR}/tools/debugger/hgraph_lldb.py\""
+                -o "command script import \"${PROJECT_SOURCE_DIR}/tools/debugger/hgraph_lldb_graph.py\""
                 -o "command script import \"${PROJECT_SOURCE_DIR}/tests/debugger/hgraph_lldb_smoke.py\""
                 -o "breakpoint set --name hgraph_debugger_fixture_stop"
                 -o run

@@ -112,6 +112,34 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
         std::size_t             index{0};
     };
 
+    /** Borrowed POD views of interned wiring. The debugger reads these without
+     * executing the graph or interpreting an STL container in the target. */
+    struct DebugGraphEdge
+    {
+        std::size_t source_node{};
+        GraphEdgeSourceKind source_kind{};
+        const std::size_t *source_path{};
+        std::size_t source_depth{};
+        std::size_t target_node{};
+        const std::size_t *target_path{};
+        std::size_t target_depth{};
+    };
+
+    struct DebugGraphPorts
+    {
+        DebugTSStorageOffsets input, output, error_output, recordable_state;
+    };
+
+    struct DebugGraphWiring
+    {
+        /** 0 until the graph registry publishes the views below, then 1. */
+        std::uint32_t version{0};
+        const DebugGraphPorts *nodes{};
+        std::size_t node_count{};
+        const DebugGraphEdge *edges{};
+        std::size_t edge_count{};
+    };
+
     /** Interned graph schema descriptor. */
     struct HGRAPH_CLASS_EXPORT GraphTypeMetaData
     {
@@ -123,6 +151,7 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
             Keeps the packed GraphEdge layout unchanged. */
         std::vector<const TSValueTypeMetaData *> edge_source_views{};
         std::size_t push_source_nodes_end{0};
+        DebugGraphWiring debug_wiring{};
 
         [[nodiscard]] std::string_view name() const noexcept;
     };

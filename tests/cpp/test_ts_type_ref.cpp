@@ -847,6 +847,12 @@ TEST_CASE("TSB strategies publish debugger fields through inspection operations"
         CHECK(std::string{right.name} == "right");
         CHECK(left.type.schema() == ts);
         CHECK(right.type.schema() == ts);
+        if (type == composite.type_ref().as_role())
+        {
+            // Both link types interpret their addresses relative to the same input root.
+            CHECK(left.data_offset == 0);
+            CHECK(right.data_offset == 0);
+        }
         const auto *debug = type.record()->debug;
         REQUIRE(debug != nullptr);
         REQUIRE(debug->field_count == 2);

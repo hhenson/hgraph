@@ -110,6 +110,7 @@ namespace hgraph
     class TSInput : private TSDataParent
     {
       public:
+        [[nodiscard]] static DebugTSStorageOffsets debug_storage_offsets() noexcept;
         TSInput() noexcept;
         explicit TSInput(const TSInputBuilder &builder);
         TSInput(const TSInput &other);
