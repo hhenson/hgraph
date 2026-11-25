@@ -81,5 +81,10 @@ to follow a connection within that stop. Each JSON v1 reply names the node,
 its inputs and outputs, their scalar or nullable state, and the ports at both
 ends of each edge. Node numbers are local to the graph instance.
 Collection values without a scalar presentation show `<unavailable>`.
-The command reads target memory. Wiring is indexed once for the paused node,
-and endpoint values are read for the selected node at the same evaluation time.
+The command reads target memory. A graph type's wiring cannot change, so it is
+indexed once per process and reused at later stops. Each command reads again
+what changes as the graph runs: the paused node, its graph instance, the
+evaluation time and the endpoint values. A snapshot names one graph instance at
+one stop. A runtime that publishes no wiring is reported as having no graph
+inspection metadata. A count read from the target above its limit (65536
+nodes, 262144 connections, 4096 fields, path depth 64) is reported as an error.
