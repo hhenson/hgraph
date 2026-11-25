@@ -50,6 +50,7 @@ namespace hgraph
     class HGRAPH_CLASS_EXPORT TSOutput : private TSDataParent
     {
       public:
+        [[nodiscard]] static DebugTSStorageOffsets debug_storage_offsets() noexcept;
         TSOutput() noexcept;
         explicit TSOutput(TSOutputTypeRef type);
         explicit TSOutput(const TSValueTypeMetaData &schema);

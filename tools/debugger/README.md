@@ -72,3 +72,14 @@ From an installed CMake package:
   as invalid or malformed instead of being cast to a guessed representation.
 
 LLDB shows scalar `In` and `Out` values at the endpoint's evaluation time. A current publication carries `[modified]`. A retained value has no suffix. A valid empty nullable shows `null`, and an invalid endpoint shows `<invalid>`. Unsupported representations show `<unavailable>`. The printer follows scalar input links and nullable widening through the SDK's read-only debug descriptors.
+
+## Paused graph
+
+Import `hgraph_lldb_graph.py` after `hgraph_lldb.py`. Run `hgraph-graph` at a
+node breakpoint to inspect the evaluating node. Run `hgraph-graph SNAPSHOT NODE`
+to follow a connection within that stop. Each JSON v1 reply names the node,
+its inputs and outputs, their scalar or nullable state, and the ports at both
+ends of each edge. Node numbers are local to the graph instance.
+Collection values without a scalar presentation show `<unavailable>`.
+The command reads target memory. Wiring is indexed once for the paused node,
+and endpoint values are read for the selected node at the same evaluation time.

@@ -76,6 +76,14 @@ realized_output_type_for(const TSValueTypeMetaData *schema,
 } // namespace
 
 TSOutput::TSOutput() noexcept = default;
+    DebugTSStorageOffsets TSOutput::debug_storage_offsets() noexcept
+    {
+        static const auto offsets = [] {
+            const TSOutput sample;
+            return sample.data_.debug_offsets(&sample);
+        }();
+        return offsets;
+    }
 
 TSOutput::TSOutput(TSOutputTypeRef type) : data_(type) { attach_root_parent(); }
 

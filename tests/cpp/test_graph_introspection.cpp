@@ -18,7 +18,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <algorithm>
 #include <exception>
+#include <span>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -170,6 +172,23 @@ TEST_CASE("debug descriptors navigate graph node allocations")
     REQUIRE(graph_debug->valid());
     REQUIRE(graph_debug->layout == DebugLayoutKind::Graph);
     REQUIRE(graph_debug->field_count == builder.node_count());
+
+    const auto &wiring = graph_type.schema()->debug_wiring;
+    REQUIRE(wiring.version == 1);
+    REQUIRE(wiring.node_count == builder.node_count());
+    REQUIRE(wiring.edge_count == builder.edges().size());
+    for (std::size_t i = 0; i < wiring.edge_count; ++i)
+    {
+        const auto &edge = builder.edges()[i];
+        const auto &debug_edge = wiring.edges[i];
+        CHECK(debug_edge.source_node == graph_edge_source_node(edge.source_node));
+        CHECK(debug_edge.source_kind == graph_edge_source_kind(edge.source_node));
+        CHECK(debug_edge.target_node == edge.target_node);
+        CHECK(std::ranges::equal(std::span(debug_edge.source_path, debug_edge.source_depth), edge.source_path));
+        CHECK(std::ranges::equal(std::span(debug_edge.target_path, debug_edge.target_depth), edge.target_path));
+        CHECK(wiring.nodes[debug_edge.source_node].output.data_offset != static_cast<std::size_t>(-1));
+        CHECK(wiring.nodes[debug_edge.target_node].input.type_offset != static_cast<std::size_t>(-1));
+    }
 
     for (std::size_t index = 0; index < builder.node_count(); ++index)
     {

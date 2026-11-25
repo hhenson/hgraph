@@ -701,6 +701,12 @@ namespace hgraph
             bool                       target_link{false};
             bool                       direct_child_memory{false};
             bool                       local_storage{false};
+
+            // Embedded child operations already include their offset from the root.
+            [[nodiscard]] std::size_t storage_base_offset() const noexcept
+            {
+                return direct_child_memory && local_storage ? data_offset : 0;
+            }
         };
 
         struct InputBundleDeltaSurface
@@ -968,9 +974,7 @@ namespace hgraph
             const auto &child = state->children[index];
             // Embedded records use root-relative ops. Independently planned
             // children use their local allocation base.
-            return child.direct_child_memory && child.local_storage && child.data_offset != 0
-                       ? advance(memory, child.data_offset)
-                       : memory;
+            return advance(memory, child.storage_base_offset());
         }
 
         [[nodiscard]] std::size_t input_owned_child_count(const void *context, const void *) noexcept
@@ -1017,7 +1021,7 @@ namespace hgraph
             const auto &field = state->bundle_layout.fields[index];
             return TSDataInspectionField{
                 .name = state->schema->fields()[index].name,
-                .data_offset = field.data_offset,
+                .data_offset = state->children[index].storage_base_offset(),
                 .type = field.type,
             };
         }
@@ -2922,6 +2926,14 @@ namespace hgraph
     }
 
     TSInput::TSInput() noexcept = default;
+    DebugTSStorageOffsets TSInput::debug_storage_offsets() noexcept
+    {
+        static const auto offsets = [] {
+            const TSInput sample;
+            return sample.data_.debug_offsets(&sample);
+        }();
+        return offsets;
+    }
 
     TSInput::TSInput(const TSInputBuilder &builder)
         : builder_(&builder),

@@ -1577,6 +1577,8 @@ void release_completed_root_step(const void *context, const GraphView &root) {
 struct GraphRuntimeRegistry {
   struct Entry {
     GraphTypeMetaData schema{};
+    std::vector<DebugGraphPorts> debug_ports;
+    std::vector<DebugGraphEdge> debug_edges;
     GraphRuntimeContext root_context{};
     GraphRuntimeContext nested_context{};
     GraphOps root_ops{};
@@ -1690,6 +1692,27 @@ struct GraphRuntimeRegistry {
     entries.push_back({});
     auto &entry = entries.back();
     entry.schema = make_meta(builder);
+    // All backing storage lives in this immutable registry entry. Root and
+    // nested instances share wiring but have distinct graph allocation layouts.
+    entry.debug_edges.reserve(entry.schema.edges.size());
+    for (const auto &edge : entry.schema.edges) {
+      entry.debug_edges.push_back({graph_edge_source_node(edge.source_node), graph_edge_source_kind(edge.source_node),
+                                   edge.source_path.data(), edge.source_path.size(), edge.target_node,
+                                   edge.target_path.data(), edge.target_path.size()});
+    }
+    entry.debug_ports.reserve(builder.node_count());
+    for (const auto &node : builder.nodes()) {
+      const auto owner = [&](const char *name, DebugTSStorageOffsets fields) -> DebugTSStorageOffsets {
+        const auto *component = node.type().plan()->find_component(name);
+        if (!component) { return {}; }
+        return {component->offset + fields.type_offset, component->offset + fields.data_offset};
+      };
+      const auto output = TSOutput::debug_storage_offsets();
+      entry.debug_ports.push_back({owner("input", TSInput::debug_storage_offsets()), owner("output", output),
+                                   owner("error_output", output), owner("recordable_state", output)});
+    }
+    entry.schema.debug_wiring = {1, entry.debug_ports.data(), entry.debug_ports.size(),
+                                 entry.debug_edges.data(), entry.debug_edges.size()};
 
     const auto &root_plan =
         graph_storage_plan_for<RootGraphRuntimeStorage>(builder.nodes());
