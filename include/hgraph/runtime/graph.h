@@ -132,7 +132,8 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
 
     struct DebugGraphWiring
     {
-        std::uint32_t version{1};
+        /** 0 until the graph registry publishes the views below, then 1. */
+        std::uint32_t version{0};
         const DebugGraphPorts *nodes{};
         std::size_t node_count{};
         const DebugGraphEdge *edges{};

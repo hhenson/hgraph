@@ -1711,8 +1711,11 @@ struct GraphRuntimeRegistry {
       entry.debug_ports.push_back({owner("input", TSInput::debug_storage_offsets()), owner("output", output),
                                    owner("error_output", output), owner("recordable_state", output)});
     }
-    entry.schema.debug_wiring = {1, entry.debug_ports.data(), entry.debug_ports.size(),
-                                 entry.debug_edges.data(), entry.debug_edges.size()};
+    entry.schema.debug_wiring = {.version = 1,
+                                 .nodes = entry.debug_ports.data(),
+                                 .node_count = entry.debug_ports.size(),
+                                 .edges = entry.debug_edges.data(),
+                                 .edge_count = entry.debug_edges.size()};
 
     const auto &root_plan =
         graph_storage_plan_for<RootGraphRuntimeStorage>(builder.nodes());
