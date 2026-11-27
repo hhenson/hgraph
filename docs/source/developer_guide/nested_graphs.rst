@@ -666,14 +666,23 @@ it linear, and each was separately quadratic before:
 * **A link is rebound only when what it is bound to has moved**: the collection
   or the zero re-pointed (every link, which is inherent), or an element was
   removed and put back in the same cycle (that link and everything after it,
-  since they may publish something different). A collection that merely ticks
-  rebinds nothing; value changes and live-zero ticks use the standing bindings.
+  since they may publish something different). The collection is identified
+  by its effective target, followed through forwarding endpoints, and elements
+  are projected from that target. A rebound link samples its new sources and
+  keeps its state, so the due links refold from the zero, in index order, in
+  the cycle of the move. A collection that merely ticks rebinds nothing; value
+  changes and live-zero ticks use the standing bindings.
 * **Only due links are visited.** A link is scheduled by its element or by the
   link before it, and its graph reports that through the child-schedule
   observer; the node keeps a heap of due link indices and visits those in
   order, rather than asking every link whether it is due. Schedules a link makes
   while it is itself evaluating are not observed, so they are pulled after it
   runs, exactly as the keyed map does.
+
+The output forwards to the last link, or to the zero while the chain is empty.
+It is re-resolved, leaf by leaf, when the chain changes or the zero re-points.
+After a collection re-point the output is sampled even when it still forwards
+to the same source, as when two empty collections forward the same zero.
 
 The length and the ``0..n-1`` key contract are checked from the change, not by
 walking every key: the keys are distinct and non-negative, so they are exactly
@@ -688,7 +697,9 @@ chain and the list map both do.
 Runtime: ``runtime/ordered_reduce_node.{h,cpp}``. Tests:
 ``tests/cpp/test_reduce.cpp`` -- including the link start/stop counts that tell
 a kept link from a rebuilt one, and the ``[ordered-reduce-scaling]`` benchmark --
-and ``python/tests/test_python_authoring.py``.
+and ``python/tests/test_python_authoring.py``. Re-pointed collections and
+zeros: ``tests/cpp/test_compiled_reduce_mesh.cpp``, whose re-point benchmark
+carries the same tag.
 
 
 Scheduling delegation

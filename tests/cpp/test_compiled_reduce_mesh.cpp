@@ -10,6 +10,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <chrono>
+#include <iostream>
+
 namespace {
 using namespace hgraph;
 using namespace hgraph::testing;
@@ -28,6 +31,14 @@ struct Append {
     }
 };
 
+struct DecimalFold {
+    static void eval(In<"accumulator", N> accumulator, In<"member", N> member, Out<N> out) {
+        REQUIRE(member.modified());
+        CHECK(member.delta_value().checked_as<Int>() == member.value());
+        out.set(accumulator.value() * 10 + member.value());
+    }
+};
+
 template <typename Collection, typename Accumulator, typename Op, compiled::ReduceOrder order, bool direct>
 struct Reduction {
     static Port<Accumulator> compose(Wiring &w, Port<Collection> collection, Port<Accumulator> zero) {
@@ -41,6 +52,15 @@ struct Reduction {
             return wire<stdlib::reduce_>(w, fn<Binary<Op, Accumulator>>(), collection, zero,
                                          Bool{false}).template as<Accumulator>();
         }
+    }
+};
+
+template <typename Collection, typename Op, compiled::ReduceOrder order>
+struct ReduceSelectedCollection {
+    static Port<N> compose(Wiring &w, Port<Collection> left, Port<Collection> right,
+                           Port<TS<Bool>> select_right, Port<N> zero) {
+        auto selected = wire<stdlib::if_then_else>(w, select_right, right, left).template as<REF<Collection>>();
+        return Reduction<REF<Collection>, N, Op, order, true>::compose(w, selected, zero);
     }
 };
 
@@ -227,6 +247,198 @@ struct SavedMesh {
     }
 };
 
+struct ShiftAdd {
+    static void eval(In<"accumulator", N> accumulator, In<"member", N> member, Out<N> out) {
+        out.set(accumulator.value() * 10 + member.value());
+    }
+};
+
+struct ShiftAddGraph {
+    static Port<N> compose(Wiring &w, Port<N> accumulator, Port<N> member) {
+        const auto shifted = wire<stdlib::mul_>(w, accumulator, wire<stdlib::const_, N>(w, Int{10})).as<N>();
+        return wire<stdlib::add_>(w, shifted, member).as<N>();
+    }
+};
+
+struct OnTick {
+    static void eval(In<"input", N> input, Out<N> out) {
+        if (input.modified()) { out.set(input.value()); }
+    }
+};
+
+/** Folds only what its arguments ticked, so an argument rebound without a sample is never seen. */
+struct ShiftAddTicks {
+    static Port<N> compose(Wiring &w, Port<N> accumulator, Port<N> member) {
+        return wire<ShiftAdd>(w, wire<OnTick>(w, accumulator), wire<OnTick>(w, member)).as<N>();
+    }
+};
+
+template <typename Accumulator = N> struct PassAccumulator {
+    static Port<Accumulator> compose(Wiring &, Port<Accumulator> accumulator, Port<N>) { return accumulator; }
+};
+
+struct PassMember {
+    static Port<N> compose(Wiring &, Port<N>, Port<N> member) { return member; }
+};
+
+/** A reference to ``left`` for choice 0, to ``right`` for 1, and to nothing otherwise. */
+template <typename T> struct SelectTarget {
+    static void eval(In<"choice", N> choice,
+                     In<"left", REF<T>, InputActivity::Passive, InputValidity::Unchecked> left,
+                     In<"right", REF<T>, InputActivity::Passive, InputValidity::Unchecked> right,
+                     Out<REF<T>> out) {
+        switch (choice.value()) {
+        case 0: out.set(left.value()); break;
+        case 1: out.set(right.value()); break;
+        default: out.set(TimeSeriesReference::empty()); break;
+        }
+    }
+};
+
+template <typename Collection, typename Accumulator, typename Combiner, compiled::ReduceOrder order,
+          bool direct = true>
+struct ReduceSelected {
+    static Port<Accumulator> compose(Wiring &w, Port<N> choice, Port<Collection> left, Port<Collection> right,
+                                     Port<Accumulator> zero) {
+        const auto selected = wire<SelectTarget<Collection>>(w, choice, left, right).template as<REF<Collection>>();
+        if constexpr (direct) {
+            return {w, compiled::reduce_(w, selected.erased(), compile_subgraph<Combiner>(w), zero.erased(), order)};
+        } else if constexpr (order == compiled::ReduceOrder::Associative) {
+            return wire<stdlib::reduce_>(w, fn<Combiner>(), selected, zero).template as<Accumulator>();
+        } else {
+            return wire<stdlib::reduce_>(w, fn<Combiner>(), selected, zero, Bool{false}).template as<Accumulator>();
+        }
+    }
+};
+
+template <typename Collection, bool direct> struct SumSelected {
+    static Port<N> compose(Wiring &w, Port<N> choice, Port<Collection> left, Port<Collection> right) {
+        const auto selected = wire<SelectTarget<Collection>>(w, choice, left, right).template as<REF<Collection>>();
+        if constexpr (direct) {
+            return {w, compiled::reduce_(w, selected.erased(), compile_subgraph<Binary<stdlib::add_>>(w), std::nullopt,
+                                         compiled::ReduceOrder::Associative)};
+        } else {
+            return wire<stdlib::reduce_>(w, fn<Binary<stdlib::add_>>(), selected).template as<N>();
+        }
+    }
+};
+
+/** A = {0: 1, 1: 2} and B = {0: 10, 1: 20, 2: 30}. The reference moves A, B, A;
+    B loses its last member while it is not selected; the reference moves B, A, B;
+    then B's member 1 ticks while it is selected, and A's while it is not. */
+template <typename Collection> void check_repointed_collection(const auto &a, const auto &b) {
+    constexpr auto ordered = compiled::ReduceOrder::Ordered;
+    constexpr auto associative = compiled::ReduceOrder::Associative;
+    const auto choice = values<Int>(0, 1, 0, none, none, 1, 0, 1, none, none);
+    const auto zero = values<Int>(100);
+    const auto folds = values<Int>(10012, 101230, 10012, none, none, 10120, 10012, 10120, 10121, none);
+    const auto sums = values<Int>(3, 60, 3, none, none, 30, 3, 30, 31, none);
+    CHECK_OUTPUT((eval_node<ReduceSelected<Collection, N, Binary<ShiftAdd>, ordered>>(choice, a, b, zero)), folds);
+    CHECK_OUTPUT((eval_node<ReduceSelected<Collection, N, Binary<ShiftAdd>, ordered, false>>(choice, a, b, zero)),
+                 folds);
+    CHECK_OUTPUT((eval_node<ReduceSelected<Collection, N, ShiftAddGraph, ordered>>(choice, a, b, zero)), folds);
+    CHECK_OUTPUT((eval_node<ReduceSelected<Collection, N, ShiftAddTicks, ordered>>(choice, a, b, zero)), folds);
+    CHECK_OUTPUT((eval_node<ReduceSelected<Collection, N, PassMember, ordered>>(choice, a, b, zero)),
+                 values<Int>(2, 30, 2, none, none, 20, 2, 20, 21, none));
+    CHECK_OUTPUT((eval_node<ReduceSelected<Collection, N, Binary<stdlib::add_>, associative>>(choice, a, b, zero)),
+                 sums);
+    CHECK_OUTPUT(
+        (eval_node<ReduceSelected<Collection, N, Binary<stdlib::add_>, associative, false>>(choice, a, b, zero)),
+        sums);
+    CHECK_OUTPUT((eval_node<SumSelected<Collection, true>>(choice, a, b)), sums);
+    CHECK_OUTPUT((eval_node<SumSelected<Collection, false>>(choice, a, b)), sums);
+}
+
+template <typename Zero, typename Combiner> struct ReduceFromSelectedZero {
+    static Port<Zero> compose(Wiring &w, Port<Book> collection, Port<N> choice, Port<Zero> left, Port<Zero> right) {
+        const auto zero = wire<SelectTarget<Zero>>(w, choice, left, right).template as<REF<Zero>>();
+        return {w, compiled::reduce_(w, collection.erased(), compile_subgraph<Combiner>(w), zero.erased(),
+                                     compiled::ReduceOrder::Ordered)};
+    }
+};
+
+struct ReduceSelectedWithCapture {
+    static Port<N> compose(Wiring &w, Port<N> choice, Port<Book> left, Port<Book> right, Port<N> bias,
+                           Port<N> zero) {
+        const auto selected = wire<SelectTarget<Book>>(w, choice, left, right).as<REF<Book>>();
+        return CapturedReduction<REF<Book>, compiled::ReduceOrder::Ordered>::compose_seeded(w, selected, bias, zero);
+    }
+};
+
+struct FirstBook {
+    static Port<Book> compose(Wiring &w) {
+        return wire<stdlib::const_, Book>(w, stdlib::make_map<Int, Int>({{Int{0}, Int{1}}, {Int{1}, Int{2}}}));
+    }
+};
+
+struct SecondBook {
+    static Port<Book> compose(Wiring &w) {
+        return wire<stdlib::const_, Book>(
+            w, stdlib::make_map<Int, Int>({{Int{0}, Int{10}}, {Int{1}, Int{20}}, {Int{2}, Int{30}}}));
+    }
+};
+
+struct EmptyBook {
+    static Port<Book> compose(Wiring &w) { return wire<stdlib::const_, Book>(w, stdlib::make_map<Int, Int>({})); }
+};
+
+/** Each branch owns the dictionary it publishes. */
+struct ReduceSwitchedBook {
+    static Port<N> compose(Wiring &w, Port<N> choice, Port<N> zero) {
+        const auto book = wire<stdlib::switch_>(w, choice,
+                                                stdlib::switch_cases({{Value{Int{0}}, fn<FirstBook>()},
+                                                                      {Value{Int{1}}, fn<SecondBook>()},
+                                                                      {Value{Int{2}}, fn<EmptyBook>()}}))
+                              .as<Book>();
+        return Reduction<Book, N, ShiftAdd, compiled::ReduceOrder::Ordered, true>::compose(w, book, zero);
+    }
+};
+
+struct PassLeftBook {
+    static Port<Book> compose(Wiring &, Port<Book> left, Port<Book>) { return left; }
+};
+
+struct PassRightBook {
+    static Port<Book> compose(Wiring &, Port<Book>, Port<Book> right) { return right; }
+};
+
+struct NoBook {
+    static void eval(Out<Book>) {}
+};
+
+struct PassNoBook {
+    static Port<Book> compose(Wiring &w, Port<Book>, Port<Book>) { return wire<NoBook>(w); }
+};
+
+/** Each branch forwards an outer dictionary, or one that never ticks. */
+struct ReduceSwitchedPassThrough {
+    static Port<N> compose(Wiring &w, Port<N> choice, Port<Book> left, Port<Book> right, Port<N> zero) {
+        std::vector<SwitchBranchGraph> cases{
+            {Value{Int{0}}, compile_subgraph<PassLeftBook>(w)},
+            {Value{Int{1}}, compile_subgraph<PassRightBook>(w)},
+            {Value{Int{2}}, compile_subgraph<PassNoBook>(w)},
+        };
+        const std::array inputs{left.erased(), right.erased()};
+        const Port<Book> book{w, compiled::switch_(w, choice.erased(), inputs, std::move(cases))};
+        return Reduction<Book, N, ShiftAdd, compiled::ReduceOrder::Ordered, true>::compose(w, book, zero);
+    }
+};
+
+struct SavedSelectedReduction {
+    static Port<N> compose(Wiring &w, Port<N> choice, Port<Book> left, Port<Book> right, Port<N> zero) {
+        return stdlib::component<ReduceSelected<Book, N, Binary<ShiftAdd>, compiled::ReduceOrder::Ordered>>(
+            w, "selected_reduction", choice, left, right, zero);
+    }
+};
+
+using Shelf = TSD<Int, Book>;
+
+struct Union {
+    static Port<Book> compose(Wiring &w, Port<Book> accumulator, Port<Book> member) {
+        return wire<stdlib::bit_or>(w, accumulator, member).as<Book>();
+    }
+};
+
 }
 
 TEST_CASE("compiled reduce uses the operator's empty, singleton, ordered and fixed-list rules") {
@@ -268,6 +480,287 @@ TEST_CASE("compiled reduce broadcasts a captured input through both reduction or
         values<Value>(list_delta<N>({{0, 1}, {1, 2}, {2, 3}}), none,
                       list_delta<N>({{2, 5}}), none),
         -24, -44, -66);
+}
+
+TEST_CASE("compiled reduce follows each retarget of a dictionary reference") {
+    stdlib::register_standard_operators();
+    const auto left = values<Value>(dict_delta<Int, N>({{0, 1}, {1, 2}}), none, none, none,
+                                    none, none, none, dict_delta<Int, N>({{1, 3}}));
+    const auto right = values<Value>(dict_delta<Int, N>({{0, 10}, {1, 20}, {2, 30}}), none, none,
+                                     dict_delta<Int, N>({}, {2}), none, none, dict_delta<Int, N>({{1, 21}}));
+    const auto select_right = values<Bool>(false, true, false, none, false, true, none, none);
+    const auto zero = values<Int>(100);
+
+    CHECK_OUTPUT((eval_node<ReduceSelectedCollection<Book, DecimalFold, compiled::ReduceOrder::Ordered>>(
+                     left, right, select_right, zero)),
+                 values<Int>(10012, 101230, 10012, none, none, 10120, 10121, none));
+    CHECK_OUTPUT((eval_node<ReduceSelectedCollection<Book, stdlib::add_, compiled::ReduceOrder::Associative>>(
+                     left, right, select_right, zero)),
+                 values<Int>(3, 60, 3, none, none, 30, 31, none));
+}
+
+TEST_CASE("compiled ordered reduce follows same-size retargets of a dynamic list reference") {
+    stdlib::register_standard_operators();
+    using List = TSL<N>;
+    const auto left = values<Value>(dynamic_list_delta<N>({{0, 1}, {1, 2}}, {}, 2));
+    const auto right = values<Value>(dynamic_list_delta<N>({{0, 3}, {1, 4}}, {}, 2));
+
+    CHECK_OUTPUT((eval_node<ReduceSelectedCollection<List, DecimalFold, compiled::ReduceOrder::Ordered>>(
+                     left, right, values<Bool>(false, true, false, true), values<Int>(100))),
+                 values<Int>(10012, 10034, 10012, 10034));
+}
+
+TEST_CASE("compiled ordered reduce publishes zero when retargeting between empty dictionaries") {
+    stdlib::register_standard_operators();
+    const auto empty = values<Value>(dict_delta<Int, N>({}));
+
+    CHECK_OUTPUT((eval_node<ReduceSelectedCollection<Book, DecimalFold, compiled::ReduceOrder::Ordered>>(
+                     empty, empty, values<Bool>(false, true, true, false), values<Int>(100))),
+                 values<Int>(100, 100, none, 100));
+}
+
+TEST_CASE("compiled reduce folds a re-pointed collection from the zero in the cycle it moves") {
+    stdlib::register_standard_operators();
+    check_repointed_collection<Book>(
+        values<Value>(dict_delta<Int, N>({{0, 1}, {1, 2}}), none, none, none, none, none, none, none, none,
+                      dict_delta<Int, N>({{1, 3}})),
+        values<Value>(dict_delta<Int, N>({{0, 10}, {1, 20}, {2, 30}}), none, none, dict_delta<Int, N>({}, {2}),
+                      none, none, none, none, dict_delta<Int, N>({{1, 21}})));
+    check_repointed_collection<TSL<N>>(
+        values<Value>(dynamic_list_delta<N>({{0, 1}, {1, 2}}, {}, 2), none, none, none, none, none, none, none,
+                      none, dynamic_list_delta<N>({{1, 3}})),
+        values<Value>(dynamic_list_delta<N>({{0, 10}, {1, 20}, {2, 30}}, {}, 3), none, none,
+                      dynamic_list_delta<N>({}, {2}, 2), none, none, none, none, dynamic_list_delta<N>({{1, 21}})));
+    CHECK_OUTPUT((eval_node<ReduceSelected<TSL<N, 3>, N, Binary<ShiftAdd>, compiled::ReduceOrder::Ordered>>(
+                     values<Int>(0, 1, 0), values<Value>(list_delta<N>({1, 2, 3})),
+                     values<Value>(list_delta<N>({10, 20, 30})), values<Int>(100))),
+                 values<Int>(123, 1230, 123));
+}
+
+TEST_CASE("compiled reduce folds what a re-pointed collection changed while it was not selected") {
+    stdlib::register_standard_operators();
+    const auto left = values<Value>(dict_delta<Int, N>({{0, 1}, {1, 2}}), none, none, none, none, none,
+                                    dict_delta<Int, N>({{0, 9}}));
+    const auto right = values<Value>(dict_delta<Int, N>({{0, 10}, {1, 20}, {2, 30}}), none, none, none,
+                                     dict_delta<Int, N>({}, {2}), none, none, dict_delta<Int, N>({{1, 21}}));
+    const auto choice = values<Int>(0, 1, 0, none, none, 1, none, none, 0);
+    const auto zero = values<Int>(100);
+    CHECK_OUTPUT((eval_node<ReduceSelected<Book, N, Binary<ShiftAdd>, compiled::ReduceOrder::Ordered>>(
+                     choice, left, right, zero)),
+                 values<Int>(10012, 101230, 10012, none, none, 10120, none, 10121, 10092));
+    CHECK_OUTPUT((eval_node<ReduceSelected<Book, N, Binary<stdlib::add_>, compiled::ReduceOrder::Associative>>(
+                     choice, left, right, zero)),
+                 values<Int>(3, 60, 3, none, none, 30, none, 31, 11));
+}
+
+TEST_CASE("compiled reduce publishes the zero while a re-pointed collection is empty or withdrawn") {
+    stdlib::register_standard_operators();
+    constexpr auto ordered = compiled::ReduceOrder::Ordered;
+    const auto zero = values<Int>(100);
+    const auto a = values<Value>(dict_delta<Int, N>({{0, 1}, {1, 2}}));
+    const auto empty = values<Value>(dict_delta<Int, N>({}));
+
+    // Withdrawn at first; B is empty until it grows while selected.
+    const auto b = values<Value>(dict_delta<Int, N>({}), none, none, dict_delta<Int, N>({{0, 10}, {1, 20}}));
+    const auto choice = values<Int>(2, 0, 1, none, 2, 0);
+    CHECK_OUTPUT((eval_node<ReduceSelected<Book, N, Binary<ShiftAdd>, ordered>>(choice, a, b, zero)),
+                 values<Int>(100, 10012, 100, 10120, 100, 10012));
+    CHECK_OUTPUT((eval_node<ReduceSelected<Book, N, Binary<stdlib::add_>, compiled::ReduceOrder::Associative>>(
+                     choice, a, b, zero)),
+                 values<Int>(100, 3, 100, 30, 100, 3));
+
+    // From a chain to an empty dictionary, and to no collection.
+    CHECK_OUTPUT((eval_node<ReduceSelected<Book, N, Binary<ShiftAdd>, ordered>>(values<Int>(0, 1, 0, 2, 0), a,
+                                                                                 empty, zero)),
+                 values<Int>(10012, 100, 10012, 100, 10012));
+
+    // The chain built when the reference leaves an empty collection reads the zero in that cycle.
+    CHECK_OUTPUT((eval_node<ReduceSelected<Book, N, ShiftAddTicks, ordered>>(values<Int>(0, 1, 0, 1), empty, a,
+                                                                              zero)),
+                 values<Int>(100, 10012, 100, 10012));
+
+    // Back from an empty collection, then B loses its last member while selected.
+    const auto choices = values<Int>(0, 1, 0);
+    CHECK_OUTPUT((eval_node<ReduceSelected<Book, N, Binary<ShiftAdd>, ordered>>(
+                     choices,
+                     values<Value>(dict_delta<Int, N>({{0, 10}, {1, 20}, {2, 30}}), none, none,
+                                   dict_delta<Int, N>({}, {2})),
+                     empty, zero)),
+                 values<Int>(101230, 100, 101230, 10120));
+    CHECK_OUTPUT((eval_node<ReduceSelected<TSL<N>, N, Binary<ShiftAdd>, ordered>>(
+                     choices,
+                     values<Value>(dynamic_list_delta<N>({{0, 10}, {1, 20}, {2, 30}}, {}, 3), none, none,
+                                   dynamic_list_delta<N>({}, {2}, 2)),
+                     values<Value>(dynamic_list_delta<N>({}, {}, 0)), zero)),
+                 values<Int>(101230, 100, 101230, 10120));
+
+    // Between lists of the same length, one of which empties.
+    CHECK_OUTPUT((eval_node<ReduceSelected<TSL<N>, N, Binary<ShiftAdd>, ordered>>(
+                     values<Int>(0, 1, 0, 1, none, 0, 1, 0),
+                     values<Value>(dynamic_list_delta<N>({{0, 1}, {1, 2}}, {}, 2)),
+                     values<Value>(dynamic_list_delta<N>({{0, 4}, {1, 5}}, {}, 2), none, none, none,
+                                   dynamic_list_delta<N>({}, {}, 0)),
+                     zero)),
+                 values<Int>(10012, 10045, 10012, 10045, 100, 10012, 100, 10012));
+}
+
+TEST_CASE("compiled ordered reduce folds from a re-pointed zero") {
+    stdlib::register_standard_operators();
+    const auto book = values<Value>(dict_delta<Int, N>({{0, 1}, {1, 2}}));
+    const auto empty = values<Value>(dict_delta<Int, N>({}));
+    const auto choice = values<Int>(0, 1, 0);
+    const auto first = values<Int>(100);
+    const auto second = values<Int>(200);
+
+    CHECK_OUTPUT((eval_node<ReduceFromSelectedZero<N, Binary<ShiftAdd>>>(
+                     values<Value>(dict_delta<Int, N>({{0, 1}, {1, 2}}), none, none, none,
+                                   dict_delta<Int, N>({{1, 3}})),
+                     values<Int>(0, 1, 0, none, none), values<Int>(100, none, none, 101, none), second)),
+                 values<Int>(10012, 20012, 10012, 10112, 10113));
+    CHECK_OUTPUT((eval_node<ReduceFromSelectedZero<N, Binary<ShiftAdd>>>(empty, choice, first, second)),
+                 values<Int>(100, 200, 100));
+    CHECK_OUTPUT((eval_node<ReduceFromSelectedZero<N, PassAccumulator<>>>(book, choice, first, second)),
+                 values<Int>(100, 200, 100));
+
+    // The zero moves with a chain, the chain empties, and the zero moves while it is empty.
+    const auto emptied = values<Value>(dict_delta<Int, N>({{0, 1}, {1, 2}}), none, dict_delta<Int, N>({}, {0, 1}),
+                                       none, none, dict_delta<Int, N>({{0, 3}}));
+    CHECK_OUTPUT((eval_node<ReduceFromSelectedZero<N, Binary<ShiftAdd>>>(
+                     emptied, values<Int>(0, 1, none, 0, 1, none), first, second)),
+                 values<Int>(10012, 20012, 200, 100, 200, 2003));
+}
+
+TEST_CASE("compiled ordered reduce keeps a captured input across collection re-points") {
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<ReduceSelectedWithCapture>(
+                     values<Int>(0, 1, 0), values<Value>(dict_delta<Int, N>({{0, 1}, {1, 2}})),
+                     values<Value>(dict_delta<Int, N>({{0, 10}, {1, 20}, {2, 30}})), values<Int>(10, none, 5),
+                     values<Int>(100)),
+                 values<Int>(77, 10, 87));
+}
+
+TEST_CASE("compiled ordered reduce follows a collection re-pointed through a switch") {
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<ReduceSwitchedBook>(values<Int>(0, 1, 2, 0), values<Int>(100)),
+                 values<Int>(10012, 101230, 100, 10012));
+    CHECK_OUTPUT(eval_node<ReduceSwitchedPassThrough>(
+                     values<Int>(0, 1, 2, 0, 1), values<Value>(dict_delta<Int, N>({{0, 1}, {1, 2}})),
+                     values<Value>(dict_delta<Int, N>({{0, 10}, {1, 20}, {2, 30}}), none,
+                                   dict_delta<Int, N>({}, {2})),
+                     values<Int>(100)),
+                 values<Int>(10012, 101230, 100, 10012, 10120));
+}
+
+TEST_CASE("compiled ordered reduce validates the keys of a re-pointed dictionary") {
+    stdlib::register_standard_operators();
+    CHECK_THROWS_WITH(
+        (eval_node<ReduceSelected<Book, N, Binary<ShiftAdd>, compiled::ReduceOrder::Ordered>>(
+            values<Int>(0, 1), values<Value>(dict_delta<Int, N>({{0, 1}, {1, 2}})),
+            values<Value>(dict_delta<Int, N>({{0, 10}, {2, 30}})), values<Int>(100))),
+        Catch::Matchers::ContainsSubstring("ordered reduce requires contiguous integer keys from zero"));
+}
+
+TEST_CASE("compiled ordered reduce restores a checkpoint across collection re-points") {
+    stdlib::register_standard_operators();
+    const auto a = dict_delta<Int, N>({{0, 1}, {1, 2}});
+    const auto b = dict_delta<Int, N>({{0, 10}, {1, 20}, {2, 30}});
+    const auto shrink = dict_delta<Int, N>({}, {2});
+    const auto saved_reduction = [](auto &&run) {
+        GlobalContext context;
+        std::optional<ComponentCheckpoint> image;
+        configure_component_recovery(context.state().view(), ComponentRecoveryConfig{
+            .component_id = "selected_reduction",
+            .load = [&] { return image; },
+            .commit = [&](const ComponentCheckpoint &saved) { image = saved; },
+        });
+        run(image);
+    };
+
+    // Saved before the reference moves.
+    saved_reduction([&](const std::optional<ComponentCheckpoint> &image) {
+        const auto cut = MIN_ST + MIN_TD;
+        CHECK_OUTPUT(eval_node_with_options<SavedSelectedReduction>({.start_time = MIN_ST, .end_time = cut},
+                                                                    values<Int>(0), values<Value>(a),
+                                                                    values<Value>(b), values<Int>(100)),
+                     values<Int>(10012));
+        REQUIRE(image.has_value());
+        CHECK_OUTPUT(eval_node_with_options<SavedSelectedReduction>(
+                         {.start_time = cut, .end_time = cut + 3 * MIN_TD}, values<Int>(none, 1, none),
+                         values<Value>(none, none, none), values<Value>(none, none, shrink),
+                         values<Int>(none, none, none)),
+                     values<Int>(none, 101230, 10120));
+    });
+
+    // Saved after it moved.
+    saved_reduction([&](const std::optional<ComponentCheckpoint> &image) {
+        const auto cut = MIN_ST + 2 * MIN_TD;
+        CHECK_OUTPUT(eval_node_with_options<SavedSelectedReduction>(
+                         {.start_time = MIN_ST, .end_time = cut}, values<Int>(0, 1), values<Value>(a, none),
+                         values<Value>(b, none), values<Int>(100, none)),
+                     values<Int>(10012, 101230));
+        REQUIRE(image.has_value());
+        CHECK_OUTPUT(eval_node_with_options<SavedSelectedReduction>(
+                         {.start_time = cut, .end_time = cut + 3 * MIN_TD}, values<Int>(none, 0, 1),
+                         values<Value>(none, none, none),
+                         values<Value>(dict_delta<Int, N>({{2, 35}}), none, shrink),
+                         values<Int>(none, none, none)),
+                     values<Int>(101235, 10012, 10120));
+    });
+}
+
+TEST_CASE("compiled ordered reduce republishes a passed-through accumulator when the collection re-points") {
+    stdlib::register_standard_operators();
+    const auto held = dict_delta<Int, N>({{5, 42}});
+    CHECK_OUTPUT((eval_node<ReduceSelected<Book, Book, PassAccumulator<Book>, compiled::ReduceOrder::Ordered>>(
+                     values<Int>(0, 1, none, 0), values<Value>(dict_delta<Int, N>({{0, 1}})),
+                     values<Value>(dict_delta<Int, N>({{0, 2}})), values<Value>(held))),
+                 values<Value>(held, held, none, held));
+}
+
+TEST_CASE("compiled reduce presents a re-pointed collection's members as they are now") {
+    stdlib::register_standard_operators();
+    const auto choice = values<Int>(0, 1, 0);
+    const auto a = values<Value>(
+        dict_delta<Int, Book>({{0, dict_delta<Int, N>({{1, 1}})}, {1, dict_delta<Int, N>({{3, 3}})}}));
+    const auto b = values<Value>(
+        dict_delta<Int, Book>({{0, dict_delta<Int, N>({{2, 2}})}, {1, dict_delta<Int, N>({{4, 4}})}}));
+    const auto zero = values<Value>(dict_delta<Int, N>({}));
+    const auto expected = values<Value>(dict_delta<Int, N>({{1, 1}, {3, 3}}),
+                                        dict_delta<Int, N>({{2, 2}, {4, 4}}, {1, 3}),
+                                        dict_delta<Int, N>({{1, 1}, {3, 3}}, {2, 4}));
+    CHECK_OUTPUT((eval_node<ReduceSelected<Shelf, Book, Union, compiled::ReduceOrder::Ordered>>(choice, a, b, zero)),
+                 expected);
+    CHECK_OUTPUT(
+        (eval_node<ReduceSelected<Shelf, Book, Union, compiled::ReduceOrder::Associative>>(choice, a, b, zero)),
+        expected);
+}
+
+// Explicitly selected, with the growth benchmark in test_reduce.cpp:
+//   hgraph_unit_tests '[ordered-reduce-scaling]'
+// The reference moves between two lists of the same length on every tick, so
+// every link refolds once per tick. The per-element figure must stay flat as
+// the lists get longer.
+TEST_CASE("compiled ordered reduce refolds a re-pointed list at the same cost per element at any length",
+          "[.][ordered-reduce-scaling]") {
+    stdlib::register_standard_operators();
+    constexpr std::size_t moves = 32;
+    for (const std::size_t count : {500, 1000, 2000, 4000}) {
+        std::vector<std::optional<Int>> choice;
+        for (std::size_t tick = 0; tick < moves; ++tick) { choice.emplace_back(static_cast<Int>(tick % 2)); }
+        const auto list_of = [count](Int value) {
+            return std::vector<std::optional<Value>>{
+                dynamic_list_delta<N>(std::vector<std::optional<Int>>(count, value), {}, count)};
+        };
+        const auto started = std::chrono::steady_clock::now();
+        const auto result = eval_node<ReduceSelected<TSL<N>, N, Binary<stdlib::add_>, compiled::ReduceOrder::Ordered>>(
+            choice, list_of(1), list_of(2), values<Int>(0));
+        const auto elapsed_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+        REQUIRE(result.size() == moves);
+        REQUIRE(result.back() == static_cast<Int>(2 * count));
+        std::cout << "ordered_reduce_repoint count=" << count << " run_ms=" << elapsed_ms
+                  << " ns_per_element=" << elapsed_ms * 1.0e6 / static_cast<double>(moves * count) << '\n';
+    }
 }
 
 TEST_CASE("compiled reduce capture ticks keep the empty and singleton rules") {

@@ -56,8 +56,8 @@ namespace hgraph
          * The chain: link ``i`` combines the output of link ``i - 1`` (the zero
          * for link 0) with element ``i``, so the input is an ordered list and
          * only its TAIL can change. Growing constructs and starts the new links
-         * alone; shrinking stops the removed ones alone. No other link is
-         * rebuilt, rebound or restarted, so its state survives -- which is the
+         * alone; shrinking stops the removed ones alone. Surviving links keep
+         * their state, even when an input source changes -- which is the
          * contract of the reference implementation (hgraph 0.5,
          * ``PythonTsdNonAssociativeReduceNodeImpl._extend_nodes_to`` /
          * ``_erase_nodes_from``).
@@ -183,13 +183,14 @@ namespace hgraph
             std::size_t live_count{0};
             std::size_t retired_end{0};                            // [live_count, retired_end) await destruction
             DateTime retired_time{MIN_DT};
-            // The outputs the chain is bound to. A link is rebound only when one
-            // of these re-points, never merely because the collection ticked.
+            // Effective target identities, which can change behind a stable
+            // forwarding endpoint.
             TSOutputHandle collection_source{};
             TSOutputHandle zero_source{};
             std::vector<TSOutputHandle> capture_sources{};
             bool primed{false};
             bool published{false};
+            bool sample_tail_after_retarget{false};
             std::size_t resume_index_plus_one{0};
         };
 
@@ -267,12 +268,12 @@ namespace hgraph
         }
 
         [[nodiscard]] TSOutputView collection_element_output(
-            const NodeView &view,
             const OrderedReduceContext &context,
+            const OrderedReduceStorage &storage,
             std::size_t index,
             DateTime evaluation_time)
         {
-            auto source = view.input(evaluation_time).indexed_child_at(0).bound_output();
+            auto source = storage.collection_source.view(evaluation_time);
             return source.bound() ? context.collection_ops->element_output(std::move(source), index)
                                   : TSOutputView{};
         }
@@ -402,7 +403,8 @@ namespace hgraph
             const OrderedReduceContext &context,
             OrderedReduceStorage &storage,
             std::size_t index,
-            DateTime evaluation_time)
+            DateTime evaluation_time,
+            bool sampled)
         {
             auto *entry = storage.entries.entry_at(index);
             if (entry == nullptr || !entry->graph.has_value())
@@ -413,7 +415,7 @@ namespace hgraph
             const auto source_for = [&](const std::vector<std::size_t> &path) {
                 TSOutputView source = [&] {
                     if (path[0] == 0) { return accumulator_source(view, storage, index, evaluation_time); }
-                    if (path[0] == 1) { return collection_element_output(view, context, index, evaluation_time); }
+                    if (path[0] == 1) { return collection_element_output(context, storage, index, evaluation_time); }
                     return view.input(evaluation_time).indexed_child_at(path[0]).bound_output();
                 }();
                 if (path.size() > 1 && source.bound())
@@ -430,7 +432,11 @@ namespace hgraph
                     child.node_at(binding.target.node).input(evaluation_time),
                     binding.target.path);
                 auto source = detail::declared_source_view(target, source_for(binding.source_path), binding.source_view_schema);
-                bind_input_to_source(std::move(target), source);
+                if (!sampled) { bind_input_to_source(std::move(target), source); }
+                else if (!target.bound_to_source(source))
+                {
+                    bind_sampled_input_to_source(std::move(target), source, evaluation_time);
+                }
             }
 
             const auto &output = *context.spec.child.output_binding;
@@ -449,13 +455,29 @@ namespace hgraph
             runtime_detail::bind_reduce_output(view.output(evaluation_time), source, evaluation_time);
         }
 
+        void sample_published_tail(const TSOutputView &output)
+        {
+            if (output.modified()) { return; }
+            if (output.forwarding())
+            {
+                const auto source = output.forwarding_target().view(output.evaluation_time());
+                if (source.valid()) { output.bind_forwarding_target_sampled(source); }
+                return;
+            }
+            for (std::size_t index = 0; index < output.data_view().indexed_child_count(); ++index)
+            {
+                sample_published_tail(output.indexed_child_at(index));
+            }
+        }
+
         /** Construct, bind and start links ``[live_count, next_count)``. */
         void extend_chain(
             const NodeView &view,
             const OrderedReduceContext &context,
             OrderedReduceStorage &storage,
             std::size_t next_count,
-            DateTime evaluation_time)
+            DateTime evaluation_time,
+            bool sampled)
         {
             const std::size_t first = storage.live_count;
             // The slot store grows to exactly what it is asked for, copying its
@@ -482,7 +504,7 @@ namespace hgraph
                 entry.graph = context.spec.child.graph_builder.make_nested_graph(
                     view.pointer(), storage.entries.graph_memory(index), context.graph_layout);
                 storage.observe(entry, index);
-                bind_link(view, context, storage, index, evaluation_time);
+                bind_link(view, context, storage, index, evaluation_time, sampled);
                 entry.graph.view().start(evaluation_time);
                 schedule_sampled_input_consumers(
                     entry.graph.view(), evaluation_time, context.spec.child.input_bindings);
@@ -517,7 +539,7 @@ namespace hgraph
         {
             for (std::size_t index = first; index < storage.live_count; ++index)
             {
-                bind_link(view, context, storage, index, evaluation_time);
+                bind_link(view, context, storage, index, evaluation_time, true);
             }
         }
 
@@ -530,13 +552,11 @@ namespace hgraph
             auto root = view.input(evaluation_time);
             auto ts = root.indexed_child_at(0);
             const bool captures_changed = runtime_detail::refresh_reduce_captures(root, 2, storage.capture_sources);
-            const TSOutputView collection = ts.bound_output();
-            const TSOutputView zero = zero_output(view, evaluation_time);
-            const bool collection_repointed =
-                collection.bound() ? !collection.handle().same_as(storage.collection_source)
-                                   : storage.collection_source.bound();
-            const bool zero_repointed =
-                zero.bound() ? !zero.handle().same_as(storage.zero_source) : storage.zero_source.bound();
+            const TSOutputHandle collection = effective_output_handle(ts.bound_output());
+            const TSOutputHandle zero = effective_output_handle(zero_output(view, evaluation_time));
+            const bool collection_repointed = !collection.same_as(storage.collection_source);
+            const bool zero_repointed = !zero.same_as(storage.zero_source);
+            storage.sample_tail_after_retarget = collection_repointed && storage.published && ts.valid();
 
             const std::size_t next_count =
                 ts.valid() ? context.collection_ops->size(
@@ -567,12 +587,15 @@ namespace hgraph
                 }
             }
 
-            storage.collection_source = collection.bound() ? collection.handle() : TSOutputHandle{};
-            storage.zero_source = zero.bound() ? zero.handle() : TSOutputHandle{};
+            storage.collection_source = collection;
+            storage.zero_source = zero;
 
             if (next_count < old_count) { truncate_chain(storage, next_count, evaluation_time); }
             if (rebind_from < kept) { rebind_links(view, context, storage, rebind_from, evaluation_time); }
-            if (next_count > old_count) { extend_chain(view, context, storage, next_count, evaluation_time); }
+            if (next_count > old_count)
+            {
+                extend_chain(view, context, storage, next_count, evaluation_time, storage.sample_tail_after_retarget);
+            }
 
             if (next_count != old_count || rebind_from < kept || zero_repointed || !storage.published)
             {
@@ -632,6 +655,13 @@ namespace hgraph
                 storage.set_future(index, next > evaluation_time ? next : MAX_DT);
             }
             storage.resume_index_plus_one = 0;
+            if (storage.sample_tail_after_retarget)
+            {
+                // The fold can still alias a quiet endpoint, for example the
+                // same zero after a switch between two empty collections.
+                sample_published_tail(view.output(evaluation_time));
+                storage.sample_tail_after_retarget = false;
+            }
             if (!storage.future.empty())
             {
                 view.graph().schedule_node(view.node_index(), storage.future.begin()->first);
@@ -775,17 +805,15 @@ namespace hgraph
             {
                 throw std::invalid_argument("ordered reduce checkpoint input size differs");
             }
-            for (std::size_t index = 0; index < image.children.size(); ++index)
-            {
-                bind_link(view, context, storage, index, time);
-                restore_graph(storage.entries.entry_at(index)->graph.view(), *image.children[index].graph, time);
-            }
             // The restored chain is bound to these; the first evaluation must
             // not mistake them for a re-point and rebind every link.
-            const TSOutputView collection = input.bound_output();
-            const TSOutputView zero = zero_output(view, time);
-            storage.collection_source = collection.bound() ? collection.handle() : TSOutputHandle{};
-            storage.zero_source = zero.bound() ? zero.handle() : TSOutputHandle{};
+            storage.collection_source = effective_output_handle(input.bound_output());
+            storage.zero_source = effective_output_handle(zero_output(view, time));
+            for (std::size_t index = 0; index < image.children.size(); ++index)
+            {
+                bind_link(view, context, storage, index, time, false);
+                restore_graph(storage.entries.entry_at(index)->graph.view(), *image.children[index].graph, time);
+            }
             (void)runtime_detail::refresh_reduce_captures(inputs, 2, storage.capture_sources);
             auto output = view.output(time);
             TSOutputView source;
