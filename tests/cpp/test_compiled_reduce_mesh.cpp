@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <iostream>
+#include <map>
 
 namespace {
 using namespace hgraph;
@@ -406,6 +407,88 @@ struct ObservePartialZero {
     }
 };
 
+struct ObserveZeroRemovals {
+    static void eval(In<"clock", N> clock, In<"zero", Book, InputActivity::Passive, InputValidity::Unchecked> zero,
+                     Out<N> out) {
+        const auto dict = zero.base().as_dict();
+        const std::map<Int, Int> expected = clock.value() == 1 ? std::map<Int, Int>{{1, 10}}
+            : clock.value() == 2 ? std::map<Int, Int>{{2, 200}, {3, 300}} : std::map<Int, Int>{};
+        std::map<Int, Int> removed;
+        for (const auto &[key, child] : dict.removed_items()) {
+            removed.emplace(key.checked_as<Int>(), child.value().checked_as<Int>());
+        }
+        CHECK(removed == expected);
+        CHECK(std::ranges::distance(dict.removed_keys()) == std::ssize(expected));
+        CHECK(std::ranges::distance(dict.removed_values()) == std::ssize(expected));
+        out.set(clock.value());
+    }
+};
+
+struct ObserveSelectedDictionaryZero {
+    static Port<N> compose(Wiring &w, Port<N> clock, Port<Book> collection, Port<N> choice,
+                           Port<Book> left, Port<Book> right) {
+        const auto result = ReduceFromSelectedZero<Book, PassAccumulator<Book>>::compose(w, collection, choice,
+                                                                                        left, right);
+        return wire<ObserveZeroRemovals>(w, clock, result);
+    }
+};
+
+template <typename Fixed> struct WriteOrClearZero {
+    static void eval(In<"first", N, InputValidity::Unchecked> first,
+                     In<"second", N, InputValidity::Unchecked> second, Out<Fixed> out) {
+        const auto update = [&](const auto &input, std::size_t slot) {
+            if (!input.modified()) { return; }
+            Out<N> child{out.at(slot), out.evaluation_time()};
+            if (input.value() < 0) { static_cast<void>(child.begin_mutation(child.evaluation_time()).invalidate()); }
+            else { child.set(input.value()); }
+        };
+        update(first, 0);
+        if constexpr (!std::is_same_v<Fixed, Seed>) { update(second, 1); }
+    }
+};
+
+template <typename Fixed> struct ObserveZeroClears {
+    static void eval(In<"clock", N> clock, In<"zero", Fixed, InputActivity::Passive, InputValidity::Unchecked> zero,
+                     Out<N> out) {
+        const TSInputView &root = zero.base();
+        const auto cycle = clock.value();
+        constexpr std::size_t count = std::is_same_v<Fixed, Seed> ? 1 : 2;
+        const bool valid = cycle == 0 || cycle == 3 || (cycle == 1 && count == 2);
+        CHECK(root.valid() == valid);
+        CHECK(root.modified() == valid);
+        if (!valid) { CHECK(root.last_modified_time() == MIN_DT); }
+        for (std::size_t slot = 0; slot < count; ++slot) {
+            const bool child_valid = cycle == 0 || (cycle == 1 && slot == 1) || (cycle == 3 && slot == 0);
+            const bool cleared = (cycle == 1 && slot == 0) || (cycle == 2 && slot == 1);
+            const auto check_child = [&](const TSInputView &child) {
+                CHECK(child.valid() == child_valid);
+                CHECK(child.modified() == (cycle == 0 || (cycle == 3 && slot == 0)));
+                CHECK(child.invalidated() == cleared);
+                if (!child_valid) { CHECK(child.last_modified_time() == MIN_DT); }
+            };
+            check_child(root.indexed_child_at(slot));
+            if constexpr (std::is_same_v<Fixed, TSL<N, 2>>) {
+                const auto list = root.as_list();
+                check_child(list.at(slot));
+            } else {
+                const auto bundle = root.as_bundle();
+                check_child(bundle.at(slot));
+            }
+        }
+        out.set(cycle);
+    }
+};
+
+template <typename Fixed> struct ObserveSelectedZeroClears {
+    static Port<N> compose(Wiring &w, Port<N> clock, Port<Book> collection, Port<N> choice,
+                           Port<N> first, Port<N> second) {
+        const auto zero = wire<WriteOrClearZero<Fixed>>(w, first, second).template as<Fixed>();
+        const auto result = ReduceFromSelectedZero<Fixed, PassAccumulator<Fixed>>::compose(w, collection, choice,
+                                                                                          zero, zero);
+        return wire<ObserveZeroClears<Fixed>>(w, clock, result);
+    }
+};
+
 struct PositiveShiftAdd {
     static void eval(In<"accumulator", N> accumulator, In<"member", N> member, Out<N> out) {
         if (member.value() > 0) { out.set(accumulator.value() * 10 + member.value()); }
@@ -769,6 +852,50 @@ TEST_CASE("compiled ordered reduce follows withdrawal of a structural reference 
     CHECK_OUTPUT(eval_node<ObservePartialZero>(clock, quiet, values<Int>(0, 1),
                      values<Int>(10, none, none, 11), values<Int>(20, none, 21)),
                  values<Str>("tick:10:20", "quiet:10:-", "quiet:10:-", "tick:11:-"));
+}
+
+TEST_CASE("compiled ordered reduce forwards keyed zero removals on REF changes", "[ordered-reduce-review-r4]") {
+    stdlib::register_standard_operators();
+    using Set = TSS<Int>;
+    const auto empty = values<Value>(dict_delta<Int, N>({}));
+    const auto live = values<Value>(dict_delta<Int, N>({{0, 1}}));
+    const auto choice = values<Int>(0, 1, 2, 0);
+    const auto clock = values<Int>(0, 1, 2, 3);
+    for (const auto &book : {empty, live}) {
+        CHECK_OUTPUT((eval_node<ReduceFromSelectedZero<Set, PassAccumulator<Set>>>(
+                         book, choice, values<Value>(set_delta<Int>({1, 2}, {})),
+                         values<Value>(set_delta<Int>({2, 3}, {})))),
+                     values<Value>(set_delta<Int>({1, 2}, {}), set_delta<Int>({3}, {1}),
+                                   set_delta<Int>({}, {2, 3}), set_delta<Int>({1, 2}, {})));
+        CHECK_OUTPUT(eval_node<ObserveSelectedDictionaryZero>(
+                         clock, book, choice, values<Value>(dict_delta<Int, N>({{1, 10}, {2, 20}})),
+                         values<Value>(dict_delta<Int, N>({{2, 200}, {3, 300}}))), clock);
+    }
+}
+
+TEST_CASE("compiled ordered reduce exposes scalar clears through a fixed reference zero", "[ordered-reduce-review-r4]") {
+    stdlib::register_standard_operators();
+    const auto empty = values<Value>(dict_delta<Int, N>({}));
+    const auto live = values<Value>(dict_delta<Int, N>({{0, 1}}));
+    const auto clock = values<Int>(0, 1, 2, 3);
+    const auto first = values<Int>(10, -1, none, 30);
+    const auto second = values<Int>(20, none, -1);
+    for (const auto &book : {empty, live}) {
+        CHECK_OUTPUT(eval_node<ObserveSelectedZeroClears<Seed>>(clock, book, values<Int>(0), first, second), clock);
+        CHECK_OUTPUT(eval_node<ObserveSelectedZeroClears<SeedPair>>(clock, book, values<Int>(0), first, second), clock);
+        CHECK_OUTPUT((eval_node<ObserveSelectedZeroClears<TSL<N, 2>>>(clock, book, values<Int>(0), first, second)), clock);
+    }
+}
+
+TEST_CASE("compiled ordered reduce samples each quiet valid field of a passed-through zero", "[ordered-reduce-review-r4]") {
+    stdlib::register_standard_operators();
+    using Fold = ReduceSelected<Book, SeedPair, PassAccumulator<SeedPair>, compiled::ReduceOrder::Ordered>;
+    const auto empty = values<Value>(dict_delta<Int, N>({}));
+    const auto live = values<Value>(dict_delta<Int, N>({{0, 1}}));
+    const auto zero = values<Value>(tsb_delta<SeedPair>(Int{10}, Int{20}), tsb_delta<SeedPair>(Int{11}, none));
+    const auto expected = values<Value>(tsb_delta<SeedPair>(Int{10}, Int{20}), tsb_delta<SeedPair>(Int{11}, Int{20}));
+    CHECK_OUTPUT(eval_node<Fold>(values<Int>(0, 1), empty, empty, zero), expected);
+    CHECK_OUTPUT(eval_node<Fold>(values<Int>(0, 1), live, live, zero), expected);
 }
 
 TEST_CASE("compiled ordered reduce keeps a captured input across collection re-points") {

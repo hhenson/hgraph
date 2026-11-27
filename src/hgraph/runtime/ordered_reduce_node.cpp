@@ -459,9 +459,9 @@ namespace hgraph
 
         void sample_published_tail(const TSOutputView &output)
         {
-            if (output.modified()) { return; }
             if (output.forwarding())
             {
+                if (output.modified()) { return; }
                 const auto source = output.forwarding_target().view(output.evaluation_time());
                 if (source.valid()) { output.bind_forwarding_target_sampled(source); }
                 return;

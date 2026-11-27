@@ -684,9 +684,11 @@ The output forwards to the last link, or to the zero while the chain is empty.
 Forwarding preserves the source endpoints, including the from-REF leaves of
 a bundle or fixed-list zero. These leaves follow changes in designation even
 when withdrawal or selection of an unpublished target produces no value tick.
-After a collection re-point, a quiet output that forwards to an outer input
-is sampled, as when two empty collections forward the same zero. A combiner's
-own output follows its usual publication rules, including filtering and deduplication.
+Forwarded keyed removals retain the keys and values from the source's removal
+delta. After a collection re-point, each quiet valid leaf of an output that
+forwards to an outer input is sampled, as when two empty collections forward
+the same zero. A combiner's own output follows its usual publication rules,
+including filtering and deduplication.
 
 The length and the ``0..n-1`` key contract are checked from the change, not by
 walking every key: the keys are distinct and non-negative, so they are exactly
