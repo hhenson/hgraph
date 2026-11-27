@@ -29,6 +29,9 @@ storage is destroyed, or the target must outlive the link. Violating
 that ordering is a runtime lifecycle bug rather than a condition hidden
 by best-effort invalidation.
 
+A link bound to another link is a chain. The contract for keyed chains is
+in :doc:`forwarding_chains`.
+
 TargetLink
 ----------
 
