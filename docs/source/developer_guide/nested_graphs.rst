@@ -681,11 +681,12 @@ it linear, and each was separately quadratic before:
   runs, exactly as the keyed map does.
 
 The output forwards to the last link, or to the zero while the chain is empty.
-Forwarding preserves the source endpoints, including the from-REF leaves of
-a bundle or fixed-list zero. These leaves follow changes in designation even
-when withdrawal or selection of an unpublished target produces no value tick.
-Forwarded keyed removals retain the keys and values from the source's removal
-delta. After a collection re-point, each quiet valid leaf of an output that
+Output leaves bind directly to the resolved producers. Ordered reduce watches
+forwarding endpoints in the zero so a change of designation can wake it even
+when a bundle or fixed-list zero has no value tick. The previous published
+producer remains bound until the fold selects its final tail for the cycle,
+so a keyed transition compares against the keys that were actually published.
+After a collection re-point, each quiet valid leaf of an output that
 forwards to an outer input is sampled, as when two empty collections forward
 the same zero. A combiner's own output follows its usual publication rules,
 including filtering and deduplication.

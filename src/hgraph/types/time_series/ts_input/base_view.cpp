@@ -169,17 +169,9 @@ namespace hgraph
 
     bool TSInputView::InputDataCursor::invalidated(const TSDataView &source, DateTime evaluation_time) const
     {
+        if (!source.invalidated(evaluation_time)) { return false; }
         const auto *declared = schema();
-        if (declared == nullptr || declared->kind != TSTypeKind::TS) { return false; }
-        // A projected scalar can resolve to a forwarding leaf, either through
-        // an indexed path or through the leaf's own input-shaped binding.
-        // Follow the leaf to its producer to distinguish a clear from withdrawal.
-        auto observed = source.borrowed_ref();
-        if ((is_target_position() && !is_target_root()) || source.parent_link().has_ts_data_parent())
-        {
-            while (const auto *link = detail::target_link_storage(observed)) { observed = link->target_view(); }
-        }
-        return observed.invalidated(evaluation_time);
+        return declared != nullptr && declared->kind == TSTypeKind::TS;
     }
 
     bool TSInputView::InputDataCursor::modified(DateTime evaluation_time) const
@@ -209,10 +201,6 @@ namespace hgraph
             const auto *link = link_storage();
             if (is_target_root() && link != nullptr && link->state()->scalar_target_link != nullptr &&
                 (!data.valid() || !data.has_current_value()) && link->empty_scalar_route()) { return false; }
-            if (data.ops().is_target_link && data.ops().kind == TSTypeKind::TS && !data.has_current_value())
-            {
-                return false;
-            }
             if (data.valid() && data.ops().kind == TSTypeKind::TSL && !data.has_current_value()) {
                 // Binding to a vacant owner gives no list publication. A
                 // withdrawn REF route retains the structural link's own tick.
@@ -1205,7 +1193,11 @@ namespace hgraph
     {
         if (is_target_position())
         {
-            auto child = data_view().indexed_child_at(index);
+            const auto &parent = data_view();
+            // Match typed bundle/list access so a fixed forwarding leaf keeps
+            // its own sampled-binding observation when indexed generically.
+            if (detail::has_input_children(parent)) { return child_from_resolved_input(parent, index); }
+            auto child = parent.indexed_child_at(index);
             return child_from_target(std::move(child), index);
         }
         return child_from_input(index);

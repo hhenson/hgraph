@@ -419,3 +419,71 @@ def test_ordered_reduce_exposes_scalar_clear_through_a_reference_zero():
     assert eval_node(fold, [{0: 1}], [0, 1, 2]) == [
         (True, True, False), (False, False, True), (False, False, True),
     ]
+
+
+@pytest.mark.parametrize("choice", [1, 2], ids=["retarget", "withdraw"])
+@pytest.mark.parametrize("member, delta", [({9: 90}, {1: hg.REMOVE, 2: hg.REMOVE, 9: 90}),
+                                          ({2: 200}, {1: hg.REMOVE, 2: 200})])
+def test_ordered_reduce_compares_first_member_to_previously_published_zero(choice, member, delta):
+    book = TSD[int, TS[int]]
+    shelf = TSD[int, book]
+
+    @hg.compute_node(valid=("choice",), active=("choice",))
+    def select(choice: TS[int], left: hg.REF[book], right: hg.REF[book]) -> hg.REF[book]:
+        return (left.value, right.value, hg.TimeSeriesReference.make())[choice.value]
+
+    @graph
+    def take_member(accumulator: book, member: book) -> book:
+        return member
+
+    @graph
+    def fold(values: shelf, choice: TS[int], left: book, right: book) -> book:
+        zero = select(choice, left, right)
+        return hg.reduce(take_member, values, zero, is_associative=False, output_type=book)
+
+    assert eval_node(fold, [{}, {0: member}], [0, choice], [{1: 10, 2: 20}], [{3: 300}]) == [
+        {1: 10, 2: 20}, delta,
+    ]
+
+
+@pytest.mark.parametrize("members", [{}, {0: 1}])
+def test_ordered_reduce_preserves_fixed_list_position_removals_through_reference_zero(members):
+    book = TSD[int, TS[int]]
+    fixed = hg.TSL[TS[int], hg.Size[2]]
+
+    @hg.compute_node
+    def source(step: TS[int], _output: hg.TS_OUT[fixed] = None) -> fixed:
+        if step.value == 0:
+            return (10, 20)
+        if step.value == 3:
+            return {0: 30}
+        _output[step.value - 1].invalidate()
+
+    @hg.compute_node
+    def select(zero: hg.REF[fixed]) -> hg.REF[fixed]:
+        return zero.value
+
+    @graph
+    def pass_zero(accumulator: fixed, member: TS[int]) -> fixed:
+        return accumulator
+
+    @hg.compute_node(valid=("step",), active=("step",))
+    def observe(step: TS[int], zero: fixed) -> TS[int]:
+        if step.value == 1:
+            assert list(zero.removed_keys()) == [0]
+            assert zero.delta_value == {0: hg.REMOVE}
+        elif step.value == 2:
+            assert not zero.valid
+            assert zero.delta_value is None
+        return step.value
+
+    @graph
+    def fold(values: book, step: TS[int]) -> fixed:
+        return hg.reduce(pass_zero, values, select(source(step)), is_associative=False, output_type=fixed)
+
+    @graph
+    def read_fold(values: book, step: TS[int]) -> TS[int]:
+        return observe(step, fold(values, step))
+
+    assert eval_node(read_fold, [members], [0, 1, 2, 3]) == [0, 1, 2, 3]
+    assert eval_node(fold, [members], [0, 1, 2, 3]) == [{0: 10, 1: 20}, {0: hg.REMOVE}, None, {0: 30}]

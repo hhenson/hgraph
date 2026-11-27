@@ -26,7 +26,6 @@ namespace hgraph::detail
         bool (*slot_added)(const TSDataView &target, std::size_t slot) = nullptr;
         bool (*slot_removed)(const TSDataView &target, std::size_t slot) = nullptr;
         bool (*slot_published)(const TSDataView &target, std::size_t slot) = nullptr;
-        Range<ValueView> (*removed_keys)(const TSDataView &target) = nullptr;
         bool (*structural_delta_current)(const TSDataView &target,
                                          DateTime evaluation_time) = nullptr;
         ValueView (*key_at_slot)(const TSDataView &target, std::size_t slot) = nullptr;
@@ -286,15 +285,6 @@ namespace hgraph::detail
                        : TSDataView{};
         }
 
-        [[nodiscard]] TSDataView target_link_inherited_removals(const void *context, const void *memory) noexcept
-        {
-            const auto *link = target_link_for(context, memory);
-            // A local transition determines the removals even when there was
-            // no previous target. A newly selected target's removals were
-            // never visible through this link.
-            return link != nullptr && !link->structural_transition_active() ? link->target_view() : TSDataView{};
-        }
-
         [[nodiscard]] ValueView target_link_key_view(const TSInputTargetLinkContext &state,
                                                      const TSDataView &target,
                                                      std::size_t slot)
@@ -519,7 +509,6 @@ namespace hgraph::detail
             .slot_added = &set_access_slot_added,
             .slot_removed = &set_access_slot_removed,
             .slot_published = &set_access_slot_published,
-            .removed_keys = [](const TSDataView &target) { return target.as_set().removed_values(); },
             .structural_delta_current = &set_access_structural_delta_current,
             .key_at_slot = &set_access_key_at_slot,
             .contains = &set_access_contains,
@@ -535,7 +524,6 @@ namespace hgraph::detail
             .slot_added = &dict_access_slot_added,
             .slot_removed = &dict_access_slot_removed,
             .slot_published = &dict_access_slot_published,
-            .removed_keys = [](const TSDataView &target) { return target.as_dict().removed_keys(); },
             .structural_delta_current = &dict_access_structural_delta_current,
             .key_at_slot = &dict_access_key_at_slot,
             .contains = &dict_access_contains,
@@ -780,10 +768,7 @@ namespace hgraph::detail
                                         .predicate = &target_link_previous_slot_removed,
                                         .projector = &target_link_previous_key_projector};
             }
-            // A forwarded transition owns its removal slots on its previous
-            // target. Its current slots may belong to a different dictionary
-            // or set, or there may be no current target after withdrawal.
-            return state->slot_access->removed_keys(target_link_inherited_removals(context, memory));
+            return target_link_set_range(context, memory, &target_link_set_slot_removed);
         }
 
         [[nodiscard]] SlotTSDataMutationResult target_link_set_insert_key(const void *context, void *memory,
@@ -1072,8 +1057,7 @@ namespace hgraph::detail
                                          .predicate = &target_link_previous_slot_removed,
                                          .projector = &target_link_previous_dict_ts_projector};
             }
-            const auto target = target_link_inherited_removals(context, memory);
-            return target.as_dict().removed_values();
+            return target_link_dict_ts_range(context, memory, &target_link_set_slot_removed);
         }
 
         [[nodiscard]] KeyValueRange<ValueView, TSDataView> target_link_dict_items_range(const void *context,
@@ -1113,8 +1097,7 @@ namespace hgraph::detail
                     .predicate = &target_link_previous_slot_removed,
                     .projector = &target_link_previous_dict_kv_projector};
             }
-            const auto target = target_link_inherited_removals(context, memory);
-            return target.as_dict().removed_items();
+            return target_link_dict_kv_range(context, memory, &target_link_set_slot_removed);
         }
 
         [[nodiscard]] std::size_t target_link_indexed_size(const void *context, const void *memory) noexcept

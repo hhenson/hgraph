@@ -350,8 +350,8 @@ template <typename Collection> void check_repointed_collection(const auto &a, co
     CHECK_OUTPUT((eval_node<SumSelected<Collection, false>>(choice, a, b)), sums);
 }
 
-template <typename Zero, typename Combiner> struct ReduceFromSelectedZero {
-    static Port<Zero> compose(Wiring &w, Port<Book> collection, Port<N> choice, Port<Zero> left, Port<Zero> right) {
+template <typename Zero, typename Combiner, typename Collection = Book> struct ReduceFromSelectedZero {
+    static Port<Zero> compose(Wiring &w, Port<Collection> collection, Port<N> choice, Port<Zero> left, Port<Zero> right) {
         const auto zero = wire<SelectTarget<Zero>>(w, choice, left, right).template as<REF<Zero>>();
         return {w, compiled::reduce_(w, collection.erased(), compile_subgraph<Combiner>(w), zero.erased(),
                                      compiled::ReduceOrder::Ordered)};
@@ -360,6 +360,7 @@ template <typename Zero, typename Combiner> struct ReduceFromSelectedZero {
 
 using Seed = UnNamedTSB<Field<"v", N>>;
 using SeedPair = UnNamedTSB<Field<"a", N>, Field<"b", N>>;
+using FixedZeroList = TSL<N, 2>;
 
 template <typename Zero> struct ObserveOrderedZero {
     static void eval(In<"clock", N>, In<"value", Zero, InputActivity::Passive, InputValidity::Unchecked> value,
@@ -375,6 +376,7 @@ template <typename Zero> struct ObserveOrderedZero {
         for (std::size_t slot = 0; slot < ts.data_view().indexed_child_count(); ++slot) {
             const auto child = ts.indexed_child_at(slot);
             trace += child.valid() ? ":" + std::to_string(child.value().checked_as<Int>()) : ":-";
+            if (child.modified()) { trace += "!"; }
         }
         out.set(trace);
     }
@@ -486,6 +488,79 @@ template <typename Fixed> struct ObserveSelectedZeroClears {
         const auto result = ReduceFromSelectedZero<Fixed, PassAccumulator<Fixed>>::compose(w, collection, choice,
                                                                                           zero, zero);
         return wire<ObserveZeroClears<Fixed>>(w, clock, result);
+    }
+};
+
+template <typename T> struct ReturnMember {
+    static Port<T> compose(Wiring &, Port<T>, Port<T> member) { return member; }
+};
+
+template <typename T> using ReduceFromZeroToMember = ReduceFromSelectedZero<T, ReturnMember<T>, TSD<Int, T>>;
+
+template <typename T>
+void check_zero_to_member(Value left, Value right, Value member, Value transition) {
+    const auto collection = values<Value>(dict_delta<Int, T>({}), dict_delta<Int, T>({{0, member}}));
+    for (const Int choice : {1, 2}) {
+        CHECK_OUTPUT(eval_node<ReduceFromZeroToMember<T>>(
+                         collection, values<Int>(0, choice), values<Value>(left), values<Value>(right)),
+                     values<Value>(left, transition));
+    }
+}
+
+struct ObserveZeroToMemberKeys {
+    static void eval(In<"clock", N> clock, In<"value", Book, InputActivity::Passive, InputValidity::Unchecked> value,
+                     Out<N> out) {
+        if (clock.value() == 1) {
+            const auto dict = value.base().as_dict();
+            CHECK(std::ranges::empty(dict.added_keys()));
+            const auto removed = dict.removed_keys();
+            REQUIRE(std::ranges::distance(removed) == 1);
+            CHECK((*removed.begin()).checked_as<Int>() == 1);
+        }
+        out.set(clock.value());
+    }
+};
+
+struct ReduceZeroToMemberKeys {
+    static Port<N> compose(Wiring &w, Port<N> clock, Port<TSD<Int, Book>> collection, Port<N> choice,
+                           Port<Book> left, Port<Book> right) {
+        return wire<ObserveZeroToMemberKeys>(w, clock,
+            ReduceFromZeroToMember<Book>::compose(w, collection, choice, left, right));
+    }
+};
+
+struct ObserveFixedZeroListDelta {
+    static void eval(In<"clock", N> clock,
+                     In<"value", FixedZeroList, InputActivity::Passive, InputValidity::Unchecked> value, Out<N> out) {
+        const auto list = value.base().as_list();
+        const Int cycle = clock.value();
+        const auto positions = list.removed_positions();
+        if (cycle == 1 || cycle == 2) {
+            REQUIRE(std::ranges::distance(positions) == 1);
+            CHECK(*positions.begin() == static_cast<std::size_t>(cycle - 1));
+            const auto modified = list.modified_items();
+            CHECK(modified.begin() == modified.end());
+        }
+        if (cycle == 1) {
+            const Value delta{value.delta_value()};
+            CHECK(delta.view().equals(list_delta<N>({}, {0}).view()));
+        }
+        out.set(cycle);
+    }
+};
+
+struct ReduceFixedZeroListWithClears {
+    static Port<FixedZeroList> compose(Wiring &w, Port<Book> collection, Port<N> choice, Port<N> first, Port<N> second) {
+        const auto zero = wire<WriteOrClearZero<FixedZeroList>>(w, first, second).as<FixedZeroList>();
+        return ReduceFromSelectedZero<FixedZeroList, PassAccumulator<FixedZeroList>>::compose(w, collection, choice,
+                                                                                           zero, zero);
+    }
+};
+
+struct ReduceFixedZeroListDelta {
+    static Port<N> compose(Wiring &w, Port<N> clock, Port<Book> collection, Port<N> choice, Port<N> first, Port<N> second) {
+        return wire<ObserveFixedZeroListDelta>(w, clock,
+            ReduceFixedZeroListWithClears::compose(w, collection, choice, first, second));
     }
 };
 
@@ -836,7 +911,7 @@ TEST_CASE("compiled ordered reduce follows withdrawal of a structural reference 
     const auto ticking = values<Value>(dict_delta<Int, N>({{0, 1}}), dict_delta<Int, N>({{0, 2}}));
     const auto left = values<Value>(tsb_delta<Seed>(Int{100}), none, tsb_delta<Seed>(Int{101}));
     const auto right = values<Value>(tsb_delta<Seed>(Int{200}));
-    const auto expected = values<Str>("tick:100", "invalid", "invalid", "tick:200");
+    const auto expected = values<Str>("tick:100!", "invalid", "invalid", "tick:200!");
     CHECK_OUTPUT(eval_node<ObserveSelectedZero<Seed>>(clock, empty, withdraw, left, right), expected);
     CHECK_OUTPUT(eval_node<ObserveSelectedZero<Seed>>(clock, quiet, withdraw, left, right), expected);
     CHECK_OUTPUT(eval_node<ObserveSelectedZero<Seed>>(clock, ticking, withdraw, left, right), expected);
@@ -848,10 +923,10 @@ TEST_CASE("compiled ordered reduce follows withdrawal of a structural reference 
     CHECK_OUTPUT(eval_node<ObserveSelectedZero<List>>(clock, quiet, withdraw,
                      values<Value>(list_delta<N>({10, 20}), none, list_delta<N>({11, 21})),
                      values<Value>(list_delta<N>({30, 40}))),
-                 values<Str>("tick:10:20", "invalid", "invalid", "tick:30:40"));
+                 values<Str>("tick:10!:20!", "invalid", "invalid", "tick:30!:40!"));
     CHECK_OUTPUT(eval_node<ObservePartialZero>(clock, quiet, values<Int>(0, 1),
                      values<Int>(10, none, none, 11), values<Int>(20, none, 21)),
-                 values<Str>("tick:10:20", "quiet:10:-", "quiet:10:-", "tick:11:-"));
+                 values<Str>("tick:10!:20!", "quiet:10:-", "quiet:10:-", "tick:11!:-"));
 }
 
 TEST_CASE("compiled ordered reduce forwards keyed zero removals on REF changes", "[ordered-reduce-review-r4]") {
@@ -896,6 +971,46 @@ TEST_CASE("compiled ordered reduce samples each quiet valid field of a passed-th
     const auto expected = values<Value>(tsb_delta<SeedPair>(Int{10}, Int{20}), tsb_delta<SeedPair>(Int{11}, Int{20}));
     CHECK_OUTPUT(eval_node<Fold>(values<Int>(0, 1), empty, empty, zero), expected);
     CHECK_OUTPUT(eval_node<Fold>(values<Int>(0, 1), live, live, zero), expected);
+}
+
+TEST_CASE("compiled ordered reduce compares the first member to the previously published REF zero",
+          "[ordered-reduce-direct-output]") {
+    stdlib::register_standard_operators();
+    const auto left = dict_delta<Int, N>({{1, 10}, {2, 20}});
+    const auto right = dict_delta<Int, N>({{3, 300}});
+    const auto overlap = dict_delta<Int, N>({{2, 200}});
+    check_zero_to_member<Book>(left, right, dict_delta<Int, N>({{9, 90}}), dict_delta<Int, N>({{9, 90}}, {1, 2}));
+    check_zero_to_member<Book>(left, right, overlap, dict_delta<Int, N>({{2, 200}}, {1}));
+    const auto shelf = values<Value>(dict_delta<Int, Book>({}), dict_delta<Int, Book>({{0, overlap}}));
+    for (const Int choice : {1, 2}) {
+        const auto clock = values<Int>(0, 1);
+        CHECK_OUTPUT(eval_node<ReduceZeroToMemberKeys>(clock, shelf, values<Int>(0, choice),
+                                                       values<Value>(left), values<Value>(right)), clock);
+    }
+    using Set = TSS<Int>;
+    check_zero_to_member<Set>(set_delta<Int>({1, 2}, {}), set_delta<Int>({3}, {}),
+                              set_delta<Int>({9}, {}), set_delta<Int>({9}, {1, 2}));
+    check_zero_to_member<Set>(set_delta<Int>({1, 2}, {}), set_delta<Int>({3}, {}),
+                              set_delta<Int>({2}, {}), set_delta<Int>({}, {1}));
+    using Bundle = UnNamedTSB<Field<"d", Book>, Field<"x", N>>;
+    check_zero_to_member<Bundle>(tsb_delta<Bundle>(Value{left}, Int{100}), tsb_delta<Bundle>(Value{right}, Int{200}),
+                                 tsb_delta<Bundle>(Value{overlap}, Int{99}),
+                                 tsb_delta<Bundle>(dict_delta<Int, N>({{2, 200}}, {1}), Int{99}));
+}
+
+TEST_CASE("compiled ordered reduce preserves fixed-list position removals through a REF zero",
+          "[ordered-reduce-direct-output]") {
+    stdlib::register_standard_operators();
+    const auto empty = values<Value>(dict_delta<Int, N>({}));
+    const auto live = values<Value>(dict_delta<Int, N>({{0, 1}}));
+    const auto clock = values<Int>(0, 1, 2, 3);
+    const auto first = values<Int>(10, -1, none, 30);
+    const auto second = values<Int>(20, none, -1);
+    for (const auto &book : {empty, live}) {
+        CHECK_OUTPUT(eval_node<ReduceFixedZeroListDelta>(clock, book, values<Int>(0), first, second), clock);
+        CHECK_OUTPUT(eval_node<ReduceFixedZeroListWithClears>(book, values<Int>(0), first, second),
+                     values<Value>(list_delta<N>({10, 20}), list_delta<N>({}, {0}), none, list_delta<N>({{0, 30}})));
+    }
 }
 
 TEST_CASE("compiled ordered reduce keeps a captured input across collection re-points") {

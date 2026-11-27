@@ -888,16 +888,8 @@ namespace hgraph::detail
 
     void TSInputTargetLinkState::notify(DateTime modified_time)
     {
-        if (owner != nullptr)
-        {
-            // A scalar REF withdrawal wakes its followers without stamping
-            // the source link. Preserve that distinction through aliases so
-            // a fixed output's other fields do not acquire a tick.
-            if (scalar_target_link != nullptr && scalar_target_link->tracking.last_modified_time != modified_time)
-            {
-                owner->tracking.observers.notify(modified_time);
-            }
-            else { owner->record_target_modified(modified_time); }
+        if (owner != nullptr) {
+            owner->record_target_modified(modified_time);
         }
         const auto *root = active_root();
         if (root != nullptr && root->locally_active &&
