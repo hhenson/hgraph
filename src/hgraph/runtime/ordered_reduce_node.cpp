@@ -10,7 +10,6 @@
 #include <hgraph/util/scope.h>
 
 #include "reduce_capture_bindings.h"
-#include "reduce_output_binding.h"
 
 #include <algorithm>
 #include <array>
@@ -452,7 +451,10 @@ namespace hgraph
             TSOutputView source = storage.live_count == 0
                                       ? zero_output(view, evaluation_time)
                                       : link_output(storage, storage.live_count - 1, evaluation_time);
-            runtime_detail::bind_reduce_output(view.output(evaluation_time), source, evaluation_time);
+            // Keep the from-REF leaves in the forwarding path. They follow a
+            // zero's designation even when withdrawal produces no value tick.
+            static_cast<void>(bind_forwarding_output_tree_to_source(
+                view.output(evaluation_time), source, true, ForwardingSourceMode::PreserveEndpoint));
         }
 
         void sample_published_tail(const TSOutputView &output)
@@ -556,7 +558,6 @@ namespace hgraph
             const TSOutputHandle zero = effective_output_handle(zero_output(view, evaluation_time));
             const bool collection_repointed = !collection.same_as(storage.collection_source);
             const bool zero_repointed = !zero.same_as(storage.zero_source);
-            storage.sample_tail_after_retarget = collection_repointed && storage.published && ts.valid();
 
             const std::size_t next_count =
                 ts.valid() ? context.collection_ops->size(
@@ -564,6 +565,12 @@ namespace hgraph
                            : 0;
             const std::size_t old_count = storage.live_count;
             const std::size_t kept = std::min(old_count, next_count);
+            // A collection move can publish a quiet outer endpoint such as
+            // the zero. A child output publishes only when the combiner ticks.
+            const bool tail_aliases_input = next_count == 0 ||
+                context.spec.child.output_binding->kind == NestedGraphOutputBinding::Kind::ParentInput;
+            storage.sample_tail_after_retarget = collection_repointed && storage.published && ts.valid() &&
+                                                 tail_aliases_input;
 
             // A link is rebound only when what it is bound to has moved: the
             // whole collection re-pointed, or an element that was removed and
@@ -594,17 +601,12 @@ namespace hgraph
             if (rebind_from < kept) { rebind_links(view, context, storage, rebind_from, evaluation_time); }
             if (next_count > old_count)
             {
-                extend_chain(view, context, storage, next_count, evaluation_time, storage.sample_tail_after_retarget);
+                // The first selection may also address members that published
+                // earlier. Sample them independently of the tail's history.
+                extend_chain(view, context, storage, next_count, evaluation_time, collection_repointed);
             }
 
-            // A bundle zero behind a reference arrives as the from-REF
-            // alternative, whose root stays put while its fields follow the
-            // reference, so zero_repointed cannot see that zero move. The
-            // output's leaves were resolved through those fields: re-resolve
-            // them whenever the zero ticks, which a retarget always does.
-            // Leaves that did not move are left alone.
-            const bool zero_ticked = root.indexed_child_at(1).modified();
-            if (next_count != old_count || rebind_from < kept || zero_repointed || zero_ticked || !storage.published)
+            if (next_count != old_count || rebind_from < kept || zero_repointed || !storage.published)
             {
                 publish_tail(view, storage, evaluation_time);
                 storage.published = true;
@@ -998,7 +1000,7 @@ namespace hgraph
             meta.requires_phase_runner || spec.child.graph_builder.requires_phase_runner();
         meta.node_kind = NodeKind::Nested;
         meta.valid_inputs = std::vector<std::size_t>{};
-        meta.output_endpoint_schema = runtime_detail::reduce_output_endpoint_schema(meta.output_schema);
+        meta.output_endpoint_schema = forwarding_output_endpoint_schema(meta.output_schema);
 
         NodeTypeDescriptor descriptor;
         descriptor.schema = std::move(meta);

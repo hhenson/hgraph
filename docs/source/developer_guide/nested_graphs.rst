@@ -670,8 +670,9 @@ it linear, and each was separately quadratic before:
   by its effective target, followed through forwarding endpoints, and elements
   are projected from that target. A rebound link samples its new sources and
   keeps its state, so the due links refold from the zero, in index order, in
-  the cycle of the move. A collection that merely ticks rebinds nothing; value
-  changes and live-zero ticks use the standing bindings.
+  the cycle of the move. The first selection also samples already-published
+  members when it builds the chain. A collection that merely ticks rebinds
+  nothing. Value changes and live-zero ticks use the standing bindings.
 * **Only due links are visited.** A link is scheduled by its element or by the
   link before it, and its graph reports that through the child-schedule
   observer; the node keeps a heap of due link indices and visits those in
@@ -680,12 +681,12 @@ it linear, and each was separately quadratic before:
   runs, exactly as the keyed map does.
 
 The output forwards to the last link, or to the zero while the chain is empty.
-It is re-resolved, leaf by leaf, when the chain changes, when the zero
-re-points and whenever the zero ticks. A bundle zero behind a reference arrives
-as the from-REF alternative, whose root stays put while its fields follow the
-reference, so its tick is the only sign that it moved. After a collection
-re-point the output is sampled even when it still forwards to the same source,
-as when two empty collections forward the same zero.
+Forwarding preserves the source endpoints, including the from-REF leaves of
+a bundle or fixed-list zero. These leaves follow changes in designation even
+when withdrawal or selection of an unpublished target produces no value tick.
+After a collection re-point, a quiet output that forwards to an outer input
+is sampled, as when two empty collections forward the same zero. A combiner's
+own output follows its usual publication rules, including filtering and deduplication.
 
 The length and the ``0..n-1`` key contract are checked from the change, not by
 walking every key: the keys are distinct and non-negative, so they are exactly

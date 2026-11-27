@@ -305,3 +305,37 @@ def test_ordered_reduce_retains_delayed_source_schedules():
     assert eval_node(_ordered_delayed_reduce, [{0: 1}] + [None] * 9, [0] + [None] * 9) == [
         None, None, None, None, None, 42, None, None, 43, None
     ]
+
+
+def test_ordered_reduce_samples_a_dictionary_first_selected_after_publication():
+    book = TSD[int, TS[int]]
+
+    @hg.compute_node
+    def decimal_fold(accumulator: TS[int], member: TS[int]) -> TS[int]:
+        assert member.modified
+        assert member.delta_value == member.value
+        return 10 * accumulator.value + member.value
+
+    @graph
+    def fold(left: book, right: book, choose_right: TS[bool], zero: TS[int]) -> TS[int]:
+        return hg.reduce(decimal_fold, hg.if_then_else(choose_right, right, left), zero, is_associative=False)
+
+    assert eval_node(fold, [{0: 1, 1: 2}], [{0: 10, 1: 20}], [None, False, True], [None, 100]) == [
+        None, 10012, 10120,
+    ]
+
+
+def test_ordered_reduce_retarget_keeps_a_deduplicated_output_quiet():
+    book = TSD[int, TS[int]]
+
+    @graph
+    def combine(accumulator: TS[int], member: TS[int]) -> TS[int]:
+        return hg.dedup(10 * accumulator + member)
+
+    @graph
+    def fold(left: book, right: book, choose_right: TS[bool], zero: TS[int]) -> TS[int]:
+        return hg.reduce(combine, hg.if_then_else(choose_right, right, left), zero, is_associative=False)
+
+    assert eval_node(fold, [{0: 1, 1: 2}], [{0: 1, 1: 2}, None, {1: 3}], [False, True], [100]) == [
+        10012, None, 10013,
+    ]
