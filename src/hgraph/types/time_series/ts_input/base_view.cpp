@@ -1193,7 +1193,11 @@ namespace hgraph
     {
         if (is_target_position())
         {
-            auto child = data_view().indexed_child_at(index);
+            const auto &parent = data_view();
+            // Match typed bundle/list access so a fixed forwarding leaf keeps
+            // its own sampled-binding observation when indexed generically.
+            if (detail::has_input_children(parent)) { return child_from_resolved_input(parent, index); }
+            auto child = parent.indexed_child_at(index);
             return child_from_target(std::move(child), index);
         }
         return child_from_input(index);
