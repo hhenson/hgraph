@@ -597,7 +597,14 @@ namespace hgraph
                 extend_chain(view, context, storage, next_count, evaluation_time, storage.sample_tail_after_retarget);
             }
 
-            if (next_count != old_count || rebind_from < kept || zero_repointed || !storage.published)
+            // A bundle zero behind a reference arrives as the from-REF
+            // alternative, whose root stays put while its fields follow the
+            // reference, so zero_repointed cannot see that zero move. The
+            // output's leaves were resolved through those fields: re-resolve
+            // them whenever the zero ticks, which a retarget always does.
+            // Leaves that did not move are left alone.
+            const bool zero_ticked = root.indexed_child_at(1).modified();
+            if (next_count != old_count || rebind_from < kept || zero_repointed || zero_ticked || !storage.published)
             {
                 publish_tail(view, storage, evaluation_time);
                 storage.published = true;

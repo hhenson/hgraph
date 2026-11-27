@@ -357,6 +357,16 @@ template <typename Zero, typename Combiner> struct ReduceFromSelectedZero {
     }
 };
 
+using Seed = UnNamedTSB<Field<"v", N>>;
+
+struct ShiftAddSeed {
+    static Port<Seed> compose(Wiring &w, Port<Seed> accumulator, Port<N> member) {
+        const auto v = wire<stdlib::getitem_>(w, accumulator, Str{"v"}).as<N>();
+        const auto next = wire<ShiftAdd>(w, v, member).as<N>();
+        return wire<stdlib::pass_through_node>(w, stdlib::to_tsb<Seed>(w, next)).as<Seed>();
+    }
+};
+
 struct ReduceSelectedWithCapture {
     static Port<N> compose(Wiring &w, Port<N> choice, Port<Book> left, Port<Book> right, Port<N> bias,
                            Port<N> zero) {
@@ -628,6 +638,17 @@ TEST_CASE("compiled ordered reduce folds from a re-pointed zero") {
     CHECK_OUTPUT((eval_node<ReduceFromSelectedZero<N, Binary<ShiftAdd>>>(
                      emptied, values<Int>(0, 1, none, 0, 1, none), first, second)),
                  values<Int>(10012, 20012, 200, 100, 200, 2003));
+
+    // A bundle zero is followed field by field.
+    const auto first_seed = values<Value>(tsb_delta<Seed>(Int{100}));
+    const auto second_seed = values<Value>(tsb_delta<Seed>(Int{200}));
+    CHECK_OUTPUT((eval_node<ReduceFromSelectedZero<Seed, ShiftAddSeed>>(
+                     emptied, values<Int>(0, 1, none, 0, 1), first_seed, second_seed)),
+                 values<Value>(tsb_delta<Seed>(Int{10012}), tsb_delta<Seed>(Int{20012}), tsb_delta<Seed>(Int{200}),
+                               tsb_delta<Seed>(Int{100}), tsb_delta<Seed>(Int{200}), tsb_delta<Seed>(Int{2003})));
+    CHECK_OUTPUT((eval_node<ReduceFromSelectedZero<Seed, PassAccumulator<Seed>>>(book, choice, first_seed,
+                                                                                  second_seed)),
+                 values<Value>(tsb_delta<Seed>(Int{100}), tsb_delta<Seed>(Int{200}), tsb_delta<Seed>(Int{100})));
 }
 
 TEST_CASE("compiled ordered reduce keeps a captured input across collection re-points") {

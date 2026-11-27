@@ -680,9 +680,12 @@ it linear, and each was separately quadratic before:
   runs, exactly as the keyed map does.
 
 The output forwards to the last link, or to the zero while the chain is empty.
-It is re-resolved, leaf by leaf, when the chain changes or the zero re-points.
-After a collection re-point the output is sampled even when it still forwards
-to the same source, as when two empty collections forward the same zero.
+It is re-resolved, leaf by leaf, when the chain changes, when the zero
+re-points and whenever the zero ticks. A bundle zero behind a reference arrives
+as the from-REF alternative, whose root stays put while its fields follow the
+reference, so its tick is the only sign that it moved. After a collection
+re-point the output is sampled even when it still forwards to the same source,
+as when two empty collections forward the same zero.
 
 The length and the ``0..n-1`` key contract are checked from the change, not by
 walking every key: the keys are distinct and non-negative, so they are exactly
