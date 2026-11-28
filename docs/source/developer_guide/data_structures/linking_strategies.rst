@@ -159,6 +159,19 @@ target endpoint owns the mechanics that are otherwise familiar from
 ``TargetLink``: target binding data, target modification subscription,
 unbind cleanup, and replay of active subscriptions after a rebind.
 
+The subscriber also observes every live forwarding output the current
+reference names, peered or inside a non-peered item, so a forwarding
+output that retargets re-applies the link without a new ``REF`` tick.
+Those outputs are owned elsewhere: a ``switch_`` branch, for example,
+invalidates its outputs when it retires the branch. Invalidation
+detaches the observer set before it calls ``source_invalidated``, so the
+subscriber drops the handle whose tracking record is invalidating then
+and never unsubscribes through it again. Without that, a later ``REF``
+tick unsubscribes through a stale handle, which is a use-after-free once
+the branch slot is reused. Collection skips outputs that are no longer
+alive at the reference time. The interior from-``REF`` alternative's
+source and per-leaf observers follow the same rule.
+
 The target endpoint is not necessarily a single link. A
 ``TimeSeriesReference`` can describe a non-peered structure whose
 children each reference different outputs. In that case the target

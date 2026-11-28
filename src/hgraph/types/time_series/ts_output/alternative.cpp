@@ -933,6 +933,19 @@ namespace hgraph::detail
             plan.ops->apply_non_peered_reference(plan, target, reference, modified_time);
         }
 
+        /** Whether ``handle`` names the TSData whose tracking record is ``tracking``.
+            Only called for handles still registered with their source, which
+            ``source_invalidated`` keeps alive by dropping each one as its
+            record invalidates. */
+        [[nodiscard]] bool handle_tracks(const TSOutputHandle &handle, const TSDataTracking *tracking) noexcept
+        {
+            if (tracking == nullptr || !handle.bound()) { return false; }
+            return fallback_on_exception(false, [&] {
+                const auto view = handle.data_view();
+                return view.valid() && &view.tracking() == tracking;
+            });
+        }
+
         void collect_forwarding_reference_sources(const TimeSeriesReference &reference,
                                                   DateTime modified_time,
                                                   std::vector<TSOutputHandle> &sources)
@@ -942,6 +955,9 @@ namespace hgraph::detail
                 const auto &source = TSOutputAlternativeStore::peered_reference_target(reference);
                 if (!source.bound()) { return; }
                 auto view = source.view(modified_time);
+                // A retired owner (a stopped switch_ branch) may still hold the
+                // output; observing it would keep a handle its owner will free.
+                if (!ts_data_alive_at(view.data_view().borrowed_ref(), modified_time)) { return; }
                 if (!view.forwarding()) { return; }
                 if (std::ranges::none_of(sources, [&](const TSOutputHandle &existing) {
                         return existing.same_as(source);
@@ -1971,6 +1987,11 @@ namespace hgraph::detail
                 if (owner != nullptr) { owner->refresh(modified_time); }
             }
 
+            void source_invalidated(const TSDataTracking *tracking) noexcept override
+            {
+                if (owner != nullptr) { owner->source_invalidated(tracking); }
+            }
+
             RefLinkAlternativeState *owner{nullptr};
         };
 
@@ -2056,6 +2077,18 @@ namespace hgraph::detail
         }
 
       private:
+        /**
+         * An observed record is about to be destroyed and has already detached
+         * the notifier. Drop every handle naming it so no later unsubscribe
+         * reaches the freed (or reused) storage.
+         */
+        void source_invalidated(const TSDataTracking *tracking) noexcept
+        {
+            std::erase_if(reference_sources,
+                          [&](const TSOutputHandle &observed) { return handle_tracks(observed, tracking); });
+            if (handle_tracks(source, tracking)) { source.reset(); }
+        }
+
         void subscribe_source()
         {
             if (source.bound()) { source.data_view().subscribe(&notifier); }
@@ -2174,6 +2207,11 @@ namespace hgraph::detail
                 if (owner != nullptr) { owner->refresh(modified_time); }
             }
 
+            void source_invalidated(const TSDataTracking *tracking) noexcept override
+            {
+                if (owner != nullptr) { owner->source_invalidated(tracking); }
+            }
+
             InteriorFromRefAlternativeState *owner{nullptr};
         };
 
@@ -2195,6 +2233,9 @@ namespace hgraph::detail
             {
                 if (owner != nullptr) { owner->refresh_leaf(path, modified_time); }
             }
+
+            /** The leaf's source has detached this notifier; forget it. */
+            void source_invalidated(const TSDataTracking *) noexcept override { subscribed.reset(); }
 
             InteriorFromRefAlternativeState *owner{nullptr};
             /// Child positions from the plan root to the reference leaf.
@@ -2328,6 +2369,19 @@ namespace hgraph::detail
         }
 
       private:
+        /**
+         * The source record is about to be destroyed and has already detached
+         * the root notifier. Behind a forwarding source the leaves live on
+         * another output, so release them here: once ``source`` is reset,
+         * ``unsubscribe_source`` no longer reaches them.
+         */
+        void source_invalidated(const TSDataTracking *tracking) noexcept
+        {
+            if (!handle_tracks(source, tracking)) { return; }
+            unsubscribe_leaves(false);
+            source.reset();
+        }
+
         void release_links(DateTime release_time)
         {
             plan.ops->release(plan, data.view(), release_time);
