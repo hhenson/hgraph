@@ -1600,9 +1600,15 @@ namespace hgraph::detail
                 context->key_set_layout = static_cast<const TSSDataLayout &>(*key_set_layout);
                 context->key_set_layout.tracking_offset = storage_offset;
             }
+            const auto *key_set_schema = TypeRegistry::instance().tss(schema.key_type());
+            if (key_set_schema == nullptr)
+            {
+                throw std::logic_error("TSInput target-link TSD key-set schema is not resolved");
+            }
             context->key_set_ops = TSSDataOps{};
             TSDataOps key_set_base_ops = target_link_base_ops(*context);
             key_set_base_ops.kind = TSTypeKind::TSS;
+            key_set_base_ops.current_state_ops = &ts_current_state_detail::current_state_ops_for(*key_set_schema);
             key_set_base_ops.layout_impl = &target_link_key_set_layout;
             key_set_base_ops.tracking_impl = &target_link_key_set_tracking;
             key_set_base_ops.mutable_tracking_impl = &target_link_mutable_key_set_tracking;
@@ -1617,6 +1623,10 @@ namespace hgraph::detail
             key_set_base_ops.delta_view_impl = [](const void *c, const void *m, DateTime time) {
                 return target_link_key_set_producer(c, m).delta_value(time);
             };
+            key_set_base_ops.delta_memory_impl = [](const void *c, const void *m) {
+                const auto keys = target_link_key_set_producer(c, m);
+                return keys.delta_value(target_link_key_set_tracking(c, m)->last_modified_time).data();
+            };
             key_set_base_ops.value_memory_impl = [](const void *c, const void *m) {
                 return target_link_key_set_producer(c, m).value().data();
             };
@@ -1626,14 +1636,12 @@ namespace hgraph::detail
                 &python_ops_detail::forwarder<&PythonOps::TSData::target_link_key_set_value_as_delta_to_python>::call;
             key_set_base_ops.delta_to_python_impl =
                 &python_ops_detail::forwarder<&PythonOps::TSData::target_link_set_delta_to_python>::call;
+            key_set_base_ops.capture_delta_impl = &ts_data_detail::capture_delta_tss;
+            key_set_base_ops.delta_has_effect_impl = &ts_data_detail::delta_has_effect_tss;
+            key_set_base_ops.apply_delta_impl = &ts_data_detail::apply_delta_tss;
             static_cast<TSDataOps &>(context->key_set_ops) = key_set_base_ops;
             configure_target_link_set_ops(context->key_set_ops, &target_link_dict_insert_key,
                                           &target_link_dict_remove_key);
-            const auto *key_set_schema = TypeRegistry::instance().tss(schema.key_type());
-            if (key_set_schema == nullptr)
-            {
-                throw std::logic_error("TSInput target-link TSD key-set schema is not resolved");
-            }
             context->dict_layout.key_set_type = TSRoleTypeRef{intern_ts_type(
                 *key_set_schema, TypeRole::Input, root_plan, context->key_set_ops,
                 ts_labels::tsd_key_set_label(TypeRole::Input))};

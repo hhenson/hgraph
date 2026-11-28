@@ -126,9 +126,10 @@ a ``REF`` boundary or for a consumer of higher rank (GRF-27).
 A follower holds two things that can each go away, and each has one owner of
 its lifetime:
 
-- *The producer is destroyed.* Every link showing it is subscribed on it
-  directly (P2), so each is unbound silently by the existing observer
-  lifetime protocol, in one step at any depth.
+- *The producer expires or is destroyed.* Every link showing it subscribes
+  to it directly (P2), so the observer lifetime protocol clears its producer
+  silently in one step at any depth. A follower keeps its binding to a
+  live forwarding endpoint and adopts its next producer when it moves.
 - *The followed link expires or is destroyed.* When a retired nested graph
   expires (``expire_retired_nested_graphs``, ``retired_at < now``), and in
   the link's destructor, every remaining follower is detached silently: both
@@ -157,7 +158,8 @@ record/replay memory operator, the output dictionary view and the distributed
 boundary) and the Python delta export read the ranges. When serializing an
 incremental dictionary delta, the distributed boundary can reach a forwarding
 child inside an owned dictionary. It reads membership removals from the
-child's key-set range.
+child's key-set range and samples the whole subtree during a producer
+transition, including children of overlapping keys.
 
 **P9. Notification.** A keyed move stamps the link and its key set, notifies
 the link's observers and notifies the observers of single keys (TS-35),
@@ -229,6 +231,8 @@ its consumer
 ``TSD<K, TSL>`` retarget with a vacated key     Exact removed keys (P8)
 ``dmap_`` over nested dictionaries              Inner-key removals cross the
                                                 boundary recursively (P8)
+``dmap_`` over forwarding sets or dictionaries  Reconciles the sample including
+                                                overlapping children (P8)
 Single-key observer on a withdrawn dictionary   Woken, reads absent (P9)
 Link first bound to a target that removes a     No removal reported
 key in that cycle
@@ -239,6 +243,8 @@ Three links deep, producer destroyed; link      No read of freed storage,
 stopped, then its producer destroyed            under ASan (P7)
 Saved ``REF`` to a forwarding link in a         Invalid from the next cycle
 stopped ``switch_`` branch                      (P7, TS-23)
+Overwrite a saved ``REF`` after expiry          Followers read the new producer
+                                                (P1, P7, TS-23)
 Inner moves A to B, outer rebinds to A          Key set unmodified, slot
 (key-set and slot observers)                    observers attached (P6)
 Follower restored from a checkpoint before      First move after restore
@@ -368,7 +374,8 @@ Each step lands green on its own.
 
    - the link: ``ts_input/target_link.{h,cpp}``, ``target_link_ops.cpp``,
      ``target_link_structural_state.h`` and the structural storage header
-     (P11), ``ts_output/forwarding.h``;
+     (P11), ``ts_output/forwarding.h``, ``ts_output/base_view.cpp`` (P3
+     and P6), and the slot-observer list (moving a follower in place);
    - readers: the input set and dictionary views, ``ts_input/base_view.cpp``,
      ``ts_data/storage.cpp`` (``ts_data_alive_at`` reads the producer, P10);
    - lifetime: ``runtime/graph.cpp`` (``expire_retired_nested_graphs``, P7);

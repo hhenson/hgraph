@@ -202,6 +202,65 @@ def test_saved_reference_to_a_stopped_forwarding_branch_expires():
     ]
 
 
+def test_saved_dictionary_reference_can_be_overwritten_after_expiry():
+    @hg.graph
+    def owned_left(a: Book, b: Book) -> hg.REF[Book]:
+        owned = hg.pass_through_node(a)
+        return _choose_book(hg.const(0), owned, b)
+
+    @hg.graph
+    def owned_right(a: Book, b: Book) -> hg.REF[Book]:
+        owned = hg.pass_through_node(b)
+        return _choose_book(hg.const(0), owned, a)
+
+    @hg.compute_node(active=("save",), valid=("save",))
+    def save_reference(save: hg.TS[bool], selected: hg.REF[Book]) -> hg.REF[Book]:
+        if save.value:
+            return selected.value
+
+    observations = []
+
+    @hg.sink_node(active=("clock",), valid=("clock",))
+    def observe(clock: hg.TS[int], saved: Book):
+        observations.append(dict(saved.value) if saved.valid else None)
+
+    @hg.graph
+    def run(choice: hg.TS[int], a: Book, b: Book, save: hg.TS[bool], clock: hg.TS[int]):
+        selected = _switch(choice, {0: owned_left, 1: owned_right}, hg.REF[Book], a, b)
+        observe(clock, save_reference(save, selected))
+
+    eval_node(run, [0, 1, None, None], [{1: 10}], [{2: 20}], [True, False, False, True], [0, 1, 2, 3])
+    assert observations == [{1: 10}, {1: 10}, None, {2: 20}]
+
+
+def test_saved_set_reference_can_be_overwritten_after_expiry():
+    @hg.compute_node(active=("trigger",), valid=("trigger",))
+    def take_reference(trigger: hg.TS[bool], item: hg.REF[Keys]) -> hg.REF[Keys]:
+        return item.value
+
+    @hg.graph
+    def owned_left(a: Keys, b: Keys) -> hg.REF[Keys]:
+        return take_reference(hg.const(True), hg.pass_through_node(a))
+
+    @hg.graph
+    def owned_right(a: Keys, b: Keys) -> hg.REF[Keys]:
+        return take_reference(hg.const(True), hg.pass_through_node(b))
+
+    @hg.compute_node(active=("save",), valid=("save",))
+    def save_reference(save: hg.TS[bool], selected: hg.REF[Keys]) -> hg.REF[Keys]:
+        if save.value:
+            return selected.value
+
+    @hg.graph
+    def run(choice: hg.TS[int], a: Keys, b: Keys, save: hg.TS[bool]) -> Keys:
+        selected = _switch(choice, {0: owned_left, 1: owned_right}, hg.REF[Keys], a, b)
+        return save_reference(save, selected)
+
+    assert eval_node(run, [0, 1, None, None], [{1}], [{2}], [True, False, False, True]) == [
+        hg.set_delta(added={1}, tp=int), None, None, hg.set_delta(added={2}, tp=int),
+    ]
+
+
 def test_map_can_retire_a_forwarding_endpoint_before_a_higher_rank_retarget():
     @hg.graph
     def branch(item: Book) -> hg.REF[Book]:

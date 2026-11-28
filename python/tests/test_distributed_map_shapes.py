@@ -236,6 +236,43 @@ def test_structural_input_output_deltas(mapper, element_type, events):
     assert hg.eval_node(app, events) == expected
 
 
+@hg.graph
+def copy_structured_item(value: hg.TIME_SERIES_TYPE) -> hg.TIME_SERIES_TYPE:
+    return hg.pass_through_node(value)
+
+
+@pytest.mark.parametrize("in_process", [True, False], ids=["in_process", "process"])
+@pytest.mark.parametrize("item_type,left,right,expected", [
+    (hg.TSD[str, hg.TS[int]], [{"x": 1, "y": 2}], [{"y": 20, "z": 30}],
+     [{"x": 1, "y": 2}, {"x": hg.REMOVE, "y": 20, "z": 30}]),
+    (hg.TSS[str], [{"x", "y"}], [{"z"}],
+     [hg.set_delta(added={"x", "y"}, tp=str), hg.set_delta(added={"z"}, removed={"x", "y"}, tp=str)]),
+    (hg.TSS[str], [{"x", "y"}], [{"y", "z"}],
+     [hg.set_delta(added={"x", "y"}, tp=str), hg.set_delta(added={"z"}, removed={"x"}, tp=str)]),
+    (hg.TSD[str, hg.TSD[str, hg.TS[int]]], [{"x": {"p": 1}}], [{"x": {"q": 2}}, {"x": {"r": 3}}],
+     [{"x": {"p": 1}}, {"x": {"p": hg.REMOVE, "q": 2, "r": 3}}]),
+], ids=["dictionary", "smaller-set", "overlapping-set", "nested-dictionary"])
+def test_forwarding_elements_reconcile_a_new_producer(in_process, item_type, left, right, expected):
+    @hg.graph
+    def select_left(a: item_type, b: item_type) -> item_type:
+        return a
+
+    @hg.graph
+    def select_right(a: item_type, b: item_type) -> item_type:
+        return b
+
+    @hg.graph
+    def select_item(choice: hg.TS[int], a: item_type, b: item_type) -> item_type:
+        return hg.switch_(choice, {0: select_left, 1: select_right}, a, b)
+
+    @hg.graph
+    def run(choices: hg.TSD[str, hg.TS[int]], a: item_type, b: item_type) -> hg.TSD[str, item_type]:
+        mapped = hg.map_(select_item, choices, a, b)
+        return hg.dmap_(copy_structured_item, mapped, __workers__=3, in_process=in_process)
+
+    assert hg.eval_node(run, [{"a": 0}, {"a": 1}], left, right) == [{"a": item} for item in expected]
+
+
 def test_bundle_output_partial_updates(mapper):
     @hg.graph
     def app(values: hg.TSD[str, hg.TS[int]]) -> hg.TSD[str, hg.TSB[Row]]:

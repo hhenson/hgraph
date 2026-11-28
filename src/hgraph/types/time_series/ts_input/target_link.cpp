@@ -487,7 +487,7 @@ namespace hgraph::detail
                 structural_unsubscribe_slot_observers_noexcept(owner);
             }
             structural_clear_transition(owner);
-            storage.unfollow_endpoint();
+            storage.producer.reset();
             if (notify_slot_clear)
             {
                 static_cast<void>(fallback_on_exception(false, [&] {
@@ -1212,8 +1212,7 @@ namespace hgraph::detail
         state_.move_from(other.state_);
         if (followed != nullptr)
         {
-            followed->followers.add(&follower);
-            followed->followers.remove(&other.follower);
+            followed->followers.replace(&other.follower, &follower);
         }
         other.slot_observers.clear();
         if (structural_transition) { structural_transition->rebind_owner(*this); }
@@ -1237,8 +1236,7 @@ namespace hgraph::detail
             state_.move_from(other.state_);
             if (followed != nullptr)
             {
-                followed->followers.add(&follower);
-                followed->followers.remove(&other.follower);
+                followed->followers.replace(&other.follower, &follower);
             }
             structural_transition = std::move(other.structural_transition);
             if (structural_transition) { structural_transition->rebind_owner(*this); }
@@ -1599,16 +1597,22 @@ namespace hgraph::detail
 
     void TSInputTargetLinkStorage::source_invalidated(const TSDataTracking *source) noexcept
     {
-        clear_declared_source_view();
+        const bool keyed = tracks_keyed_producer();
         last_sample_time = MIN_DT;
-        if (tracks_keyed_producer()) { unsubscribe_active_target(); }
+        if (keyed) { unsubscribe_active_target(); }
         else { state_.clear_active_observed(); }
-        state_.target.reset();
-        state_.writes_parent_output = false;
         state_.tracks_structure = false;
         state_.tracks_key = false;
-        state_.target_is_reference = false;
-        state_.scalar_target_link = nullptr;
+        // Only endpoint retirement ends a follower's binding. A live endpoint
+        // can supply another producer after the current producer expires.
+        if (!keyed || structural_storage(*this).followed == nullptr)
+        {
+            clear_declared_source_view();
+            state_.target.reset();
+            state_.writes_parent_output = false;
+            state_.target_is_reference = false;
+            state_.scalar_target_link = nullptr;
+        }
         structural_ops_->source_invalidated(*this, source);
     }
 

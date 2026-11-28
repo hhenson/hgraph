@@ -219,10 +219,11 @@ namespace
                      values<Value>(dict_delta<Int, N>({{1, 10}, {2, 20}}), dict_delta<Int, N>({{2, 200}, {3, 300}}, {1})));
     }
 
+    template <typename T>
     struct SaveKeyedReference
     {
-        static void eval(In<"save", TS<Bool>> save, In<"selected", REF<Book>, InputActivity::Passive> selected,
-                         Out<REF<Book>> out) {
+        static void eval(In<"save", TS<Bool>> save, In<"selected", REF<T>, InputActivity::Passive> selected,
+                         Out<REF<T>> out) {
             if (save.value()) { out.set(selected.value()); }
         }
     };
@@ -239,7 +240,7 @@ namespace
     {
         static Port<N> compose(Wiring &w, Port<N> sel, Port<Book> a, Port<Book> b, Port<TS<Bool>> save, Port<N> clock) {
             const auto selected = RefCopySwitchOverForwardingBranch::compose(w, sel, a, b);
-            const auto saved    = wire<SaveKeyedReference>(w, save, selected).as<REF<Book>>();
+            const auto saved    = wire<SaveKeyedReference<Book>>(w, save, selected).as<REF<Book>>();
             return wire<ReadSavedKeyedReference>(w, clock, saved, saved.as<Book>());
         }
     };
@@ -250,6 +251,53 @@ namespace
         const auto b = values<Value>(dict_delta<Int, N>({{3, 30}}));
         CHECK_OUTPUT(eval_node<SavedKeyedBranchReference>(values<Int>(0, 1), a, b, values<Bool>(true), values<Int>(0, 1, 2)),
                      values<Int>(2, 2, -1));
+    }
+
+    template <typename T>
+    struct SavedOwnedBranchReference
+    {
+        template <bool UseRight>
+        struct Branch
+        {
+            static Port<REF<T>> compose(Wiring &w, Port<T> a, Port<T> b)
+            {
+                const auto owned = wire<stdlib::pass_through_node>(w, UseRight ? b : a).template as<T>();
+                const auto first = wire<stdlib::const_, N>(w, Int{0});
+                return wire<SelectTarget<T>>(w, first, owned, owned).template as<REF<T>>();
+            }
+        };
+
+        static Port<T> compose(Wiring &w, Port<N> select, Port<T> a, Port<T> b, Port<TS<Bool>> save)
+        {
+            std::vector<SwitchBranchGraph> cases{
+                {Value{Int{0}}, compile_subgraph<Branch<false>>(w)},
+                {Value{Int{1}}, compile_subgraph<Branch<true>>(w)},
+            };
+            const std::array inputs{a.erased(), b.erased()};
+            const Port<REF<T>> selected{w, compiled::switch_(w, select.erased(), inputs, std::move(cases))};
+            return wire<SaveKeyedReference<T>>(w, save, selected).template as<T>();
+        }
+    };
+
+    TEST_CASE("Saved REF to an expired keyed producer can be reused", "[keyed-forwarding]")
+    {
+        stdlib::register_standard_operators();
+        const auto select = values<Int>(0, 1, none, none);
+        const auto save = values<Bool>(true, false, false, true);
+        SECTION("dictionary")
+        {
+            const auto left = dict_delta<Int, N>({{1, 10}});
+            const auto right = dict_delta<Int, N>({{2, 20}});
+            CHECK_OUTPUT(eval_node<SavedOwnedBranchReference<Book>>(select, values<Value>(left), values<Value>(right), save),
+                         values<Value>(left, none, none, right));
+        }
+        SECTION("set")
+        {
+            const auto left = set_delta<Int>({1}, {});
+            const auto right = set_delta<Int>({2}, {});
+            CHECK_OUTPUT(eval_node<SavedOwnedBranchReference<TSS<Int>>>(select, values<Value>(left), values<Value>(right), save),
+                         values<Value>(left, none, none, right));
+        }
     }
 
     struct MappedForwardingRefChild
@@ -418,7 +466,7 @@ namespace
         CHECK(set_keys(out.as_dict().added_keys()) == std::set<Int>{2});
     }
 
-    TEST_CASE("Producer destruction detaches keyed followers at every depth", "[keyed-forwarding][lifetime]") {
+    TEST_CASE("Producer destruction clears the value while followers retain live endpoints", "[keyed-forwarding][lifetime]") {
         const auto             *schema   = book_schema();
         const auto              endpoint = TSEndpointSchema::peered(schema);
         std::optional<TSOutput> producer{std::in_place, schema};
@@ -436,11 +484,48 @@ namespace
             CHECK(outer.view(MIN_ST).valid());
         }
         producer.reset();
+        const auto move = MIN_ST + MIN_TD;
+        CHECK_FALSE(inner.view(move).forwarding_bound());
+        CHECK(middle.view(move).forwarding_target().same_as(inner.view(move).handle()));
+        CHECK(outer.view(move).forwarding_target().same_as(middle.view(move).handle()));
         for (auto *link : {&inner, &middle, &outer}) {
-            const auto view = link->view(MIN_ST + MIN_TD);
-            CHECK_FALSE(view.forwarding_bound());
+            const auto view = link->view(move);
             CHECK_FALSE(view.valid());
             CHECK(view.as_dict().empty());
+        }
+
+        TSOutput replacement{schema};
+        set_book(replacement, move, 2, 20);
+        inner.view(move).bind_forwarding_target_sampled(replacement.view(move));
+        const auto rebound = outer.view(move);
+        CHECK(rebound.valid());
+        CHECK(set_keys(rebound.as_dict().keys()) == std::set<Int>{2});
+    }
+
+    TEST_CASE("Ordinary keyed output binding uses the sampled transition clock", "[keyed-forwarding]")
+    {
+        const auto *schema = book_schema();
+        const auto endpoint = TSEndpointSchema::peered(schema);
+        const auto move = MIN_ST + MIN_TD;
+        TSOutput a{schema}, b{schema}, inner{endpoint}, outer{endpoint};
+        SECTION("Moves between unpublished producers stay silent")
+        {
+            inner.view(MIN_ST).bind_forwarding_target(a.view(MIN_ST));
+            inner.view(move).bind_forwarding_target(b.view(move));
+            CHECK_FALSE(inner.view(move).valid());
+            CHECK_FALSE(inner.view(move).modified());
+        }
+        SECTION("Binding back to the prior producer cancels the round trip")
+        {
+            set_book(a, MIN_ST, 1, 10);
+            set_book(b, MIN_ST, 2, 20);
+            inner.view(MIN_ST).bind_forwarding_target(a.view(MIN_ST));
+            outer.view(MIN_ST).bind_forwarding_target(inner.view(MIN_ST));
+            inner.view(move).bind_forwarding_target_sampled(b.view(move));
+            outer.view(move).bind_forwarding_target(a.view(move));
+            const auto rebound = outer.view(move);
+            CHECK_FALSE(rebound.modified());
+            CHECK_FALSE(rebound.as_dict().key_set().modified());
         }
     }
 
@@ -500,7 +585,14 @@ namespace
         set_book(b, MIN_ST, 2, 20);
         dictionary.view(MIN_ST).bind_forwarding_target(a.view(MIN_ST));
         const auto dictionary_view = dictionary.view(MIN_ST);
-        keys.view(MIN_ST).bind_forwarding_target(dictionary_view.as_dict().key_set());
+        const auto key_set = dictionary_view.as_dict().key_set();
+        const auto a_view = a.view(MIN_ST);
+        const auto owned = a_view.as_dict().key_set();
+        const auto &forwarding_ops = key_set.data_view().ops();
+        const auto &owned_ops = owned.data_view().ops();
+        CHECK(forwarding_ops.capture_delta_impl == owned_ops.capture_delta_impl);
+        CHECK(forwarding_ops.current_state_ops == owned_ops.current_state_ops);
+        keys.view(MIN_ST).bind_forwarding_target(key_set);
         REQUIRE(keys.view(MIN_ST).valid());
 
         dictionary.view(move).bind_forwarding_target_sampled(b.view(move));

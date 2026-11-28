@@ -68,6 +68,8 @@ namespace hgraph
         void add(SlotObserver *observer);
         /** Unregister an observer; ignored if null and asserted when not registered. */
         void remove(SlotObserver *observer);
+        /** Replace a registered observer in place without allocating. */
+        void replace(SlotObserver *observer, SlotObserver *replacement) noexcept;
 
         /** True when no observers are registered. */
         [[nodiscard]] bool empty() const noexcept;

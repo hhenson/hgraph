@@ -121,9 +121,11 @@ namespace hgraph
         }
         const TSOutputHandle previous = forwarding_target();
         detail::bind_target_link(data_, source);
-        if (evaluation_time_ != MIN_DT && previous.bound() && !previous.same_as(forwarding_target()))
+        auto *link = detail::mutable_target_link_storage(data_);
+        if (!link->tracks_keyed_producer() && evaluation_time_ != MIN_DT &&
+            previous.bound() && !previous.same_as(forwarding_target()))
         {
-            detail::mutable_target_link_storage(data_)->record_target_modified(evaluation_time_);
+            link->record_target_modified(evaluation_time_);
         }
     }
 
