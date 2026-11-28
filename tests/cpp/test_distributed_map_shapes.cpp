@@ -258,8 +258,10 @@ TEST_CASE("dmap shapes: structured elements retain recursive deltas")
     SECTION("dictionary")
     {
         using S = TSD<Str, TS<Int>>;
-        const auto inputs = values<Value>(dict_delta<Str, S>({{"a", dict_delta<Str, TS<Int>>({{"x", 1}})}}),
-            dict_delta<Str, S>({{"a", dict_delta<Str, TS<Int>>({}, {"x"})}}), dict_delta<Str, S>({}, {"a"}));
+        const auto inputs = values<Value>(
+            dict_delta<Str, S>({{"a", dict_delta<Str, TS<Int>>({{"x", 1}, {"y", 2}})}}),
+            dict_delta<Str, S>({{"a", dict_delta<Str, TS<Int>>({{"y", 3}, {"z", 4}}, {"x"})}}),
+            dict_delta<Str, S>({}, {"a"}));
         CHECK_OUTPUT(eval_node<Structured<S>>(inputs), inputs);
     }
     SECTION("fixed list")

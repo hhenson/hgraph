@@ -153,8 +153,11 @@ carries its own slot space. There are two, and they differ (TS-19):
 Links do not offer ``membership_slot_removed`` or
 ``next_membership_removed_slot``: a slot number from the prior producer must
 never index the current one. Their callers (``capture_delta``, the
-record/replay memory operator, the output dictionary view) and the Python
-delta export read the ranges.
+record/replay memory operator, the output dictionary view and the distributed
+boundary) and the Python delta export read the ranges. When serializing an
+incremental dictionary delta, the distributed boundary can reach a forwarding
+child inside an owned dictionary. It reads membership removals from the
+child's key-set range.
 
 **P9. Notification.** A keyed move stamps the link and its key set, notifies
 the link's observers and notifies the observers of single keys (TS-35),
@@ -224,6 +227,8 @@ Endpoint stopped before a ``REF`` republishes   Removals from the stopped
 ``map_`` child stopped at a lower rank than     The same (P7)
 its consumer
 ``TSD<K, TSL>`` retarget with a vacated key     Exact removed keys (P8)
+``dmap_`` over nested dictionaries              Inner-key removals cross the
+                                                boundary recursively (P8)
 Single-key observer on a withdrawn dictionary   Woken, reads absent (P9)
 Link first bound to a target that removes a     No removal reported
 key in that cycle
@@ -368,8 +373,8 @@ Each step lands green on its own.
      ``ts_data/storage.cpp`` (``ts_data_alive_at`` reads the producer, P10);
    - lifetime: ``runtime/graph.cpp`` (``expire_retired_nested_graphs``, P7);
    - removals by key (P8): ``ts_delta.cpp``,
-     ``record_replay_memory_impl.h`` and ``ts_output/dict_view.cpp``, which
-     call the two slot cursors today;
+     ``record_replay_memory_impl.h``, ``ts_output/dict_view.cpp`` and
+     ``runtime/distributed_boundary.cpp``;
    - Python set and key-set delta export: ``ts_input_conversions.cpp``,
      ``conversion.cpp``, ``python_ops.h``, ``detail/ts_input_seams.h``;
    - restore: ``restore_binding`` passes its producer to followers quietly

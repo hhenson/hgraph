@@ -23,6 +23,7 @@ namespace hgraph
                 {
                     sampled = std::max(sampled, link->structural_transition_time());
                 }
+                if (link->tracks_keyed_producer()) { break; }
                 auto target = link->target_view();
                 link = detail::target_link_storage(target);
             }
@@ -217,8 +218,9 @@ namespace hgraph
                 const auto &ops = data.ops();
                 const bool collection = ops.kind == TSTypeKind::TSS || ops.kind == TSTypeKind::TSD ||
                                         ops.kind == TSTypeKind::TSB || ops.kind == TSTypeKind::TSW;
-                if (!ops.is_target_link && collection && data.tracking().cleared_at(evaluation_time) &&
-                    structural_sample_time(link) != evaluation_time) {
+                const bool moved = link != nullptr && link->structural_transition_active() &&
+                                   link->structural_transition_time() == evaluation_time;
+                if (!ops.is_target_link && collection && data.tracking().cleared_at(evaluation_time) && !moved) {
                     return false;
                 }
                 return !data.invalidated(evaluation_time) &&
@@ -459,6 +461,7 @@ namespace hgraph
         const auto *schema = detail::target_link_schema(data_.raw_data);
         const auto *link = data_.link_storage();
         if (schema == nullptr || link == nullptr) { return {}; }
+        if (data_.is_target_root()) { return link->target_output().view(evaluation_time_); }
         return link->resolved_target_at_path(*schema, data_.target_path_node()).view(evaluation_time_);
     }
 
@@ -693,7 +696,8 @@ namespace hgraph
                 throw std::logic_error("TSInputView::reference requires target-link storage");
             }
 
-            auto target = link->resolved_target_at_path(*target_schema, data_.target_path_node());
+            auto target = data_.is_target_root() ? link->target_output()
+                                                  : link->resolved_target_at_path(*target_schema, data_.target_path_node());
             if (!target.bound()) { return TimeSeriesReference::empty(view_schema); }
             // A target landing on a from-ref ALTERNATIVE position stays a
             // reference TO that position while the alternative is BOUND (the
@@ -776,13 +780,13 @@ namespace hgraph
 
     TSOutputHandle PreparedInputReferenceRoute::target() const
     {
-        if (!link_->bound()) { return {}; }
-        auto current = link_->target_view();
+        if (path_.empty()) { return link_->target_output(); }
+        auto current = link_->producer_view();
         for (const auto &step : path_) {
             current = step.project(current, step.index);
             if (!current.valid()) { return {}; }
         }
-        return TSOutputHandle{link_->target_output().output(), current};
+        return TSOutputHandle{link_->producer_output().output(), current};
     }
 
     PreparedInputReferenceRoute::PreparedInputReferenceRoute(PreparedInputReferenceRoute &&other) noexcept

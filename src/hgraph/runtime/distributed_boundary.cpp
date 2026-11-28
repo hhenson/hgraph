@@ -327,10 +327,8 @@ namespace hgraph::distributed
                 const auto keys = data.key_set();
                 const bool structure_changed = keys.modified(in.evaluation_time());
                 if (structure_changed)
-                    for (auto slot = data.next_membership_removed_slot(); slot != TS_DATA_NO_CHILD_ID;
-                         slot = data.next_membership_removed_slot(slot))
+                    for (const auto &key : keys.removed_values())
                     {
-                        const auto key = keys.at_slot(slot);
                         if (groups == 0 || selected(plan.key.portable_hash(key), group, groups))
                         { byte(1, bytes); plan.key.write(key, writer); }
                     }

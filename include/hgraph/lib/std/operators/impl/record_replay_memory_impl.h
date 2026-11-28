@@ -80,7 +80,6 @@ namespace hgraph::stdlib
         // loses its value still belongs to the dictionary until its key is erased.
         inline DictionaryChanges dictionary_changes(const TSInputView &in, const Value &delta) {
             const auto dict = in.as_dict();
-            const auto data = dict.data_view();
             const auto captured_removals = delta.as_bundle().at(0);
             const auto key_type = compact_element_binding(captured_removals.binding());
             std::optional<SetBuilder> cleared;
@@ -107,9 +106,10 @@ namespace hgraph::stdlib
             }
             DictionaryChanges changes;
             if (cleared) { changes.cleared = cleared->build(); }
-            if (captured_removals.as_set().empty() && data.next_membership_removed_slot() == TS_DATA_NO_CHILD_ID) { return changes; }
+            const auto membership_removals = dict.removed_keys();
+            if (captured_removals.as_set().empty() && membership_removals.begin() == membership_removals.end()) { return changes; }
             SetBuilder removed{key_type};
-            for (const auto &key : dict.removed_keys()) { static_cast<void>(removed.insert(key)); }
+            for (const auto &key : membership_removals) { static_cast<void>(removed.insert(key)); }
             Value actual = removed.build();
             if (!actual.view().equals(captured_removals)) { changes.removed = std::move(actual); }
             return changes;

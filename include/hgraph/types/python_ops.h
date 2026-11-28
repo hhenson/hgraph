@@ -223,6 +223,9 @@ namespace hgraph
             ToPythonFn      target_link_to_python{nullptr};
             DeltaToPythonFn target_link_delta_to_python{nullptr};
             DeltaToPythonFn target_link_dict_delta_to_python{nullptr};
+            ToPythonFn      target_link_key_set_to_python{nullptr};
+            ToPythonFn      target_link_key_set_value_as_delta_to_python{nullptr};
+            DeltaToPythonFn target_link_set_delta_to_python{nullptr};
         } ts_data;
 
         /** The retained-object cache of a ``NativeWithPythonCache`` output:

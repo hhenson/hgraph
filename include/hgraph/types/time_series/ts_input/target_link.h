@@ -96,6 +96,7 @@ namespace hgraph::detail
         [[nodiscard]] TSInputTargetActiveNode &ensure_active_root();
         void clear_active_observed() noexcept;
         void unsubscribe_active_tree() noexcept;
+        [[nodiscard]] const TSOutputHandle &producer() const noexcept;
         [[nodiscard]] TSOutputHandle tracking_source() const;
         void refresh_tracking_subscription();
         void unsubscribe_tracking();
@@ -155,6 +156,7 @@ namespace hgraph::detail
         void unbind(DateTime evaluation_time = MIN_DT);
         void unbind_structural(DateTime modified_time);
         void unbind_noexcept() noexcept;
+        void expire_followers() noexcept;
         void source_invalidated(const TSDataTracking *source) noexcept;
         void record_target_modified(DateTime modified_time);
         [[nodiscard]] const TSDataTracking &key_set_tracking() const;
@@ -180,6 +182,9 @@ namespace hgraph::detail
         void remove_slot_observer(SlotObserver *observer);
 
         [[nodiscard]] TSDataView target_view() const noexcept;
+        [[nodiscard]] const TSOutputHandle &producer_output() const noexcept;
+        [[nodiscard]] TSDataView producer_view() const noexcept;
+        [[nodiscard]] bool tracks_keyed_producer() const noexcept;
         [[nodiscard]] TSDataView previous_target_view() const noexcept;
         [[nodiscard]] const TSOutputHandle &target_output() const noexcept;
         /**
@@ -229,6 +234,8 @@ namespace hgraph::detail
     };
 
     [[nodiscard]] const TSInputTargetLinkStorage *target_link_storage(const TSDataView &view) noexcept;
+    /** The producer of a keyed link, projected to the supplied endpoint schema. */
+    [[nodiscard]] HGRAPH_EXPORT TSOutputHandle keyed_link_producer(const TSDataView &view) noexcept;
     [[nodiscard]] TSInputTargetLinkStorage *mutable_target_link_storage(const TSDataView &view);
     /** Target-link trie/observer bytes reachable through an input-shaped TSData tree. */
     [[nodiscard]] DynamicStorageMetrics input_target_link_dynamic_storage_metrics(

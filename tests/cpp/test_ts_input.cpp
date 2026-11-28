@@ -19,6 +19,7 @@
 #include <array>
 #include <cstdint>
 #include <ostream>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -2454,7 +2455,7 @@ TEST_CASE("TSD input structural ranges do not repeat a prior removal on a forwar
     auto input_view = input.view(nullptr, t3);
     auto current = input_view.as_dict();
     REQUIRE(current.modified());
-    REQUIRE_FALSE(current.structure_modified());
+    REQUIRE(current.structure_modified());
     auto added_keys = current.added_keys();
     auto added_values = current.added_values();
     auto added_items = current.added_items();
@@ -3214,17 +3215,14 @@ TEST_CASE("Runtime contract dictionary rebind samples children and retains withd
     REQUIRE(range_size(dict.added_keys()) == 1);
     REQUIRE(range_size(dict.removed_keys()) == 1);
     REQUIRE(range_size(dict.removed_items()) == 1);
-    const auto previous_target = a.view(rebind);
     const auto current_target = b.view(rebind);
-    const auto x_slot = previous_target.as_dict().find_slot(x.view());
-    const auto z_slot = previous_target.as_dict().find_slot(z.view());
     const auto y_slot = current_target.as_dict().find_slot(y.view());
-    CHECK(dict.slot_removed(x_slot));
-    CHECK_FALSE(dict.slot_removed(z_slot));
-    CHECK_FALSE(dict.slot_removed(100));
     auto rebound_data = dict.data_view();
-    CHECK(rebound_data.next_membership_removed_slot() == x_slot);
-    CHECK(rebound_data.next_membership_removed_slot(x_slot) == TS_DATA_NO_CHILD_ID);
+    for (const auto &key : rebound_data.key_set().removed_values())
+    {
+        CHECK(key.checked_as<int>() == 1);
+    }
+    CHECK(range_size(rebound_data.key_set().removed_values()) == 1);
     CHECK(rebound_data.next_membership_added_slot() == y_slot);
     for (const auto &[key, child] : dict.removed_items())
     {
@@ -3249,13 +3247,10 @@ TEST_CASE("Runtime contract dictionary rebind samples children and retains withd
     REQUIRE(dict.empty());
     REQUIRE(range_size(dict.removed_keys()) == 2);
     REQUIRE(range_size(dict.removed_items()) == 2);
-    CHECK(dict.slot_removed(y_slot));
-    CHECK(dict.slot_removed(z_slot));
-    CHECK_FALSE(dict.slot_removed(100));
     auto withdrawn_data = dict.data_view();
-    CHECK(withdrawn_data.next_membership_removed_slot() == y_slot);
-    CHECK(withdrawn_data.next_membership_removed_slot(y_slot) == z_slot);
-    CHECK(withdrawn_data.next_membership_removed_slot(z_slot) == TS_DATA_NO_CHILD_ID);
+    std::set<int> withdrawn_keys;
+    for (const auto &key : withdrawn_data.key_set().removed_values()) { withdrawn_keys.insert(key.checked_as<int>()); }
+    CHECK(withdrawn_keys == std::set<int>{2, 3});
     CHECK(withdrawn_data.next_membership_added_slot() == TS_DATA_NO_CHILD_ID);
     REQUIRE(capture_delta(view).view().as_bundle().at(0).as_set().size() == 2);
     view = input.view(nullptr, withdrawal + TimeDelta{1});

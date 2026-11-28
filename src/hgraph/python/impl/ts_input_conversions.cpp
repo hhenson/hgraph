@@ -194,6 +194,33 @@ namespace hgraph::python_bridge
             result[nb::str{"modified"}] = std::move(modified);
             return result;
         }
+
+        [[nodiscard]] nb::object target_link_key_set_to_python(const void *context, const void *memory)
+        {
+            return value_to_python(seams::target_link_set_target_view(context, memory));
+        }
+
+        [[nodiscard]] nb::object target_link_key_set_value_as_delta_to_python(const void *context, const void *memory)
+        {
+            return value_as_delta_to_python(seams::target_link_set_target_view(context, memory));
+        }
+
+        [[nodiscard]] nb::object target_link_set_delta_to_python(const void *context, const void *memory,
+                                                                 DateTime evaluation_time)
+        {
+            if (!seams::target_link_transition(context, memory, evaluation_time))
+            {
+                return delta_value_to_python(seams::target_link_set_target_view(context, memory), evaluation_time);
+            }
+            nb::set added;
+            nb::set removed;
+            for (const auto &key : seams::target_link_added_set_keys(context, memory)) { added.add(to_python(key)); }
+            for (const auto &key : seams::target_link_removed_set_keys(context, memory)) { removed.add(to_python(key)); }
+            nb::dict result;
+            result[nb::str{"added"}] = std::move(added);
+            result[nb::str{"removed"}] = std::move(removed);
+            return result;
+        }
     }  // namespace
 
     void fill_ts_input_conversions(PythonOps::TSData &section) noexcept
@@ -212,5 +239,8 @@ namespace hgraph::python_bridge
         section.target_link_to_python            = &to_python_slot<&target_link_to_python>;
         section.target_link_delta_to_python      = &ts_delta_to_python_slot<&target_link_delta_to_python>;
         section.target_link_dict_delta_to_python = &ts_delta_to_python_slot<&target_link_dict_delta_to_python>;
+        section.target_link_key_set_to_python = &to_python_slot<&target_link_key_set_to_python>;
+        section.target_link_key_set_value_as_delta_to_python = &to_python_slot<&target_link_key_set_value_as_delta_to_python>;
+        section.target_link_set_delta_to_python = &ts_delta_to_python_slot<&target_link_set_delta_to_python>;
     }
 }  // namespace hgraph::python_bridge

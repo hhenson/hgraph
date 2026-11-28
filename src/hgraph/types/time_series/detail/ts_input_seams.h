@@ -51,6 +51,9 @@ namespace hgraph::ts_input_seams
     [[nodiscard]] bool target_link_sampled(const void *context, const void *memory, DateTime time);
     [[nodiscard]] bool target_link_transition(const void *context, const void *memory, DateTime time);
     [[nodiscard]] Range<ValueView> target_link_removed_keys(const void *context, const void *memory);
+    [[nodiscard]] TSDataView target_link_set_target_view(const void *context, const void *memory);
+    [[nodiscard]] Range<ValueView> target_link_added_set_keys(const void *context, const void *memory);
+    [[nodiscard]] Range<ValueView> target_link_removed_set_keys(const void *context, const void *memory);
     /** The target output a delta applied through the link lands on (the
         write-through of ``apply_delta``); throws when the link is unbound. */
     [[nodiscard]] TSOutputView target_link_delta_target(const void *context, const TSOutputView &output);

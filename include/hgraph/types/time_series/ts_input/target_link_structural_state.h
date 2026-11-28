@@ -24,16 +24,22 @@ namespace hgraph::detail
     {
         bool supports_structural{false};
 
+        const TSOutputHandle &(*producer)(const TSInputTargetLinkStorage &owner) noexcept;
+        void (*attach_endpoint)(TSInputTargetLinkStorage &owner);
+        void (*detach_endpoint)(TSInputTargetLinkStorage &owner) noexcept;
+        void (*producer_changed)(TSInputTargetLinkStorage &owner, DateTime time);
+        void (*expire_followers)(TSInputTargetLinkStorage &owner) noexcept;
         void (*clear_transition)(TSInputTargetLinkStorage &owner) noexcept;
         void (*subscribe_key_set_tracking)(TSInputTargetLinkStorage &owner);
         void (*subscribe_slot_observers)(TSInputTargetLinkStorage &owner);
         void (*publish_sampled_transition)(TSInputTargetLinkStorage &owner,
-                                           DateTime modified_time);
+                                           DateTime modified_time, bool sampled);
+        bool (*cancel_transition)(TSInputTargetLinkStorage &owner, DateTime time);
         void (*detach_target)(TSInputTargetLinkStorage &owner,
                               bool retain_structural_target,
                               DateTime modified_time);
         void (*unbind_noexcept)(TSInputTargetLinkStorage &owner) noexcept;
-        void (*source_invalidated)(TSInputTargetLinkStorage &owner) noexcept;
+        void (*source_invalidated)(TSInputTargetLinkStorage &owner, const TSDataTracking *source) noexcept;
 
         void (*add_slot_observer)(TSInputTargetLinkStorage &owner,
                                   SlotObserver *observer);

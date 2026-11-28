@@ -1,6 +1,7 @@
 #ifndef HGRAPH_TYPES_TIME_SERIES_TS_OUTPUT_FORWARDING_H
 #define HGRAPH_TYPES_TIME_SERIES_TS_OUTPUT_FORWARDING_H
 
+#include <hgraph/types/time_series/ts_input/target_link.h>
 #include <hgraph/types/time_series/ts_output/base_view.h>
 
 #include <stdexcept>
@@ -8,12 +9,11 @@
 namespace hgraph
 {
     /**
-     * Resolve an output through every currently bound forwarding endpoint.
+     * Resolve the producer shown by a forwarding endpoint.
      *
-     * An unbound forwarding endpoint is returned as the terminal result so
-     * callers can distinguish "no source yet" from an ordinary invalid output.
-     * Keeping this walk here gives nested-graph wiring, reference adaptation,
-     * and operators one cycle-safe definition of forwarding resolution.
+     * Keyed endpoints return their recorded producer, which can be empty.
+     * For other types, the walk ends at the producer or the first unbound
+     * forwarding endpoint.
      */
     [[nodiscard]] inline TSOutputView resolve_forwarding_source(TSOutputView source)
     {
@@ -30,6 +30,11 @@ namespace hgraph
         TSOutputHandle hare = source.handle();
         while (source.bound() && source.forwarding())
         {
+            const auto &data = source.data_view();
+            if (source.schema()->kind == TSTypeKind::TSS || source.schema()->kind == TSTypeKind::TSD)
+            {
+                return detail::keyed_link_producer(data).view(evaluation_time);
+            }
             TSOutputHandle target = source.forwarding_target();
             if (!target.bound()) { break; }
             source = target.view(evaluation_time);

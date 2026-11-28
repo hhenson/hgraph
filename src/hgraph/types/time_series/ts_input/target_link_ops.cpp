@@ -25,7 +25,6 @@ namespace hgraph::detail
         bool (*slot_live)(const TSDataView &target, std::size_t slot) = nullptr;
         bool (*slot_added)(const TSDataView &target, std::size_t slot) = nullptr;
         bool (*slot_removed)(const TSDataView &target, std::size_t slot) = nullptr;
-        bool (*slot_published)(const TSDataView &target, std::size_t slot) = nullptr;
         bool (*structural_delta_current)(const TSDataView &target,
                                          DateTime evaluation_time) = nullptr;
         ValueView (*key_at_slot)(const TSDataView &target, std::size_t slot) = nullptr;
@@ -169,28 +168,28 @@ namespace hgraph::detail
         [[nodiscard]] bool target_link_has_current_value(const void *context, const void *memory)
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
-            const auto  target = link != nullptr ? link->target_view() : TSDataView{};
+            const auto  target = link != nullptr ? link->producer_view() : TSDataView{};
             return target.has_current_value();
         }
 
         [[nodiscard]] bool target_link_all_valid(const void *context, const void *memory)
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
-            const auto  target = link != nullptr ? link->target_view() : TSDataView{};
+            const auto  target = link != nullptr ? link->producer_view() : TSDataView{};
             return target.all_valid();
         }
 
         [[nodiscard]] const void *target_link_value_memory(const void *context, const void *memory)
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
-            const auto  target = link != nullptr ? link->target_view() : TSDataView{};
+            const auto  target = link != nullptr ? link->producer_view() : TSDataView{};
             return target.value().data();
         }
 
         [[nodiscard]] ValueView target_link_value_view(const void *context, const void *memory)
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
-            const auto  target = link != nullptr ? link->target_view() : TSDataView{};
+            const auto  target = link != nullptr ? link->producer_view() : TSDataView{};
             // Unbound dispatches into the no-value sentinel and yields an
             // invalid ValueView — the branch answered the same (audit
             // sentinel conversion, 2026-08-16; same for every drop below).
@@ -200,7 +199,7 @@ namespace hgraph::detail
         [[nodiscard]] const void *target_link_delta_memory(const void *context, const void *memory)
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
-            const auto  target = link != nullptr ? link->target_view() : TSDataView{};
+            const auto  target = link != nullptr ? link->producer_view() : TSDataView{};
             const auto  evaluation_time = link != nullptr ? link->tracking.last_modified_time : MIN_DT;
             return target.delta_value(evaluation_time).data();
         }
@@ -209,7 +208,7 @@ namespace hgraph::detail
                                                                DateTime now, bool snapshot)
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
-            auto target = link ? link->target_view() : TSDataView{};
+            auto target = link ? link->producer_view() : TSDataView{};
             if (!target.has_current_value()) { return {}; }
             const auto &ops = static_cast<const TSWDataOps &>(target.ops());
             const bool sampled = link->tracking.last_modified_time == now && target.last_modified_time() < now;
@@ -228,13 +227,13 @@ namespace hgraph::detail
                                                         DateTime evaluation_time)
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
-            const auto  target = link != nullptr ? link->target_view() : TSDataView{};
+            const auto  target = link != nullptr ? link->producer_view() : TSDataView{};
             return target.delta_value(evaluation_time);
         }
 
         [[nodiscard]] ValueView target_link_atomic_delta_view(const void *context, const void *memory, DateTime evaluation_time) {
             const auto *link   = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
-            const auto  target = link != nullptr ? link->target_view() : TSDataView{};
+            const auto  target = link != nullptr ? link->producer_view() : TSDataView{};
             // A sampled scalar designation participates in an enclosing
             // structural delta even when its producer's last tick is older.
             // Read the link clock; sampling never advances the producer.
@@ -254,7 +253,13 @@ namespace hgraph::detail
         [[nodiscard]] TSDataView target_link_target_view(const void *context, const void *memory)
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
-            return link != nullptr ? link->target_view() : TSDataView{};
+            return link != nullptr ? link->producer_view() : TSDataView{};
+        }
+
+        [[nodiscard]] TSDataView target_link_key_set_producer(const void *context, const void *memory)
+        {
+            const auto producer = target_link_target_view(context, memory);
+            return producer.valid() ? producer.as_dict().key_set().base() : TSDataView{};
         }
 
         [[nodiscard]] const TSInputTargetLinkStorage *target_link_for(const void *context,
@@ -292,7 +297,7 @@ namespace hgraph::detail
             return state.slot_access->key_at_slot(target, slot);
         }
 
-        [[nodiscard]] bool target_link_previous_slot_was_published(const void *context,
+        [[nodiscard]] bool target_link_previous_slot_was_member(const void *context,
                                                                     const void *memory,
                                                                     std::size_t slot)
         {
@@ -305,30 +310,15 @@ namespace hgraph::detail
                 return false;
             }
 
-            // Two slots look published to ``slot_published`` but owe the
-            // consumer nothing, and they are mirror images.
-            //
-            // Added during the transition cycle: never published, so it cannot
-            // be removed. Use the key-set delta window rather than the root
-            // tick: a child value may tick without changing dictionary shape.
-            const bool structural_delta_current = state->slot_access->structural_delta_current(
-                previous, link->structural_transition_time());
-            const bool added_in_transition =
-                structural_delta_current &&
-                state->slot_access->slot_added(previous, slot);
-            // Removed BEFORE the transition cycle: already reported, so it
-            // must not be removed twice. ``slot_published`` answers true for a
-            // stale tombstone, and the removed set is per-cycle, so a slot
-            // that reads removed while the previous target's structural delta
-            // is current was retired in that cycle and is still owed.
-            const bool removed_before_transition =
-                !structural_delta_current &&
-                state->slot_access->slot_removed(previous, slot);
-            return state->slot_access->slot_published(previous, slot) && !added_in_transition &&
-                   !removed_before_transition;
+            const bool changed = state->slot_access->structural_delta_current(previous, link->structural_transition_time());
+            // A same-cycle addition never belonged to the prior membership.
+            // Only a removal from the current delta can still belong to it.
+            return (state->slot_access->slot_live(previous, slot) &&
+                    !(changed && state->slot_access->slot_added(previous, slot))) ||
+                   (changed && state->slot_access->slot_removed(previous, slot));
         }
 
-        [[nodiscard]] bool target_link_previous_contains_published(const void *context,
+        [[nodiscard]] bool target_link_previous_contains_member(const void *context,
                                                                    const void *memory,
                                                                    const ValueView &key)
         {
@@ -341,9 +331,9 @@ namespace hgraph::detail
             const auto live_slot = state->slot_access->find_slot(previous, key);
             if (live_slot < capacity)
             {
-                return target_link_previous_slot_was_published(context, memory, live_slot);
+                return target_link_previous_slot_was_member(context, memory, live_slot);
             }
-            if (!previous.modified(link->structural_transition_time())) { return false; }
+            if (!state->slot_access->structural_delta_current(previous, link->structural_transition_time())) { return false; }
 
             // find_slot deliberately exposes only live keys. A key removed
             // earlier in this transition can still have been published, and the
@@ -353,7 +343,7 @@ namespace hgraph::detail
             // source's capacity.
             const auto stored_slot = state->slot_access->find_stored_slot(previous, key);
             return stored_slot < capacity && state->slot_access->slot_removed(previous, stored_slot) &&
-                   target_link_previous_slot_was_published(context, memory, stored_slot);
+                   target_link_previous_slot_was_member(context, memory, stored_slot);
         }
 
         [[nodiscard]] std::size_t set_access_size(const TSDataView &target)
@@ -384,12 +374,6 @@ namespace hgraph::detail
         [[nodiscard]] bool set_access_slot_removed(const TSDataView &target, std::size_t slot)
         {
             return target.as_set().slot_removed(slot);
-        }
-
-        [[nodiscard]] bool set_access_slot_published(const TSDataView &target, std::size_t slot)
-        {
-            auto set = target.as_set();
-            return set.slot_live(slot) || set.slot_removed(slot);
         }
 
         [[nodiscard]] bool set_access_structural_delta_current(const TSDataView &target,
@@ -440,17 +424,12 @@ namespace hgraph::detail
 
         [[nodiscard]] bool dict_access_slot_added(const TSDataView &target, std::size_t slot)
         {
-            return target.as_dict().slot_added(slot);
+            return target.as_dict().membership_slot_added(slot);
         }
 
         [[nodiscard]] bool dict_access_slot_removed(const TSDataView &target, std::size_t slot)
         {
-            return target.as_dict().slot_removed(slot);
-        }
-
-        [[nodiscard]] bool dict_access_slot_published(const TSDataView &target, std::size_t slot)
-        {
-            return target.as_dict().slot_published(slot);
+            return target.as_dict().membership_slot_removed(slot);
         }
 
         [[nodiscard]] bool dict_access_structural_delta_current(const TSDataView &target,
@@ -508,7 +487,6 @@ namespace hgraph::detail
             .slot_live = &set_access_slot_live,
             .slot_added = &set_access_slot_added,
             .slot_removed = &set_access_slot_removed,
-            .slot_published = &set_access_slot_published,
             .structural_delta_current = &set_access_structural_delta_current,
             .key_at_slot = &set_access_key_at_slot,
             .contains = &set_access_contains,
@@ -523,7 +501,6 @@ namespace hgraph::detail
             .slot_live = &dict_access_slot_live,
             .slot_added = &dict_access_slot_added,
             .slot_removed = &dict_access_slot_removed,
-            .slot_published = &dict_access_slot_published,
             .structural_delta_current = &dict_access_structural_delta_current,
             .key_at_slot = &dict_access_key_at_slot,
             .contains = &dict_access_contains,
@@ -613,7 +590,7 @@ namespace hgraph::detail
                 state->slot_access->slot_live(target, slot))
             {
                 const auto key = target_link_key_view(*state, target, slot);
-                return !target_link_previous_contains_published(context, memory, key);
+                return !target_link_previous_contains_member(context, memory, key);
             }
             return state->slot_access->slot_added(target, slot);
         }
@@ -665,7 +642,7 @@ namespace hgraph::detail
                                                              const void *memory,
                                                              std::size_t slot)
         {
-            if (!target_link_previous_slot_was_published(context, memory, slot)) { return false; }
+            if (!target_link_previous_slot_was_member(context, memory, slot)) { return false; }
 
             const auto *state = static_cast<const TSInputTargetLinkContext *>(context);
             const auto previous = target_link_previous_view(context, memory);
@@ -905,16 +882,6 @@ namespace hgraph::detail
                        ? target_link_set_slot_added(context, memory, slot)
                        : target.as_dict().membership_slot_added(slot);
         }
-        [[nodiscard]] bool target_link_dict_membership_removed(const void *context, const void *memory, std::size_t slot)
-        {
-            const auto *link = target_link_for(context, memory);
-            const auto target = target_link_target_view(context, memory);
-            // Removal ordinals belong to the retained previous target during a
-            // transition, exactly as they do in removed_items()/removed_values().
-            return link != nullptr && link->structural_transition_active()
-                       ? target_link_previous_slot_removed(context, memory, slot)
-                       : target.as_dict().membership_slot_removed(slot);
-        }
         [[nodiscard]] std::size_t target_link_dict_next_membership_added(const void *context, const void *memory, std::size_t previous)
         {
             const auto *link = target_link_for(context, memory);
@@ -923,15 +890,6 @@ namespace hgraph::detail
                        ? target_link_set_next_delta_slot<true>(context, memory, previous)
                        : target.as_dict().next_membership_added_slot(previous);
         }
-        [[nodiscard]] std::size_t target_link_dict_next_membership_removed(const void *context, const void *memory, std::size_t previous)
-        {
-            const auto *link = target_link_for(context, memory);
-            const auto target = target_link_target_view(context, memory);
-            return link != nullptr && link->structural_transition_active()
-                       ? target_link_set_next_delta_slot<false>(context, memory, previous)
-                       : target.as_dict().next_membership_removed_slot(previous);
-        }
-
         [[nodiscard]] const void *target_link_dict_child_at_slot(const void *context,
                                                                  const void *memory,
                                                                  std::size_t slot)
@@ -1046,6 +1004,29 @@ namespace hgraph::detail
             return target_link_dict_ts_range(context, memory, &target_link_set_slot_added);
         }
 
+        [[nodiscard]] bool target_link_previous_value_removed(const void *context, const void *memory,
+                                                               std::size_t slot)
+        {
+            const auto previous = target_link_previous_view(context, memory);
+            return previous.as_dict().slot_published(slot) && target_link_previous_slot_removed(context, memory, slot);
+        }
+
+        [[nodiscard]] Range<ValueView> target_link_dict_removed_keys_range(const void *context, const void *memory)
+        {
+            const auto previous = target_link_previous_view(context, memory);
+            if (!previous.valid())
+            {
+                const auto *link = target_link_for(context, memory);
+                const auto producer = target_link_target_view(context, memory);
+                return link->structural_transition_active() ? target_link_empty_value_range()
+                                                            : producer.as_dict().removed_keys();
+            }
+            return Range<ValueView>{.context = context, .memory = memory,
+                                    .limit = previous.as_dict().slot_capacity(),
+                                    .predicate = &target_link_previous_value_removed,
+                                    .projector = &target_link_previous_key_projector};
+        }
+
         [[nodiscard]] Range<TSDataView> target_link_dict_removed_values_range(const void *context, const void *memory)
         {
             const auto previous = target_link_previous_view(context, memory);
@@ -1054,10 +1035,12 @@ namespace hgraph::detail
             {
                 return Range<TSDataView>{.context = context, .memory = memory,
                                          .limit = state->slot_access->slot_capacity(previous),
-                                         .predicate = &target_link_previous_slot_removed,
+                                         .predicate = &target_link_previous_value_removed,
                                          .projector = &target_link_previous_dict_ts_projector};
             }
-            return target_link_dict_ts_range(context, memory, &target_link_set_slot_removed);
+            const auto producer = target_link_target_view(context, memory);
+            return target_link_for(context, memory)->structural_transition_active() ? target_link_empty_ts_data_range()
+                                                                                   : producer.as_dict().removed_values();
         }
 
         [[nodiscard]] KeyValueRange<ValueView, TSDataView> target_link_dict_items_range(const void *context,
@@ -1094,10 +1077,12 @@ namespace hgraph::detail
                 return KeyValueRange<ValueView, TSDataView>{
                     .context = context, .memory = memory,
                     .limit = state->slot_access->slot_capacity(previous),
-                    .predicate = &target_link_previous_slot_removed,
+                    .predicate = &target_link_previous_value_removed,
                     .projector = &target_link_previous_dict_kv_projector};
             }
-            return target_link_dict_kv_range(context, memory, &target_link_set_slot_removed);
+            const auto producer = target_link_target_view(context, memory);
+            return target_link_for(context, memory)->structural_transition_active() ? target_link_empty_ts_data_kv_range()
+                                                                                   : producer.as_dict().removed_items();
         }
 
         [[nodiscard]] std::size_t target_link_indexed_size(const void *context, const void *memory) noexcept
@@ -1279,7 +1264,7 @@ namespace hgraph::detail
         TSOutputView writable_window_target(const void *context, void *memory, DateTime time)
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
-            if (link == nullptr || !link->target_output().bound())
+            if (link == nullptr || !link->producer_output().bound())
                 throw std::logic_error("TSInput target-link window write requires a bound target output");
             return link->target_output().view(time);
         }
@@ -1389,7 +1374,7 @@ namespace hgraph::detail
             {
                 throw std::logic_error("TSInput target-link delta write-through requires a bound target output");
             }
-            return link->target_output().view(out.evaluation_time());
+            return link->producer_output().view(out.evaluation_time());
         }
 
         [[nodiscard]] bool target_link_delta_has_effect_op(const TSOutputView &out, const ValueView &delta)
@@ -1551,6 +1536,8 @@ namespace hgraph::detail
             context->ops = TSSDataOps{};
             static_cast<TSDataOps &>(context->ops) = target_link_base_ops(*context);
             static_cast<TSDataOps &>(context->ops).clear_collection_impl = &ts_data_detail::clear_tss_collection;
+            context->ops.delta_to_python_impl =
+                &python_ops_detail::forwarder<&PythonOps::TSData::target_link_set_delta_to_python>::call;
             configure_target_link_set_ops(context->ops, &target_link_set_insert_key, &target_link_set_remove_key);
             context->slot_access = &target_link_set_access;
             context->active_layout = &context->layout;
@@ -1585,15 +1572,14 @@ namespace hgraph::detail
             context->dict_ops.slot_modified_impl = &target_link_dict_slot_modified;
             context->dict_ops.next_modified_slot_impl = &target_link_dict_next_modified_slot;
             context->dict_ops.membership_slot_added_impl = &target_link_dict_membership_added;
-            context->dict_ops.membership_slot_removed_impl = &target_link_dict_membership_removed;
             context->dict_ops.next_membership_added_slot_impl = &target_link_dict_next_membership_added;
-            context->dict_ops.next_membership_removed_slot_impl = &target_link_dict_next_membership_removed;
             context->dict_ops.make_ts_values_range_impl = &target_link_dict_values_range;
             context->dict_ops.make_valid_keys_range_impl = &target_link_dict_valid_keys_range;
             context->dict_ops.make_valid_ts_values_range_impl = &target_link_dict_valid_values_range;
             context->dict_ops.make_modified_keys_range_impl = &target_link_dict_modified_keys_range;
             context->dict_ops.make_modified_ts_values_range_impl = &target_link_dict_modified_values_range;
             context->dict_ops.make_added_ts_values_range_impl = &target_link_dict_added_values_range;
+            context->dict_ops.make_removed_values_range_impl = &target_link_dict_removed_keys_range;
             context->dict_ops.make_removed_ts_values_range_impl = &target_link_dict_removed_values_range;
             context->dict_ops.make_ts_kv_range_impl = &target_link_dict_items_range;
             context->dict_ops.make_valid_ts_kv_range_impl = &target_link_dict_valid_items_range;
@@ -1621,6 +1607,25 @@ namespace hgraph::detail
             key_set_base_ops.tracking_impl = &target_link_key_set_tracking;
             key_set_base_ops.mutable_tracking_impl = &target_link_mutable_key_set_tracking;
             key_set_base_ops.clear_collection_impl = &ts_data_detail::clear_tss_collection;
+            key_set_base_ops.has_current_value_impl = [](const void *c, const void *m) {
+                return target_link_key_set_producer(c, m).has_current_value();
+            };
+            key_set_base_ops.all_valid_impl = key_set_base_ops.has_current_value_impl;
+            key_set_base_ops.value_view_impl = [](const void *c, const void *m) {
+                return target_link_key_set_producer(c, m).value();
+            };
+            key_set_base_ops.delta_view_impl = [](const void *c, const void *m, DateTime time) {
+                return target_link_key_set_producer(c, m).delta_value(time);
+            };
+            key_set_base_ops.value_memory_impl = [](const void *c, const void *m) {
+                return target_link_key_set_producer(c, m).value().data();
+            };
+            key_set_base_ops.to_python_impl =
+                &python_ops_detail::forwarder<&PythonOps::TSData::target_link_key_set_to_python>::call;
+            key_set_base_ops.value_as_delta_to_python_impl =
+                &python_ops_detail::forwarder<&PythonOps::TSData::target_link_key_set_value_as_delta_to_python>::call;
+            key_set_base_ops.delta_to_python_impl =
+                &python_ops_detail::forwarder<&PythonOps::TSData::target_link_set_delta_to_python>::call;
             static_cast<TSDataOps &>(context->key_set_ops) = key_set_base_ops;
             configure_target_link_set_ops(context->key_set_ops, &target_link_dict_insert_key,
                                           &target_link_dict_remove_key);
@@ -1852,7 +1857,7 @@ namespace hgraph::ts_input_seams
         const auto *link = detail::target_link_for(context, memory);
         return link != nullptr && link->tracking.last_modified_time == time &&
                (link->sampled_structural_transition() ||
-                link->target_view().last_modified_time() < time);
+                link->producer_view().last_modified_time() < time);
     }
 
     bool target_link_transition(const void *context, const void *memory, DateTime time)
@@ -1863,6 +1868,23 @@ namespace hgraph::ts_input_seams
     }
 
     Range<ValueView> target_link_removed_keys(const void *context, const void *memory)
+    {
+        return detail::target_link_dict_removed_keys_range(context, memory);
+    }
+
+    TSDataView target_link_set_target_view(const void *context, const void *memory)
+    {
+        const auto *binding = static_cast<const detail::TSInputTargetLinkContext *>(context);
+        return binding->schema->kind == TSTypeKind::TSD ? detail::target_link_key_set_producer(context, memory)
+                                                       : detail::target_link_target_view(context, memory);
+    }
+
+    Range<ValueView> target_link_added_set_keys(const void *context, const void *memory)
+    {
+        return detail::target_link_set_added_range(context, memory);
+    }
+
+    Range<ValueView> target_link_removed_set_keys(const void *context, const void *memory)
     {
         return detail::target_link_set_removed_range(context, memory);
     }

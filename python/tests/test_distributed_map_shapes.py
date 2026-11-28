@@ -213,7 +213,9 @@ def test_fixed_and_dynamic_list_mapping(mapper, size, events, expected):
 
 @pytest.mark.parametrize("element_type,events", [
     (hg.TSS[str], [{"a": {"x", "y"}}, {"a": {hg.Removed("x"), "z"}}, {"a": hg.REMOVE}]),
-    (hg.TSD[str, hg.TS[int]], [{"a": {"x": 1, "y": 2}}, {"a": {"x": hg.REMOVE}}, {"a": hg.REMOVE}]),
+    (hg.TSD[str, hg.TS[int]], [
+        {"a": {"x": 1, "y": 2}}, {"a": {"x": hg.REMOVE, "y": 3, "z": 4}}, {"a": hg.REMOVE},
+    ]),
     (hg.TSL[hg.TS[int], hg.Size[2]], [{"a": {0: 1}}, {"a": {1: 2}}, {"a": hg.REMOVE}]),
     (hg.TSL[hg.TS[int], hg.Size[-1]], [{"a": {0: 1}}, {"a": {3: 2}}, {"a": hg.REMOVE}]),
     (hg.TSB[Row], [{"a": {"value": 1}}, {"a": {"label": "one"}}, {"a": hg.REMOVE}]),

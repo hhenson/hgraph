@@ -12,6 +12,16 @@ namespace hgraph
 {
     namespace detail
     {
+        namespace
+        {
+            [[nodiscard]] bool parent_slot_alive(const TSDataView &parent, std::size_t child, DateTime time) noexcept
+            {
+                const auto &ops = parent.ops();
+                return ops.ownership_ops == nullptr ||
+                       ops.ownership_ops->child_alive_at(ops.context, parent.data(), child, time);
+            }
+        }
+
         bool ts_data_alive_at(TSDataView endpoint, DateTime time) noexcept
         {
             if (!endpoint.valid()) { return false; }
@@ -20,7 +30,20 @@ namespace hgraph
             {
                 if (const auto *link = target_link_storage(endpoint); link != nullptr)
                 {
-                    endpoint = link->target_view();
+                    if (link->tracks_keyed_producer())
+                    {
+                        // An endpoint embedded in a retired slot still has its
+                        // own lifetime even when the producer is elsewhere.
+                        auto parent = endpoint.parent_link();
+                        while (parent.has_ts_data_parent())
+                        {
+                            const TSDataView owner{parent.parent_storage_type(), parent.parent_data()};
+                            if (!parent_slot_alive(owner, parent.child_id, time)) { return false; }
+                            parent = owner.parent_link();
+                        }
+                        endpoint = keyed_link_producer(endpoint).data_view();
+                    }
+                    else { endpoint = link->target_view(); }
                     // An unbound adapter remains a live endpoint: its input-side
                     // withdrawal delta is still observable while its value is invalid.
                     if (!endpoint.valid()) { return true; }
@@ -29,12 +52,7 @@ namespace hgraph
                 const auto parent = endpoint.parent_link();
                 if (!parent.has_ts_data_parent()) { return true; }
                 endpoint = TSDataView{parent.parent_storage_type(), parent.parent_data()};
-                const auto &ops = endpoint.ops();
-                if (ops.ownership_ops != nullptr &&
-                    !ops.ownership_ops->child_alive_at(ops.context, endpoint.data(), parent.child_id, time))
-                {
-                    return false;
-                }
+                if (!parent_slot_alive(endpoint, parent.child_id, time)) { return false; }
             }
             return false;
         }
@@ -91,6 +109,10 @@ namespace hgraph
             static_cast<void>(fallback_on_exception(false, [&] {
                 auto &tracking = root.mutable_tracking();
                 tracking.observers.invalidate(&tracking);
+                if (auto *link = mutable_target_link_storage(root); link != nullptr)
+                {
+                    link->expire_followers();
+                }
                 const auto &ops = root.ops();
                 const auto *ownership = ops.ownership_ops;
                 if (ownership == nullptr) { return true; }
