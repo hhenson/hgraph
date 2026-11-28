@@ -1,7 +1,8 @@
 Links Bound to Links, and the Ordered Reduce Tail
 =================================================
 
-:Status: Proposed, revision 3. Awaiting the owner's agreement (hgraph#1932).
+:Status: Accepted design, including the owner's rulings in hgraph_spec#183
+         and hgraph_spec#184.
 :Scope: A ``TargetLink`` whose target is another ``TargetLink``, and how
         ``ordered_reduce`` binds its output.
 :Rules: TS-2, TS-7, TS-14 to TS-17, TS-19, TS-23, TS-32, TS-35, GRF-25, GRF-27,
@@ -60,7 +61,8 @@ and tick subscription all use the producer. Every link that holds a producer
 is subscribed on that producer's own tracking record, whatever its depth. No
 operation of a link calls the same operation on another link. A read costs
 the same at any depth. ``resolve_forwarding_source`` returns the recorded
-producer in one step.
+producer in one step. When there is no producer, it returns the keyed
+endpoint, so a consumer can attach before the first producer arrives.
 
 **P3. A move re-points the followers.** A link keeps the links that follow
 it. When its producer changes in a running graph it tells each follower,
@@ -108,7 +110,8 @@ first move, and re-attaches its slot observers to that producer. A tick of
 that producer in the cycle is kept (TS-16). Re-offering the followed
 endpoint in a sampled bind produces no new sample or notification.
 Ordinary-to-REF edges sample their initial observation at graph start,
-when the input has no prior cycle (TS-17).
+when the input has no prior cycle (TS-17). The owner dropped the sampled-bind
+exception in hgraph_spec#184.
 
 What cannot be undone: the earlier move already notified. A parent of the
 link may have recorded a child change, and an active consumer of higher rank
@@ -288,19 +291,12 @@ below) the tail simply follows the zero endpoint and both rules go.
 Ruling: window and list withdrawal
 ----------------------------------
 
-R4-F3 wants an active consumer of a dynamic list or window zero woken when
-the ``REF`` is withdrawn. An older probe expects no public delta then.
-
-- Settled by the pinned rules: no public delta. The follower is not valid
-  after the unbind, so its value and delta are nil (Binding table, TS-2).
-  Only a keyed withdrawal is invalid and modified (TS-15). TS-32 and TS-7 say
-  the same for a list that finishes invalid and a window its producer
-  invalidates.
-- Not settled: the wake. TS-17 names a scalar follower; the Binding table
-  says other unbinds are silent; TS-7 wakes an active input when a producer
-  invalidates a window. The question is with the owner.
-- The two expectations do not conflict. A wake without a modification stamp
-  satisfies both.
+Withdrawing a window or dynamic-list ``REF`` wakes an active consumer once.
+The input reads invalid and unmodified and has no public delta, both for a
+direct reference and through ``ordered_reduce`` (owner ruling on hgraph#1932).
+When a fixed-list or bundle follower is itself withdrawn, it also reports no
+public delta, including removals from its keyed children (hgraph_spec#183).
+A keyed child bound through its own reference follows the keyed rules.
 
 Today a direct ``REF<TSW>`` or dynamic ``REF<TSL>``, with no reduce, reads
 invalid and *modified*, and the window publishes an empty replacement
@@ -378,7 +374,9 @@ Each step lands green on its own.
      (P11), ``ts_output/forwarding.h``, ``ts_output/base_view.cpp`` (P3
      and P6), and the slot-observer list (moving a follower in place);
    - readers: the input set and dictionary views, ``ts_input/base_view.cpp``,
-     ``ts_data/storage.cpp`` (``ts_data_alive_at`` reads the producer, P10);
+     ``ts_data/storage.cpp`` (``ts_data_alive_at`` reads the producer, P10),
+     and ``collection_input_semantics.h`` (projected keyed collections wait
+     for a producer);
    - lifetime: ``runtime/graph.cpp`` (``expire_retired_nested_graphs``, P7);
    - removals by key (P8): ``ts_delta.cpp``,
      ``record_replay_memory_impl.h``, ``ts_output/dict_view.cpp`` and
@@ -396,8 +394,7 @@ Each step lands green on its own.
    trace under TS-15 and TS-17 goes to the specification in a cross-linked
    pull request; that change is the owner's.
 2. **hgraph#1934: direct REF withdrawal of a window or dynamic list** reads
-   invalid and unmodified and publishes nothing. Waits for the owner's answer
-   on the wake.
+   invalid and unmodified and publishes no delta. An active consumer wakes once.
 3. **hgraph#1927.** Merge ``main`` after steps 1 and 2; do not rebase. Apply
    T1 to T6: the round 5 candidate, T3 at every hop, and no early tail bind.
    Add r4's matrix, the tail-moves-while-an-endpoint-moves case and R3-7 as

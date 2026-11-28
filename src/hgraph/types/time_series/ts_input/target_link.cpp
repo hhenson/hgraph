@@ -431,11 +431,15 @@ namespace hgraph::detail
 
         void suppress_unpublished_withdrawal(TSInputTargetLinkStorage &owner, DateTime time)
         {
-            if (owner.tracking.last_modified_time == time) { owner.tracking.last_modified_time = MIN_DT; }
-            auto &transition = structural_storage(owner).structural_transition;
-            if (transition && transition->key_set_tracking.last_modified_time == time)
+            const auto &transition = structural_storage(owner).structural_transition;
+            if (!transition) { return; }
+            if (owner.tracking.last_modified_time == time)
             {
-                transition->key_set_tracking.last_modified_time = MIN_DT;
+                owner.tracking.last_modified_time = transition->prior_link_time;
+            }
+            if (transition->key_set_tracking.last_modified_time == time)
+            {
+                transition->key_set_tracking.last_modified_time = transition->prior_key_set_time;
             }
         }
 

@@ -4,7 +4,7 @@ import _hgraph
 import pytest
 
 import hgraph as hg
-from hgraph._wiring._core import _unwrap
+from hgraph._wiring._core import WiringPort, _unwrap
 from hgraph._wiring._graph import _as_wired
 from hgraph.test import eval_node
 
@@ -43,6 +43,68 @@ def _choose_book(choice: hg.TS[int], a: hg.REF[Book], b: hg.REF[Book]) -> hg.REF
 @hg.graph
 def _book_mux(choice: hg.TS[int], a: Book, b: Book) -> Book:
     return _switch(choice, {0: _left, 1: _right}, Book, a, b)
+
+
+@pytest.mark.parametrize("associative,expected", [
+    (False, [{9: 90}, {1: 10, 2: 20, 9: hg.REMOVE}]),
+    (True, [{1: 10}, {2: 20}]),
+], ids=["ordered", "associative"])
+def test_dictionary_reduce_follows_an_initially_unbound_combiner(associative, expected):
+    @hg.graph
+    def combine(accumulator: Book, member: Book) -> Book:
+        return hg.switch_(hg.len_(member), {1: _left, 2: _right}, accumulator, member)
+
+    @hg.graph
+    def fold(members: hg.TSD[int, Book], zero: Book) -> Book:
+        return hg.reduce(combine, members, zero, is_associative=associative)
+
+    assert eval_node(fold, [{0: {1: 10}}, {0: {2: 20}}], [{9: 90}]) == expected
+
+
+def test_set_reduce_follows_an_initially_unbound_combiner():
+    @hg.graph
+    def take_accumulator(accumulator: Keys, member: Keys) -> Keys:
+        return accumulator
+
+    @hg.graph
+    def take_member(accumulator: Keys, member: Keys) -> Keys:
+        return member
+
+    @hg.graph
+    def combine(accumulator: Keys, member: Keys) -> Keys:
+        return hg.switch_(hg.len_(member), {1: take_accumulator, 2: take_member}, accumulator, member)
+
+    @hg.graph
+    def fold(members: hg.TSD[int, Keys], zero: Keys) -> Keys:
+        return hg.reduce(combine, members, zero, is_associative=False)
+
+    assert eval_node(fold, [{0: {1}}, {0: {2}}], [{9}]) == [
+        hg.set_delta(added={9}, tp=int),
+        hg.set_delta(added={1, 2}, removed={9}, tp=int),
+    ]
+
+
+def test_ordered_reduce_follows_a_late_keyed_zero():
+    @hg.graph
+    def fold(members: hg.TSD[int, Book], select: hg.TS[int], left: Book, right: Book) -> Book:
+        selected = _book_mux(select, left, right)
+        # Declare the concrete view of the forwarding zero without inserting a copy node.
+        zero = WiringPort(_unwrap(selected).dereferenced)
+        return hg.reduce(_left, members, zero, is_associative=False)
+
+    assert eval_node(fold, [{}], [None, 0, 1], [{1: 10}], [{2: 20}]) == [None, {1: 10}, {2: 20, 1: hg.REMOVE}]
+
+
+def test_nested_output_follows_an_initially_unbound_keyed_endpoint():
+    @hg.graph
+    def pass_through(book: Book) -> Book:
+        return book
+
+    @hg.graph
+    def run(select: hg.TS[int], left: Book, right: Book) -> Book:
+        return hg.try_except(pass_through, _book_mux(select, left, right)).out
+
+    assert eval_node(run, [None, 0, None], [{1: 10}, None, {1: 15}], [None]) == [None, {1: 10}, {1: 15}]
 
 
 def test_three_switches_sample_overlap_and_report_the_prior_items():

@@ -3218,11 +3218,12 @@ TEST_CASE("Runtime contract dictionary rebind samples children and retains withd
     const auto current_target = b.view(rebind);
     const auto y_slot = current_target.as_dict().find_slot(y.view());
     auto rebound_data = dict.data_view();
-    for (const auto &key : rebound_data.key_set().removed_values())
+    const auto rebound_keys = rebound_data.key_set();
+    for (const auto key : rebound_keys.removed_values())
     {
         CHECK(key.checked_as<int>() == 1);
     }
-    CHECK(range_size(rebound_data.key_set().removed_values()) == 1);
+    CHECK(range_size(rebound_keys.removed_values()) == 1);
     CHECK(rebound_data.next_membership_added_slot() == y_slot);
     for (const auto &[key, child] : dict.removed_items())
     {
@@ -3248,8 +3249,9 @@ TEST_CASE("Runtime contract dictionary rebind samples children and retains withd
     REQUIRE(range_size(dict.removed_keys()) == 2);
     REQUIRE(range_size(dict.removed_items()) == 2);
     auto withdrawn_data = dict.data_view();
+    const auto withdrawn_key_set = withdrawn_data.key_set();
     std::set<int> withdrawn_keys;
-    for (const auto &key : withdrawn_data.key_set().removed_values()) { withdrawn_keys.insert(key.checked_as<int>()); }
+    for (const auto key : withdrawn_key_set.removed_values()) { withdrawn_keys.insert(key.checked_as<int>()); }
     CHECK(withdrawn_keys == std::set<int>{2, 3});
     CHECK(withdrawn_data.next_membership_added_slot() == TS_DATA_NO_CHILD_ID);
     REQUIRE(capture_delta(view).view().as_bundle().at(0).as_set().size() == 2);

@@ -11,9 +11,9 @@ namespace hgraph
     /**
      * Resolve the producer shown by a forwarding endpoint.
      *
-     * Keyed endpoints return their recorded producer, which can be empty.
-     * For other types, the walk ends at the producer or the first unbound
-     * forwarding endpoint.
+     * Keyed endpoints return their recorded producer when available. With
+     * no producer, return the endpoint so callers can follow its next move.
+     * For other types, the walk ends at the producer or an unbound endpoint.
      */
     [[nodiscard]] inline TSOutputView resolve_forwarding_source(TSOutputView source)
     {
@@ -33,7 +33,9 @@ namespace hgraph
             const auto &data = source.data_view();
             if (source.schema()->kind == TSTypeKind::TSS || source.schema()->kind == TSTypeKind::TSD)
             {
-                return detail::keyed_link_producer(data).view(evaluation_time);
+                const auto producer = detail::keyed_link_producer(data);
+                if (producer.bound()) { return producer.view(evaluation_time); }
+                break;
             }
             TSOutputHandle target = source.forwarding_target();
             if (!target.bound()) { break; }

@@ -2,6 +2,7 @@
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
+#include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/types/generated.h>
 #include <hgraph/types/time_series/ts_data/checkpoint.h>
 #include <hgraph/types/time_series/ts_delta.h>
@@ -84,7 +85,7 @@ namespace
         }
     };
 
-    template <typename T> struct ForwardingMux
+    template <typename T, Int Left = 0, Int Right = 1> struct ForwardingMux
     {
         struct LeftBranch
         {
@@ -96,8 +97,8 @@ namespace
         };
         static Port<T> compose(Wiring &w, Port<N> sel, Port<T> l, Port<T> r) {
             std::vector<SwitchBranchGraph> cases{
-                {Value{Int{0}}, compile_subgraph<LeftBranch>(w)},
-                {Value{Int{1}}, compile_subgraph<RightBranch>(w)},
+                {Value{Left}, compile_subgraph<LeftBranch>(w)},
+                {Value{Right}, compile_subgraph<RightBranch>(w)},
             };
             const std::array inputs{l.erased(), r.erased()};
             return {w, compiled::switch_(w, sel.erased(), inputs, std::move(cases))};
@@ -440,6 +441,93 @@ namespace
         return found;
     }
 
+    template <typename T>
+    struct KeyedSwitchCombiner
+    {
+        static Port<T> compose(Wiring &w, Port<T> accumulator, Port<T> member)
+        {
+            const auto size = wire<stdlib::len_>(w, member).template as<N>();
+            return ForwardingMux<T, 1, 2>::compose(w, size, accumulator, member);
+        }
+    };
+
+    template <typename T, compiled::ReduceOrder Order>
+    struct ReduceWithKeyedSwitch
+    {
+        static Port<T> compose(Wiring &w, Port<TSD<Int, T>> members, Port<T> zero)
+        {
+            return {w, compiled::reduce_(w, members.erased(), compile_subgraph<KeyedSwitchCombiner<T>>(w),
+                                         zero.erased(), Order)};
+        }
+    };
+
+    struct OrderedReduceWithLateKeyedZero
+    {
+        static Port<Book> compose(Wiring &w, Port<TSD<Int, Book>> members, Port<N> choice,
+                                  Port<Book> left, Port<Book> right)
+        {
+            const auto zero = ForwardingMux<Book>::compose(w, choice, left, right);
+            return {w, compiled::reduce_(w, members.erased(), compile_subgraph<ForwardingMux<Book>::LeftBranch>(w),
+                                         zero.erased(), compiled::ReduceOrder::Ordered)};
+        }
+    };
+
+    TEST_CASE("Keyed reduce output follows an initially unbound switch", "[keyed-forwarding]")
+    {
+        stdlib::register_standard_operators();
+        const auto zero = values<Value>(dict_delta<Int, N>({{9, 90}}));
+        const auto member = dict_delta<Int, N>({{1, 10}});
+        const auto tick = dict_delta<Int, N>({{2, 20}});
+        const auto shelf = values<Value>(dict_delta<Int, Book>({{0, member}}), dict_delta<Int, Book>({{0, tick}}));
+        SECTION("Ordered dictionary combiner")
+        {
+            using Graph = ReduceWithKeyedSwitch<Book, compiled::ReduceOrder::Ordered>;
+            CHECK_OUTPUT(eval_node<Graph>(shelf, zero),
+                         values<Value>(dict_delta<Int, N>({{9, 90}}), dict_delta<Int, N>({{1, 10}, {2, 20}}, {9})));
+        }
+        SECTION("Ordered set combiner")
+        {
+            using Keys = TSS<Int>;
+            using Graph = ReduceWithKeyedSwitch<Keys, compiled::ReduceOrder::Ordered>;
+            const auto input = values<Value>(dict_delta<Int, Keys>({{0, set_delta<Int>({1}, {})}}),
+                                             dict_delta<Int, Keys>({{0, set_delta<Int>({2}, {})}}));
+            CHECK_OUTPUT(eval_node<Graph>(input, values<Value>(set_delta<Int>({9}, {}))),
+                         values<Value>(set_delta<Int>({9}, {}), set_delta<Int>({1, 2}, {9})));
+        }
+        SECTION("Late zero of an empty ordered reduction")
+        {
+            CHECK_OUTPUT(eval_node<OrderedReduceWithLateKeyedZero>(
+                             values<Value>(dict_delta<Int, Book>({})), values<Int>(none, 0, 1),
+                             values<Value>(member), values<Value>(tick)),
+                         values<Value>(none, member, dict_delta<Int, N>({{2, 20}}, {1})));
+        }
+        SECTION("Associative dictionary combiner with a zero")
+        {
+            using Graph = ReduceWithKeyedSwitch<Book, compiled::ReduceOrder::Associative>;
+            CHECK_OUTPUT(eval_node<Graph>(shelf, zero), values<Value>(member, tick));
+        }
+    }
+
+    TEST_CASE("Forwarding output tree attaches to a keyed endpoint before its first producer", "[keyed-forwarding]")
+    {
+        const auto *schema = book_schema();
+        const auto endpoint = TSEndpointSchema::peered(schema);
+        const auto next = MIN_ST + MIN_TD;
+        TSOutput producer{schema}, inner{endpoint}, outer{endpoint};
+        set_book(producer, MIN_ST, 1, 10);
+        CHECK(resolve_forwarding_source(inner.view(MIN_ST)).handle().same_as(inner.view(MIN_ST).handle()));
+        CHECK(bind_forwarding_output_tree_to_source(outer.view(MIN_ST), inner.view(MIN_ST), false,
+                                                   ForwardingSourceMode::ResolveCurrentTarget));
+        REQUIRE(outer.view(MIN_ST).forwarding_target().same_as(inner.view(MIN_ST).handle()));
+        REQUIRE_FALSE(outer.view(MIN_ST).valid());
+
+        inner.view(next).bind_forwarding_target(producer.view(next));
+        const auto after = outer.view(next);
+        CHECK(after.valid());
+        CHECK(set_keys(after.as_dict().keys()) == std::set<Int>{1});
+        CHECK(resolve_forwarding_source(inner.view(next)).handle().same_as(producer.view(next).handle()));
+    }
+
     struct ObserveInitialBookReference
     {
         static void eval(In<"book", REF<Book>> book, Out<TS<Bool>> out)
@@ -581,6 +669,20 @@ namespace
             inner.view(move).bind_forwarding_target(b.view(move));
             CHECK_FALSE(inner.view(move).valid());
             CHECK_FALSE(inner.view(move).modified());
+        }
+        SECTION("An unpublished round trip retains the preceding withdrawal clock")
+        {
+            TSOutput transient{schema}, unpublished{schema};
+            const auto next = move + MIN_TD;
+            set_book(a, MIN_ST, 1, 10);
+            inner.view(MIN_ST).bind_forwarding_target(a.view(MIN_ST));
+            inner.view(move).bind_forwarding_target_sampled(b.view(move));
+            REQUIRE(inner.view(move).last_modified_time() == move);
+            set_book(transient, next, 2, 20);
+            inner.view(next).bind_forwarding_target_sampled(transient.view(next));
+            inner.view(next).bind_forwarding_target_sampled(unpublished.view(next));
+            CHECK_FALSE(inner.view(next).modified());
+            CHECK(inner.view(next).last_modified_time() == move);
         }
         SECTION("Binding back to the prior producer cancels the round trip")
         {
