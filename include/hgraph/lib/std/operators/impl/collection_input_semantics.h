@@ -6,7 +6,7 @@
 namespace hgraph::stdlib::collection_input_semantics
 {
     /**
-     * True when a collection input has an endpoint to observe.
+     * True when a collection input has a producer to observe.
      *
      * Transparent REF adaptation represents an empty reference as either an
      * empty reference or an unbound forwarding endpoint. Those states are
@@ -23,7 +23,14 @@ namespace hgraph::stdlib::collection_input_semantics
 
         const auto source = resolve_forwarding_source(
             reference.target_output().view(input.base().evaluation_time()));
-        return source.bound() && !(source.forwarding() && !source.forwarding_bound());
+        if (!source.bound() || !source.forwarding()) { return source.bound(); }
+
+        const auto kind = source.schema()->kind;
+        if (kind == TSTypeKind::TSS || kind == TSTypeKind::TSD)
+        {
+            return detail::keyed_link_producer(source.data_view()).bound();
+        }
+        return source.forwarding_bound();
     }
 }  // namespace hgraph::stdlib::collection_input_semantics
 

@@ -96,6 +96,7 @@ namespace hgraph::detail
         [[nodiscard]] TSInputTargetActiveNode &ensure_active_root();
         void clear_active_observed() noexcept;
         void unsubscribe_active_tree() noexcept;
+        [[nodiscard]] const TSOutputHandle &producer() const noexcept;
         [[nodiscard]] TSOutputHandle tracking_source() const;
         void refresh_tracking_subscription();
         void unsubscribe_tracking();
@@ -146,7 +147,8 @@ namespace hgraph::detail
         void bind(const TSValueTypeMetaData &schema, const TSOutputView &output);
         void bind_current_value(const TSValueTypeMetaData &schema, const TSOutputView &output,
                                 DateTime modified_time);
-        void bind_sampled(const TSValueTypeMetaData &schema, const TSOutputView &output,
+        /** Returns false when a keyed sampled bind is redundant or cancels a move. */
+        bool bind_sampled(const TSValueTypeMetaData &schema, const TSOutputView &output,
                           DateTime modified_time);
         /** Quiet import of an owner-reconstructed alias into a fresh link. */
         void restore_binding(const TSValueTypeMetaData &schema, const TSOutputView &output,
@@ -155,6 +157,7 @@ namespace hgraph::detail
         void unbind(DateTime evaluation_time = MIN_DT);
         void unbind_structural(DateTime modified_time);
         void unbind_noexcept() noexcept;
+        void expire_followers() noexcept;
         void source_invalidated(const TSDataTracking *source) noexcept;
         void record_target_modified(DateTime modified_time);
         [[nodiscard]] const TSDataTracking &key_set_tracking() const;
@@ -180,6 +183,9 @@ namespace hgraph::detail
         void remove_slot_observer(SlotObserver *observer);
 
         [[nodiscard]] TSDataView target_view() const noexcept;
+        [[nodiscard]] const TSOutputHandle &producer_output() const noexcept;
+        [[nodiscard]] TSDataView producer_view() const noexcept;
+        [[nodiscard]] bool tracks_keyed_producer() const noexcept;
         [[nodiscard]] TSDataView previous_target_view() const noexcept;
         [[nodiscard]] const TSOutputHandle &target_output() const noexcept;
         /**
@@ -218,7 +224,7 @@ namespace hgraph::detail
                                  const TSInputTargetLinkStructuralOps &structural_ops) noexcept;
 
         void set_structural_ops(const TSInputTargetLinkStructuralOps &structural_ops) noexcept;
-        void bind_impl(const TSValueTypeMetaData &schema, const TSOutputView &output,
+        bool bind_impl(const TSValueTypeMetaData &schema, const TSOutputView &output,
                        DateTime modified_time, bool sampled, bool replay_source_time);
         void detach_target(bool retain_structural_target, DateTime modified_time);
 
@@ -229,6 +235,8 @@ namespace hgraph::detail
     };
 
     [[nodiscard]] const TSInputTargetLinkStorage *target_link_storage(const TSDataView &view) noexcept;
+    /** The producer of a keyed link, projected to the supplied endpoint schema. */
+    [[nodiscard]] HGRAPH_EXPORT TSOutputHandle keyed_link_producer(const TSDataView &view) noexcept;
     [[nodiscard]] TSInputTargetLinkStorage *mutable_target_link_storage(const TSDataView &view);
     /** Target-link trie/observer bytes reachable through an input-shaped TSData tree. */
     [[nodiscard]] DynamicStorageMetrics input_target_link_dynamic_storage_metrics(
@@ -245,7 +253,7 @@ namespace hgraph::detail
                                                                   TSInputTargetActiveNode *parent,
                                                                   std::size_t slot);
     void bind_target_link(const TSDataView &view, const TSOutputView &output);
-    void bind_target_link_sampled(const TSDataView &view, const TSOutputView &output,
+    bool bind_target_link_sampled(const TSDataView &view, const TSOutputView &output,
                                   DateTime modified_time);
     void unbind_target_link(const TSDataView &view, DateTime evaluation_time = MIN_DT);
     void make_target_link_active(const TSDataView &view,

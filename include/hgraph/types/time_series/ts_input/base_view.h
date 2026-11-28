@@ -344,7 +344,7 @@ namespace hgraph
             [[nodiscard]] TSDataView &checked_value_data(const char *what) const;
             [[nodiscard]] InputDataCursor target_child(TSDataView child, std::size_t index) const;
             void bind_target(const TSOutputView &output);
-            void bind_target_sampled(const TSOutputView &output, DateTime modified_time);
+            bool bind_target_sampled(const TSOutputView &output, DateTime modified_time);
             void unbind_target(DateTime evaluation_time);
             void make_active(TSInput *input, Notifiable *scheduling_notifier) const;
             void make_structural_active(TSInput *input, Notifiable *scheduling_notifier) const;

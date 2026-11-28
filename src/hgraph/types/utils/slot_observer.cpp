@@ -109,6 +109,27 @@ namespace hgraph
         compact_many(*entries);
     }
 
+    void SlotObserverList::replace(SlotObserver *observer, SlotObserver *replacement) noexcept
+    {
+        if (observer == nullptr || replacement == nullptr || observer == replacement) { return; }
+
+        if (auto *entry = single(); entry != nullptr)
+        {
+            assert(entry == observer && "replacing unregistered slot observer");
+            if (entry == observer) { set_single(replacement); }
+            return;
+        }
+
+        auto *entries = many();
+        const auto position = entries != nullptr ? entries->find(observer) : ObserverList::not_found;
+        assert(position != ObserverList::not_found && "replacing unregistered slot observer");
+        if (position == ObserverList::not_found) { return; }
+
+        const bool replaced = entries->replace(position, replacement);
+        assert(replaced && "replacement slot observer already registered");
+        static_cast<void>(replaced);
+    }
+
     bool SlotObserverList::empty() const noexcept
     {
         return !observers_;

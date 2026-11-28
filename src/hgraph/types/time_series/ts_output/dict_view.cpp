@@ -193,18 +193,7 @@ namespace hgraph
     Range<ValueView> TSDOutputView::removed_keys() const
     {
         if (!tsd_output_structure_modified(view_)) { return detail::empty_output_range<ValueView>(); }
-        const auto source = data_view().removed_items();
-        return Range<ValueView>{.context = this, .memory = nullptr, .limit = source.limit,
-            .predicate = [](const void *context, const void *, std::size_t slot) {
-                const auto range = static_cast<const TSDOutputView *>(context)->data_view().removed_items();
-                return range.predicate == nullptr || range.predicate(range.context, range.memory, slot);
-            }, .projector = [](const void *context, const void *, std::size_t slot) {
-                const auto range = static_cast<const TSDOutputView *>(context)->data_view().removed_items();
-                return range.projector(range.context, range.memory, slot).first;
-            }, .seek = [](const void *context, const void *, std::size_t first) {
-                const auto range = static_cast<const TSDOutputView *>(context)->data_view().removed_items();
-                return range.seek == nullptr ? first : range.seek(range.context, range.memory, first);
-            }};
+        return data_view().key_set().removed_values();
     }
 
     Range<TSOutputView> TSDOutputView::removed_values() const

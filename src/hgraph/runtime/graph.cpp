@@ -1093,6 +1093,8 @@ void expire_retired_nested_graphs(GraphPtr root_ptr) {
       for (const auto &[index, kind] : entry->retired_context->owned_outputs) {
         auto output = edge_source_root(graph_node_view(*entry->retired_context, entry->retired_memory, index),
                                        entry->retired_at, kind);
+        // Owned-tree invalidation also releases followers of forwarding
+        // endpoints whose producers survived the stopped graph.
         detail::invalidate_owned_ts_data_tree(output.data_view().borrowed_ref());
       }
     }

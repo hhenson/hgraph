@@ -3,6 +3,7 @@
 #include <hgraph/types/value/binary_session.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_input/target_link.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/binary_codec.h>
 #include <hgraph/types/value/value_builder.h>
@@ -115,8 +116,16 @@ namespace hgraph::distributed
                    BinaryWriter &writer) const
         {
             auto &bytes = writer.out;
-            full = full || in.delta_is_sampled_rebind() ||
-                   (full_when_unbound && !in.data_view().valid());
+            const auto &data = in.data_view();
+            full = full || in.delta_is_sampled_rebind() || (full_when_unbound && !data.valid());
+            if (!full)
+            {
+                // A projected child can be forwarding even when its input's
+                // binding did not move. Sample its whole new producer.
+                const auto *link = detail::target_link_storage(data);
+                full = link != nullptr && link->structural_transition_active() &&
+                       link->structural_transition_time() == in.evaluation_time();
+            }
             const bool window = schema->kind == TSTypeKind::TSW;
             if (window && !full) { full = in.as_window().data_view().replaced(in.evaluation_time()); }
             byte((in.valid() ? live_flag : 0) | (full ? full_flag : 0) |
@@ -268,13 +277,9 @@ namespace hgraph::distributed
             else
             {
                 const auto data = in.data_view().as_set();
-                for (auto slot = data.next_removed_slot(); slot != TS_DATA_NO_CHILD_ID;
-                     slot = data.next_removed_slot(slot))
-                { byte(1, bytes); plan.key.write(data.at_slot(slot), writer); }
+                for (const auto key : data.removed_values()) { byte(1, bytes); plan.key.write(key, writer); }
                 byte(0, bytes);
-                for (auto slot = data.next_added_slot(); slot != TS_DATA_NO_CHILD_ID;
-                     slot = data.next_added_slot(slot))
-                { byte(1, bytes); plan.key.write(data.at_slot(slot), writer); }
+                for (const auto key : data.added_values()) { byte(1, bytes); plan.key.write(key, writer); }
             }
             byte(0, bytes);
         }
@@ -327,10 +332,8 @@ namespace hgraph::distributed
                 const auto keys = data.key_set();
                 const bool structure_changed = keys.modified(in.evaluation_time());
                 if (structure_changed)
-                    for (auto slot = data.next_membership_removed_slot(); slot != TS_DATA_NO_CHILD_ID;
-                         slot = data.next_membership_removed_slot(slot))
+                    for (const auto &key : keys.removed_values())
                     {
-                        const auto key = keys.at_slot(slot);
                         if (groups == 0 || selected(plan.key.portable_hash(key), group, groups))
                         { byte(1, bytes); plan.key.write(key, writer); }
                     }
@@ -353,13 +356,12 @@ namespace hgraph::distributed
                 // ordinary value delta reports that as a removed publication,
                 // while the boundary must retain the key and invalidate only
                 // the child.
-                for (auto slot = data.next_removed_slot(); slot != TS_DATA_NO_CHILD_ID;
-                     slot = data.next_removed_slot(slot))
-                    if (data.slot_live(slot) && (!structure_changed || !data.membership_slot_added(slot)))
-                    {
-                        const auto key = data.key_at_slot(slot);
+                for (const auto &key : data.removed_keys())
+                {
+                    const auto slot = data.find_slot(key);
+                    if (slot != TS_DATA_NO_CHILD_ID && (!structure_changed || !data.membership_slot_added(slot)))
                         write_item(key, dict.at(key), false);
-                    }
+                }
             }
             byte(0, bytes);
         }

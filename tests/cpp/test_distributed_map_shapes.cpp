@@ -1,5 +1,6 @@
 // Public native wiring parity for the distributed map call shapes.
 #include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/std/operators/impl/higher_order_impl.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/runtime/distributed_map_wiring.h>
@@ -13,6 +14,7 @@
 #include "distributed_worker_recipes.h"
 
 #include <algorithm>
+#include <array>
 #include <initializer_list>
 #include <memory>
 #include <optional>
@@ -152,6 +154,41 @@ namespace
         static Port<TSD<Str, S>> compose(Wiring &w, Port<TSD<Str, S>> values)
         { return distribute(w, fn<Identity<S>>(), {values.erased()}).template as<TSD<Str, S>>(); }
     };
+    template <typename S>
+    struct ForwardingDistributedMap
+    {
+        template <bool UseRight>
+        struct Branch
+        {
+            static Port<S> compose(Wiring &, Port<S> left, Port<S> right)
+            { return UseRight ? right : left; }
+        };
+
+        struct Select
+        {
+            static Port<S> compose(Wiring &w, Port<TS<Int>> selector, Port<S> left, Port<S> right)
+            {
+                std::vector<SwitchBranchGraph> cases{
+                    {Value{Int{0}}, compile_subgraph<Branch<false>>(w)},
+                    {Value{Int{1}}, compile_subgraph<Branch<true>>(w)},
+                };
+                const std::array inputs{left.erased(), right.erased()};
+                return {w, compiled::switch_(w, selector.erased(), inputs, std::move(cases))};
+            }
+        };
+
+        struct Copy
+        {
+            static Port<S> compose(Wiring &w, Port<S> item)
+            { return wire<stdlib::pass_through_node>(w, item).template as<S>(); }
+        };
+
+        static Port<TSD<Str, S>> compose(Wiring &w, Port<Dict> selectors, Port<S> left, Port<S> right)
+        {
+            const auto mapped = wire<stdlib::map_>(w, fn<Select>(), selectors, left, right);
+            return distribute(w, fn<Copy>(), {mapped.erased()}).template as<TSD<Str, S>>();
+        }
+    };
     std::vector<Int> sink_values;
     struct Sink
     {
@@ -258,8 +295,10 @@ TEST_CASE("dmap shapes: structured elements retain recursive deltas")
     SECTION("dictionary")
     {
         using S = TSD<Str, TS<Int>>;
-        const auto inputs = values<Value>(dict_delta<Str, S>({{"a", dict_delta<Str, TS<Int>>({{"x", 1}})}}),
-            dict_delta<Str, S>({{"a", dict_delta<Str, TS<Int>>({}, {"x"})}}), dict_delta<Str, S>({}, {"a"}));
+        const auto inputs = values<Value>(
+            dict_delta<Str, S>({{"a", dict_delta<Str, TS<Int>>({{"x", 1}, {"y", 2}})}}),
+            dict_delta<Str, S>({{"a", dict_delta<Str, TS<Int>>({{"y", 3}, {"z", 4}}, {"x"})}}),
+            dict_delta<Str, S>({}, {"a"}));
         CHECK_OUTPUT(eval_node<Structured<S>>(inputs), inputs);
     }
     SECTION("fixed list")
@@ -275,6 +314,50 @@ TEST_CASE("dmap shapes: structured elements retain recursive deltas")
         const auto inputs = values<Value>(dict_delta<Str, S>({{"a", tsb_delta<S>(Int{1}, std::nullopt)}}),
             dict_delta<Str, S>({{"a", tsb_delta<S>(std::nullopt, Str{"one"})}}), dict_delta<Str, S>({}, {"a"}));
         CHECK_OUTPUT(eval_node<Structured<S>>(inputs), inputs);
+    }
+}
+
+TEST_CASE("dmap shapes: forwarding elements reconcile a new producer")
+{
+    stdlib::register_standard_operators();
+    const auto select = values<Value>(dict_delta<Str, TS<Int>>({{"a", 0}}), dict_delta<Str, TS<Int>>({{"a", 1}}));
+    SECTION("dictionary retarget with overlapping keys")
+    {
+        const auto left = dict_delta<Str, TS<Int>>({{"x", 1}, {"y", 2}});
+        const auto right = dict_delta<Str, TS<Int>>({{"y", 20}, {"z", 30}});
+        const auto moved = dict_delta<Str, TS<Int>>({{"y", 20}, {"z", 30}}, {"x"});
+        CHECK_OUTPUT(eval_node<ForwardingDistributedMap<Dict>>(select, values<Value>(left), values<Value>(right)),
+                     values<Value>(dict_delta<Str, Dict>({{"a", left}}), dict_delta<Str, Dict>({{"a", moved}})));
+    }
+    SECTION("set retarget")
+    {
+        using Set = TSS<Str>;
+        const auto left = set_delta<Str>({"x", "y"}, {});
+        SECTION("smaller producer")
+        {
+            const auto right = set_delta<Str>({"z"}, {});
+            const auto moved = set_delta<Str>({"z"}, {"x", "y"});
+            CHECK_OUTPUT(eval_node<ForwardingDistributedMap<Set>>(select, values<Value>(left), values<Value>(right)),
+                         values<Value>(dict_delta<Str, Set>({{"a", left}}), dict_delta<Str, Set>({{"a", moved}})));
+        }
+        SECTION("overlapping producer")
+        {
+            const auto right = set_delta<Str>({"y", "z"}, {});
+            const auto moved = set_delta<Str>({"z"}, {"x"});
+            CHECK_OUTPUT(eval_node<ForwardingDistributedMap<Set>>(select, values<Value>(left), values<Value>(right)),
+                         values<Value>(dict_delta<Str, Set>({{"a", left}}), dict_delta<Str, Set>({{"a", moved}})));
+        }
+    }
+    SECTION("nested dictionary retarget while the overlapping child ticks")
+    {
+        using NestedDict = TSD<Str, Dict>;
+        const auto left = dict_delta<Str, Dict>({{"x", dict_delta<Str, TS<Int>>({{"p", 1}})}});
+        const auto right = dict_delta<Str, Dict>({{"x", dict_delta<Str, TS<Int>>({{"q", 2}})}});
+        const auto tick = dict_delta<Str, Dict>({{"x", dict_delta<Str, TS<Int>>({{"r", 3}})}});
+        const auto moved = dict_delta<Str, Dict>({{"x", dict_delta<Str, TS<Int>>({{"q", 2}, {"r", 3}}, {"p"})}});
+        CHECK_OUTPUT(eval_node<ForwardingDistributedMap<NestedDict>>(select, values<Value>(left), values<Value>(right, tick)),
+                     values<Value>(dict_delta<Str, NestedDict>({{"a", left}}),
+                                   dict_delta<Str, NestedDict>({{"a", moved}})));
     }
 }
 

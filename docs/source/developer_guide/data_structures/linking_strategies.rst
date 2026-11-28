@@ -29,6 +29,9 @@ storage is destroyed, or the target must outlive the link. Violating
 that ordering is a runtime lifecycle bug rather than a condition hidden
 by best-effort invalidation.
 
+A link bound to another link is a chain. The contract for keyed chains is
+in :doc:`forwarding_chains`.
+
 TargetLink
 ----------
 
@@ -57,9 +60,27 @@ The wiring-time schema selects one of two target-link storage plans. Scalar,
 fixed, window, reference, and signal terminals allocate only the common
 tracking and binding state plus a non-null no-op structural ops pointer.
 ``TSS`` and ``TSD`` terminals allocate the structural representation, which
-adds a compact ``SlotObserverList`` and a lazy sampled-transition record. The
-semantic target-link code dispatches through the selected passive ops table;
-it does not inspect a representation tag or schema kind on the runtime path.
+adds a producer handle, two compact observer lists, and a lazy transition
+record. The selected passive ops table exposes this representation to the
+target-link owner.
+
+The endpoint handle identifies the link's binding. The producer handle
+identifies the storage used for reads, tick subscriptions and active paths.
+When the endpoint is another keyed link, it registers its followers in the
+second observer list. A producer change propagates to those followers even
+while the producer is unpublished. A set link following a dictionary's key
+set subscribes to the producer's key-set projection.
+
+The first move of a cycle retains the prior producer and the stamps needed
+to undo a round trip. Removal ranges use that producer's slot space and
+project each slot to a key. Membership removals use the key-set surface.
+Removed items and values use the dictionary's prior published children.
+
+Stop detaches the stopped link from its producer. Its followers keep their
+own producer subscriptions through the stop cycle. At retirement expiry,
+the owned-tree invalidation detaches those remaining followers and expires
+saved references to the endpoint. Producer destruction invalidates each of
+its direct subscriptions, including any retained prior-producer handles.
 
 The structural observer list has a narrower purpose than the target-modified
 and scheduling observers below. It is populated only when another keyed-slot
