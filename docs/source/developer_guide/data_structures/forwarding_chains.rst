@@ -5,9 +5,8 @@ Links Bound to Links, and the Ordered Reduce Tail
          and hgraph_spec#184.
 :Scope: A ``TargetLink`` whose target is another ``TargetLink``, and how
         ``ordered_reduce`` binds its output.
-:Rules: TS-2, TS-7, TS-14 to TS-17, TS-19, TS-23, TS-32, TS-35, GRF-25, GRF-27,
-        REF-DICTIONARY-RETARGET and REF-WITHDRAWAL in ``hgraph_spec`` at
-        ``8f682cf4``.
+:Rules: TS-2, TS-7, TS-14 to TS-19, TS-23, TS-32, TS-35, GRF-25 and GRF-27
+        in ``hgraph_spec`` at ``6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf``.
 
 Revision 1 kept reads flowing through chains of links and tried to make the
 chain report the right delta. Review (r3, on hgraph#1933 at ``95504cfb``)
@@ -49,6 +48,7 @@ The model
 ``bound_output`` and ``forwarding_target`` report. The producer is the owned
 output at the end of the chain, or nothing. For a link bound straight to a
 producer the two are the same and nothing changes.
+See the specification's `forwarding endpoint definition`_.
 
 The producer has the follower's own kind. A dictionary link and its key-set
 view share one link storage, so a set link that follows a dictionary link's
@@ -63,6 +63,7 @@ operation of a link calls the same operation on another link. A read costs
 the same at any depth. ``resolve_forwarding_source`` returns the recorded
 producer in one step. When there is no producer, it returns the keyed
 endpoint, so a consumer can attach before the first producer arrives.
+See `TS-17`_ for which output a follower shows.
 
 **P3. A move re-points the followers.** A link keeps the links that follow
 it. When its producer changes in a running graph it tells each follower,
@@ -79,6 +80,7 @@ structure observations to the new producer, and it notifies the scheduling
 notifier of a locally active root, so a move between two idle published
 producers still wakes an active consumer. A follower re-pointed to nothing
 has withdrawn: it records removals and is never marked sampled.
+See `TS-17`_, `REF-DICTIONARY-RETARGET`_ and `REF-WITHDRAWAL`_.
 
 The follower list is walked safely against change during the walk: a
 follower's move can detach other followers (a reference alternative
@@ -90,6 +92,7 @@ first move of a cycle a link records the producer it was showing and its own
 modification stamp. Later moves in that cycle change only the current
 producer. The record names a producer, never a link, and needs no walk: the
 link already holds it.
+This implements the specification's `cycle-boundary comparison`_.
 
 **P5. The delta is defined on membership.**
 
@@ -99,19 +102,19 @@ link already holds it.
 
 ``prior`` is the recorded producer's membership before the cycle and
 ``current`` the membership of the producer now. A link that moved samples the
-children of ``current`` (TS-17). Every test for "was this link showing
+children of ``current`` (`TS-17`_). Every test for "was this link showing
 published state" is made on the recorded prior producer, not on whatever the
-link holds after the move.
+link holds after the move. See `TS-15`_ and `REF-CHAINED`_.
 
 **P6. Ending the cycle where it began is not a move.** If the current
 producer equals the recorded prior producer, the record is dropped. The link
 restores its own stamp and its key set's stamp to what they were before the
 first move, and re-attaches its slot observers to that producer. A tick of
-that producer in the cycle is kept (TS-16). Re-offering the followed
+that producer in the cycle is kept (`TS-16`_). Re-offering the followed
 endpoint in a sampled bind produces no new sample or notification.
 Ordinary-to-REF edges sample their initial observation at graph start,
-when the input has no prior cycle (TS-17). The owner dropped the sampled-bind
-exception in hgraph_spec#184.
+when the input has no prior cycle. `TS-14`_ and `TS-17`_ apply the
+same-output rule to sampled binds. See `REF-ROUND-TRIP`_.
 
 What cannot be undone: the earlier move already notified. A parent of the
 link may have recorded a child change, and an active consumer of higher rank
@@ -123,9 +126,9 @@ same kind of wake for a cancelled request. It is accepted here.
 **P7. A stop is silent; followers last to the end of the stop cycle.**
 Stopping a link detaches the link itself and sends nothing. Its followers
 stay in its follower list and keep the producer they show, with their own
-subscription to it, for the rest of that cycle (GRF-25). No owner has to
+subscription to it, for the rest of that cycle (`GRF-25`_). No owner has to
 move downstream links before stopping an endpoint, which it cannot do across
-a ``REF`` boundary or for a consumer of higher rank (GRF-27).
+a ``REF`` boundary or for a consumer of higher rank (`GRF-27`_).
 
 A follower holds two things that can each go away, and each has one owner of
 its lifetime:
@@ -139,7 +142,7 @@ its lifetime:
   the link's destructor, every remaining follower is detached silently: both
   its endpoint and its producer are reset. A saved ``REF`` to a forwarding
   link in a stopped branch therefore reads invalid from the next cycle, as a
-  saved ``REF`` to an owned output of that branch does (TS-23, REF-EXPIRES),
+  saved ``REF`` to an owned output of that branch does (`TS-23`_, `REF-EXPIRES`_),
   even when the producer behind it lives on.
 
 Two use-after-free shapes are required cases under ASan: a chain three links
@@ -147,7 +150,7 @@ deep whose producer is destroyed, and a link that is stopped and whose
 producer is destroyed afterwards.
 
 **P8. Removals are reported by key.** A removal surface is a range that
-carries its own slot space. There are two, and they differ (TS-19):
+carries its own slot space. `TS-19`_ distinguishes membership from child validity.
 
 - *membership removals*: keys that were members before the cycle and are not
   now, whether or not their child ever published. The key set and
@@ -166,8 +169,13 @@ child's key-set range and samples the whole subtree during a producer
 transition, including children of overlapping keys.
 
 **P9. Notification.** A keyed move stamps the link and its key set, notifies
-the link's observers and notifies the observers of single keys (TS-35),
+the link's observers and notifies the observers of single keys (`TS-35`_),
 withdrawal included.
+
+`TS-18`_ specifies the output observation separately. A ``SIGNAL`` offered
+a ``REF`` stays bound to its alternative output. On withdrawal it reads
+invalid and unmodified, and an active ``SIGNAL`` wakes once. Keyed removal
+deltas belong to followers.
 
 **P10. Cost.** A read is O(1) in depth. A move costs one step per link that
 shows the moved producer, which is the number of endpoints whose content
@@ -182,6 +190,24 @@ structural link storage, beside the slot-observer list. Scalar and other
 non-keyed links gain no bytes. The follower list is one tagged pointer for
 zero or one follower, which covers every linear chain, and its spill is
 counted in ``dynamic_storage_metrics``.
+
+.. _forwarding endpoint definition: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/time_series.md#L393-L424
+.. _cycle-boundary comparison: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/time_series.md#L426-L451
+.. _TS-14: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/time_series.md#L700-L707
+.. _TS-15: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/time_series.md#L708-L722
+.. _TS-16: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/time_series.md#L723-L730
+.. _TS-17: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/time_series.md#L731-L774
+.. _TS-18: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/time_series.md#L775-L787
+.. _TS-19: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/time_series.md#L788-L790
+.. _TS-23: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/time_series.md#L806-L814
+.. _TS-35: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/time_series.md#L883-L888
+.. _GRF-25: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/graph.md#L522-L527
+.. _GRF-27: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/graph.md#L528-L532
+.. _REF-DICTIONARY-RETARGET: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/cases_references.md#ref-dictionary-retarget--ts-14-and-ts-17
+.. _REF-EXPIRES: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/cases_references.md#ref-expires--ts-11-and-ts-23
+.. _REF-WITHDRAWAL: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/cases_references.md#ref-withdrawal--ts-8-ts-16-ts-17-and-ts-18
+.. _REF-CHAINED: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/cases_references.md#ref-chained--ts-15-ts-16-and-ts-17
+.. _REF-ROUND-TRIP: https://github.com/hhenson/hgraph_spec/blob/6f8adf3a3e274f3b6f96fb4183623519fd5d3fbf/runtime/cases_references.md#ref-round-trip--ts-14-ts-15-ts-16-and-ts-17
 
 Alternatives
 ------------
@@ -390,9 +416,8 @@ Each step lands green on its own.
    cases of P7; the doubling benchmark of P10; the existing suite.
    ``tests/cpp/test_ts_input.cpp`` asserts the two slot cursors on a rebound
    and a withdrawn input (lines 3222 to 3265 on ``main``) and is rewritten
-   against the ranges. Updates :doc:`linking_strategies`. A chained-endpoint
-   trace under TS-15 and TS-17 goes to the specification in a cross-linked
-   pull request; that change is the owner's.
+   against the ranges. Updates :doc:`linking_strategies` and pins the
+   specification containing `REF-CHAINED`_ and `REF-ROUND-TRIP`_.
 2. **hgraph#1934: direct REF withdrawal of a window or dynamic list** reads
    invalid and unmodified and publishes no delta. An active consumer wakes once.
 3. **hgraph#1927.** Merge ``main`` after steps 1 and 2; do not rebase. Apply
