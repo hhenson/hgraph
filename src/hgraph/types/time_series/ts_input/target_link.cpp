@@ -1402,15 +1402,15 @@ namespace hgraph::detail
         else if (had_value) { tracking.observers.notify(modified_time); }
     }
 
-    void TSInputTargetLinkStorage::bind_sampled(const TSValueTypeMetaData &schema,
-                                                const TSOutputView &output,
-                                                DateTime modified_time)
+    bool TSInputTargetLinkStorage::bind_sampled(const TSValueTypeMetaData &schema,
+                                               const TSOutputView &output,
+                                               DateTime modified_time)
     {
         if (modified_time == MIN_DT)
         {
             throw std::invalid_argument("Sampled TSInput target binding requires an evaluation time");
         }
-        bind_impl(schema, output, modified_time, true, false);
+        return bind_impl(schema, output, modified_time, true, false);
     }
 
     DateTime TSInputTargetLinkStorage::checkpoint_key_set_time() const
@@ -1456,11 +1456,11 @@ namespace hgraph::detail
         rollback.release();
     }
 
-    void TSInputTargetLinkStorage::bind_impl(const TSValueTypeMetaData &schema,
-                                             const TSOutputView &output,
-                                             DateTime modified_time,
-                                             bool sampled,
-                                             bool replay_source_time)
+    bool TSInputTargetLinkStorage::bind_impl(const TSValueTypeMetaData &schema,
+                                            const TSOutputView &output,
+                                            DateTime modified_time,
+                                            bool sampled,
+                                            bool replay_source_time)
     {
         if (!output_view_bound(output))
         {
@@ -1476,8 +1476,8 @@ namespace hgraph::detail
         }
 
         const bool structural = tracks_keyed_producer();
+        if (structural && sampled && state_.target.same_as(target)) { return false; }
         const auto previous_producer = producer_output();
-        const bool same_endpoint = state_.target.same_as(target);
         const bool previous_was_valid = !structural && sampled && state_.target.view(modified_time).valid();
         if (state_.target.bound() || (sampled && structural)) { detach_target(sampled && structural, modified_time); }
         else { structural_ops_->clear_transition(*this); }
@@ -1507,7 +1507,7 @@ namespace hgraph::detail
         structural_ops_->subscribe_key_set_tracking(*this);
         structural_ops_->subscribe_slot_observers(*this);
         resubscribe_active_target(schema);
-        const bool cancelled = sampled && !same_endpoint && structural_ops_->cancel_transition(*this, modified_time);
+        const bool cancelled = sampled && structural_ops_->cancel_transition(*this, modified_time);
         if (!previous_producer.same_as(producer)) { structural_ops_->producer_changed(*this, modified_time); }
         const bool current_valid = sampled && (structural ? producer.view(modified_time).valid() : output.valid());
         if (sampled && !cancelled && (current_valid || previous_was_valid ||
@@ -1519,6 +1519,7 @@ namespace hgraph::detail
         }
         else if (structural && sampled && !cancelled) { suppress_unpublished_withdrawal(*this, modified_time); }
         rollback.release();
+        return !cancelled;
     }
 
     void TSInputTargetLinkStorage::unbind(DateTime evaluation_time)
@@ -1918,8 +1919,8 @@ namespace hgraph::detail
         link->bind(*schema, output);
     }
 
-    void bind_target_link_sampled(const TSDataView &view, const TSOutputView &output,
-                                  DateTime modified_time)
+    bool bind_target_link_sampled(const TSDataView &view, const TSOutputView &output,
+                                 DateTime modified_time)
     {
         auto *link = mutable_target_link_storage(view);
         const auto *schema = target_link_schema(view);
@@ -1927,7 +1928,7 @@ namespace hgraph::detail
         {
             throw std::logic_error("Sampled TSInput target binding requires TargetLink storage");
         }
-        link->bind_sampled(*schema, output, modified_time);
+        return link->bind_sampled(*schema, output, modified_time);
     }
 
     void unbind_target_link(const TSDataView &view, DateTime evaluation_time)

@@ -440,6 +440,73 @@ namespace
         return found;
     }
 
+    struct ObserveInitialBookReference
+    {
+        static void eval(In<"book", REF<Book>> book, Out<TS<Bool>> out)
+        {
+            out.set(book.modified() && book.value().has_output());
+        }
+    };
+
+    struct InitialBookReferenceGraph
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<Book> book)
+        {
+            return wire<ObserveInitialBookReference>(w, book);
+        }
+    };
+
+    TEST_CASE("A keyed ordinary-to-REF edge samples its first graph observation", "[keyed-forwarding]")
+    {
+        stdlib::register_standard_operators();
+        // Replay never publishes a dictionary. Only graph startup can
+        // make the active REF input observe the ordinary output's designation.
+        CHECK_OUTPUT(eval_node<InitialBookReferenceGraph>(values<Value>(none)), values<Bool>(true));
+    }
+
+    TEST_CASE("Sampled rebind to the followed keyed endpoint is silent", "[keyed-forwarding]")
+    {
+        struct Counter final : Notifiable
+        {
+            void notify(DateTime) override { ++calls; }
+            int calls{0};
+        };
+
+        const auto *schema = book_schema();
+        const auto endpoint = TSEndpointSchema::peered(schema);
+        const auto next = MIN_ST + MIN_TD;
+        TSOutput book{schema}, other{schema}, forwarding{endpoint};
+        set_book(book, MIN_ST, 1, 10);
+        forwarding.view(MIN_ST).bind_forwarding_target(book.view(MIN_ST));
+        Counter notifier;
+        TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, endpoint)};
+        auto initial = input.view(&notifier, MIN_ST);
+        initial.bind_output(forwarding.view(MIN_ST));
+        initial.make_active();
+
+        bool ticked = false;
+        SECTION("The producer holds its value") {}
+        SECTION("A real producer tick keeps its own delta")
+        {
+            set_book(book, next, 2, 20);
+            ticked = true;
+        }
+        SECTION("Returning to the prior producer adds no notification")
+        {
+            set_book(other, MIN_ST, 3, 30);
+            input.view(&notifier, next).bind_output_sampled(other.view(next), next);
+        }
+        const auto calls_before_rebind = notifier.calls;
+        auto view = input.view(&notifier, next);
+        view.bind_output_sampled(forwarding.view(next), next);
+        CHECK(notifier.calls == calls_before_rebind);
+        CHECK(view.valid());
+        CHECK(view.modified() == ticked);
+        CHECK_FALSE(view.delta_is_sampled_rebind());
+        const auto dictionary = view.as_dict();
+        CHECK(set_keys(dictionary.modified_keys()) == (ticked ? std::set<Int>{2} : std::set<Int>{}));
+    }
+
     TEST_CASE("Restored follower adopts its endpoint when the endpoint restores later", "[keyed-forwarding]") {
         const auto *schema   = book_schema();
         const auto  endpoint = TSEndpointSchema::peered(schema);
@@ -615,8 +682,9 @@ namespace
         inner.view(MIN_ST).bind_forwarding_target(a.view(MIN_ST));
         outer.view(MIN_ST).bind_forwarding_target(inner.view(MIN_ST));
 
-        // Change the outer designation first, then move the endpoint it follows.
+        // Re-offer the followed endpoint before its first move.
         outer.view(move).bind_forwarding_target_sampled(inner.view(move));
+        CHECK_FALSE(outer.view(move).modified());
         inner.view(move).bind_forwarding_target_sampled(b.view(move));
         inner.view(move).bind_forwarding_target_sampled(c.view(move));
         const auto out = outer.view(move);

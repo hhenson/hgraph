@@ -147,7 +147,8 @@ namespace hgraph::detail
         void bind(const TSValueTypeMetaData &schema, const TSOutputView &output);
         void bind_current_value(const TSValueTypeMetaData &schema, const TSOutputView &output,
                                 DateTime modified_time);
-        void bind_sampled(const TSValueTypeMetaData &schema, const TSOutputView &output,
+        /** Returns false when a keyed sampled bind is redundant or cancels a move. */
+        bool bind_sampled(const TSValueTypeMetaData &schema, const TSOutputView &output,
                           DateTime modified_time);
         /** Quiet import of an owner-reconstructed alias into a fresh link. */
         void restore_binding(const TSValueTypeMetaData &schema, const TSOutputView &output,
@@ -223,7 +224,7 @@ namespace hgraph::detail
                                  const TSInputTargetLinkStructuralOps &structural_ops) noexcept;
 
         void set_structural_ops(const TSInputTargetLinkStructuralOps &structural_ops) noexcept;
-        void bind_impl(const TSValueTypeMetaData &schema, const TSOutputView &output,
+        bool bind_impl(const TSValueTypeMetaData &schema, const TSOutputView &output,
                        DateTime modified_time, bool sampled, bool replay_source_time);
         void detach_target(bool retain_structural_target, DateTime modified_time);
 
@@ -252,7 +253,7 @@ namespace hgraph::detail
                                                                   TSInputTargetActiveNode *parent,
                                                                   std::size_t slot);
     void bind_target_link(const TSDataView &view, const TSOutputView &output);
-    void bind_target_link_sampled(const TSDataView &view, const TSOutputView &output,
+    bool bind_target_link_sampled(const TSDataView &view, const TSOutputView &output,
                                   DateTime modified_time);
     void unbind_target_link(const TSDataView &view, DateTime evaluation_time = MIN_DT);
     void make_target_link_active(const TSDataView &view,

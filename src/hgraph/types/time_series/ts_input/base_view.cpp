@@ -251,15 +251,16 @@ namespace hgraph
         value_data = detail::target_link_resolve(raw_data, target_path_node());
     }
 
-    void TSInputView::InputDataCursor::bind_target_sampled(const TSOutputView &output,
-                                                            DateTime modified_time)
+    bool TSInputView::InputDataCursor::bind_target_sampled(const TSOutputView &output,
+                                                           DateTime modified_time)
     {
         if (!is_target_root())
         {
             throw std::logic_error("Sampled TSInput binding requires a target-link root");
         }
-        detail::bind_target_link_sampled(raw_data, output, modified_time);
+        const bool notify = detail::bind_target_link_sampled(raw_data, output, modified_time);
         value_data = detail::target_link_resolve(raw_data, target_path_node());
+        return notify;
     }
 
     void TSInputView::InputDataCursor::unbind_target(DateTime evaluation_time)
@@ -1131,8 +1132,8 @@ namespace hgraph
         const bool was_bound = bound();
         const bool was_active = active();
         const bool source_valid = output.valid();
-        data_.bind_target_sampled(output, modified_time);
-        if (was_active && scheduling_notifier_ != nullptr &&
+        const bool notify = data_.bind_target_sampled(output, modified_time);
+        if (notify && was_active && scheduling_notifier_ != nullptr &&
             (was_bound || source_valid || valid()))
         {
             scheduling_notifier_->notify(modified_time);

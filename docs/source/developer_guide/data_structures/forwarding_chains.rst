@@ -105,9 +105,10 @@ link holds after the move.
 producer equals the recorded prior producer, the record is dropped. The link
 restores its own stamp and its key set's stamp to what they were before the
 first move, and re-attaches its slot observers to that producer. A tick of
-that producer in the cycle is kept (TS-16). The exception is an owner
-sampling the endpoint the link already follows: that is a request and it
-samples.
+that producer in the cycle is kept (TS-16). Re-offering the followed
+endpoint in a sampled bind produces no new sample or notification.
+Ordinary-to-REF edges sample their initial observation at graph start,
+when the input has no prior cycle (TS-17).
 
 What cannot be undone: the earlier move already notified. A parent of the
 link may have recorded a child change, and an active consumer of higher rank
